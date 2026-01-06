@@ -1,5 +1,5 @@
 // connection-manager.js
-// Управление соединениями (линиями)
+// Управление соединениями (линиями) с поддержкой сегментов и их редактирования
 
 class ConnectionManager {
     constructor(canvasManager) {
@@ -8,19 +8,22 @@ class ConnectionManager {
         this.onConnectionCreated = null;
         this.onConnectionSelected = null;
         this.onConnectionDeleted = null;
+        this.activeDragConnection = null; // Для предотвращения одновременного перетаскивания
     }
 
     /**
-     * Создать соединение бетвее двумя пинами
+     * Создать соединение между двумя пинами
      */
     createConnection(pin1, pin2) {
         const meta1 = pin1.getAttr('cp-meta');
         const meta2 = pin2.getAttr('cp-meta');
 
-        const lineData = this.createSimpleLine(pin1, pin2);
+        // Создаём сегменты на основе сторон пинов
+        const segments = this.calculateSegments(pin1, pin2);
+        const points = this.segmentsToPoints(segments);
 
         const connection = new Konva.Line({
-            points: lineData.points,
+            points: points,
             stroke: '#000',
             strokeWidth: 2,
             listening: true,
@@ -31,11 +34,11 @@ class ConnectionManager {
             id: 'conn_' + Date.now(),
             fromPin: pin1,
             toPin: pin2,
-            fork1: lineData.fork1,
-            fork2: lineData.fork2,
-            segment: lineData.segment,
-            segments: [],
-            editHandles: []
+            segments: segments,
+            handles: [],
+            isDragging: false,
+            userModified: false,
+            lastModified: new Date().toISOString()
         });
 
         connection.on('click', (e) => {
@@ -43,12 +46,6 @@ class ConnectionManager {
             if (this.onConnectionSelected) {
                 this.onConnectionSelected(connection);
             }
-        });
-
-        // двойной клик — добавить сегмент
-        connection.on('dblclick', (e) => {
-            e.cancelBubble = true;
-            this.addSegmentToConnection(connection);
         });
 
         // Обновить статус пинов
@@ -74,84 +71,383 @@ class ConnectionManager {
     }
 
     /**
-     * Найти направление от стороны
+     * Определить тип маршрутизации (2 или 3 сегмента)
      */
-    getDirectionFromSide(side) {
-        switch (side) {
-            case 'top': return { x: 0, y: -1 };
-            case 'right': return { x: 1, y: 0 };
-            case 'bottom': return { x: 0, y: 1 };
-            case 'left': return { x: -1, y: 0 };
-            default: return { x: -1, y: 0 };
-        }
-    }
+    getRoutingCase(pin1, pin2) {
+        const side1 = pin1.getAttr('cp-meta').side;
+        const side2 = pin2.getAttr('cp-meta').side;
 
-    /**
-     * Создать умную вилку
-     */
-    createSmartFork(pinPos, side, targetPos) {
-        const direction = this.getDirectionFromSide(side);
-        const dist = Math.hypot(targetPos.x - pinPos.x, targetPos.y - pinPos.y);
-        const length = Math.max(30, dist / 2);
-        let endX = pinPos.x + direction.x * length;
-        let endY = pinPos.y + direction.y * length;
+        const sameSideHorizontal = 
+            (side1 === 'left' && side2 === 'right') ||
+            (side1 === 'right' && side2 === 'left');
+        
+        const sameSideVertical = 
+            (side1 === 'top' && side2 === 'bottom') ||
+            (side1 === 'bottom' && side2 === 'top');
 
-        if (dist < 50) {
-            endX = pinPos.x - direction.x * (50 - dist);
-            endY = pinPos.y - direction.y * (50 - dist);
-        }
-
-        return {
-            start: pinPos,
-            end: { x: endX, y: endY },
-            side: side
-        };
-    }
-
-    /**
-     * Создать ортогональный сегмент
-     */
-    createOrthogonalSegment(start, end, preferredFirst = 'horizontal') {
-        if (preferredFirst === 'horizontal') {
-            return { x: end.x, y: start.y };
+        if (sameSideHorizontal || sameSideVertical) {
+            return 'THREE_SEGMENTS';
         } else {
-            return { x: start.x, y: end.y };
+            return 'TWO_SEGMENTS';
         }
     }
 
     /**
-     * Создать простую линию: 2 вилки + 1 сегмент
+     * Вычислить сегменты маршрута
      */
-    createSimpleLine(pin1, pin2) {
+    calculateSegments(pin1, pin2) {
         const pos1 = pin1.position();
         const pos2 = pin2.position();
-        const meta1 = pin1.getAttr('cp-meta');
-        const meta2 = pin2.getAttr('cp-meta');
+        const side1 = pin1.getAttr('cp-meta').side;
+        const side2 = pin2.getAttr('cp-meta').side;
 
-        const fork1 = this.createSmartFork(pos1, meta1.side, pos2);
-        const fork2 = this.createSmartFork(pos2, meta2.side, pos1);
+        const routingCase = this.getRoutingCase(pin1, pin2);
+        const segments = [];
 
-        const preferredFirst = (meta1.side === 'top' || meta1.side === 'bottom') ? 'horizontal' : 'vertical';
-        const segment = this.createOrthogonalSegment(fork1.end, fork2.end, preferredFirst);
+        if (routingCase === 'TWO_SEGMENTS') {
+            // L-shape маршрутизация
+            const midX = this.isSideHorizontal(side1) ? pos2.x : pos1.x;
+            const midY = this.isSideHorizontal(side1) ? pos1.y : pos2.y;
 
-        const points = [
-            pos1.x, pos1.y,
-            fork1.end.x, fork1.end.y,
-            segment.x, segment.y,
-            fork2.end.x, fork2.end.y,
-            pos2.x, pos2.y
-        ];
+            if (this.isSideHorizontal(side1)) {
+                // Сначала горизонтально, потом вертикально
+                segments.push({
+                    index: 0,
+                    direction: 'H',
+                    start: { x: pos1.x, y: pos1.y },
+                    end: { x: midX, y: midY }
+                });
+                segments.push({
+                    index: 1,
+                    direction: 'V',
+                    start: { x: midX, y: midY },
+                    end: { x: pos2.x, y: pos2.y }
+                });
+            } else {
+                // Сначала вертикально, потом горизонтально
+                segments.push({
+                    index: 0,
+                    direction: 'V',
+                    start: { x: pos1.x, y: pos1.y },
+                    end: { x: midX, y: midY }
+                });
+                segments.push({
+                    index: 1,
+                    direction: 'H',
+                    start: { x: midX, y: midY },
+                    end: { x: pos2.x, y: pos2.y }
+                });
+            }
+        } else {
+            // Center-axis маршрутизация (3 сегмента)
+            const centerX = (pos1.x + pos2.x) / 2;
+            const centerY = (pos1.y + pos2.y) / 2;
 
-        return {
-            points: points,
-            fork1: fork1,
-            fork2: fork2,
-            segment: segment
-        };
+            if (this.isSideHorizontal(side1)) {
+                // H-V-H
+                segments.push({
+                    index: 0,
+                    direction: 'H',
+                    start: { x: pos1.x, y: pos1.y },
+                    end: { x: centerX, y: pos1.y }
+                });
+                segments.push({
+                    index: 1,
+                    direction: 'V',
+                    start: { x: centerX, y: pos1.y },
+                    end: { x: centerX, y: centerY }
+                });
+                segments.push({
+                    index: 2,
+                    direction: 'H',
+                    start: { x: centerX, y: centerY },
+                    end: { x: pos2.x, y: pos2.y }
+                });
+            } else {
+                // V-H-V
+                segments.push({
+                    index: 0,
+                    direction: 'V',
+                    start: { x: pos1.x, y: pos1.y },
+                    end: { x: pos1.x, y: centerY }
+                });
+                segments.push({
+                    index: 1,
+                    direction: 'H',
+                    start: { x: pos1.x, y: centerY },
+                    end: { x: centerX, y: centerY }
+                });
+                segments.push({
+                    index: 2,
+                    direction: 'V',
+                    start: { x: centerX, y: centerY },
+                    end: { x: pos2.x, y: pos2.y }
+                });
+            }
+        }
+
+        return segments;
     }
 
     /**
-     * Обновить соединение когда пин двигается
+     * Проверить, горизонтальная ли сторона
+     */
+    isSideHorizontal(side) {
+        return side === 'left' || side === 'right';
+    }
+
+    /**
+     * Перевести сегменты в плоский массив точек
+     */
+    segmentsToPoints(segments) {
+        const points = [];
+        for (let i = 0; i < segments.length; i++) {
+            if (i === 0) {
+                points.push(segments[i].start.x, segments[i].start.y);
+            }
+            points.push(segments[i].end.x, segments[i].end.y);
+        }
+        return points;
+    }
+
+    /**
+     * Перевести точки в сегменты
+     */
+    pointsToSegments(points) {
+        const segments = [];
+        for (let i = 0; i < points.length - 2; i += 2) {
+            const start = { x: points[i], y: points[i + 1] };
+            const end = { x: points[i + 2], y: points[i + 3] };
+            const direction = (start.x === end.x) ? 'V' : 'H';
+
+            segments.push({
+                index: i / 2,
+                direction: direction,
+                start: start,
+                end: end
+            });
+        }
+        return segments;
+    }
+
+    /**
+     * Валидировать сегменты
+     */
+    validateSegments(segments) {
+        for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i];
+
+            // Проверить ортогональность
+            if (seg.direction === 'H') {
+                if (seg.start.y !== seg.end.y) {
+                    throw new Error(`Segment ${i}: H-segment Y mismatch`);
+                }
+            } else if (seg.direction === 'V') {
+                if (seg.start.x !== seg.end.x) {
+                    throw new Error(`Segment ${i}: V-segment X mismatch`);
+                }
+            }
+
+            // Проверить непрерывность
+            if (i < segments.length - 1) {
+                if (seg.end.x !== segments[i + 1].start.x ||
+                    seg.end.y !== segments[i + 1].start.y) {
+                    throw new Error(`Segment ${i}: discontinuity with segment ${i + 1}`);
+                }
+            }
+
+            // Проверить чередование
+            if (i > 0) {
+                if (seg.direction === segments[i - 1].direction) {
+                    throw new Error(`Segment ${i}: consecutive segments have same direction`);
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Добавить ручки редактирования для выделенного соединения
+     */
+    addLineEditHandles(connection) {
+        this.removeLineEditHandles(connection);
+
+        const meta = connection.getAttr('connection-meta');
+        const segments = meta.segments;
+        const handles = [];
+
+        for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i];
+            const handleX = (seg.start.x + seg.end.x) / 2;
+            const handleY = (seg.start.y + seg.end.y) / 2;
+
+            const handle = new Konva.Circle({
+                x: handleX,
+                y: handleY,
+                radius: 5,
+                fill: '#2196F3',
+                stroke: '#fff',
+                strokeWidth: 1.5,
+                draggable: true,
+                listening: true
+            });
+
+            handle.setAttr('segment-handle-meta', {
+                connection: connection,
+                segmentIndex: i,
+                direction: seg.direction
+            });
+
+            handle.on('dragstart', () => {
+                // Предотвращение одновременного перетаскивания
+                if (meta.isDragging) return;
+                meta.isDragging = true;
+                connection.setAttr('connection-meta', meta);
+            });
+
+            handle.on('dragmove', () => {
+                this.onHandleDragMove(handle, connection);
+            });
+
+            handle.on('dragend', () => {
+                this.onHandleDragEnd(handle, connection);
+            });
+
+            this.canvasManager.getLayer().add(handle);
+            handles.push(handle);
+        }
+
+        meta.handles = handles;
+        connection.setAttr('connection-meta', meta);
+        this.canvasManager.getLayer().batchDraw();
+    }
+
+    /**
+     * Обработчик начала перетаскивания ручки
+     */
+    onHandleDragMove(handle, connection) {
+        const meta = handle.getAttr('segment-handle-meta');
+        const connectionMeta = connection.getAttr('connection-meta');
+        const segmentIndex = meta.segmentIndex;
+        const direction = meta.direction;
+        const segment = connectionMeta.segments[segmentIndex];
+
+        // Вычислить дельта от начальной позиции
+        const initialX = (segment.start.x + segment.end.x) / 2;
+        const initialY = (segment.start.y + segment.end.y) / 2;
+        const currentX = handle.x();
+        const currentY = handle.y();
+        const deltaX = currentX - initialX;
+        const deltaY = currentY - initialY;
+
+        // Движение должно быть перпендикулярно сегменту
+        if (direction === 'V' && Math.abs(deltaX) > Math.abs(deltaY)) {
+            // Вертикальный сегмент: может двигаться только влево/вправо
+            this.updateSegmentPosition(connection, segmentIndex, deltaX, 0);
+        } else if (direction === 'H' && Math.abs(deltaY) > Math.abs(deltaX)) {
+            // Горизонтальный сегмент: может двигаться только вверх/вниз
+            this.updateSegmentPosition(connection, segmentIndex, 0, deltaY);
+        }
+
+        this.redrawConnection(connection);
+    }
+
+    /**
+     * Обновить позицию сегмента
+     */
+    updateSegmentPosition(connection, segmentIndex, deltaX, deltaY) {
+        const meta = connection.getAttr('connection-meta');
+        const segment = meta.segments[segmentIndex];
+
+        // Обновить координаты перетаскиваемого сегмента
+        segment.start.x += deltaX;
+        segment.start.y += deltaY;
+        segment.end.x += deltaX;
+        segment.end.y += deltaY;
+
+        // Обновить конечную точку предыдущего сегмента
+        if (segmentIndex > 0) {
+            const prevSeg = meta.segments[segmentIndex - 1];
+            prevSeg.end.x = segment.start.x;
+            prevSeg.end.y = segment.start.y;
+        }
+
+        // Обновить начальную точку следующего сегмента
+        if (segmentIndex < meta.segments.length - 1) {
+            const nextSeg = meta.segments[segmentIndex + 1];
+            nextSeg.start.x = segment.end.x;
+            nextSeg.start.y = segment.end.y;
+        }
+
+        connection.setAttr('connection-meta', meta);
+    }
+
+    /**
+     * Обработчик конца перетаскивания ручки
+     */
+    onHandleDragEnd(handle, connection) {
+        const connectionMeta = connection.getAttr('connection-meta');
+        connectionMeta.isDragging = false;
+        connection.setAttr('connection-meta', connectionMeta);
+    }
+
+    /**
+     * Перерисовать соединение
+     */
+    redrawConnection(connection) {
+        const meta = connection.getAttr('connection-meta');
+        const points = this.segmentsToPoints(meta.segments);
+        connection.points(points);
+
+        // Обновить позиции ручек
+        if (meta.handles && meta.handles.length > 0) {
+            for (let i = 0; i < meta.segments.length; i++) {
+                const seg = meta.segments[i];
+                const handle = meta.handles[i];
+                handle.x((seg.start.x + seg.end.x) / 2);
+                handle.y((seg.start.y + seg.end.y) / 2);
+            }
+        }
+
+        this.canvasManager.getLayer().batchDraw();
+    }
+
+    /**
+     * Показать ручки редактирования
+     */
+    showHandles(connection) {
+        const meta = connection.getAttr('connection-meta');
+        if (meta.handles) {
+            meta.handles.forEach(handle => handle.visible(true));
+            this.canvasManager.getLayer().batchDraw();
+        }
+    }
+
+    /**
+     * Скрыть ручки редактирования
+     */
+    hideHandles(connection) {
+        const meta = connection.getAttr('connection-meta');
+        if (meta.handles) {
+            meta.handles.forEach(handle => handle.visible(false));
+            this.canvasManager.getLayer().batchDraw();
+        }
+    }
+
+    /**
+     * Удалить ручки редактирования
+     */
+    removeLineEditHandles(connection) {
+        const meta = connection.getAttr('connection-meta');
+        if (meta.handles) {
+            meta.handles.forEach(handle => handle.destroy());
+            meta.handles = [];
+            connection.setAttr('connection-meta', meta);
+        }
+    }
+
+    /**
+     * Обновить соединение когда пин двигается (только первый сегмент)
      */
     updateConnectionsForPin(pin) {
         const pinMeta = pin.getAttr('cp-meta');
@@ -160,38 +456,51 @@ class ConnectionManager {
         this.connections.forEach(connection => {
             const connMeta = connection.getAttr('connection-meta');
             if (connMeta && (connMeta.fromPin === pin || connMeta.toPin === pin)) {
-                const points = connection.points();
-                const newPos = pin.position();
                 const isFromPin = connMeta.fromPin === pin;
-                const length = points.length;
+                const newPos = pin.position();
 
-                const pinIndex = isFromPin ? 0 : length - 2;
-                points[pinIndex] = newPos.x;
-                points[pinIndex + 1] = newPos.y;
-
-                let fork, targetPos, nextIndex;
                 if (isFromPin) {
-                    nextIndex = 4;
-                    targetPos = { x: points[nextIndex], y: points[nextIndex + 1] };
-                    fork = this.createSmartFork(newPos, pinMeta.side, targetPos);
-                    points[2] = fork.end.x;
-                    points[3] = fork.end.y;
-                    connMeta.fork1 = fork;
+                    // Обновить первый сегмент
+                    const firstSeg = connMeta.segments[0];
+                    firstSeg.start.x = newPos.x;
+                    firstSeg.start.y = newPos.y;
+
+                    // Обновить конец первого сегмента
+                    const secondSeg = connMeta.segments[1];
+                    if (connMeta.segments[0].direction === 'H') {
+                        firstSeg.end.x = newPos.x + (firstSeg.end.x - firstSeg.start.x);
+                        firstSeg.end.y = newPos.y;
+                    } else {
+                        firstSeg.end.x = newPos.x;
+                        firstSeg.end.y = newPos.y + (firstSeg.end.y - firstSeg.start.y);
+                    }
+                    // Обновить начало второго сегмента
+                    secondSeg.start = { ...firstSeg.end };
                 } else {
-                    nextIndex = length - 6;
-                    targetPos = { x: points[nextIndex], y: points[nextIndex + 1] };
-                    fork = this.createSmartFork(newPos, pinMeta.side, targetPos);
-                    points[length - 4] = fork.end.x;
-                    points[length - 3] = fork.end.y;
-                    connMeta.fork2 = fork;
+                    // Обновить последний сегмент
+                    const lastSegIdx = connMeta.segments.length - 1;
+                    const lastSeg = connMeta.segments[lastSegIdx];
+                    const prevSeg = connMeta.segments[lastSegIdx - 1];
+
+                    lastSeg.end.x = newPos.x;
+                    lastSeg.end.y = newPos.y;
+
+                    // Обновить начало последнего сегмента
+                    if (lastSeg.direction === 'H') {
+                        lastSeg.start.x = newPos.x - (lastSeg.end.x - lastSeg.start.x);
+                        lastSeg.start.y = newPos.y;
+                    } else {
+                        lastSeg.start.x = newPos.x;
+                        lastSeg.start.y = newPos.y - (lastSeg.end.y - lastSeg.start.y);
+                    }
+                    // Обновить конец предыдущего сегмента
+                    prevSeg.end = { ...lastSeg.start };
                 }
 
-                connection.points(points);
                 connection.setAttr('connection-meta', connMeta);
-                this.enforceOrthogonal(connection, isFromPin);
+                this.redrawConnection(connection);
             }
         });
-        this.canvasManager.getLayer().batchDraw();
     }
 
     /**
@@ -232,162 +541,35 @@ class ConnectionManager {
     }
 
     /**
-     * Обособливание ортогональности
-     */
-    enforceOrthogonal(connection, updatedFromStart = true) {
-        const points = connection.points();
-        const meta = connection.getAttr('connection-meta');
-        const length = points.length;
-
-        // Fork1
-        const side1 = meta.fromPin.getAttr('cp-meta').side;
-        const target1 = { x: points[4], y: points[5] };
-        const fork1 = this.createSmartFork(
-            { x: points[0], y: points[1] },
-            side1,
-            target1
-        );
-        points[2] = fork1.end.x;
-        points[3] = fork1.end.y;
-
-        // Middle segments
-        for (let i = 4; i < length - 4; i += 2) {
-            const dx = points[i + 2] - points[i];
-            const dy = points[i + 3] - points[i + 1];
-            if (Math.abs(dx) > Math.abs(dy)) {
-                points[i + 3] = points[i + 1];
-            } else {
-                points[i + 2] = points[i];
-            }
-        }
-
-        // Fork2
-        const side2 = meta.toPin.getAttr('cp-meta').side;
-        const target2 = { x: points[length - 6], y: points[length - 5] };
-        const fork2 = this.createSmartFork(
-            { x: points[length - 2], y: points[length - 1] },
-            side2,
-            target2
-        );
-        points[length - 4] = fork2.end.x;
-        points[length - 3] = fork2.end.y;
-
-        // Reverse propagation
-        if (!updatedFromStart) {
-            for (let i = length - 6; i >= 4; i -= 2) {
-                const dx = points[i + 2] - points[i];
-                const dy = points[i + 3] - points[i + 1];
-                if (Math.abs(dx) > Math.abs(dy)) {
-                    points[i + 3] = points[i + 1];
-                } else {
-                    points[i + 2] = points[i];
-                }
-            }
-        }
-
-        meta.fork1 = fork1;
-        meta.fork2 = fork2;
-        connection.setAttr('connection-meta', meta);
-        connection.points(points);
-        this.canvasManager.getLayer().batchDraw();
-    }
-
-    /**
-     * Добавить сегмент (двойной клик)
-     */
-    addSegmentToConnection(connection) {
-        const meta = connection.getAttr('connection-meta');
-        const points = connection.points();
-
-        // Пока стуб — не реализовано
-        console.log('Add segment not yet implemented');
-    }
-
-    /**
-     * Обновить сегмент при перетаскивании ручки
-     */
-    updateSegmentOrthogonally(handle) {
-        const meta = handle.getAttr('line-edit-meta');
-        const connection = meta.connection;
-        const segmentIndex = meta.segmentIndex;
-
-        const points = connection.points();
-        const startIndex = segmentIndex * 2 + 2;
-        const endIndex = startIndex + 2;
-
-        const dx = points[endIndex] - points[startIndex];
-        const dy = points[endIndex + 1] - points[startIndex + 1];
-
-        if (Math.abs(dx) > Math.abs(dy)) {
-            points[startIndex + 1] = handle.y();
-            points[endIndex + 1] = handle.y();
-        } else {
-            points[startIndex] = handle.x();
-            points[endIndex] = handle.x();
-        }
-
-        connection.points(points);
-        this.enforceOrthogonal(connection);
-        this.canvasManager.getLayer().batchDraw();
-    }
-
-    /**
-     * Добавить ручки редактирования
-     */
-    addLineEditHandles(connection) {
-        this.removeLineEditHandles(connection);
-
-        const meta = connection.getAttr('connection-meta');
-        const points = connection.points();
-        const handles = [];
-        const lineWidth = connection.strokeWidth();
-
-        for (let i = 4; i < points.length - 4; i += 2) {
-            const blueHandle = new Konva.Circle({
-                x: (points[i - 2] + points[i]) / 2,
-                y: (points[i - 1] + points[i + 1]) / 2,
-                radius: 4,
-                fill: '#007bff',
-                stroke: '#fff',
-                strokeWidth: 1,
-                draggable: true
-            });
-
-            blueHandle.setAttr('line-edit-meta', {
-                connection: connection,
-                segmentIndex: (i - 2) / 2
-            });
-
-            blueHandle.on('dragmove', () => {
-                this.updateSegmentOrthogonally(blueHandle);
-            });
-
-            handles.push(blueHandle);
-            this.canvasManager.getLayer().add(blueHandle);
-        }
-
-        meta.editHandles = handles;
-        connection.setAttr('connection-meta', meta);
-        this.canvasManager.getLayer().batchDraw();
-    }
-
-    /**
-     * Удалить ручки редактирования
-     */
-    removeLineEditHandles(connection) {
-        const meta = connection.getAttr('connection-meta');
-        if (meta.editHandles) {
-            meta.editHandles.forEach(handle => handle.destroy());
-            meta.editHandles = [];
-            connection.setAttr('connection-meta', meta);
-        }
-    }
-
-    /**
      * Получить все соединения
      */
     getConnections() {
         return this.connections;
+    }
+
+    /**
+     * Валидировать целостность соединения
+     */
+    validateConnectionIntegrity(connection) {
+        const meta = connection.getAttr('connection-meta');
+        const segments = meta.segments;
+
+        // Проверить сегменты
+        this.validateSegments(segments);
+
+        // Проверить привязку пинов
+        const firstSeg = segments[0];
+        const lastSeg = segments[segments.length - 1];
+        const fromPinPos = meta.fromPin.position();
+        const toPinPos = meta.toPin.position();
+
+        if (firstSeg.start.x !== fromPinPos.x || firstSeg.start.y !== fromPinPos.y) {
+            throw new Error('From pin not attached correctly');
+        }
+
+        if (lastSeg.end.x !== toPinPos.x || lastSeg.end.y !== toPinPos.y) {
+            throw new Error('To pin not attached correctly');
+        }
     }
 
     /**
