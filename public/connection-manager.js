@@ -9,6 +9,7 @@ class ConnectionManager {
         this.onConnectionSelected = null;
         this.onConnectionDeleted = null;
         this.activeDragConnection = null; // Для предотвращения одновременного перетаскивания
+        this.selectedConnection = null; // Отслеживание выбранного соединения для обновления подсветки
     }
 
     /**
@@ -38,7 +39,8 @@ class ConnectionManager {
             handles: [],
             isDragging: false,
             userModified: false,
-            lastModified: new Date().toISOString()
+            lastModified: new Date().toISOString(),
+            highlightLine: null // Для подсветки выделения
         });
 
         connection.on('click', (e) => {
@@ -281,21 +283,25 @@ class ConnectionManager {
             const handleX = (seg.start.x + seg.end.x) / 2;
             const handleY = (seg.start.y + seg.end.y) / 2;
 
+            // Проверить, является ли сегмент крайним (не допустить перетаскивание)
+            const isEndSegment = (i === 0 || i === segments.length - 1);
+
             const handle = new Konva.Circle({
                 x: handleX,
                 y: handleY,
                 radius: 5,
-                fill: '#2196F3',
+                fill: isEndSegment ? '#ccc' : '#2196F3', // Серый для крайних
                 stroke: '#fff',
                 strokeWidth: 1.5,
-                draggable: true,
+                draggable: !isEndSegment, // Не перетаскиваемые для крайних
                 listening: true
             });
 
             handle.setAttr('segment-handle-meta', {
                 connection: connection,
                 segmentIndex: i,
-                direction: seg.direction
+                direction: seg.direction,
+                isEndSegment: isEndSegment
             });
 
             handle.on('dragstart', () => {
@@ -350,6 +356,7 @@ class ConnectionManager {
         }
 
         this.redrawConnection(connection);
+        this.refreshConnectionHighlight(connection);
     }
 
     /**
@@ -413,6 +420,24 @@ class ConnectionManager {
     }
 
     /**
+     * Обновить подсветку выделения при изменении соединения
+     */
+    refreshConnectionHighlight(connection) {
+        const meta = connection.getAttr('connection-meta');
+        if (meta.highlightLine) {
+            meta.highlightLine.points(connection.points());
+            this.canvasManager.getLayer().batchDraw();
+        }
+    }
+
+    /**
+     * Установить выделенное соединение для отслеживания обновлений
+     */
+    setSelectedConnection(connection) {
+        this.selectedConnection = connection;
+    }
+
+    /**
      * Показать ручки редактирования
      */
     showHandles(connection) {
@@ -447,7 +472,7 @@ class ConnectionManager {
     }
 
     /**
-     * Обновить соединение когда пин двигается (только первый сегмент)
+     * Обновить соединение когда пин двигается (только первый и последний сегмент)
      */
     updateConnectionsForPin(pin) {
         const pinMeta = pin.getAttr('cp-meta');
@@ -499,6 +524,7 @@ class ConnectionManager {
 
                 connection.setAttr('connection-meta', connMeta);
                 this.redrawConnection(connection);
+                this.refreshConnectionHighlight(connection);
             }
         });
     }
@@ -524,6 +550,11 @@ class ConnectionManager {
 
         // Удаляем ручки
         this.removeLineEditHandles(connection);
+
+        // Удаляем подсветку
+        if (meta.highlightLine) {
+            meta.highlightLine.destroy();
+        }
 
         const index = this.connections.indexOf(connection);
         if (index > -1) {
