@@ -4,8 +4,9 @@
 const HANDLE_RADIUS = 6;
 
 class SelectionManager {
-    constructor(canvasManager) {
+    constructor(canvasManager, connectionManager) {
         this.canvasManager = canvasManager;
+        this.connectionManager = connectionManager;
         this.selected = null;
     }
 
@@ -68,10 +69,20 @@ class SelectionManager {
 
         layer.add(highlight);
         layer.moveToTop(connection);
+        
+        // Показать ручки редактирования
+        if (this.connectionManager) {
+            this.connectionManager.addLineEditHandles(connection);
+        }
+        
         layer.batchDraw();
 
         const cleanup = () => {
             highlight.destroy();
+            // Скрыть ручки при снятии выделения
+            if (this.connectionManager) {
+                this.connectionManager.removeLineEditHandles(connection);
+            }
             layer.batchDraw();
         };
 
