@@ -33,7 +33,7 @@ class UIController {
         this.imageManager = new ImageManager(this.canvasManager);
         this.connectionPointManager = new ConnectionPointManager(this.canvasManager);
         this.connectionManager = new ConnectionManager(this.canvasManager);
-        this.selectionManager = new SelectionManager(this.canvasManager);
+        this.selectionManager = new SelectionManager(this.canvasManager, this.connectionManager);
         this.propertiesPanel = new PropertiesPanel(this.canvasManager);
         this.fileManager = new FileManager(
             this.canvasManager,
@@ -93,7 +93,6 @@ class UIController {
         // Когда соединение выбрано
         this.connectionManager.onConnectionSelected = (connection) => {
             this.selectionManager.selectConnection(connection);
-            this.connectionManager.addLineEditHandles(connection);
             this.propertiesPanel.showPropertiesForConnection(connection);
         };
     }
@@ -244,7 +243,7 @@ class UIController {
     }
 
     /**
-     * Обновление рыбного пресмотра линии
+     * Обновления рыбного пресмотра линии
      */
     handleMouseMoveForLinePreview(e) {
         if (!this.firstPinSelected) return;
