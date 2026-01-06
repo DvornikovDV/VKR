@@ -74,19 +74,25 @@ class ConnectionManager {
 
     /**
      * Определить тип маршрутизации (2 или 3 сегмента)
+     * 
+     * 2 сегмента: не на соответствующих сторонах (напр., left-top, left-bottom, то есть не V-V, не H-H)
+     * 3 сегмента: на соответствующих сторонах (left-right, top-bottom)
      */
     getRoutingCase(pin1, pin2) {
         const side1 = pin1.getAttr('cp-meta').side;
         const side2 = pin2.getAttr('cp-meta').side;
 
+        // Одинаковые горизонтальные стороны: left-right или right-left (горизонтально расположенные)
         const sameSideHorizontal = 
             (side1 === 'left' && side2 === 'right') ||
             (side1 === 'right' && side2 === 'left');
         
+        // Одинаковые вертикальные стороны: top-bottom или bottom-top (вертикально расположенные)
         const sameSideVertical = 
             (side1 === 'top' && side2 === 'bottom') ||
             (side1 === 'bottom' && side2 === 'top');
 
+        // 3 сегмента для соответствующих сторон, 2 сегмента для любых других
         if (sameSideHorizontal || sameSideVertical) {
             return 'THREE_SEGMENTS';
         } else {
@@ -96,6 +102,9 @@ class ConnectionManager {
 
     /**
      * Вычислить сегменты маршрута
+     * 
+     * Ортогональные сегменты требуют как правило 3 точки на партию
+     * или с соответствующим сегментом 4-м точки до конечного точки
      */
     calculateSegments(pin1, pin2) {
         const pos1 = pin1.position();
@@ -107,46 +116,46 @@ class ConnectionManager {
         const segments = [];
 
         if (routingCase === 'TWO_SEGMENTS') {
-            // L-shape маршрутизация
+            // L-shape маршрутизация для несоответствующих сторон
             const midX = this.isSideHorizontal(side1) ? pos2.x : pos1.x;
             const midY = this.isSideHorizontal(side1) ? pos1.y : pos2.y;
 
             if (this.isSideHorizontal(side1)) {
-                // Сначала горизонтально, потом вертикально
+                // Пин 1 на горизонтальной стороне: сначала H, потом V
                 segments.push({
                     index: 0,
                     direction: 'H',
                     start: { x: pos1.x, y: pos1.y },
-                    end: { x: midX, y: midY }
+                    end: { x: midX, y: pos1.y }
                 });
                 segments.push({
                     index: 1,
                     direction: 'V',
-                    start: { x: midX, y: midY },
+                    start: { x: midX, y: pos1.y },
                     end: { x: pos2.x, y: pos2.y }
                 });
             } else {
-                // Сначала вертикально, потом горизонтально
+                // Пин 1 на вертикальной стороне: сначала V, потом H
                 segments.push({
                     index: 0,
                     direction: 'V',
                     start: { x: pos1.x, y: pos1.y },
-                    end: { x: midX, y: midY }
+                    end: { x: pos1.x, y: midY }
                 });
                 segments.push({
                     index: 1,
                     direction: 'H',
-                    start: { x: midX, y: midY },
+                    start: { x: pos1.x, y: midY },
                     end: { x: pos2.x, y: pos2.y }
                 });
             }
         } else {
-            // Center-axis маршрутизация (3 сегмента)
-            const centerX = (pos1.x + pos2.x) / 2;
-            const centerY = (pos1.y + pos2.y) / 2;
-
+            // Center-axis маршрутизация для соответствующих сторон (3 сегмента)
+            
             if (this.isSideHorizontal(side1)) {
-                // H-V-H
+                // Оба на горизонтальных сторонах (left-right): H-V-H
+                const centerX = (pos1.x + pos2.x) / 2;
+                
                 segments.push({
                     index: 0,
                     direction: 'H',
@@ -157,16 +166,18 @@ class ConnectionManager {
                     index: 1,
                     direction: 'V',
                     start: { x: centerX, y: pos1.y },
-                    end: { x: centerX, y: centerY }
+                    end: { x: centerX, y: pos2.y }
                 });
                 segments.push({
                     index: 2,
                     direction: 'H',
-                    start: { x: centerX, y: centerY },
+                    start: { x: centerX, y: pos2.y },
                     end: { x: pos2.x, y: pos2.y }
                 });
             } else {
-                // V-H-V
+                // Оба на вертикальных сторонах (top-bottom): V-H-V
+                const centerY = (pos1.y + pos2.y) / 2;
+                
                 segments.push({
                     index: 0,
                     direction: 'V',
@@ -177,12 +188,12 @@ class ConnectionManager {
                     index: 1,
                     direction: 'H',
                     start: { x: pos1.x, y: centerY },
-                    end: { x: centerX, y: centerY }
+                    end: { x: pos2.x, y: centerY }
                 });
                 segments.push({
                     index: 2,
                     direction: 'V',
-                    start: { x: centerX, y: centerY },
+                    start: { x: pos2.x, y: centerY },
                     end: { x: pos2.x, y: pos2.y }
                 });
             }
