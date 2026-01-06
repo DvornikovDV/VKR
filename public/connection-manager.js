@@ -75,25 +75,29 @@ class ConnectionManager {
     /**
      * Определить тип маршрутизации (2 или 3 сегмента)
      * 
-     * 2 сегмента: не на соответствующих сторонах (напр., left-top, left-bottom, то есть не V-V, не H-H)
-     * 3 сегмента: на соответствующих сторонах (left-right, top-bottom)
+     * Логика:
+     * - 3 сегмента нужны когда оба пина имеют ОДИНАКОВУЮ ориентацию
+     *   (обе стороны горизонтальные H: left/right, или обе вертикальные V: top/bottom)
+     * - 2 сегмента нужны когда пины имеют РАЗНЫЕ ориентации
+     *   (одна H, другая V)
+     * 
+     * Все 4 случая расписаны:
+     * H-H (left-right, right-left): 3 сегмента (H-V-H)
+     * V-V (top-bottom, bottom-top): 3 сегмента (V-H-V)
+     * H-V (left/right с top/bottom): 2 сегмента (H-V или V-H)
+     * V-H (top/bottom с left/right): 2 сегмента (V-H или H-V)
      */
     getRoutingCase(pin1, pin2) {
         const side1 = pin1.getAttr('cp-meta').side;
         const side2 = pin2.getAttr('cp-meta').side;
 
-        // Одинаковые горизонтальные стороны: left-right или right-left (горизонтально расположенные)
-        const sameSideHorizontal = 
-            (side1 === 'left' && side2 === 'right') ||
-            (side1 === 'right' && side2 === 'left');
-        
-        // Одинаковые вертикальные стороны: top-bottom или bottom-top (вертикально расположенные)
-        const sameSideVertical = 
-            (side1 === 'top' && side2 === 'bottom') ||
-            (side1 === 'bottom' && side2 === 'top');
+        // Определить ориентацию каждой стороны
+        const side1IsHorizontal = this.isSideHorizontal(side1); // left или right -> true
+        const side2IsHorizontal = this.isSideHorizontal(side2); // left или right -> true
 
-        // 3 сегмента для соответствующих сторон, 2 сегмента для любых других
-        if (sameSideHorizontal || sameSideVertical) {
+        // 3 сегмента если ориентации совпадают (обе H или обе V)
+        // 2 сегмента если ориентации разные (одна H, другая V)
+        if (side1IsHorizontal === side2IsHorizontal) {
             return 'THREE_SEGMENTS';
         } else {
             return 'TWO_SEGMENTS';
@@ -103,8 +107,9 @@ class ConnectionManager {
     /**
      * Вычислить сегменты маршрута
      * 
-     * Ортогональные сегменты требуют как правило 3 точки на партию
-     * или с соответствующим сегментом 4-м точки до конечного точки
+     * Ортогональные сегменты (только H или V):
+     * - TWO_SEGMENTS: Прямое соединение L-shape, когда пины на разных ориентациях
+     * - THREE_SEGMENTS: Соединение через центральную точку, когда пины на одинаковых ориентациях
      */
     calculateSegments(pin1, pin2) {
         const pos1 = pin1.position();
@@ -116,44 +121,49 @@ class ConnectionManager {
         const segments = [];
 
         if (routingCase === 'TWO_SEGMENTS') {
-            // L-shape маршрутизация для несоответствующих сторон
-            const midX = this.isSideHorizontal(side1) ? pos2.x : pos1.x;
-            const midY = this.isSideHorizontal(side1) ? pos1.y : pos2.y;
-
+            // L-shape маршрутизация: из разных ориентаций (H-V или V-H)
+            // Нужно выбрать промежуточную координату
+            
             if (this.isSideHorizontal(side1)) {
-                // Пин 1 на горизонтальной стороне: сначала H, потом V
+                // pin1 на горизонтальной (left/right), pin2 на вертикальной (top/bottom)
+                // Сегмент 1 (H): горизонтально от pin1 до X координаты pin2
+                // Сегмент 2 (V): вертикально от промежуточной до pin2
                 segments.push({
                     index: 0,
                     direction: 'H',
                     start: { x: pos1.x, y: pos1.y },
-                    end: { x: midX, y: pos1.y }
+                    end: { x: pos2.x, y: pos1.y }
                 });
                 segments.push({
                     index: 1,
                     direction: 'V',
-                    start: { x: midX, y: pos1.y },
+                    start: { x: pos2.x, y: pos1.y },
                     end: { x: pos2.x, y: pos2.y }
                 });
             } else {
-                // Пин 1 на вертикальной стороне: сначала V, потом H
+                // pin1 на вертикальной (top/bottom), pin2 на горизонтальной (left/right)
+                // Сегмент 1 (V): вертикально от pin1 до Y координаты pin2
+                // Сегмент 2 (H): горизонтально от промежуточной до pin2
                 segments.push({
                     index: 0,
                     direction: 'V',
                     start: { x: pos1.x, y: pos1.y },
-                    end: { x: pos1.x, y: midY }
+                    end: { x: pos1.x, y: pos2.y }
                 });
                 segments.push({
                     index: 1,
                     direction: 'H',
-                    start: { x: pos1.x, y: midY },
+                    start: { x: pos1.x, y: pos2.y },
                     end: { x: pos2.x, y: pos2.y }
                 });
             }
         } else {
-            // Center-axis маршрутизация для соответствующих сторон (3 сегмента)
+            // THREE_SEGMENTS маршрутизация: из одинаковых ориентаций (H-H или V-V)
+            // Требуется промежуточная точка по центру
             
             if (this.isSideHorizontal(side1)) {
-                // Оба на горизонтальных сторонах (left-right): H-V-H
+                // Оба пина на горизонтальных сторонах (left-right или right-left)
+                // Маршрут: H-V-H
                 const centerX = (pos1.x + pos2.x) / 2;
                 
                 segments.push({
@@ -175,7 +185,8 @@ class ConnectionManager {
                     end: { x: pos2.x, y: pos2.y }
                 });
             } else {
-                // Оба на вертикальных сторонах (top-bottom): V-H-V
+                // Оба пина на вертикальных сторонах (top-bottom или bottom-top)
+                // Маршрут: V-H-V
                 const centerY = (pos1.y + pos2.y) / 2;
                 
                 segments.push({
