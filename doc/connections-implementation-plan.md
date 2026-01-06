@@ -1,6 +1,6 @@
 # Connections Implementation Plan
 
-**Version**: 1.0
+**Version**: 2.0
 **Date**: 06.01.2026
 **Status**: Development Specification
 
@@ -11,8 +11,26 @@
 Connections are the visual representation of flow paths between devices. They must satisfy three core requirements:
 
 1. **Orthogonality** - All segments are either horizontal (H) or vertical (V) at 0 or 90 degrees
-2. **Visibility** - Connections should avoid crossing images where possible (user responsibility for breaks)
+2. **Visibility** - Use minimal segments (2 or 3) with simple routing logic
 3. **Manageability** - Connections can be modified through breaks and segment dragging
+
+---
+
+## Terminology Clarification
+
+**Segment**: A straight line connecting exactly two adjacent points in a connection path.
+
+```
+Connection path: Point0 -> Point1 -> Point2 -> Point3
+                  [Segment 0]  [Segment 1]  [Segment 2]
+                  (0 to 1)     (1 to 2)     (2 to 3)
+
+Segment 0: from (x0, y0) to (x1, y1)
+Segment 1: from (x1, y1) to (x2, y2)
+Segment 2: from (x2, y2) to (x3, y3)
+```
+
+All operations (dragging, breaking, updating) work by modifying coordinates of points.
 
 ---
 
@@ -21,330 +39,255 @@ Connections are the visual representation of flow paths between devices. They mu
 ### 1. Orthogonality
 
 Every connection consists of connected segments:
-- Each segment is strictly horizontal or vertical
+- Each segment is strictly horizontal (H) or vertical (V)
 - Segments alternate between H and V
-- Minimum 2 segments (direct H or V connection)
-- Typical 3 segments (center-axis routing)
-- User can add breaks creating 3 new segments from 1 existing
+- Minimum segments: 2 (direct routing)
+- Typical segments: 3 (center-axis routing)
+- User can add breaks creating more segments
 
-### 1.1 Segment Types
+**Segment Direction Rules**:
+- Horizontal (H): start.y == end.y (same Y coordinate)
+- Vertical (V): start.x == end.x (same X coordinate)
+- Must alternate: H -> V -> H or V -> H -> V
 
-**Horizontal Segment (H)**:
-```
-Start point: (x1, y)
-End point:   (x2, y)
-Property: y1 == y2 (same Y coordinate)
-Movement: Can only move along Y axis (up/down)
-Length change: x2 - x1 increases or decreases
-```
+---
 
-**Vertical Segment (V)**:
-```
-Start point: (x, y1)
-End point:   (x, y2)
-Property: x1 == x2 (same X coordinate)
-Movement: Can only move along X axis (left/right)
-Length change: y2 - y1 increases or decreases
-```
+### 2. Visibility - Simplified Routing
 
-### 1.2 Minimal Segment Counts
+**Goal**: Use only 2 or 3 segments with deterministic, simple logic.
 
-**2 segments** (direct connection, pines on corresponding sides):
-```
-Case 1: Pins on LEFT-RIGHT sides
-┌─────┐                 ┌─────┐
-│  A  │pin_R ─────H───── pin_L│  B  │
-└─────┘                 └─────┘
-Segments: [H] - 1 segment, line is visible
+#### Case 1: Two Segments (L-shape routing)
 
-Case 2: Pins on TOP-BOTTOM sides
-┌─────┐
-│  A  │ pin_B
-└─────┘
-   |
-   |V
-   |
-┌─────┐ pin_T
-│  B  │
-└─────┘
-Segments: [V] - 1 segment
-```
+**When**: Pins are on non-corresponding sides
+- LEFT-TOP: pin on left of device A, pin on top of device B
+- LEFT-BOTTOM: pin on left of A, pin on bottom of B
+- Similar combinations
 
-**3 segments** (center-axis, most common):
-```
-Case 1: Pins on perpendicular sides (LEFT-TOP, etc.)
-┌─────┐pin_R              ┌─────┐
-│  A  │──H──┐             │  B  │ pin_T
-└─────┘     │             └─────┘
-            │                |
-            └────H────┬──V───┘
-                      |
-
-Structure: [H, V, H] or [V, H, V]
-- First segment: exit from pin A
-- Middle segment: turn
-- Last segment: enter pin B
-
-Case 2: Using center-axis routing (preferred)
-┌─────┐pin_R              ┌─────┐
-│  A  │──H─────centerX    │  B  │ pin_T
-└─────┘        │          └─────┘
-               │V              |
-               │               |
-               └─H─────centerX─┘
-
-Structure: [H, V, H] or similar
-```
-
-**4+ segments** (with breaks, or complex routing):
-```
-User adds break on segment 2:
-┌─────┐                           ┌─────┐
-│  A  │──H────┬──V──┬──H─────────│  B  │
-└─────┘       │     │            └─────┘
-       centerX│     │new break point
-              │     │
-        (break added here)
-
-Result: Original 3 segments become more complex structure
-```
-
-### 2. Visibility
-
-#### Pins on Corresponding Sides (Odd number of segments)
+**Routing**: L-shaped path
 
 ```
-Definition: Pins on sides that "face" each other
-- LEFT-RIGHT: pins on left side of A and right side of B
-- TOP-BOTTOM: pins on top side of A and bottom side of B
+Example: LEFT-TOP pins
+┌─────────┐
+│Device A │ pin_L (LEFT)
+└─────────┘
+|
+|V (Vertical segment 1)
+|
+└────H──────┐ (Horizontal segment 2)
+            |
+         ┌──┴────┐
+         │Device │ pin_T
+         │  B    │
+         └───────┘
 
-Result: Odd number of segments (1, 3, 5, ...)
+Structure: [V, H]
+Calculation:
+  Segment 0 (V): from (pinA.x, pinA.y) to (pinA.x, pinB.y)
+  Segment 1 (H): from (pinA.x, pinB.y) to (pinB.x, pinB.y)
 
-Example:
-┌─────┐pin_R ─────H───── pin_L ┌─────┐
-│  A  │                         │  B  │
-└─────┘                         └─────┘
-
-Path: 1 segment (H)
-No intermediate space needed
+Formula pseudocode:
+  seg0.start = pinA
+  seg0.end = (pinA.x, pinB.y)  // Same X as A, Y as B
+  seg1.start = seg0.end
+  seg1.end = pinB
 ```
 
-#### Pins on Non-Corresponding Sides (Even number of segments)
+#### Case 2: Three Segments (center-axis with equal ends)
+
+**When**: Pins are on corresponding sides
+- LEFT-RIGHT: pin on left of A, pin on right of B
+- TOP-BOTTOM: pin on top of A, pin on bottom of B
+
+**Routing**: Center-axis with equal-length end segments
 
 ```
-Definition: Pins on sides that do NOT "face" each other
-- LEFT-TOP: pin on left of A, pin on top of B
-- TOP-RIGHT: pin on top of A, pin on right of B
+Example: LEFT-RIGHT pins
+┌─────────┐              ┌─────────┐
+│Device A │ pin_R        │Device B │ pin_L
+└─────────┘              └─────────┘
+pin_R ─H─→ centerX ←─H─ pin_L
+           │
+           │V
+           │
 
-Result: Even number of segments (2, 4, 6, ...)
+Structure: [H, V, H]
+Calculation:
+  centerX = (pinA.x + pinB.x) / 2
+  centerY = (pinA.y + pinB.y) / 2
+  
+  Segment 0 (H): from pinA to (centerX, pinA.y)
+  Segment 1 (V): from (centerX, pinA.y) to (centerX, centerY)
+  Segment 2 (H): from (centerX, centerY) to pinB
 
-Example:
-┌─────┐pin_B (BOTTOM)      ┌─────┐
-│  A  │                    │  B  │ pin_R
-└─────┘                    └─────┘
-   |
-   |V
-   |
-   └──────H─────────────────┘
+Note: Equal-length end segments (both H) due to symmetric center point
 
-Path: 2 segments (V, H)
+Formula pseudocode:
+  centerX = (pinA.x + pinB.x) / 2
+  centerY = (pinA.y + pinB.y) / 2
+  
+  seg0.start = pinA
+  seg0.end = (centerX, pinA.y)
+  
+  seg1.start = seg0.end
+  seg1.end = (centerX, centerY)
+  
+  seg2.start = seg1.end
+  seg2.end = pinB
 ```
 
-#### Visibility Rule
+#### Case 3: Determining Which Case Applies
 
-- **Best effort**: Route connections to avoid images
-- **Center-axis routing**: Use midpoint between pins as reference
-- **User responsibility**: If images overlap routing path, user can add breaks and adjust
-- **Rendering order**: Connections drawn ABOVE images (always visible)
+```javascript
+function getRoutingCase(pinA, pinB) {
+  const sameSide = {
+    horizontal: pinA.side === "LEFT" && pinB.side === "RIGHT" ||
+                 pinA.side === "RIGHT" && pinB.side === "LEFT",
+    vertical: pinA.side === "TOP" && pinB.side === "BOTTOM" ||
+              pinA.side === "BOTTOM" && pinB.side === "TOP"
+  };
+  
+  if (sameSide.horizontal || sameSide.vertical) {
+    return "THREE_SEGMENTS";  // Corresponding sides
+  } else {
+    return "TWO_SEGMENTS";    // Non-corresponding sides
+  }
+}
+```
+
+#### Visibility Handling
+
+- **Crossing images**: User responsibility (can add breaks to route around)
+- **Rendering order**: Connections always drawn ABOVE images
+- **Simplicity**: No automatic path finding, always use L-shape or center-axis
+
+---
 
 ### 3. Manageability
 
 #### 3.1 Adding Breaks (Segment Division)
 
-**User action**: Click on segment to add break point
+**User action**: Click on segment midpoint to add break
 
 **Before**:
 ```
-Segment 1: start=(0, 50), end=(100, 50)
-Points array: [0, 50, 100, 50]
+Segment 0 (H): start=(0, 50), end=(100, 50)
+Points: [0, 50, 100, 50]
 ```
 
-**After** (add break at midpoint x=50):
+**After** (add break at x=50, y=50):
 ```
-Segment 1: (0, 50) -> (50, 50)
-Break point at (50, 50) with handles for two new segments
-Segment 2: (50, 50) -> (50, 150) [NEW: perpendicular]
-Segment 3: (50, 150) -> (100, 50) [NEW: back to original]
+Segment 0 (H): (0, 50) -> (50, 50)
+Segment 1 (V): (50, 50) -> (50, 100)  [NEW perpendicular]
+Segment 2 (H): (50, 100) -> (100, 50) [NEW back to direction]
 
-Points array: [0, 50, 50, 50, 50, 150, 100, 50]
-Segments: [S1_H, S2_V, S3_H]
+Points: [0, 50, 50, 50, 50, 100, 100, 50]
 ```
+
+**Important**: After break is added, connection structure is LOCKED. No automatic rebuilding on image drag.
 
 #### 3.2 Dragging Segments
 
 **Visual representation**:
-- Selected connection shows handles (blue circles) at segment midpoints
-- Handles appear ONLY when connection is selected
-- Handle radius: 5px, fill: #2196F3, stroke: white
+- Selected connection shows handles (blue circles, radius 5px) at each segment midpoint
+- Handle position: `(segment.start + segment.end) / 2`
 
-**Handle position**:
-```
-For segment from (x1, y1) to (x2, y2):
-handle.x = (x1 + x2) / 2
-handle.y = (y1 + y2) / 2
+**Handle calculation**:
+```javascript
+handle.x = (segment.start.x + segment.end.x) / 2
+handle.y = (segment.start.y + segment.end.y) / 2
 ```
 
-**Dragging behavior**:
+**Dragging rules**:
 ```
-When user drags handle in direction perpendicular to segment:
-
-Vertical segment (x1==x2, y1!=y2):
+Vertical segment (x locked):
   - Can move LEFT/RIGHT only
-  - Movement delta: dx (change in X)
-  - Update: segment.start.x += dx, segment.end.x += dx
-  - Adjacent H segments: update their endpoint X
+  - delta_x applied, delta_y ignored
+  - Update: segment.start.x += delta_x, segment.end.x += delta_x
 
-Horizontal segment (y1==y2, x1!=x2):
+Horizontal segment (y locked):
   - Can move UP/DOWN only
-  - Movement delta: dy (change in Y)
-  - Update: segment.start.y += dy, segment.end.y += dy
-  - Adjacent V segments: update their endpoint Y
+  - delta_y applied, delta_x ignored
+  - Update: segment.start.y += delta_y, segment.end.y += delta_y
 ```
 
-**Coordinate transformation** (detailed):
-
-```
-Given:
-- Segment i with handle being dragged
-- delta: movement amount in one direction
-- direction: X (horizontal movement) or Y (vertical movement)
-
-Step 1: Validate movement
-  - Check if movement is perpendicular to segment direction
-  - Vertical segment + X movement = VALID
-  - Horizontal segment + Y movement = VALID
-  - Horizontal segment + X movement = INVALID (blocked)
-
-Step 2: Update dragged segment
-  If segment is VERTICAL:
-    segment.start.x += delta
-    segment.end.x += delta
-    segment.start.y stays same (locked)
-    segment.end.y stays same (locked)
+**Update adjacent segments**:
+```javascript
+function updateSegmentPosition(connection, segmentIndex, deltaX, deltaY) {
+  const segment = connection.segments[segmentIndex];
   
-  If segment is HORIZONTAL:
-    segment.start.x stays same (locked)
-    segment.end.x stays same (locked)
-    segment.start.y += delta
-    segment.end.y += delta
-
-Step 3: Update adjacent segments
-  Let S = current segment, Si = previous segment, Sj = next segment
+  // Update dragged segment coordinates
+  segment.start.x += deltaX;
+  segment.start.y += deltaY;
+  segment.end.x += deltaX;
+  segment.end.y += deltaY;
   
-  If S is VERTICAL (x locked, y locked):
-    Si (HORIZONTAL):
-      If Si.end point == S.start point:
-        Si.end.x = S.start.x (maintain connection)
-    
-    Sj (HORIZONTAL):
-      If Sj.start point == S.end point:
-        Sj.start.x = S.end.x (maintain connection)
+  // Previous segment endpoint must match current segment start
+  if (segmentIndex > 0) {
+    const prevSeg = connection.segments[segmentIndex - 1];
+    prevSeg.end.x = segment.start.x;
+    prevSeg.end.y = segment.start.y;
+  }
   
-  If S is HORIZONTAL (x locked, y locked):
-    Si (VERTICAL):
-      If Si.end point == S.start point:
-        Si.end.y = S.start.y (maintain connection)
-    
-    Sj (VERTICAL):
-      If Sj.start point == S.end point:
-        Sj.start.y = S.end.y (maintain connection)
-
-Step 4: Update handle position
-  handle.x = (segment.start.x + segment.end.x) / 2
-  handle.y = (segment.start.y + segment.end.y) / 2
-
-Step 5: Redraw
-  Rebuild points array from updated segments
-  Update Konva line object
-  Render
+  // Next segment startpoint must match current segment end
+  if (segmentIndex < connection.segments.length - 1) {
+    const nextSeg = connection.segments[segmentIndex + 1];
+    nextSeg.start.x = segment.end.x;
+    nextSeg.start.y = segment.end.y;
+  }
+}
 ```
 
 #### 3.3 Image Dragging Updates
 
-**Scenario 1: Image moves along segment direction**
-```
-Connection: Pump (RIGHT pin) -> Valve (LEFT pin)
-Segment 1 direction: H (horizontal)
-
-Image move: RIGHT (delta_x = 50)
-Segment 1 update:
-  - segment.start (pin location) moves RIGHT by 50
-  - segment.end (first waypoint) stays same
-  - Result: segment becomes shorter
-
-Formula:
-  segment.start.x += delta_x
-  segment.end.x stays same
-```
-
-**Scenario 2: Image moves perpendicular to segment direction**
-```
-Connection: Pump (RIGHT pin) -> Valve (LEFT pin)
-Segment 1 direction: H (horizontal)
-
-Image move: UP (delta_y = -30)
-Segment 1 update:
-  - segment.start.y (pin Y location) changes by delta_y
-  - segment.end.y stays same
-  - This breaks orthogonality! Need segment 2 adjustment.
-
-Correction:
-  After moving pin:
-  Segment 2 (V) must connect from new pin location:
-    segment2.start = new pin location
-    segment2.end.x must match segment2.start.x
-
-Formula:
-  # Segment 1 (H) after image move UP
-  segment1.start.x += delta_x
-  segment1.start.y += delta_y  # Pin moved up
-  segment1.end.y stays same      # Maintain orthogonality
-  
-  # Segment 2 (V) reattachment
-  segment2.start.x = segment1.end.x  # Match H segment endpoint
-  segment2.start.y = segment1.end.y  # Maintain corner
-  segment2.end.x = segment1.end.x    # Vertical: X locked
-```
-
-**Scenario 3: Complete update process for image drag**
+**Rule**: Only first segment changes. Middle and end segments preserve user layout.
 
 ```
 When image moves by (delta_x, delta_y):
 
-Step 1: Update segment 1 (attached to moved image)
-  FOR EACH pin on moved image:
-    pin.x += delta_x
-    pin.y += delta_y
+Step 1: Update segment 0 start point (pin location)
+  segment0.start.x += delta_x
+  segment0.start.y += delta_y
+
+Step 2: Update segment 1 connection
+  segment1.start = segment0.end (always connected)
   
-  segment1.start = updated pin coordinates
-  
-  Step 2: Update segment 2 (perpendicular to segment 1)
-  segment2.start = segment1.end (connection point)
-  segment2.end must maintain its own direction:
-    If segment1 is H and segment2 is V:
-      segment2.end.x = segment1.end.x (lock X)
-      segment2.end.y stays same (unchanged)
-    
-    If segment1 is V and segment2 is H:
-      segment2.end.x stays same (unchanged)
-      segment2.end.y = segment1.end.y (lock Y)
-  
-  Step 3: No further updates needed
-  Segments 3+ are not affected by source image movement
-  They remain in place (middle of diagram)
+  If segments have different directions:
+    - No change needed (orthogonality automatic)
+    - Segment 1 endpoint unchanged
+
+Step 3+: No further updates
+  All other segments remain in place
+  (Preserves user's routing decisions)
 ```
 
-**Critical rule**: Only first and last segments change on image drag
+**Examples**:
+
+```
+Scenario A: Image moves RIGHT along H segment
+Connection: Pump (RIGHT) -> Valve (LEFT)
+Segment 0: (150,100) -> (300,100) [H]
+
+Image moves RIGHT by 50:
+  Segment 0.start.x: 150 + 50 = 200
+  Segment 0.start.y: 100 (unchanged)
+  Result: (200,100) -> (300,100) [shorter]
+
+Scenario B: Image moves UP perpendicular to H segment
+Connection: Pump (RIGHT) -> Valve (TOP)
+Segment 0: (150,100) -> (300,100) [H]
+Segment 1: (300,100) -> (300,200) [V]
+
+Image moves UP by 30:
+  Segment 0.start.x: 150 (unchanged)
+  Segment 0.start.y: 100 - 30 = 70
+  Segment 0 now: (150,70) -> (300,100)
+  
+  Segment 1 must reconnect:
+    Segment 1.start: (300,100) [unchanged]
+    Segment 1.end: (300,200) [unchanged]
+  
+  Result: Connection has small vertical jog (expected, user can fix with breaks)
+```
 
 ---
 
@@ -360,7 +303,7 @@ connection = {
   fromPin: {
     id: "pin_pump_right",
     imageId: "img_pump_1",
-    side: "RIGHT",          // TOP, BOTTOM, LEFT, RIGHT
+    side: "RIGHT",
     x: 150,
     y: 100
   },
@@ -377,7 +320,7 @@ connection = {
   segments: [
     {
       index: 0,
-      direction: "H",  // H=horizontal, V=vertical
+      direction: "H",
       start: { x: 150, y: 100 },
       end: { x: 300, y: 100 }
     },
@@ -409,31 +352,30 @@ connection = {
   },
   
   // Metadata
-  bindingId: null,
-  lastModified: "2026-01-06T23:12:00Z",
-  userModified: true  // True if user added breaks
+  userModified: false,        // True if user added breaks
+  lastModified: "2026-01-06T23:12:00Z"
 }
 ```
 
 ### Points Array (for Konva rendering)
 
 ```javascript
-// Internal representation for Konva
+// Flat array of coordinates for Konva line
 connection.points = [
-  150, 100,  // Point 0: segment 0 start (pin)
+  150, 100,  // Point 0: segment 0 start
   300, 100,  // Point 1: segment 0 end = segment 1 start
   300, 150,  // Point 2: segment 1 end = segment 2 start
-  450, 150   // Point 3: segment 2 end (pin)
+  450, 150   // Point 3: segment 2 end
 ]
 
 // Relationship:
-// Segment i: points[i*2], points[i*2+1] -> points[i*2+2], points[i*2+3]
+// Segment i uses points[i*2], points[i*2+1] -> points[(i+1)*2], points[(i+1)*2+1]
 // Segment 0: points[0,1] -> points[2,3]
 // Segment 1: points[2,3] -> points[4,5]
-// etc.
+// Segment 2: points[4,5] -> points[6,7]
 ```
 
-### JSON Schema (for storage)
+### JSON Schema (for storage - FileManager responsibility)
 
 ```json
 {
@@ -449,7 +391,7 @@ connection.points = [
         "flowStatus": "ACTIVE",
         "faultStatus": "OK"
       },
-      "userModified": true,
+      "userModified": false,
       "lastModified": "2026-01-06T23:12:00Z"
     }
   ]
@@ -595,20 +537,18 @@ function onHandleDragMove(handle, connection) {
   const segmentIndex = handle.segmentIndex;
   const segment = connection.segments[segmentIndex];
   
-  // Calculate delta
-  const startX = (segment.start.x + segment.end.x) / 2;
-  const startY = (segment.start.y + segment.end.y) / 2;
+  // Calculate delta from initial position
+  const initialX = (segment.start.x + segment.end.x) / 2;
+  const initialY = (segment.start.y + segment.end.y) / 2;
   const currentX = handle.x();
   const currentY = handle.y();
-  const deltaX = currentX - startX;
-  const deltaY = currentY - startY;
+  const deltaX = currentX - initialX;
+  const deltaY = currentY - initialY;
   
-  // Validate: movement must be perpendicular
+  // Movement must be perpendicular to segment
   if (segment.direction === "V" && Math.abs(deltaX) > Math.abs(deltaY)) {
-    // Vertical segment: allow X movement only
     updateSegmentPosition(connection, segmentIndex, deltaX, 0);
   } else if (segment.direction === "H" && Math.abs(deltaY) > Math.abs(deltaX)) {
-    // Horizontal segment: allow Y movement only
     updateSegmentPosition(connection, segmentIndex, 0, deltaY);
   }
   
@@ -618,161 +558,89 @@ function onHandleDragMove(handle, connection) {
 
 ---
 
-## Segment Position Update Logic
-
-### Single Segment Movement
-
-```javascript
-function updateSegmentPosition(connection, segmentIndex, deltaX, deltaY) {
-  const segment = connection.segments[segmentIndex];
-  
-  // Update dragged segment
-  segment.start.x += deltaX;
-  segment.start.y += deltaY;
-  segment.end.x += deltaX;
-  segment.end.y += deltaY;
-  
-  // Update previous segment connection
-  if (segmentIndex > 0) {
-    const prevSegment = connection.segments[segmentIndex - 1];
-    prevSegment.end.x = segment.start.x;
-    prevSegment.end.y = segment.start.y;
-  }
-  
-  // Update next segment connection
-  if (segmentIndex < connection.segments.length - 1) {
-    const nextSegment = connection.segments[segmentIndex + 1];
-    nextSegment.start.x = segment.end.x;
-    nextSegment.start.y = segment.end.y;
-  }
-}
-```
-
-### Image Movement Update Logic
-
-```javascript
-function updateConnectionOnImageDrag(connection, imageMoveData) {
-  const { deltaX, deltaY } = imageMoveData;
-  
-  // Update segment 0 (attached to image)
-  const seg0 = connection.segments[0];
-  seg0.start.x += deltaX;
-  seg0.start.y += deltaY;
-  
-  if (connection.segments.length > 1) {
-    // Update segment 1 connection point
-    const seg1 = connection.segments[1];
-    seg1.start.x = seg0.end.x;
-    seg1.start.y = seg0.end.y;
-    
-    // Restore orthogonality
-    if (seg0.direction === "H" && seg1.direction === "V") {
-      seg1.end.x = seg0.end.x;  // Lock X for vertical
-    } else if (seg0.direction === "V" && seg1.direction === "H") {
-      seg1.end.y = seg0.end.y;  // Lock Y for horizontal
-    }
-  }
-  
-  // Segments 2+ remain unchanged
-}
-```
-
----
-
 ## Operations
 
 ### Operation 1: Create Connection
 
+**Input**: fromPin, toPin
+
+**Process**:
+1. Validate pins on different images
+2. Determine routing case (2 or 3 segments)
+3. Calculate segment endpoints
+4. Create segments array
+5. Convert to points array
+6. Create Konva line
+7. Create handles (hidden by default)
+
+**Output**: Connection object
+
 ```
-Input: fromPin, toPin
-Process:
-  1. Validate pins on different images
-  2. Calculate center-axis waypoints
-  3. Create segments array
-  4. Create points array from segments
-  5. Create Konva line
-  6. Create handles
-Output: Connection object with all data
-Render: Draw connection and add to layer
+Example calculation for 3-segment center-axis:
+  centerX = (150 + 450) / 2 = 300
+  centerY = (100 + 100) / 2 = 100
+  
+  segments:
+    [0]: (150,100) -> (300,100) [H]
+    [1]: (300,100) -> (300,100) [V]
+    [2]: (300,100) -> (450,100) [H]
 ```
 
 ### Operation 2: Add Break to Segment
 
-```
-Input: Connection, segmentIndex, breakPoint (coordinates)
-Process:
-  1. Get segment at index
-  2. Split into 3 segments:
-     - Segment1: start -> breakPoint (same direction)
-     - Segment2: breakPoint -> perpendicular (opposite direction)
-     - Segment3: perpendicular point -> end (same as segment1)
-  3. Insert into segments array
-  4. Rebuild points array
-  5. Create new handles for new segments
-  6. Preserve user modification flag
-Output: Updated connection with more segments
-Render: Redraw with new handles
-```
+**Input**: Connection, segmentIndex, position along segment
+
+**Process**:
+1. Get segment at index
+2. Calculate break point coordinates (perpendicular to segment)
+3. Split segment into 3 parts:
+   - Part 1: original start -> break point
+   - Part 2: break point -> perpendicular end
+   - Part 3: perpendicular point -> original end
+4. Insert new segments into array
+5. Update indices
+6. Rebuild points array
+7. Create handles for new segments
+8. Set `userModified = true`
+
+**Output**: Updated connection
+
+**Key**: Connection structure now locked - no automatic rebuilds on image drag
 
 ### Operation 3: Drag Segment Handle
 
-```
-Input: Connection, segmentIndex, deltaX, deltaY
-Process:
-  1. Get segment
-  2. Validate perpendicular movement
-  3. Update segment coordinates
-  4. Update adjacent segment endpoints
-  5. Rebuild points array
-  6. Update handle positions
-Output: Updated connection
-Constraint: No automatic rebuild (preserve user layout)
-Render: Redraw connection
-```
+**Input**: Connection, segmentIndex, dragDelta (deltaX, deltaY)
+
+**Process**:
+1. Get segment
+2. Validate perpendicular movement (V-seg can move X, H-seg can move Y)
+3. Update segment coordinates
+4. Update adjacent segment endpoints (maintain continuity)
+5. Rebuild points array
+6. Update handle positions
+7. Redraw
+
+**Output**: Updated connection
+
+**Constraint**: Preserve user modifications (don't rebuild structure)
 
 ### Operation 4: Drag Image
 
-```
-Input: Connection, imageMoveData (deltaX, deltaY)
-Process:
-  1. Get first segment (attached to image pin)
-  2. Move segment start point
-  3. Update adjacent segment endpoints
-  4. Maintain orthogonality
-  5. Rebuild points array
-Output: Updated first segment only
-Constraint: Segments 2+ unchanged (preserve layout)
-Render: Redraw connection
-```
+**Input**: Connection, imageMoveData (deltaX, deltaY)
 
-### Operation 5: Load Connection from Storage
+**Process**:
+1. Get first segment (attached to image pin)
+2. Update segment start point (pin location):
+   - segment.start.x += deltaX
+   - segment.start.y += deltaY
+3. Update second segment start (maintain continuity):
+   - segment[1].start = segment[0].end
+4. Rebuild points array
+5. Redraw
 
-```
-Input: Connection JSON (points array)
-Process:
-  1. Parse points array
-  2. Convert to segments
-  3. Validate segments (orthogonality, continuity)
-  4. Create Konva line
-  5. Create handles
-  6. Restore status data
-Output: Connection object ready for editing
-Constraint: Must reconstruct exact same routing
-Render: Draw on canvas
-```
+**Output**: Updated first segment only
 
-### Operation 6: Save Connection to Storage
-
-```
-Input: Connection object
-Process:
-  1. Extract points array from segments
-  2. Extract status data
-  3. Create JSON structure
-  4. Validate before save
-Output: JSON ready for storage
-Constraint: Must preserve routing exactly
-```
+**Constraint**: All other segments unchanged (preserve user layout)
 
 ---
 
@@ -780,87 +648,83 @@ Constraint: Must preserve routing exactly
 
 ### No Automatic Rebuilding
 
-**Rule**: Once connection is created with breaks, it is NEVER automatically rebuilt.
+**Rule**: Once user adds breaks, connection structure is NEVER automatically changed.
 
 **Enforcement**:
 - Store `userModified: boolean` flag
-- If user added breaks: `userModified = true`
-- Never modify segments array structure (only coordinates)
-- On image drag: only update first segment
-- On segment drag: only update that segment and adjacent connection points
+- When user adds break: set to `true`
+- Only update coordinates of points, never change segment count
+- On image drag: only first segment updates
+- On segment drag: only that segment and adjacent connection points update
 
-**Example**:
-```
-User creates connection: A -> B (3 segments)
-User adds break on segment 1
-User drags image A
-
-Result: First segment position updates, but structure is preserved
-- Still 4 segments (3 + 1 break)
-- Segment count never changes
-- No automatic rerouting
-```
+**Guarantee**: User's routing decisions are preserved
 
 ### Concurrent Operation Prevention
 
 **Rule**: Cannot simultaneously drag multiple segments or images.
 
 **Enforcement**:
-- Track active drag: `connection.isDragging = true/false`
-- Track which segment: `connection.activeDragSegment`
-- On segment drag start: set flag, disable other handles
-- On segment drag end: clear flag, enable all handles
+- Track active drag state: `connection.isDragging`
+- When handle drag starts: set flag to true
+- When handle drag ends: set flag to false
+- Prevent new drags while flag is true
 
-**Code**:
 ```javascript
 function onHandleDragStart(handle, connection) {
-  if (connection.isDragging) return; // Already dragging
+  if (connection.isDragging) return;
   connection.isDragging = true;
-  connection.activeDragSegment = handle.segmentIndex;
-  disableOtherHandles(connection, handle.segmentIndex);
 }
 
 function onHandleDragEnd(handle, connection) {
   connection.isDragging = false;
-  connection.activeDragSegment = null;
-  enableAllHandles(connection);
 }
 ```
 
 ### Data Integrity
 
 **Validation checklist for every operation**:
-- [ ] All segments maintain orthogonality
-- [ ] All segments maintain continuity (end of seg N = start of seg N+1)
-- [ ] No duplicate points (unless intentional break)
-- [ ] Segments alternate direction (H-V-H or V-H-V)
+- [ ] All segments maintain orthogonality (H or V, not diagonal)
+- [ ] All segments maintain continuity (end of N = start of N+1)
+- [ ] Segments alternate direction (no consecutive same direction)
 - [ ] Points array matches segments
-- [ ] From pin = segment[0].start
-- [ ] To pin = segment[last].end
+- [ ] fromPin = segment[0].start
+- [ ] toPin = segment[last].end
 
 **Validation function**:
 ```javascript
 function validateConnectionIntegrity(connection) {
-  const checks = {
-    orthogonal: () => validateSegments(connection.segments),
-    continuous: () => checkSegmentContinuity(connection.segments),
-    alternating: () => checkDirectionAlternation(connection.segments),
-    pinMatch: () => {
-      return connection.segments[0].start.x === connection.fromPin.x &&
-             connection.segments[0].start.y === connection.fromPin.y;
-    },
-    pointsMatch: () => {
-      const recalculated = segmentsToPoints(connection.segments);
-      return JSON.stringify(recalculated) === 
-             JSON.stringify(connection.points);
-    }
-  };
+  validateSegments(connection.segments);
   
-  for (const [check, fn] of Object.entries(checks)) {
-    if (!fn()) throw new Error(`Integrity check failed: ${check}`);
+  // Check pin attachment
+  if (connection.segments[0].start.x !== connection.fromPin.x ||
+      connection.segments[0].start.y !== connection.fromPin.y) {
+    throw new Error("From pin not attached correctly");
+  }
+  
+  const lastSeg = connection.segments[connection.segments.length - 1];
+  if (lastSeg.end.x !== connection.toPin.x ||
+      lastSeg.end.y !== connection.toPin.y) {
+    throw new Error("To pin not attached correctly");
   }
 }
 ```
+
+---
+
+## File Management Note
+
+**Save/Load functionality**: Handled by separate FileManager
+
+**Why separate**:
+- FileManager orchestrates all managers during save/load
+- ConnectionManager exports only what's needed: `toJSON()` method
+- ConnectionManager imports from JSON: `fromJSON(data)` method
+- FileManager handles complete file format and validation
+
+**Integration**:
+- Each manager implements `toJSON()` and `fromJSON()`
+- FileManager calls these methods for each manager
+- Single source of truth for file format in FileManager
 
 ---
 
@@ -881,7 +745,6 @@ function drawConnection(connection, layer) {
     handle.y((seg.start.y + seg.end.y) / 2);
   }
   
-  // Redraw layer
   layer.draw();
 }
 ```
@@ -891,83 +754,189 @@ function drawConnection(connection, layer) {
 ```
 Layer stack (bottom to top):
 1. Images (bottom)
-2. Connections (middle) <- Always visible above images
-3. Handles (top, only when selected)
+2. Connections (always above images)
+3. Handles (top, only when connection selected)
 4. Selection indicators (top)
 ```
 
 ---
 
-## Implementation Phases
+## Lab Work Iterations
 
-### Phase 1: Basic Structure (Week 1)
+### Iteration 1: Data Structure and Basic Rendering (Week 1)
 
-**Deliverables**:
-- Connection data structure
-- Points array management
-- Segments validation
-- Konva line rendering
-- Load/save JSON
+**Objectives**: Implement core data structures and basic rendering
 
-**Files**: `connection-manager.js`, `connection-path-finder.js`
+**Tasks**:
+- [ ] Create Connection class with segments array
+- [ ] Implement pointsToSegments() conversion function
+- [ ] Implement segmentsToPoints() conversion function
+- [ ] Implement validateSegments() validation function
+- [ ] Create basic Konva line rendering
+- [ ] Implement getRoutingCase() to determine 2 or 3 segment routing
+- [ ] Test: Create connection with 2 segments (non-corresponding sides)
+- [ ] Test: Create connection with 3 segments (corresponding sides)
+- [ ] Test: Validate segment orthogonality
+- [ ] Test: Validate segment continuity
 
-### Phase 2: Segment Dragging (Week 2)
+**Files to create**:
+- `public/js/connection-manager.js` - Main class
+- `public/js/connection-path-finder.js` - Routing calculation
 
-**Deliverables**:
-- Handle creation and positioning
-- Handle drag event handlers
-- Segment position update logic
-- Adjacent segment coordinate updates
-- Orthogonality maintenance
+**Deliverable**: Connection objects can be created and rendered with proper segment structure
 
-**Files**: `connection-manager.js` (update)
+**Testing**:
+```javascript
+// Test: 2-segment L-shape
+const conn = createConnection(pinA_LEFT, pinB_TOP);
+assert(conn.segments.length === 2);
+assert(conn.segments[0].direction === "V");
+assert(conn.segments[1].direction === "H");
 
-### Phase 3: Image Drag Integration (Week 3)
-
-**Deliverables**:
-- Image move callback
-- First segment update logic
-- Orthogonality restoration
-- Preserve middle segments
-
-**Files**: `image-manager.js` (update), `connection-manager.js` (update)
-
-### Phase 4: Break Points (Week 4)
-
-**Deliverables**:
-- Click to add break
-- Segment split logic
-- Triple segment creation
-- Handle management
-
-**Files**: `connection-manager.js` (update)
+// Test: 3-segment center-axis
+const conn = createConnection(pinA_LEFT, pinB_RIGHT);
+assert(conn.segments.length === 3);
+assert(conn.segments[0].direction === "H");
+assert(conn.segments[1].direction === "V");
+assert(conn.segments[2].direction === "H");
+```
 
 ---
 
-## Testing Checklist
+### Iteration 2: Segment Dragging Mechanics (Week 2)
 
-- [ ] Create connection with direct routing (2 segments)
-- [ ] Create connection with center-axis routing (3 segments)
-- [ ] Select connection and verify handles appear
-- [ ] Drag vertical segment handle LEFT - verify movement
-- [ ] Drag vertical segment handle RIGHT - verify movement
-- [ ] Drag horizontal segment handle UP - verify movement
-- [ ] Drag horizontal segment handle DOWN - verify movement
-- [ ] Verify adjacent segments update coordinates
-- [ ] Verify orthogonality maintained after drag
-- [ ] Add break to horizontal segment - verify 3 new segments created
-- [ ] Add break to vertical segment - verify 3 new segments created
-- [ ] Drag image left - verify first segment shortens
-- [ ] Drag image right - verify first segment lengthens
-- [ ] Drag image up - verify pin Y changes and segment 2 adjusts
-- [ ] Verify middle segments unchanged on image drag
-- [ ] Load connection from JSON - verify exact routing restored
-- [ ] Save connection to JSON - verify points array correct
-- [ ] Verify connection renders above images
-- [ ] Concurrent drag prevention - try dragging 2 segments
-- [ ] Validate data integrity after each operation
+**Objectives**: Implement handle system and segment dragging
+
+**Tasks**:
+- [ ] Implement createHandles() function
+- [ ] Implement showHandles() and hideHandles() functions
+- [ ] Implement perpendicular movement validation
+- [ ] Implement updateSegmentPosition() logic
+- [ ] Implement handle drag event handlers
+- [ ] Implement coordinate locking (V-segment X-only, H-segment Y-only)
+- [ ] Implement adjacent segment update logic
+- [ ] Test: Drag vertical segment left/right
+- [ ] Test: Drag horizontal segment up/down
+- [ ] Test: Adjacent segments update their endpoints
+- [ ] Test: Orthogonality maintained after drag
+- [ ] Test: Drag validation prevents invalid movements
+
+**Files to modify**:
+- `public/js/connection-manager.js` - Add handle and drag logic
+- `public/js/selection-manager.js` - Show handles on selection
+
+**Deliverable**: Handles visible on selected connections, dragging updates segments correctly
+
+**Testing**:
+```javascript
+// Test: Vertical segment drag
+dragSegmentHandle(conn, 1, 30, 0);  // Move right
+assert(conn.segments[1].start.x === initialX + 30);
+assert(conn.segments[1].end.x === initialX + 30);
+assert(conn.segments[2].start.x === initialX + 30);  // Adjacent updates
+
+// Test: Movement validation
+dragSegmentHandle(conn, 1, 0, 20);  // Try to move up (invalid for V-seg)
+assert(conn.segments[1].start.x === initialX);  // No change
+```
 
 ---
 
-**Status**: Ready for Phase 1 implementation
-**Next Step**: Create ConnectionManager class with data structure
+### Iteration 3: Image Drag Integration (Week 3)
+
+**Objectives**: Update connections when images are dragged
+
+**Tasks**:
+- [ ] Create ConnectionImageObserver to listen for image drag events
+- [ ] Implement updateConnectionOnImageDrag() function
+- [ ] Update only first segment start point (pin location)
+- [ ] Update second segment start point (maintain continuity)
+- [ ] Preserve all other segments (no rebuilding)
+- [ ] Test: Drag image left/right - first segment changes
+- [ ] Test: Drag image up/down - first segment and connection point update
+- [ ] Test: Middle segments unchanged after drag
+- [ ] Test: Multiple connections from same image all update correctly
+- [ ] Test: Preserve user modifications (breaks) after image drag
+
+**Files to modify**:
+- `public/js/connection-manager.js` - Add image drag listener
+- `public/js/image-manager.js` - Trigger connection update events
+
+**Deliverable**: Connections update when images move, preserving user routing decisions
+
+**Testing**:
+```javascript
+// Test: Image drag along segment
+conn.segments[0] = { direction: "H", start: {x:150, y:100}, end: {x:300, y:100} };
+updateConnectionOnImageDrag(conn, {deltaX: 50, deltaY: 0});
+assert(conn.segments[0].start.x === 200);
+assert(conn.segments[0].start.y === 100);
+assert(conn.segments[1].start === conn.segments[0].end);
+
+// Test: Image drag perpendicular
+updateConnectionOnImageDrag(conn, {deltaX: 0, deltaY: -30});
+assert(conn.segments[0].start.y === 70);
+assert(conn.segments[1].start.y === 100);  // Unchanged
+```
+
+---
+
+### Iteration 4: Break Points and Refinement (Week 4)
+
+**Objectives**: Implement break points and finalize routing
+
+**Tasks**:
+- [ ] Implement addBreakToSegment() function
+- [ ] Calculate break point perpendicular to segment
+- [ ] Split segment into 3 new segments
+- [ ] Update segment indices after break
+- [ ] Set userModified flag to true
+- [ ] Ensure structure locked (no automatic rebuilds)
+- [ ] Implement click-to-add-break UI interaction
+- [ ] Test: Add break to horizontal segment
+- [ ] Test: Add break to vertical segment
+- [ ] Test: Break creates proper 3-segment structure
+- [ ] Test: Image drag doesn't rebuild after break
+- [ ] Test: Can add multiple breaks to same connection
+- [ ] Integration: All four operations work together
+- [ ] Edge case: Cannot drag segment that would collapse
+
+**Files to modify**:
+- `public/js/connection-manager.js` - Add break logic
+- `public/js/ui-controller.js` - Wire up break interaction
+
+**Deliverable**: Full routing system with breaks, dragging, image updates all working correctly
+
+**Testing**:
+```javascript
+// Test: Add break
+addBreakToSegment(conn, 0, {x: 225, y: 100});
+assert(conn.segments.length === 4);
+assert(conn.segments[1].direction === "V");  // Perpendicular
+
+// Test: Structure locked
+assert(conn.userModified === true);
+updateConnectionOnImageDrag(conn, {deltaX: 20, deltaY: 0});
+assert(conn.segments.length === 4);  // Still 4, not rebuilt
+
+// Test: Drag after break
+dragSegmentHandle(conn, 1, 30, 0);
+assert(conn.segments[1].start.x === newX + 30);
+assert(conn.segments[2].start.x === newX + 30);  // Adjacent updates
+```
+
+---
+
+## Implementation Timeline
+
+| Week | Iteration | Focus | Deliverable |
+|------|-----------|-------|-------------|
+| 1 | Data Structure | Create, segments, rendering | Working connection rendering |
+| 2 | Dragging | Handles, segment movement | Full segment drag system |
+| 3 | Image Integration | Image drag updates | Connections follow images |
+| 4 | Breaks | Break points, refinement | Complete routing system |
+
+---
+
+**Status**: Ready for Iteration 1 implementation
+**Next Step**: Create ConnectionManager class with data structure and basic rendering
