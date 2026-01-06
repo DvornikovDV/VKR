@@ -8,26 +8,39 @@ class SelectionManager {
         this.canvasManager = canvasManager;
         this.connectionManager = connectionManager;
         this.selected = null;
-        this.setupCanvasClickListener();
+        this.canvasClickListenerSetup = false;
     }
 
     /**
-     * Настроить слушатель на клик по постановке и по canvas
+     * Настроить слушатель на клик по canvas (на ленивые тесты)
      */
-    setupCanvasClickListener() {
-        const stage = this.canvasManager.getStage();
-        stage.on('click', (e) => {
-            // Ограничить: не сбросывать выделение при клике на объект
-            if (e.target === stage) {
-                this.clearSelection();
-            }
-        });
+    ensureCanvasClickListener() {
+        if (this.canvasClickListenerSetup) return;
+        
+        try {
+            const stage = this.canvasManager.getStage();
+            if (!stage) return; // Негде stage ещё не инициализирован
+            
+            stage.on('click', (e) => {
+                // Ограничить: не сбросывать выделение при клике на объект
+                if (e.target === stage) {
+                    this.clearSelection();
+                }
+            });
+            
+            this.canvasClickListenerSetup = true;
+        } catch (err) {
+            // Нет стажа - попробуем позже
+        }
     }
 
     /**
      * Выбрать изображение
      */
     selectElement(node, frame, handle) {
+        // Настроить листенер кликов на ленивые тесты
+        this.ensureCanvasClickListener();
+        
         // сброс прошлого
         this.clearSelection();
 
@@ -66,6 +79,9 @@ class SelectionManager {
      * Выбрать соединение
      */
     selectConnection(connection) {
+        // Настроить листенер кликов на ленивые тесты
+        this.ensureCanvasClickListener();
+        
         // сброс
         this.clearSelection();
 
