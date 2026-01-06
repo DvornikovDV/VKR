@@ -8,6 +8,20 @@ class SelectionManager {
         this.canvasManager = canvasManager;
         this.connectionManager = connectionManager;
         this.selected = null;
+        this.setupCanvasClickListener();
+    }
+
+    /**
+     * Настроить слушатель на клик по постановке и по canvas
+     */
+    setupCanvasClickListener() {
+        const stage = this.canvasManager.getStage();
+        stage.on('click', (e) => {
+            // Ограничить: не сбросывать выделение при клике на объект
+            if (e.target === stage) {
+                this.clearSelection();
+            }
+        });
     }
 
     /**
@@ -70,8 +84,13 @@ class SelectionManager {
         layer.add(highlight);
         layer.moveToTop(connection);
         
-        // Показать ручки редактирования
+        // Сохранить ссылку на подсветку для обновления
+        connMeta.highlightLine = highlight;
+        connection.setAttr('connection-meta', connMeta);
+        
+        // Отметить в connectionManager как текущее выделеное
         if (this.connectionManager) {
+            this.connectionManager.setSelectedConnection(connection);
             this.connectionManager.addLineEditHandles(connection);
         }
         
@@ -79,9 +98,13 @@ class SelectionManager {
 
         const cleanup = () => {
             highlight.destroy();
+            // Очистить ссылку на подсветку
+            connMeta.highlightLine = null;
+            connection.setAttr('connection-meta', connMeta);
             // Скрыть ручки при снятии выделения
             if (this.connectionManager) {
                 this.connectionManager.removeLineEditHandles(connection);
+                this.connectionManager.setSelectedConnection(null);
             }
             layer.batchDraw();
         };
