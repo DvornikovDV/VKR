@@ -86,8 +86,10 @@ class UIController {
         };
 
         // Когда точка двигается
+        // При драге ПИНА: вызываем updateConnectionsForPinDrag без delta
+        // (обновляются ОБЕ крайние точки для сохранения ортогональности)
         this.connectionPointManager.onPointMoved = (point) => {
-            this.connectionManager.updateConnectionsForPin(point);
+            this.connectionManager.updateConnectionsForPinDrag(point);
         };
 
         // Когда соединение выбрано
