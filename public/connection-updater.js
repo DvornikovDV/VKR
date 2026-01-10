@@ -128,33 +128,23 @@ class ConnectionUpdater {
     /**
      * Обновить конец сегмента при движении ИЗОБРАЖЕНИЯ
      * Анализирует направление движения: вдоль сегмента или перпендикулярно
+     * ВСЕГДА обновляет соседнюю точку для сохранения ортогональности
      */
     updateSegmentEndForImageDrag(segment, newX, newY, oldX, oldY) {
-        const deltaX = newX - oldX;
-        const deltaY = newY - oldY;
-        const isAlongSegment = this.isMovementAlongSegment(segment, deltaX, deltaY);
-
-        if (!isAlongSegment) {
-            // Движение перпендикулярное или диагональное: выравниваем как при движении пина
-            this.updateSegmentEndForPinDrag(segment, newX, newY);
-        }
-        // Если движение вдоль сегмента: ничего не меняем (конец остается на месте)
+        // ВСЕГДА обновляем соседнюю точку как при движении пина
+        // для сохранения ортогональности
+        this.updateSegmentEndForPinDrag(segment, newX, newY);
     }
 
     /**
      * Обновить начало сегмента при движении ИЗОБРАЖЕНИЯ
      * Анализирует направление движения: вдоль сегмента или перпендикулярно
+     * ВСЕГДА обновляет соседнюю точку для сохранения ортогональности
      */
     updateSegmentStartForImageDrag(segment, newX, newY, oldX, oldY) {
-        const deltaX = newX - oldX;
-        const deltaY = newY - oldY;
-        const isAlongSegment = this.isMovementAlongSegment(segment, deltaX, deltaY);
-
-        if (!isAlongSegment) {
-            // Движение перпендикулярное или диагональное: выравниваем как при движении пина
-            this.updateSegmentStartForPinDrag(segment, newX, newY);
-        }
-        // Если движение вдоль сегмента: ничего не меняем (начало остается на месте)
+        // ВСЕГДА обновляем соседнюю точку как при движении пина
+        // для сохранения ортогональности
+        this.updateSegmentStartForPinDrag(segment, newX, newY);
     }
 
     /**
