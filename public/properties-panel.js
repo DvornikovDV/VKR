@@ -5,6 +5,40 @@ class PropertiesPanel {
     constructor(canvasManager) {
         this.canvasManager = canvasManager;
         this.container = document.getElementById('properties-content');
+        this.selectedImage = null;
+    }
+
+    /**
+     * Показать свойства изображения
+     */
+    showPropertiesForImage(konvaImg) {
+        if (!this.container) return;
+
+        this.selectedImage = konvaImg;
+        const id = konvaImg._id || 'unknown';
+        const width = (konvaImg.width() * konvaImg.scaleX()).toFixed(0);
+        const height = (konvaImg.height() * konvaImg.scaleY()).toFixed(0);
+        const x = konvaImg.x().toFixed(0);
+        const y = konvaImg.y().toFixed(0);
+        const pointCount = Array.isArray(konvaImg._cp_points) ? konvaImg._cp_points.length : 0;
+        
+        this.container.innerHTML = '' +
+            '<div class="mb-2"><strong>Изображение</strong></div>' +
+            `<div class="small text-muted">ID: ${id}</div>` +
+            `<div class="small">X: ${x} px</div>` +
+            `<div class="small">Y: ${y} px</div>` +
+            `<div class="small">Ширина: ${width} px</div>` +
+            `<div class="small">Высота: ${height} px</div>` +
+            `<div class="small text-muted mt-2">Точек соединения: ${pointCount}</div>`;
+    }
+
+    /**
+     * Обновить отображение свойств изображения (при перемещении/масштабировании)
+     */
+    refreshImageProperties(konvaImg) {
+        if (this.selectedImage && this.selectedImage === konvaImg) {
+            this.showPropertiesForImage(konvaImg);
+        }
     }
 
     /**
@@ -44,6 +78,7 @@ class PropertiesPanel {
     showDefaultMessage() {
         if (!this.container) return;
         this.container.innerHTML = '<p class="text-muted">Выберите элемент для редактирования свойств</p>';
+        this.selectedImage = null;
     }
 
     /**
