@@ -17,6 +17,7 @@ class ConnectionEditor {
         const meta = connection.getAttr('connection-meta');
         const segments = meta.segments;
         const handles = [];
+        const layer = this.canvasManager.getLayer();
 
         for (let i = 0; i < segments.length; i++) {
             const seg = segments[i];
@@ -33,7 +34,8 @@ class ConnectionEditor {
                 stroke: '#fff',
                 strokeWidth: 1.5,
                 draggable: !isEndSegment,
-                listening: true
+                listening: true,
+                hitStrokeWidth: 4
             });
 
             handle.setAttr('segment-handle-meta', {
@@ -57,13 +59,16 @@ class ConnectionEditor {
                 this.onHandleDragEnd(handle, connection);
             });
 
-            this.canvasManager.getLayer().add(handle);
+            layer.add(handle);
             handles.push(handle);
         }
 
+        // Повысить ручки выше линии
+        handles.forEach(h => layer.moveToTop(h));
+
         meta.handles = handles;
         connection.setAttr('connection-meta', meta);
-        this.canvasManager.getLayer().batchDraw();
+        layer.batchDraw();
     }
 
     /**
@@ -244,7 +249,7 @@ class ConnectionEditor {
     }
 
     /**
-     * Обновить подсветку выделения
+     * Обновить подсвечивание выделения
      */
     refreshConnectionHighlight(connection) {
         const meta = connection.getAttr('connection-meta');
