@@ -60,6 +60,12 @@ class ConnectionManager {
             }
         });
 
+        // ддблклик для break points
+        connection.on('dblclick', (e) => {
+            e.cancelBubble = true;
+            // Обработка в handleLayerDoubleClick (ui-controller.js)
+        });
+
         meta1.connectedTo = meta2.id;
         meta2.connectedTo = meta1.id;
         pin1.setAttr('cp-meta', meta1);
@@ -146,7 +152,7 @@ class ConnectionManager {
             this.connections,
             (conn) => {
                 this.editor.redrawConnection(conn);
-                // Обновить подсветку соединения если выбрано
+                // Обновить подсвечивание соединения если выбрано
                 const connMeta = conn.getAttr('connection-meta');
                 if (connMeta && connMeta.highlightLine) {
                     connMeta.highlightLine.points(conn.points());
@@ -171,7 +177,7 @@ class ConnectionManager {
 
     /**
      * Добавить ручки редактирования
-     * Оспальзуется selectionManager
+     * Освальзуется selectionManager
      */
     addLineEditHandles(connection) {
         this.editor.addLineEditHandles(connection);
@@ -179,7 +185,7 @@ class ConnectionManager {
 
     /**
      * Удалить ручки редактирования
-     * Оспальзуется selectionManager
+     * Освальзуется selectionManager
      */
     removeLineEditHandles(connection) {
         this.editor.removeLineEditHandles(connection);
@@ -213,7 +219,7 @@ class ConnectionManager {
     }
 
     /**
-     * Установить выбранное соединение (оласпальзуется selection-manager)
+     * Установить выбранное соединение (оспальзуется selection-manager)
      */
     setSelectedConnection(connection) {
         this.selectedConnection = connection;
