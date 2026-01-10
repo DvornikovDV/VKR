@@ -128,6 +128,7 @@ class ConnectionManager {
      * @param {boolean} isImageDrag - true если движение изображения
      */
     updateConnectionsForPin(pin, newX, newY, isImageDrag = false) {
+        // Получить старые координаты ДО обновления пина
         const oldX = pin.x();
         const oldY = pin.y();
         
@@ -143,7 +144,14 @@ class ConnectionManager {
             oldY,
             isImageDrag,
             this.connections,
-            (conn) => this.editor.redrawConnection(conn)
+            (conn) => {
+                this.editor.redrawConnection(conn);
+                // Обновить подсветку соединения если выбрано
+                const connMeta = conn.getAttr('connection-meta');
+                if (connMeta && connMeta.highlightLine) {
+                    connMeta.highlightLine.points(conn.points());
+                }
+            }
         );
     }
 
