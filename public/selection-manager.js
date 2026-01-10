@@ -4,16 +4,40 @@
 const HANDLE_RADIUS = 6;
 
 class SelectionManager {
-    constructor(canvasManager) {
+    constructor(canvasManager, connectionManager) {
         this.canvasManager = canvasManager;
+        this.connectionManager = connectionManager;
         this.selected = null;
+        this.canvasClickListenerSetup = false;
+    }
+
+    /**
+     * Настроить слушатель на клик по canvas
+     */
+    ensureCanvasClickListener() {
+        if (this.canvasClickListenerSetup) return;
+        
+        try {
+            const stage = this.canvasManager.getStage();
+            if (!stage) return;
+            
+            stage.on('click', (e) => {
+                if (e.target === stage) {
+                    this.clearSelection();
+                }
+            });
+            
+            this.canvasClickListenerSetup = true;
+        } catch (err) {
+            // Stage еще не инициализирован
+        }
     }
 
     /**
      * Выбрать изображение
      */
     selectElement(node, frame, handle) {
-        // сброс прошлого
+        this.ensureCanvasClickListener();
         this.clearSelection();
 
         const layer = this.canvasManager.getLayer();
@@ -51,7 +75,7 @@ class SelectionManager {
      * Выбрать соединение
      */
     selectConnection(connection) {
-        // сброс
+        this.ensureCanvasClickListener();
         this.clearSelection();
 
         const layer = this.canvasManager.getLayer();
@@ -68,10 +92,27 @@ class SelectionManager {
 
         layer.add(highlight);
         layer.moveToTop(connection);
+        
+        // Сохранить ссылку на подсветку для обновления
+        connMeta.highlightLine = highlight;
+        connection.setAttr('connection-meta', connMeta);
+        
+        // Отметить в connectionManager как текущее выделеное
+        if (this.connectionManager) {
+            this.connectionManager.selectConnection(connection);
+        }
+        
         layer.batchDraw();
 
         const cleanup = () => {
             highlight.destroy();
+            // Очистить ссылку на подсветку
+            connMeta.highlightLine = null;
+            connection.setAttr('connection-meta', connMeta);
+            // Снять выделение в connectionManager
+            if (this.connectionManager) {
+                this.connectionManager.deselectConnection(connection);
+            }
             layer.batchDraw();
         };
 

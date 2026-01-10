@@ -10,8 +10,17 @@ class ImageManager {
         this.images = [];
         this.selectedImage = null;
         this.onImageSelected = null; // callback для UIController
-        this.onImageMoved = null;
+        this.onImageMoved = null;    // callback вызывается при драге изображения
         this.onImageScaled = null;
+        this.connectionManager = null; // будет продан из UIController
+    }
+
+    /**
+     * Установить менеджер соединений
+     * Нужно для обновления соединений при драге изображения
+     */
+    setConnectionManager(connectionManager) {
+        this.connectionManager = connectionManager;
     }
 
     /**
@@ -65,7 +74,7 @@ class ImageManager {
         frame.fillEnabled(false);
         frame.hitStrokeWidth(20);
 
-        // ручка резайза
+        // ручка ресайза
         const handle = new Konva.Circle({
             radius: HANDLE_RADIUS,
             fill: '#007bff',
@@ -110,20 +119,48 @@ class ImageManager {
             layer.batchDraw();
         });
 
-        // перемещение изображения
+        // перемещение изображения (Iteration 3: координатный подход)
         konvaImg.on('dragmove', () => {
             updateOverlays();
+            
+            // Новая функциональность: обновляем соединения
+            if (this.connectionManager && Array.isArray(konvaImg._cp_points)) {
+                konvaImg._cp_points.forEach(pin => {
+                    // Передаем абсолютные координаты
+                    this.connectionManager.updateConnectionsForPin(
+                        pin,
+                        pin.x(),
+                        pin.y(),
+                        true  // isImageDrag = true
+                    );
+                });
+            }
+
             if (this.onImageMoved) this.onImageMoved(konvaImg);
             layer.batchDraw();
         });
 
-        // перемещение по рамке
+        // перемещение по рамке (Iteration 3: координатный подход)
         frame.on('dragmove', () => {
             konvaImg.position({
                 x: frame.x() + padding,
                 y: frame.y() + padding,
             });
             updateOverlays();
+
+            // Новая функциональность: обновляем соединения
+            if (this.connectionManager && Array.isArray(konvaImg._cp_points)) {
+                konvaImg._cp_points.forEach(pin => {
+                    // Передаем абсолютные координаты
+                    this.connectionManager.updateConnectionsForPin(
+                        pin,
+                        pin.x(),
+                        pin.y(),
+                        true  // isImageDrag = true
+                    );
+                });
+            }
+
             if (this.onImageMoved) this.onImageMoved(konvaImg);
             layer.batchDraw();
         });

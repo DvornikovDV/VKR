@@ -10,7 +10,7 @@ class ConnectionPointManager {
         this.points = [];
         this.onPointSelected = null; // callback для UIController
         this.onPointCreated = null;
-        this.onPointMoved = null;
+        this.onPointMoved = null;   // callback вызывает updateConnectionsForPin
         this.onPointDeleted = null;
         this.onPointDoubleClick = null;
     }
@@ -44,7 +44,11 @@ class ConnectionPointManager {
             point.position(proj.xy);
             current.offset = proj.offset;
             point.setAttr('cp-meta', current);
-            if (this.onPointMoved) this.onPointMoved(point);
+            
+            // Передаем абсолютные координаты
+            if (this.onPointMoved) {
+                this.onPointMoved(point);
+            }
             this.canvasManager.getLayer().batchDraw();
         });
 
@@ -105,7 +109,7 @@ class ConnectionPointManager {
     }
 
     /**
-     * Преобразование стороны и осмещения в координаты
+     * Преобразование стороны и смещения в координаты
      */
     sideAndOffsetToXY(imageNode, side, offset) {
         const left = imageNode.x() - FRAME_PADDING;

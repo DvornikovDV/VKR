@@ -33,7 +33,7 @@ class UIController {
         this.imageManager = new ImageManager(this.canvasManager);
         this.connectionPointManager = new ConnectionPointManager(this.canvasManager);
         this.connectionManager = new ConnectionManager(this.canvasManager);
-        this.selectionManager = new SelectionManager(this.canvasManager);
+        this.selectionManager = new SelectionManager(this.canvasManager, this.connectionManager);
         this.propertiesPanel = new PropertiesPanel(this.canvasManager);
         this.fileManager = new FileManager(
             this.canvasManager,
@@ -42,10 +42,13 @@ class UIController {
             this.connectionManager
         );
 
+        // Необходимо имежду imageManager и connectionManager для Iteration 3
+        this.imageManager.setConnectionManager(this.connectionManager);
+
         // Настраиваем коллбэки менеджеров
         this.setupManagerCallbacks();
 
-        // Настраиваем UI-обывные обработчики
+        // Настраиваем UI-обычные обработчики
         this.setupEventListeners();
     }
 
@@ -85,15 +88,20 @@ class UIController {
             this.propertiesPanel.showDefaultMessage();
         };
 
-        // Когда точка двигается
+        // Когда точка двигается (Iteration 3: координатный подход)
         this.connectionPointManager.onPointMoved = (point) => {
-            this.connectionManager.updateConnectionsForPin(point);
+            // Передаем абсолютные координаты
+            this.connectionManager.updateConnectionsForPin(
+                point,
+                point.x(),
+                point.y(),
+                false  // isImageDrag = false (drag pin, not image)
+            );
         };
 
         // Когда соединение выбрано
         this.connectionManager.onConnectionSelected = (connection) => {
             this.selectionManager.selectConnection(connection);
-            this.connectionManager.addLineEditHandles(connection);
             this.propertiesPanel.showPropertiesForConnection(connection);
         };
     }
@@ -102,7 +110,7 @@ class UIController {
      * Настройка ЕвентЛистенеров
      */
     setupEventListeners() {
-        // Bootstrap тултипы
+        // Bootstrap толтипы
         try {
             const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
             tooltipTriggerList.forEach(function (tooltipTriggerEl) {
@@ -130,7 +138,7 @@ class UIController {
             this.fileManager.clearCanvas();
         });
 
-        // Основные кнопки во ртстсе домиенантго
+        // Основные кнопки во ртстсе доминантного
         const createLineBtn = document.getElementById('create-line-btn');
 
         if (createLineBtn) {
@@ -219,7 +227,7 @@ class UIController {
     }
 
     /**
-     * Обработка клика по пину да созданию линии
+     * Обработка клика по пину для созданию линии
      */
     handlePinClickForLineCreation(point) {
         const meta = point.getAttr('cp-meta');
@@ -244,7 +252,7 @@ class UIController {
     }
 
     /**
-     * Обновление рыбного пресмотра линии
+     * Обновления превью линии
      */
     handleMouseMoveForLinePreview(e) {
         if (!this.firstPinSelected) return;
