@@ -88,11 +88,10 @@ class UIController {
             this.propertiesPanel.showDefaultMessage();
         };
 
-        // Когда точка двигается
-        // При драге ПИНА: вызываем updateConnectionsForPinDrag без delta
-        // (обновляются ОБЕ крайние точки для сохранения ортогональности)
-        this.connectionPointManager.onPointMoved = (point) => {
-            this.connectionManager.updateConnectionsForPinDrag(point);
+        // Когда точка двигается (Iteration 3: обновляем соединения с дельтой)
+        this.connectionPointManager.onPointMoved = (point, movementData) => {
+            const { deltaX = 0, deltaY = 0 } = movementData || {};
+            this.connectionManager.updateConnectionsForPinDrag(point, deltaX, deltaY);
         };
 
         // Когда соединение выбрано
@@ -134,7 +133,7 @@ class UIController {
             this.fileManager.clearCanvas();
         });
 
-        // Основные кнопки во ртстсе домиенантного
+        // Основные кнопки во ртстсе доминантного
         const createLineBtn = document.getElementById('create-line-btn');
 
         if (createLineBtn) {
@@ -223,7 +222,7 @@ class UIController {
     }
 
     /**
-     * Обработка клика по пину да созданию линии
+     * Обработка клика по пину для созданию линии
      */
     handlePinClickForLineCreation(point) {
         const meta = point.getAttr('cp-meta');
@@ -248,7 +247,7 @@ class UIController {
     }
 
     /**
-     * Обновления рыбного пресмотра линии
+     * Обновления превью линии
      */
     handleMouseMoveForLinePreview(e) {
         if (!this.firstPinSelected) return;
