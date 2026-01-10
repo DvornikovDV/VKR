@@ -30,7 +30,7 @@ class SelectionManager {
             
             this.canvasClickListenerSetup = true;
         } catch (err) {
-            // Нет стажа - попробуем позже
+            // Нет стажа - попытаемся позднее
         }
     }
 
@@ -105,9 +105,9 @@ class SelectionManager {
         connection.setAttr('connection-meta', connMeta);
         
         // Отметить в connectionManager как текущее выделеное
+        // и добавить ручки
         if (this.connectionManager) {
-            this.connectionManager.setSelectedConnection(connection);
-            this.connectionManager.addLineEditHandles(connection);
+            this.connectionManager.selectConnection(connection);
         }
         
         layer.batchDraw();
@@ -117,10 +117,9 @@ class SelectionManager {
             // Очистить ссылку на подсветку
             connMeta.highlightLine = null;
             connection.setAttr('connection-meta', connMeta);
-            // Скрыть ручки при снятии выделения
+            // Снять выделение в connectionManager
             if (this.connectionManager) {
-                this.connectionManager.removeLineEditHandles(connection);
-                this.connectionManager.setSelectedConnection(null);
+                this.connectionManager.deselectConnection(connection);
             }
             layer.batchDraw();
         };
