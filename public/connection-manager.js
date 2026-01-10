@@ -120,44 +120,31 @@ class ConnectionManager {
 
     /**
      * Унифицированный метод обновления соединений
-     * Обрабатывает и движение пинов, и движение изображений
+     * Новые координаты трансмиттируются прямо в ConnectionUpdater
      * 
-     * @param {Konva.Circle} pin - Пин
-     * @param {Object} moveData - {deltaX, deltaY, isImageDrag}
+     * @param {Konva.Circle} pin - Пин, связанный с движением
+     * @param {number} newX - Новая X координата пина
+     * @param {number} newY - Новая Y координата пина
+     * @param {boolean} isImageDrag - true если движение изображения
      */
-    updateConnections(pin, moveData) {
+    updateConnectionsForPin(pin, newX, newY, isImageDrag = false) {
+        const oldX = pin.x();
+        const oldY = pin.y();
+        
+        // Обновить позицию пина
+        pin.position({ x: newX, y: newY });
+        
+        // Обновить соединения с новыми и старыми координатами
         this.updater.updateConnections(
             pin,
-            moveData,
+            newX,
+            newY,
+            oldX,
+            oldY,
+            isImageDrag,
             this.connections,
             (conn) => this.editor.redrawConnection(conn)
         );
-    }
-
-    /**
-     * Обновить соединения при драге ИЗОБРАЖЕНИЯ
-     * Конвениенс для UIController - автоматически устанавливает isImageDrag
-     */
-    updateConnectionsForImageDrag(pin, imageMoveData) {
-        const moveData = {
-            deltaX: imageMoveData.deltaX || 0,
-            deltaY: imageMoveData.deltaY || 0,
-            isImageDrag: true
-        };
-        this.updateConnections(pin, moveData);
-    }
-
-    /**
-     * Обновить соединения при драге ПИНА
-     * Конвениенс для ConnectionPointManager - автоматически устанавливает isImageDrag=false
-     */
-    updateConnectionsForPinDrag(pin, deltaX = 0, deltaY = 0) {
-        const moveData = {
-            deltaX,
-            deltaY,
-            isImageDrag: false
-        };
-        this.updateConnections(pin, moveData);
     }
 
     /**
@@ -176,7 +163,7 @@ class ConnectionManager {
 
     /**
      * Добавить ручки редактирования
-     * Используется selectionManager
+     * Оспальзуется selectionManager
      */
     addLineEditHandles(connection) {
         this.editor.addLineEditHandles(connection);
@@ -184,7 +171,7 @@ class ConnectionManager {
 
     /**
      * Удалить ручки редактирования
-     * Используется selectionManager
+     * Оспальзуется selectionManager
      */
     removeLineEditHandles(connection) {
         this.editor.removeLineEditHandles(connection);
@@ -218,7 +205,7 @@ class ConnectionManager {
     }
 
     /**
-     * Установить выбранное соединение (используется selection-manager)
+     * Установить выбранное соединение (оласпальзуется selection-manager)
      */
     setSelectedConnection(connection) {
         this.selectedConnection = connection;
