@@ -67,6 +67,86 @@ class ConnectionEditor {
     }
 
     /**
+     * Добавить разрыв (break point) на сегмент
+     * Вставляет две новые точки в points[] соединения
+     * @param {Konva.Line} connection - соединение
+     * @param {number} segmentIndex - индекс сегмента для вставки
+     * @param {Object} clickPoint - точка клика {x, y}
+     */
+    addBreakPointToSegment(connection, segmentIndex, clickPoint) {
+        const meta = connection.getAttr('connection-meta');
+        const segments = meta.segments;
+
+        if (segmentIndex < 0 || segmentIndex >= segments.length) {
+            console.warn('Invalid segment index for break point');
+            return;
+        }
+
+        const segment = segments[segmentIndex];
+        const newPoint = this.getProjectedPointOnSegment(clickPoint, segment);
+
+        // Создать две новые точки на месте разрыва
+        const newSegment1 = {
+            index: segmentIndex,
+            direction: segment.direction,
+            start: segment.start,
+            end: newPoint
+        };
+
+        const newSegment2 = {
+            index: segmentIndex + 1,
+            direction: segment.direction === 'H' ? 'V' : 'H',
+            start: newPoint,
+            end: newPoint
+        };
+
+        const newSegment3 = {
+            index: segmentIndex + 2,
+            direction: segment.direction,
+            start: newPoint,
+            end: segment.end
+        };
+
+        // Вставить новые сегменты в массив
+        segments.splice(segmentIndex, 1, newSegment1, newSegment2, newSegment3);
+
+        // Пересчитать индексы
+        for (let i = segmentIndex + 3; i < segments.length; i++) {
+            segments[i].index = i;
+        }
+
+        // Обновить соединение
+        meta.segments = segments;
+        connection.setAttr('connection-meta', meta);
+
+        // Перерисовать и обновить ручки
+        this.redrawConnection(connection);
+        this.addLineEditHandles(connection);
+    }
+
+    /**
+     * Получить проецируемую точку на сегмент
+     * @param {Object} clickPoint - исходная точка клика
+     * @param {Object} segment - сегмент
+     * @returns {Object} - проецируемая точка {x, y}
+     */
+    getProjectedPointOnSegment(clickPoint, segment) {
+        const { start, end, direction } = segment;
+
+        if (direction === 'H') {
+            return {
+                x: Math.max(Math.min(start.x, end.x), Math.min(Math.max(start.x, end.x), clickPoint.x)),
+                y: start.y
+            };
+        } else {
+            return {
+                x: start.x,
+                y: Math.max(Math.min(start.y, end.y), Math.min(Math.max(start.y, end.y), clickPoint.y))
+            };
+        }
+    }
+
+    /**
      * Обработчик движения ручки
      */
     onHandleDragMove(handle, connection) {
