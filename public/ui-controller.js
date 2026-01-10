@@ -45,7 +45,7 @@ class UIController {
         // Настраиваем коллбэки менеджеров
         this.setupManagerCallbacks();
 
-        // Настраиваем UI-обывные обработчики
+        // Настраиваем UI-обычные обработчики
         this.setupEventListeners();
     }
 
@@ -101,7 +101,7 @@ class UIController {
      * Настройка ЕвентЛистенеров
      */
     setupEventListeners() {
-        // Bootstrap тултипы
+        // Bootstrap толтипы
         try {
             const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
             tooltipTriggerList.forEach(function (tooltipTriggerEl) {
@@ -129,7 +129,7 @@ class UIController {
             this.fileManager.clearCanvas();
         });
 
-        // Основные кнопки во ртстсе домиенантго
+        // Основные кнопки во ртстсе домиенантного
         const createLineBtn = document.getElementById('create-line-btn');
 
         if (createLineBtn) {
