@@ -5,6 +5,7 @@
 import { ConnectionRouter } from './connection-router.js';
 import { ConnectionEditor } from './connection-editor.js';
 import { ConnectionUpdater } from './connection-updater.js';
+import { ConnectionBreaker } from './connection-breaker.js';
 
 class ConnectionManager {
     constructor(canvasManager) {
@@ -13,6 +14,7 @@ class ConnectionManager {
         this.router = new ConnectionRouter();
         this.editor = new ConnectionEditor(canvasManager);
         this.updater = new ConnectionUpdater(canvasManager);
+        this.breaker = ConnectionBreaker;
         
         // Коллбэки
         this.onConnectionCreated = null;
@@ -119,6 +121,35 @@ class ConnectionManager {
     }
 
     /**
+     * Добавить точку отклонения к сегменту
+     * Отклоняющиеся маршруты уходят как туннели в небо
+     */
+    addBreakToSegment(connection, segmentIndex) {
+        const meta = connection.getAttr('connection-meta');
+        
+        // Не позволять аждать сегменты то если уже в режиме отклонения
+        if (this.breaker.isInBreakMode(meta)) {
+            console.warn('Отклонения уже добавлены к соединению');
+            return;
+        }
+        
+        // Добавить отклонения
+        const updatedMeta = this.breaker.addBreakToSegment(meta, segmentIndex);
+        connection.setAttr('connection-meta', updatedMeta);
+        
+        // Обновить рендер
+        this.editor.redrawConnection(connection);
+        
+        // Обновить ручки
+        if (this.selectedConnection === connection) {
+            this.editor.removeLineEditHandles(connection);
+            this.editor.addLineEditHandles(connection);
+        }
+        
+        console.log(`Добавлено отклонение в сегмент ${segmentIndex}`);
+    }
+
+    /**
      * Унифицированный метод обновления соединений
      * Новые координаты трансмиттируются прямо в ConnectionUpdater
      * 
@@ -171,7 +202,6 @@ class ConnectionManager {
 
     /**
      * Добавить ручки редактирования
-     * Оспальзуется selectionManager
      */
     addLineEditHandles(connection) {
         this.editor.addLineEditHandles(connection);
@@ -179,7 +209,6 @@ class ConnectionManager {
 
     /**
      * Удалить ручки редактирования
-     * Оспальзуется selectionManager
      */
     removeLineEditHandles(connection) {
         this.editor.removeLineEditHandles(connection);
@@ -190,10 +219,9 @@ class ConnectionManager {
      */
     selectConnection(connection) {
         if (this.selectedConnection === connection) {
-            return; // Уже выбрано
+            return;
         }
 
-        // Убрать ручки с предыдущего
         if (this.selectedConnection && this.selectedConnection !== connection) {
             this.hideHandles(this.selectedConnection);
         }
@@ -210,13 +238,6 @@ class ConnectionManager {
             this.hideHandles(connection);
             this.selectedConnection = null;
         }
-    }
-
-    /**
-     * Установить выбранное соединение (оласпальзуется selection-manager)
-     */
-    setSelectedConnection(connection) {
-        this.selectedConnection = connection;
     }
 
     /**
