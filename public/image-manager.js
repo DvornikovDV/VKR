@@ -53,6 +53,42 @@ class ImageManager {
     }
 
     /**
+     * Удалить изображение со сцены
+     */
+    deleteImage(konvaImg) {
+        if (!konvaImg) return;
+        
+        const layer = this.canvasManager.getLayer();
+        
+        // Удалить рамку и ручку
+        if (konvaImg._frame) {
+            konvaImg._frame.destroy();
+        }
+        if (konvaImg._handle) {
+            konvaImg._handle.destroy();
+        }
+        
+        // Удалить все точки соединения этого изображения
+        if (Array.isArray(konvaImg._cp_points)) {
+            konvaImg._cp_points.forEach(point => {
+                point.destroy();
+            });
+            konvaImg._cp_points = [];
+        }
+        
+        // Удалить само изображение
+        konvaImg.destroy();
+        
+        // Удалить из массива
+        const index = this.images.indexOf(konvaImg);
+        if (index > -1) {
+            this.images.splice(index, 1);
+        }
+        
+        layer.batchDraw();
+    }
+
+    /**
      * Прикрепить рамку выделения к изображению
      */
     attachSelectionFrame(konvaImg) {
