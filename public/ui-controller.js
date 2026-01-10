@@ -21,6 +21,7 @@ class UIController {
         this.fileManager = null;
 
         this.isCreateLineMode = false;
+        this.isConnectionEditMode = false;
         this.firstPinSelected = null;
         this.previewLine = null;
 
@@ -52,6 +53,7 @@ class UIController {
      */
     setupManagerCallbacks() {
         this.imageManager.onImageSelected = (konvaImg, frame, handle) => {
+            this.setConnectionEditMode(false);
             this.selectionManager.selectElement(konvaImg, frame, handle);
         };
 
@@ -63,6 +65,7 @@ class UIController {
 
         this.connectionPointManager.onPointSelected = (point) => {
             if (!this.isCreateLineMode) {
+                this.setConnectionEditMode(false);
                 this.selectionManager.clearSelection();
                 this.propertiesPanel.showPropertiesForPoint(point);
             }
@@ -89,9 +92,29 @@ class UIController {
         };
 
         this.connectionManager.onConnectionSelected = (connection) => {
+            this.setConnectionEditMode(true);
             this.selectionManager.selectConnection(connection);
             this.propertiesPanel.showPropertiesForConnection(connection);
         };
+    }
+
+    /**
+     * Установить режим редактирования соединения
+     */
+    setConnectionEditMode(value) {
+        if (this.isConnectionEditMode === value) return;
+
+        this.isConnectionEditMode = value;
+
+        const editBtn = document.getElementById('edit-connection-btn');
+        if (editBtn) {
+            editBtn.classList.toggle('active', value);
+        }
+
+        const canvasArea = document.querySelector('.canvas-area');
+        if (canvasArea) {
+            canvasArea.classList.toggle('edit-mode', value);
+        }
     }
 
     /**
@@ -128,18 +151,33 @@ class UIController {
             });
         }
 
+        const deleteBtn = document.getElementById('delete-selected-btn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', () => {
+                this.deleteSelected();
+            });
+        }
+
         const layer = this.canvasManager.getLayer();
         layer.on('dblclick', (e) => {
-            this.handleLineDoubleClick(e);
+            this.handleLayerDoubleClick(e);
+        });
+
+        const stage = this.canvasManager.getStage();
+        stage.on('click', (e) => {
+            if (e.target === stage) {
+                this.setConnectionEditMode(false);
+            }
         });
     }
 
     /**
-     * Обработчик двойного клика на линию
+     * Обработчик двойного клика на слой (для break points)
      */
-    handleLineDoubleClick(e) {
-        const selectedConnection = this.connectionManager.getSelectedConnection();
+    handleLayerDoubleClick(e) {
+        if (!this.isConnectionEditMode) return;
 
+        const selectedConnection = this.connectionManager.getSelectedConnection();
         if (!selectedConnection) return;
 
         const pointerPos = this.getPointerStageCoords();
@@ -147,7 +185,6 @@ class UIController {
         const segments = meta.segments;
 
         const nearest = ConnectionRouter.findNearestSegment(segments, pointerPos, 30);
-
         if (!nearest) return;
 
         e.cancelBubble = true;
@@ -156,6 +193,25 @@ class UIController {
             nearest.segmentIndex,
             pointerPos
         );
+    }
+
+    /**
+     * Удалить выбранный элемент
+     */
+    deleteSelected() {
+        const selected = this.selectionManager.getSelected();
+        if (!selected) return;
+
+        if (selected.connection) {
+            this.connectionManager.deleteConnection(selected.connection);
+            this.setConnectionEditMode(false);
+            this.selectionManager.clearSelection();
+            this.propertiesPanel.showDefaultMessage();
+        } else if (selected.node) {
+            this.imageManager.deleteImage(selected.node);
+            this.selectionManager.clearSelection();
+            this.propertiesPanel.showDefaultMessage();
+        }
     }
 
     /**
@@ -187,6 +243,8 @@ class UIController {
         }
 
         if (this.isCreateLineMode) {
+            this.setConnectionEditMode(false);
+            this.selectionManager.clearSelection();
             this.setupLineCreationMode();
         } else {
             this.teardownLineCreationMode();
@@ -194,7 +252,7 @@ class UIController {
     }
 
     /**
-     * Настройа режим создания
+     * Настроя режим создания
      */
     setupLineCreationMode() {
         const points = this.connectionPointManager.getPoints();
