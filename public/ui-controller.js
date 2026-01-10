@@ -23,6 +23,9 @@ class UIController {
         this.isCreateLineMode = false;
         this.firstPinSelected = null;
         this.previewLine = null;
+        
+        // режим добавления брейктов
+        this.isBreakMode = false;
 
         this.init();
     }
@@ -146,6 +149,27 @@ class UIController {
                 this.toggleLineCreationMode();
             });
         }
+        
+        // Кнопка добавления брейктов
+        const addBreakBtn = document.getElementById('add-break-btn');
+        if (addBreakBtn) {
+            addBreakBtn.addEventListener('click', () => {
+                this.toggleBreakMode();
+            });
+        }
+        
+        // Клик на соединение для добавления брейка
+        const stage = this.canvasManager.getStage();
+        stage.on('click', (e) => {
+            if (!this.isBreakMode) return;
+            
+            // Проверить если клик на соединение
+            if (e.target && e.target.getAttr && e.target.getAttr('connection-meta')) {
+                const connection = e.target;
+                const pos = this.getPointerStageCoords();
+                this.handleConnectionClickForBreak(connection, pos);
+            }
+        });
     }
 
     /**
@@ -180,6 +204,17 @@ class UIController {
             this.setupLineCreationMode();
         } else {
             this.teardownLineCreationMode();
+        }
+    }
+    
+    /**
+     * Переключать режим добавления брейков
+     */
+    toggleBreakMode() {
+        this.isBreakMode = !this.isBreakMode;
+        const addBreakBtn = document.getElementById('add-break-btn');
+        if (addBreakBtn) {
+            addBreakBtn.classList.toggle('active', this.isBreakMode);
         }
     }
 
@@ -250,6 +285,40 @@ class UIController {
             this.clearPreviewLine();
         }
     }
+    
+    /**
+     * Обработка клика та соединению для добавления брейка
+     */
+    handleConnectionClickForBreak(connection, clickPos) {
+        const connMeta = connection.getAttr('connection-meta');
+        if (!connMeta || !connMeta.segments) return;
+        
+        // Найти ближайший сегмент среди тем, не выступающих из оконцов
+        let closestSegmentIdx = -1;
+        let minDist = Infinity;
+        
+        for (let i = 1; i < connMeta.segments.length - 1; i++) {
+            const seg = connMeta.segments[i];
+            const segMidX = (seg.start.x + seg.end.x) / 2;
+            const segMidY = (seg.start.y + seg.end.y) / 2;
+            const dist = Math.sqrt((clickPos.x - segMidX) ** 2 + (clickPos.y - segMidY) ** 2);
+            
+            if (dist < minDist) {
+                minDist = dist;
+                closestSegmentIdx = i;
+            }
+        }
+        
+        if (closestSegmentIdx !== -1 && minDist < 30) {
+            // Добавить брейк
+            this.connectionManager.addBreakToSegment(connection, closestSegmentIdx);
+            this.isBreakMode = false;
+            const addBreakBtn = document.getElementById('add-break-btn');
+            if (addBreakBtn) {
+                addBreakBtn.classList.remove('active');
+            }
+        }
+    }
 
     /**
      * Обновления превью линии
@@ -262,7 +331,7 @@ class UIController {
     }
 
     /**
-     * Обновление рисунка предварительного линии
+     * Обновление рисунка предварительного линие
      */
     updatePreviewLine(startPos, endPos) {
         if (this.previewLine) {
