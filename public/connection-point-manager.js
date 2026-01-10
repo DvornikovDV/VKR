@@ -10,10 +10,9 @@ class ConnectionPointManager {
         this.points = [];
         this.onPointSelected = null; // callback для UIController
         this.onPointCreated = null;
-        this.onPointMoved = null;   // callback вызывает updateConnectionsForPinDrag
+        this.onPointMoved = null;   // callback вызывает updateConnectionsForPin
         this.onPointDeleted = null;
         this.onPointDoubleClick = null;
-        this.dragStartPos = {}; // Трек позиции при начале drag'а
     }
 
     /**
@@ -38,14 +37,6 @@ class ConnectionPointManager {
         const id = 'cp_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
         point.setAttr('cp-meta', { id, side, offset, connectedTo: null, imageId: imageNode._id || '' });
 
-        // Трек начальной позиции при начале drag'а
-        point.on('dragstart', () => {
-            this.dragStartPos[id] = {
-                x: point.x(),
-                y: point.y()
-            };
-        });
-
         // перемещение вдоль стороны
         point.on('dragmove', () => {
             const current = point.getAttr('cp-meta');
@@ -54,20 +45,11 @@ class ConnectionPointManager {
             current.offset = proj.offset;
             point.setAttr('cp-meta', current);
             
-            // Вычисляем дельта для обновления соединений
-            const startPos = this.dragStartPos[id] || { x: proj.xy.x, y: proj.xy.y };
-            const deltaX = proj.xy.x - startPos.x;
-            const deltaY = proj.xy.y - startPos.y;
-            
+            // Передаем абсолютные координаты
             if (this.onPointMoved) {
-                this.onPointMoved(point, { deltaX, deltaY });
+                this.onPointMoved(point);
             }
             this.canvasManager.getLayer().batchDraw();
-        });
-
-        // Очистка при конце drag'а
-        point.on('dragend', () => {
-            delete this.dragStartPos[id];
         });
 
         // клик — показать свойства
@@ -194,11 +176,6 @@ class ConnectionPointManager {
      * Удалить точку
      */
     deletePoint(point) {
-        const meta = point.getAttr('cp-meta');
-        if (meta && meta.id) {
-            delete this.dragStartPos[meta.id];
-        }
-        
         const index = this.points.indexOf(point);
         if (index > -1) {
             this.points.splice(index, 1);
@@ -223,7 +200,6 @@ class ConnectionPointManager {
     clear() {
         this.points.forEach(p => p.destroy());
         this.points = [];
-        this.dragStartPos = {};
     }
 }
 
