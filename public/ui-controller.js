@@ -88,10 +88,15 @@ class UIController {
             this.propertiesPanel.showDefaultMessage();
         };
 
-        // Когда точка двигается (Iteration 3: обновляем соединения с дельтой)
-        this.connectionPointManager.onPointMoved = (point, movementData) => {
-            const { deltaX = 0, deltaY = 0 } = movementData || {};
-            this.connectionManager.updateConnectionsForPinDrag(point, deltaX, deltaY);
+        // Когда точка двигается (Iteration 3: координатный подход)
+        this.connectionPointManager.onPointMoved = (point) => {
+            // Передаем абсолютные координаты
+            this.connectionManager.updateConnectionsForPin(
+                point,
+                point.x(),
+                point.y(),
+                false  // isImageDrag = false (drag pin, not image)
+            );
         };
 
         // Когда соединение выбрано
