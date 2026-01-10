@@ -10,8 +10,18 @@ class ImageManager {
         this.images = [];
         this.selectedImage = null;
         this.onImageSelected = null; // callback для UIController
-        this.onImageMoved = null;
+        this.onImageMoved = null;    // callback вызывается при драге изображения
         this.onImageScaled = null;
+        this.connectionManager = null; // будет продан из UIController
+        this.lastImagePosition = {}; // трек последних позиций для delta начисления
+    }
+
+    /**
+     * Установить менеджер соединений
+     * Нужно для обновления соединений при драге изображения
+     */
+    setConnectionManager(connectionManager) {
+        this.connectionManager = connectionManager;
     }
 
     /**
@@ -33,6 +43,12 @@ class ImageManager {
             // Новые идентификаторы
             konvaImg._id = 'img_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
             konvaImg._cp_points = []; // точки соединения
+
+            // Инициализируем последнюю позицию для дельта
+            this.lastImagePosition[konvaImg._id] = {
+                x: konvaImg.x(),
+                y: konvaImg.y()
+            };
 
             layer.add(konvaImg);
             this.attachSelectionFrame(konvaImg);
@@ -65,7 +81,7 @@ class ImageManager {
         frame.fillEnabled(false);
         frame.hitStrokeWidth(20);
 
-        // ручка резайза
+        // ручка ресайза
         const handle = new Konva.Circle({
             radius: HANDLE_RADIUS,
             fill: '#007bff',
@@ -110,20 +126,73 @@ class ImageManager {
             layer.batchDraw();
         });
 
-        // перемещение изображения
+        // перемещение изображения (ITERATION 3: обновляем соединения)
         konvaImg.on('dragmove', () => {
             updateOverlays();
+            
+            // Новая функциональность: обновляем соединения
+            if (this.connectionManager && Array.isArray(konvaImg._cp_points)) {
+                // Обычная процедура: треким ластПоситион
+                if (!this.lastImagePosition[konvaImg._id]) {
+                    this.lastImagePosition[konvaImg._id] = { x: konvaImg.x(), y: konvaImg.y() };
+                    return; // Первый dragмове - инициализуем
+                }
+
+                const lastPos = this.lastImagePosition[konvaImg._id];
+                const deltaX = konvaImg.x() - lastPos.x;
+                const deltaY = konvaImg.y() - lastPos.y;
+
+                // Обновляем соединения для каждого пина
+                konvaImg._cp_points.forEach(pin => {
+                    this.connectionManager.updateConnectionsForImageDrag(pin, {
+                        deltaX: deltaX,
+                        deltaY: deltaY
+                    });
+                });
+
+                // Обновляем последнюю позицию
+                this.lastImagePosition[konvaImg._id] = {
+                    x: konvaImg.x(),
+                    y: konvaImg.y()
+                };
+            }
+
             if (this.onImageMoved) this.onImageMoved(konvaImg);
             layer.batchDraw();
         });
 
-        // перемещение по рамке
+        // перемещение по рамке (ITERATION 3: обновляем соединения)
         frame.on('dragmove', () => {
             konvaImg.position({
                 x: frame.x() + padding,
                 y: frame.y() + padding,
             });
             updateOverlays();
+
+            // Новая функциональность: обновляем соединения
+            if (this.connectionManager && Array.isArray(konvaImg._cp_points)) {
+                if (!this.lastImagePosition[konvaImg._id]) {
+                    this.lastImagePosition[konvaImg._id] = { x: konvaImg.x(), y: konvaImg.y() };
+                    return;
+                }
+
+                const lastPos = this.lastImagePosition[konvaImg._id];
+                const deltaX = konvaImg.x() - lastPos.x;
+                const deltaY = konvaImg.y() - lastPos.y;
+
+                konvaImg._cp_points.forEach(pin => {
+                    this.connectionManager.updateConnectionsForImageDrag(pin, {
+                        deltaX: deltaX,
+                        deltaY: deltaY
+                    });
+                });
+
+                this.lastImagePosition[konvaImg._id] = {
+                    x: konvaImg.x(),
+                    y: konvaImg.y()
+                };
+            }
+
             if (this.onImageMoved) this.onImageMoved(konvaImg);
             layer.batchDraw();
         });
@@ -187,6 +256,7 @@ class ImageManager {
     clear() {
         this.images = [];
         this.selectedImage = null;
+        this.lastImagePosition = {};
     }
 }
 
