@@ -8,6 +8,7 @@ import { ConnectionManager } from './connection-manager.js';
 import { SelectionManager } from './selection-manager.js';
 import { PropertiesPanel } from './properties-panel.js';
 import { FileManager } from './file-manager.js';
+import { ConnectionRouter } from './connection-router.js';
 
 class UIController {
     constructor() {
@@ -19,7 +20,6 @@ class UIController {
         this.propertiesPanel = null;
         this.fileManager = null;
 
-        // состояние режима создания линий
         this.isCreateLineMode = false;
         this.firstPinSelected = null;
         this.previewLine = null;
@@ -28,7 +28,6 @@ class UIController {
     }
 
     init() {
-        // Одновременная инициализация всех менеджеров
         this.canvasManager = new CanvasManager();
         this.imageManager = new ImageManager(this.canvasManager);
         this.connectionPointManager = new ConnectionPointManager(this.canvasManager);
@@ -42,13 +41,9 @@ class UIController {
             this.connectionManager
         );
 
-        // Необходимо имежду imageManager и connectionManager для Iteration 3
         this.imageManager.setConnectionManager(this.connectionManager);
 
-        // Настраиваем коллбэки менеджеров
         this.setupManagerCallbacks();
-
-        // Настраиваем UI-обычные обработчики
         this.setupEventListeners();
     }
 
@@ -56,19 +51,16 @@ class UIController {
      * Настройка каллбэков менеджеров
      */
     setupManagerCallbacks() {
-        // Когда изображение выбрано
         this.imageManager.onImageSelected = (konvaImg, frame, handle) => {
             this.selectionManager.selectElement(konvaImg, frame, handle);
         };
 
-        // Когда двойной клик по рамке
         this.imageManager.onFrameDoubleClick = (konvaImg, frame) => {
             const pos = this.getPointerStageCoords();
             const sideMeta = this.getNearestSideAndOffsetFromFrame(frame, pos);
             this.connectionPointManager.createConnectionPointOnSide(konvaImg, sideMeta.side, sideMeta.offset);
         };
 
-        // Когда точка выбрана
         this.connectionPointManager.onPointSelected = (point) => {
             if (!this.isCreateLineMode) {
                 this.selectionManager.clearSelection();
@@ -76,7 +68,6 @@ class UIController {
             }
         };
 
-        // Когда точка удаляется
         this.connectionPointManager.onPointDoubleClick = (point) => {
             if (this.isCreateLineMode) return;
             const meta = point.getAttr('cp-meta');
@@ -88,18 +79,15 @@ class UIController {
             this.propertiesPanel.showDefaultMessage();
         };
 
-        // Когда точка двигается (Iteration 3: координатный подход)
         this.connectionPointManager.onPointMoved = (point) => {
-            // Передаем абсолютные координаты
             this.connectionManager.updateConnectionsForPin(
                 point,
                 point.x(),
                 point.y(),
-                false  // isImageDrag = false (drag pin, not image)
+                false
             );
         };
 
-        // Когда соединение выбрано
         this.connectionManager.onConnectionSelected = (connection) => {
             this.selectionManager.selectConnection(connection);
             this.propertiesPanel.showPropertiesForConnection(connection);
@@ -110,7 +98,6 @@ class UIController {
      * Настройка ЕвентЛистенеров
      */
     setupEventListeners() {
-        // Bootstrap толтипы
         try {
             const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
             tooltipTriggerList.forEach(function (tooltipTriggerEl) {
@@ -118,34 +105,57 @@ class UIController {
             });
         } catch (_) {}
 
-        // Кнопка добавления изображения
         document.getElementById('add-image-btn').addEventListener('click', () => {
             this.addImage();
         });
 
-        // Кнопка сохранения
         document.getElementById('save-btn').addEventListener('click', () => {
             this.fileManager.saveScheme();
         });
 
-        // Кнопка загружки
         document.getElementById('load-btn').addEventListener('click', () => {
             this.fileManager.loadScheme();
         });
 
-        // Кнопка очистки
         document.getElementById('clear-btn').addEventListener('click', () => {
             this.fileManager.clearCanvas();
         });
 
-        // Основные кнопки во ртстсе доминантного
         const createLineBtn = document.getElementById('create-line-btn');
-
         if (createLineBtn) {
             createLineBtn.addEventListener('click', () => {
                 this.toggleLineCreationMode();
             });
         }
+
+        const layer = this.canvasManager.getLayer();
+        layer.on('dblclick', (e) => {
+            this.handleLineDoubleClick(e);
+        });
+    }
+
+    /**
+     * Обработчик двойного клика на линию
+     */
+    handleLineDoubleClick(e) {
+        const selectedConnection = this.connectionManager.getSelectedConnection();
+
+        if (!selectedConnection) return;
+
+        const pointerPos = this.getPointerStageCoords();
+        const meta = selectedConnection.getAttr('connection-meta');
+        const segments = meta.segments;
+
+        const nearest = ConnectionRouter.findNearestSegment(segments, pointerPos, 30);
+
+        if (!nearest) return;
+
+        e.cancelBubble = true;
+        this.connectionManager.editor.addBreakPointToSegment(
+            selectedConnection,
+            nearest.segmentIndex,
+            pointerPos
+        );
     }
 
     /**
@@ -184,7 +194,7 @@ class UIController {
     }
 
     /**
-     * Настроя режим создания
+     * Настройа режим создания
      */
     setupLineCreationMode() {
         const points = this.connectionPointManager.getPoints();
