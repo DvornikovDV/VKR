@@ -42,6 +42,9 @@ class UIController {
             this.connectionManager
         );
 
+        // Необходимо имежду imageManager и connectionManager для Iteration 3
+        this.imageManager.setConnectionManager(this.connectionManager);
+
         // Настраиваем коллбэки менеджеров
         this.setupManagerCallbacks();
 
