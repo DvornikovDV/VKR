@@ -53,8 +53,14 @@ class UIController {
      */
     setupManagerCallbacks() {
         this.imageManager.onImageSelected = (konvaImg, frame, handle) => {
+            // гарантируем выключение режимов
+            if (this.isCreateLineMode) {
+                this.toggleLineCreationMode();
+            }
             this.setConnectionEditMode(false);
             this.selectionManager.selectElement(konvaImg, frame, handle);
+            // обновить панель свойств
+            this.propertiesPanel.showPropertiesForImage(konvaImg);
         };
 
         this.imageManager.onFrameDoubleClick = (konvaImg, frame) => {
@@ -92,6 +98,10 @@ class UIController {
         };
 
         this.connectionManager.onConnectionSelected = (connection) => {
+            // гарантируем выключение режима создания линий
+            if (this.isCreateLineMode) {
+                this.toggleLineCreationMode();
+            }
             this.setConnectionEditMode(true);
             this.selectionManager.selectConnection(connection);
             this.propertiesPanel.showPropertiesForConnection(connection);
@@ -167,6 +177,7 @@ class UIController {
         stage.on('click', (e) => {
             if (e.target === stage) {
                 this.setConnectionEditMode(false);
+                this.propertiesPanel.showDefaultMessage();
             }
         });
     }
@@ -245,6 +256,7 @@ class UIController {
         if (this.isCreateLineMode) {
             this.setConnectionEditMode(false);
             this.selectionManager.clearSelection();
+            this.propertiesPanel.showDefaultMessage();
             this.setupLineCreationMode();
         } else {
             this.teardownLineCreationMode();
@@ -295,7 +307,7 @@ class UIController {
     }
 
     /**
-     * Обработка клика по пину для созданию линии
+     * Обработка клика по пину для создану линии
      */
     handlePinClickForLineCreation(point) {
         const meta = point.getAttr('cp-meta');
