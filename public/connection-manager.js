@@ -119,39 +119,45 @@ class ConnectionManager {
     }
 
     /**
-     * Обновить соединения при движении пина (Iteration 3)
-     * Используется при драге изображения
+     * Унифицированный метод обновления соединений
+     * Обрабатывает и движение пинов, и движение изображений
+     * 
+     * @param {Konva.Circle} pin - Пин
+     * @param {Object} moveData - {deltaX, deltaY, isImageDrag}
      */
-    updateConnectionsForImageDrag(pin, imageMoveData) {
-        this.updater.updateConnectionsForPin(
+    updateConnections(pin, moveData) {
+        this.updater.updateConnections(
             pin,
-            imageMoveData,
+            moveData,
             this.connections,
             (conn) => this.editor.redrawConnection(conn)
         );
     }
 
     /**
-     * Обновить соединения при движении пина (без параметра delta)
-     * Используется при прямом движении пина
+     * Обновить соединения при драге ИЗОБРАЖЕНИЯ
+     * Конвениенс для UIController - автоматически устанавливает isImageDrag
      */
-    updateConnectionsForPin(pin) {
-        // Пересчитываем маршруты для всех соединений с этим пином
-        this.connections.forEach(connection => {
-            const connMeta = connection.getAttr('connection-meta');
-            if (!connMeta) return;
+    updateConnectionsForImageDrag(pin, imageMoveData) {
+        const moveData = {
+            deltaX: imageMoveData.deltaX || 0,
+            deltaY: imageMoveData.deltaY || 0,
+            isImageDrag: true
+        };
+        this.updateConnections(pin, moveData);
+    }
 
-            const isFromPin = connMeta.fromPin === pin;
-            const isToPin = connMeta.toPin === pin;
-
-            if (!isFromPin && !isToPin) return;
-
-            // Пересчитать сегменты с новых позиций пинов
-            const segments = ConnectionRouter.calculateSegments(connMeta.fromPin, connMeta.toPin);
-            connMeta.segments = segments;
-            connection.setAttr('connection-meta', connMeta);
-            this.editor.redrawConnection(connection);
-        });
+    /**
+     * Обновить соединения при драге ПИНА
+     * Конвениенс для ConnectionPointManager - автоматически устанавливает isImageDrag=false
+     */
+    updateConnectionsForPinDrag(pin, deltaX = 0, deltaY = 0) {
+        const moveData = {
+            deltaX,
+            deltaY,
+            isImageDrag: false
+        };
+        this.updateConnections(pin, moveData);
     }
 
     /**
