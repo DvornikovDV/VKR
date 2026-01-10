@@ -54,6 +54,7 @@ class ConnectionManager {
 
         connection.on('click', (e) => {
             e.cancelBubble = true;
+            this.selectConnection(connection);
             if (this.onConnectionSelected) {
                 this.onConnectionSelected(connection);
             }
@@ -118,7 +119,8 @@ class ConnectionManager {
     }
 
     /**
-     * Обновить соединения на итерации 3: обновление при драге изображения
+     * Обновить соединения при движении пина (Iteration 3)
+     * Используется при драге изображения
      */
     updateConnectionsForImageDrag(pin, imageMoveData) {
         this.updater.updateConnectionsForPin(
@@ -127,6 +129,29 @@ class ConnectionManager {
             this.connections,
             (conn) => this.editor.redrawConnection(conn)
         );
+    }
+
+    /**
+     * Обновить соединения при движении пина (без параметра delta)
+     * Используется при прямом движении пина
+     */
+    updateConnectionsForPin(pin) {
+        // Пересчитываем маршруты для всех соединений с этим пином
+        this.connections.forEach(connection => {
+            const connMeta = connection.getAttr('connection-meta');
+            if (!connMeta) return;
+
+            const isFromPin = connMeta.fromPin === pin;
+            const isToPin = connMeta.toPin === pin;
+
+            if (!isFromPin && !isToPin) return;
+
+            // Пересчитать сегменты с новых позиций пинов
+            const segments = ConnectionRouter.calculateSegments(connMeta.fromPin, connMeta.toPin);
+            connMeta.segments = segments;
+            connection.setAttr('connection-meta', connMeta);
+            this.editor.redrawConnection(connection);
+        });
     }
 
     /**
@@ -144,24 +169,60 @@ class ConnectionManager {
     }
 
     /**
-     * Показать ручки для выделенного соединения
+     * Добавить ручки редактирования
+     * Используется selectionManager
      */
-    selectConnection(connection) {
-        if (this.selectedConnection) {
-            this.hideHandles(this.selectedConnection);
-        }
-        this.selectedConnection = connection;
+    addLineEditHandles(connection) {
         this.editor.addLineEditHandles(connection);
     }
 
     /**
-     * Отселекций выделенного соединения
+     * Удалить ручки редактирования
+     * Используется selectionManager
      */
-    deselectConnection() {
-        if (this.selectedConnection) {
+    removeLineEditHandles(connection) {
+        this.editor.removeLineEditHandles(connection);
+    }
+
+    /**
+     * Выбрать соединение и показать ручки
+     */
+    selectConnection(connection) {
+        if (this.selectedConnection === connection) {
+            return; // Уже выбрано
+        }
+
+        // Убрать ручки с предыдущего
+        if (this.selectedConnection && this.selectedConnection !== connection) {
             this.hideHandles(this.selectedConnection);
+        }
+
+        this.selectedConnection = connection;
+        this.addLineEditHandles(connection);
+    }
+
+    /**
+     * Снять выделение соединения
+     */
+    deselectConnection(connection) {
+        if (this.selectedConnection === connection) {
+            this.hideHandles(connection);
             this.selectedConnection = null;
         }
+    }
+
+    /**
+     * Установить выбранное соединение (используется selection-manager)
+     */
+    setSelectedConnection(connection) {
+        this.selectedConnection = connection;
+    }
+
+    /**
+     * Получить выбранное соединение
+     */
+    getSelectedConnection() {
+        return this.selectedConnection;
     }
 
     /**
