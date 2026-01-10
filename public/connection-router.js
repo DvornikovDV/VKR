@@ -150,6 +150,61 @@ class ConnectionRouter {
     }
 
     /**
+     * Найти ближайший сегмент к точке клика
+     * @param {Array} segments - массив сегментов
+     * @param {Object} clickPoint - точка клика {x, y}
+     * @param {number} radius - радиус поиска (по умолчанию 30px)
+     * @returns {Object|null} - {segmentIndex, point} или null если не найден
+     */
+    static findNearestSegment(segments, clickPoint, radius = 30) {
+        let nearest = null;
+        let minDistance = radius;
+
+        for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i];
+            const dist = this.distanceToSegment(clickPoint, seg);
+
+            if (dist < minDistance) {
+                minDistance = dist;
+                nearest = { segmentIndex: i, distance: dist };
+            }
+        }
+
+        return nearest;
+    }
+
+    /**
+     * Вычислить расстояние от точки до сегмента
+     * @param {Object} point - точка {x, y}
+     * @param {Object} segment - сегмент с start и end
+     * @returns {number} - минимальное расстояние
+     */
+    static distanceToSegment(point, segment) {
+        const { x, y } = point;
+        const { start, end } = segment;
+
+        if (segment.direction === 'H') {
+            const minX = Math.min(start.x, end.x);
+            const maxX = Math.max(start.x, end.x);
+            if (x >= minX && x <= maxX) {
+                return Math.abs(y - start.y);
+            } else {
+                const dx = x < minX ? minX - x : x - maxX;
+                return Math.sqrt(dx * dx + (y - start.y) ** 2);
+            }
+        } else {
+            const minY = Math.min(start.y, end.y);
+            const maxY = Math.max(start.y, end.y);
+            if (y >= minY && y <= maxY) {
+                return Math.abs(x - start.x);
+            } else {
+                const dy = y < minY ? minY - y : y - maxY;
+                return Math.sqrt((x - start.x) ** 2 + dy * dy);
+            }
+        }
+    }
+
+    /**
      * Валидировать сегменты
      */
     static validateSegments(segments) {
