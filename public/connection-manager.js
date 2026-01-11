@@ -14,7 +14,6 @@ class ConnectionManager {
         this.editor = new ConnectionEditor(canvasManager);
         this.updater = new ConnectionUpdater(canvasManager);
         
-        // Коллбэки
         this.onConnectionCreated = null;
         this.onConnectionSelected = null;
         this.onConnectionDeleted = null;
@@ -60,10 +59,9 @@ class ConnectionManager {
             }
         });
 
-        // ддблклик для break points
         connection.on('dblclick', (e) => {
             e.cancelBubble = true;
-            // Обработка в handleLayerDoubleClick (ui-controller.js)
+            this.handleBreakPoint(connection);
         });
 
         meta1.connectedTo = meta2.id;
@@ -84,6 +82,32 @@ class ConnectionManager {
 
         console.log(`Создано соединение между ${meta1.id} и ${meta2.id}`);
         return connection;
+    }
+
+    /**
+     * Обработчик добавления разрыва на соединение (double-click)
+     */
+    handleBreakPoint(connection) {
+        const pointerPos = this.canvasManager.getStage().getPointerPosition();
+        const meta = connection.getAttr('connection-meta');
+        const segments = meta.segments;
+
+        if (!segments || segments.length === 0) {
+            console.warn('No segments in connection');
+            return;
+        }
+
+        const nearestSegment = ConnectionRouter.findNearestSegment(segments, pointerPos, 30);
+        if (!nearestSegment) {
+            console.log('Click too far from any segment');
+            return;
+        }
+
+        const segmentIndex = nearestSegment.segmentIndex;
+        console.log(`Break point on segment ${segmentIndex}`);
+
+        this.editor.addBreakPointToSegment(connection, segmentIndex, pointerPos);
+        this.selectConnection(connection);
     }
 
     /**
@@ -134,14 +158,11 @@ class ConnectionManager {
      * @param {boolean} isImageDrag - true если движение изображения
      */
     updateConnectionsForPin(pin, newX, newY, isImageDrag = false) {
-        // Получить старые координаты ДО обновления пина
         const oldX = pin.x();
         const oldY = pin.y();
         
-        // Обновить позицию пина
         pin.position({ x: newX, y: newY });
         
-        // Обновить соединения с новыми и старыми координатами
         this.updater.updateConnections(
             pin,
             newX,
@@ -152,7 +173,6 @@ class ConnectionManager {
             this.connections,
             (conn) => {
                 this.editor.redrawConnection(conn);
-                // Обновить подсвечивание соединения если выбрано
                 const connMeta = conn.getAttr('connection-meta');
                 if (connMeta && connMeta.highlightLine) {
                     connMeta.highlightLine.points(conn.points());
@@ -196,10 +216,9 @@ class ConnectionManager {
      */
     selectConnection(connection) {
         if (this.selectedConnection === connection) {
-            return; // Уже выбрано
+            return;
         }
 
-        // Убрать ручки с предыдущего
         if (this.selectedConnection && this.selectedConnection !== connection) {
             this.hideHandles(this.selectedConnection);
         }
