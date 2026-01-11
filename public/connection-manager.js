@@ -85,7 +85,8 @@ class ConnectionManager {
     }
 
     /**
-     * Обработчик добавления разрыва на соединение (double-click)
+     * Обработчик добавления разрыва (double-click)
+     * Найти ближайший сегмент к клику и вставить 2 новые точки
      */
     handleBreakPoint(connection) {
         const pointerPos = this.canvasManager.getStage().getPointerPosition();
@@ -104,9 +105,12 @@ class ConnectionManager {
         }
 
         const segmentIndex = nearestSegment.segmentIndex;
-        console.log(`Break point on segment ${segmentIndex}`);
-
+        const prevCount = segments.length;
+        
         this.editor.addBreakPointToSegment(connection, segmentIndex, pointerPos);
+        
+        const newCount = meta.segments.length;
+        console.log(`Added break point: ${prevCount} segments → ${newCount} segments`);
         this.selectConnection(connection);
     }
 
@@ -150,12 +154,6 @@ class ConnectionManager {
 
     /**
      * Унифицированный метод обновления соединений
-     * Новые координаты трансмиттируются прямо в ConnectionUpdater
-     * 
-     * @param {Konva.Circle} pin - Пин, связанный с движением
-     * @param {number} newX - Новая X координата пина
-     * @param {number} newY - Новая Y координата пина
-     * @param {boolean} isImageDrag - true если движение изображения
      */
     updateConnectionsForPin(pin, newX, newY, isImageDrag = false) {
         const oldX = pin.x();
@@ -181,39 +179,22 @@ class ConnectionManager {
         );
     }
 
-    /**
-     * Показать ручки редактирования
-     */
     showHandles(connection) {
         this.editor.showHandles(connection);
     }
 
-    /**
-     * Скрыть ручки редактирования
-     */
     hideHandles(connection) {
         this.editor.hideHandles(connection);
     }
 
-    /**
-     * Добавить ручки редактирования
-     * Освальзуется selectionManager
-     */
     addLineEditHandles(connection) {
         this.editor.addLineEditHandles(connection);
     }
 
-    /**
-     * Удалить ручки редактирования
-     * Освальзуется selectionManager
-     */
     removeLineEditHandles(connection) {
         this.editor.removeLineEditHandles(connection);
     }
 
-    /**
-     * Выбрать соединение и показать ручки
-     */
     selectConnection(connection) {
         if (this.selectedConnection === connection) {
             return;
@@ -227,9 +208,6 @@ class ConnectionManager {
         this.addLineEditHandles(connection);
     }
 
-    /**
-     * Снять выделение соединения
-     */
     deselectConnection(connection) {
         if (this.selectedConnection === connection) {
             this.hideHandles(connection);
@@ -237,38 +215,23 @@ class ConnectionManager {
         }
     }
 
-    /**
-     * Установить выбранное соединение (оспальзуется selection-manager)
-     */
     setSelectedConnection(connection) {
         this.selectedConnection = connection;
     }
 
-    /**
-     * Получить выбранное соединение
-     */
     getSelectedConnection() {
         return this.selectedConnection;
     }
 
-    /**
-     * Получить все соединения
-     */
     getConnections() {
         return this.connections;
     }
 
-    /**
-     * Очистить все соединения
-     */
     clear() {
         this.connections.forEach(c => c.destroy());
         this.connections = [];
     }
 
-    /**
-     * Валидировать целостность соединения
-     */
     validateConnectionIntegrity(connection) {
         ConnectionRouter.validateConnectionIntegrity(connection);
     }
