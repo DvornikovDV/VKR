@@ -35,7 +35,7 @@ class ConnectionEditor {
                 strokeWidth: 1.5,
                 draggable: !isEndSegment,
                 listening: true,
-                hitStrokeWidth: 4
+                hitStrokeWidth: 8
             });
 
             handle.setAttr('segment-handle-meta', {
@@ -63,7 +63,6 @@ class ConnectionEditor {
             handles.push(handle);
         }
 
-        // Повысить ручки выше линии
         handles.forEach(h => layer.moveToTop(h));
 
         meta.handles = handles;
@@ -72,10 +71,11 @@ class ConnectionEditor {
     }
 
     /**
-     * Добавить разрыв (break point) на сегмент
-     * Вставляет две новые точки в segments[] соединения
+     * Добавить разрыв на сегмент
+     * Найти ближайший сегмент к клику
+     * Вставить 2 новых точки в центр найденного сегмента
      * @param {Konva.Line} connection - соединение
-     * @param {number} segmentIndex - индекс сегмента для вставки
+     * @param {number} segmentIndex - индекс сегмента для разрыва
      * @param {Object} clickPoint - точка клика {x, y}
      */
     addBreakPointToSegment(connection, segmentIndex, clickPoint) {
@@ -83,21 +83,21 @@ class ConnectionEditor {
         const segments = meta.segments;
 
         if (segmentIndex < 0 || segmentIndex >= segments.length) {
-            console.warn('Invalid segment index for break point');
+            console.warn('Некорректный индекс сегмента');
             return;
         }
 
         const segment = segments[segmentIndex];
+        const prevSegmentCount = segments.length;
+        
         const newPoint = this.getProjectedPointOnSegment(clickPoint, segment);
 
-        // Проверьте: точка в середине сегмента
         if ((segment.direction === 'H' && newPoint.x === segment.start.x && newPoint.x === segment.end.x) ||
             (segment.direction === 'V' && newPoint.y === segment.start.y && newPoint.y === segment.end.y)) {
-            console.warn('Break point would be at endpoint, skipping');
+            console.warn('Разрыв не может быть ат конце');
             return;
         }
 
-        // Создать три новых сегмента вместо одного
         const newSegment1 = {
             index: segmentIndex,
             direction: segment.direction,
@@ -119,21 +119,19 @@ class ConnectionEditor {
             end: { x: segment.end.x, y: segment.end.y }
         };
 
-        // Вставить новые сегменты в массив
         segments.splice(segmentIndex, 1, newSegment1, newSegment2, newSegment3);
 
-        // Пересчитать индексы всех новых сегментов
         for (let i = segmentIndex; i < segments.length; i++) {
             segments[i].index = i;
         }
 
-        // Обновить соединение
         meta.segments = segments;
         connection.setAttr('connection-meta', meta);
 
-        // Перерисовать и обновить ручки
         this.redrawConnection(connection);
         this.addLineEditHandles(connection);
+        
+        console.log(`Вставлены 2 новых точки (segments: ${prevSegmentCount} → ${segments.length})`);
     }
 
     /**
@@ -235,7 +233,6 @@ class ConnectionEditor {
         const points = ConnectionRouter.segmentsToPoints(meta.segments);
         connection.points(points);
 
-        // Обновить позиции ручек (если они есть)
         if (meta.handles && meta.handles.length === meta.segments.length) {
             for (let i = 0; i < meta.segments.length; i++) {
                 const seg = meta.segments[i];
