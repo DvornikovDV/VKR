@@ -13,6 +13,7 @@ class ImageManager {
         this.onImageMoved = null;    // callback вызывается при драге изображения
         this.onImageScaled = null;
         this.connectionManager = null; // будет продан из UIController
+        this.updateConnectionsCallback = null; // callback для обновления соединений при resize
     }
 
     /**
@@ -21,6 +22,13 @@ class ImageManager {
      */
     setConnectionManager(connectionManager) {
         this.connectionManager = connectionManager;
+    }
+
+    /**
+     * Установить callback для обновления соединений при resize
+     */
+    setUpdateConnectionsCallback(callback) {
+        this.updateConnectionsCallback = callback;
     }
 
     /**
@@ -151,6 +159,10 @@ class ImageManager {
             const newScaleY = Math.max(0.2, (handle.y() - konvaImg.y()) / konvaImg.height());
             konvaImg.scale({ x: newScaleX, y: newScaleY });
             updateOverlays();
+            // Новое: обновляем соединения при resize
+            if (this.updateConnectionsCallback) {
+                this.updateConnectionsCallback(konvaImg);
+            }
             if (this.onImageScaled) this.onImageScaled(konvaImg);
             layer.batchDraw();
         });
