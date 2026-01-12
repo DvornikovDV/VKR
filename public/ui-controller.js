@@ -69,6 +69,15 @@ class UIController {
             this.connectionPointManager.createConnectionPointOnSide(konvaImg, sideMeta.side, sideMeta.offset);
         };
 
+        // НОВОЕ: установить callback для обновления соединений при resize изображения
+        this.imageManager.setUpdateConnectionsCallback((imageNode) => {
+            if (Array.isArray(imageNode._cp_points)) {
+                imageNode._cp_points.forEach(pin => {
+                    this.connectionManager.updateConnectionsForPin(pin, pin.x(), pin.y(), true);
+                });
+            }
+        });
+
         this.connectionPointManager.onPointSelected = (point) => {
             if (!this.isCreateLineMode) {
                 this.setConnectionEditMode(false);
@@ -264,7 +273,7 @@ class UIController {
     }
 
     /**
-     * Настроя режим создания
+     * Настройа режима создания
      */
     setupLineCreationMode() {
         const points = this.connectionPointManager.getPoints();
@@ -295,7 +304,12 @@ class UIController {
 
         const points = this.connectionPointManager.getPoints();
         points.forEach(point => {
-            point.draggable(true);
+            const meta = point.getAttr('cp-meta');
+            // НОВОЕ: только свободные пины возвращаются к draggable(true)
+            // Красные (соединенные) пины всегда draggable
+            if (!meta.connectedTo) {
+                point.draggable(true);
+            }
             point.listening(true);
             point.off('pointerdown');
         });
@@ -307,7 +321,7 @@ class UIController {
     }
 
     /**
-     * Обработка клика по пину для создану линии
+     * Обработка клика по пину для создания линии
      */
     handlePinClickForLineCreation(point) {
         const meta = point.getAttr('cp-meta');
