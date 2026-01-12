@@ -60,18 +60,20 @@ class ConnectionEditor {
             });
 
             // НОВОЕ: двойной клик для добавления/удаления разрыва
-            // dblclick: добавить разрыв (только для средних обычных ручек)
-            // Ctrl+dblclick: удалить разрыв (только для средних обычных ручек)
-            if (!isEndSegment) {
-                handle.on('dblclick', (e) => {
-                    e.cancelBubble = true;
-                    if (e.evt.ctrlKey) {
+            // dblclick: добавить разрыв (любых сегментов, включая крайние)
+            // Ctrl+dblclick: удалить разрыв (только НЕ крайних сегментов)
+            handle.on('dblclick', (e) => {
+                e.cancelBubble = true;
+                if (e.evt.ctrlKey) {
+                    // Удаление: только не крайние
+                    if (!isEndSegment) {
                         this.removeBreakPointAtHandle(connection, i);
-                    } else {
-                        this.addBreakPointOnHandle(connection, i);
                     }
-                });
-            }
+                } else {
+                    // Добавление: все
+                    this.addBreakPointOnHandle(connection, i);
+                }
+            });
 
             layer.add(handle);
             handles.push(handle);
@@ -105,14 +107,15 @@ class ConnectionEditor {
 
     /**
      * Удалить разрыв на ручке (Ctrl+двойной клик)
-     * Объединяются 3 сегмента в 1 (3 - 2 = 1)
+     * Удаляет только 2 точки сегмента и нормализует соединение
      * @param {Konva.Line} connection
-     * @param {number} handleSegmentIndex - индекс среднего сегмента
+     * @param {number} handleSegmentIndex - индекс сегмента для удаления
      */
     removeBreakPointAtHandle(connection, handleSegmentIndex) {
         const meta = connection.getAttr('connection-meta');
         const segments = meta.segments;
 
+        // Минимально 2 сегмента для HV или VH
         if (segments.length < 3) {
             console.warn('Не можно удалить разрыв - минимум 2 сегмента');
             return;
@@ -124,34 +127,70 @@ class ConnectionEditor {
             return;
         }
 
-        // Удаляем 3 сегмента: [i-1, i, i+1]
-        // При i=1 удаляем segments[0,1,2]
+        // Проверяем: после удаления не получится ли одностороннее (HHH или VVV)
         const leftSegment = segments[handleSegmentIndex - 1];
+        const centerSegment = segments[handleSegmentIndex];
         const rightSegment = segments[handleSegmentIndex + 1];
 
-        // Объединяем 3 сегмента в один с направлением левого сегмента
-        const mergedSegment = {
-            index: handleSegmentIndex - 1,
-            direction: leftSegment.direction,
-            start: { x: leftSegment.start.x, y: leftSegment.start.y },
-            end: { x: rightSegment.end.x, y: rightSegment.end.y }
-        };
+        // После удаления центр одного сегмента будет segments.length - 1
+        // Если осталось только 2, то это HV или VH - OK
+        // Если осталось 3+, проверяем соседей центра
+        if (segments.length > 3) {
+            // Если все три одного направления - нельзя
+            if (leftSegment.direction === centerSegment.direction &&
+                centerSegment.direction === rightSegment.direction) {
+                console.warn('Нельзя удалить - соединение станет односторонним');
+                return;
+            }
+        }
 
-        // Удалить 3 сегмента и вставить объединенный
-        segments.splice(handleSegmentIndex - 1, 3, mergedSegment);
+        // Просто удаляем 1 сегмент (только среднее звено)
+        segments.splice(handleSegmentIndex, 1);
 
-        // Перенумеровать индексы
-        for (let i = handleSegmentIndex - 1; i < segments.length; i++) {
+        // Перенумеровать
+        for (let i = 0; i < segments.length; i++) {
             segments[i].index = i;
         }
 
         meta.segments = segments;
         connection.setAttr('connection-meta', meta);
 
+        // Нормализируем соединение чтобы вернуть ортогональность
+        this.normalizeSegments(segments);
+
         this.redrawConnection(connection);
         this.addLineEditHandles(connection);
 
-        console.log(`Удален разрыв (segments: ${segments.length + 2} → ${segments.length})`);
+        console.log(`Удален разрыв (segments: ${segments.length + 1} → ${segments.length})`);
+    }
+
+    /**
+     * Нормализировать сегменты для восстановления ортогональности
+     * Основывается на направлениях сегментов и автоматически исправляет координаты
+     */
+    normalizeSegments(segments) {
+        if (segments.length < 2) return;
+
+        // Проходим по всем соединениям и риортанизируем их границы
+        for (let i = 0; i < segments.length - 1; i++) {
+            const seg = segments[i];
+            const nextSeg = segments[i + 1];
+
+            // Ортогональные сегменты должны делить одну ось
+            // H (горизонтальный) меняет X, V (вертикальный) меняет Y
+
+            if (seg.direction === 'H' && nextSeg.direction === 'V') {
+                // H→V: обеспечить что закончиться H в той х, где начинается V
+                seg.end.x = nextSeg.start.x;
+                nextSeg.start.x = seg.end.x;
+                nextSeg.start.y = seg.end.y;
+            } else if (seg.direction === 'V' && nextSeg.direction === 'H') {
+                // V→H: обеспечить что закончиться V в том Y, где начинается H
+                seg.end.y = nextSeg.start.y;
+                nextSeg.start.y = seg.end.y;
+                nextSeg.start.x = seg.end.x;
+            }
+        }
     }
 
     /**
