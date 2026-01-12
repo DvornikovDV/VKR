@@ -274,12 +274,7 @@ class UIController {
 
         const points = this.connectionPointManager.getPoints();
         points.forEach(point => {
-            const meta = point.getAttr('cp-meta');
-            // НОВОЕ: только свободные пины возвращаются к draggable(true)
-            // Красные (соединенные) пины всегда draggable
-            if (!meta.connectedTo) {
-                point.draggable(true);
-            }
+            point.draggable(true);
             point.listening(true);
             point.off('pointerdown');
         });
