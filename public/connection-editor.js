@@ -59,11 +59,17 @@ class ConnectionEditor {
                 this.onHandleDragEnd(handle, connection);
             });
 
-            // НОВОЕ: двойной клик для удаления разрыва (только для средних обычных ручек)
+            // НОВОЕ: двойной клик для добавления/удаления разрыва
+            // dblclick: добавить разрыв (только для средних обычных ручек)
+            // Ctrl+dblclick: удалить разрыв (только для средних обычных ручек)
             if (!isEndSegment) {
                 handle.on('dblclick', (e) => {
                     e.cancelBubble = true;
-                    this.removeBreakPointAtHandle(connection, i);
+                    if (e.evt.ctrlKey) {
+                        this.removeBreakPointAtHandle(connection, i);
+                    } else {
+                        this.addBreakPointOnHandle(connection, i);
+                    }
                 });
             }
 
@@ -79,7 +85,26 @@ class ConnectionEditor {
     }
 
     /**
-     * Удалить разрыв на ручке двойным кликом
+     * Добавить разрыв на ручке (двойной клик без модификаторов)
+     * Вставляет 2 новых точки посередине сегмента под ручкой
+     * @param {Konva.Line} connection
+     * @param {number} handleIndex - индекс ручки
+     */
+    addBreakPointOnHandle(connection, handleIndex) {
+        const meta = connection.getAttr('connection-meta');
+        const segment = meta.segments[handleIndex];
+        
+        // точка посередине ручки (посередине сегмента)
+        const midPoint = {
+            x: (segment.start.x + segment.end.x) / 2,
+            y: (segment.start.y + segment.end.y) / 2
+        };
+        
+        this.addBreakPointToSegment(connection, handleIndex, midPoint);
+    }
+
+    /**
+     * Удалить разрыв на ручке (Ctrl+двойной клик)
      * Объединяются 3 сегмента в 1 (3 - 2 = 1)
      * @param {Konva.Line} connection
      * @param {number} handleSegmentIndex - индекс среднего сегмента
@@ -102,11 +127,9 @@ class ConnectionEditor {
         // Удаляем 3 сегмента: [i-1, i, i+1]
         // При i=1 удаляем segments[0,1,2]
         const leftSegment = segments[handleSegmentIndex - 1];
-        const middleSegment = segments[handleSegmentIndex];
         const rightSegment = segments[handleSegmentIndex + 1];
 
-        // После удаления этих 3 сегментов соединяя затвор
-        // с с левым и правым, робим один сегмент с правым direction
+        // Объединяем 3 сегмента в один с направлением левого сегмента
         const mergedSegment = {
             index: handleSegmentIndex - 1,
             direction: leftSegment.direction,
@@ -133,11 +156,10 @@ class ConnectionEditor {
 
     /**
      * Добавить разрыв на сегмент
-     * Найти ближайший сегмент к клику
-     * Вставить 2 новых точки в центр найденного сегмента
+     * Вставить 2 новых точки в центр сегмента
      * @param {Konva.Line} connection - соединение
      * @param {number} segmentIndex - индекс сегмента для разрыва
-     * @param {Object} clickPoint - точка клика {x, y}
+     * @param {Object} clickPoint - точка разрыва {x, y}
      */
     addBreakPointToSegment(connection, segmentIndex, clickPoint) {
         const meta = connection.getAttr('connection-meta');
