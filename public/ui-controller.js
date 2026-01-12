@@ -8,7 +8,6 @@ import { ConnectionManager } from './connection-manager.js';
 import { SelectionManager } from './selection-manager.js';
 import { PropertiesPanel } from './properties-panel.js';
 import { FileManager } from './file-manager.js';
-import { ConnectionRouter } from './connection-router.js';
 
 class UIController {
     constructor() {
@@ -177,11 +176,6 @@ class UIController {
             });
         }
 
-        const layer = this.canvasManager.getLayer();
-        layer.on('dblclick', (e) => {
-            this.handleLayerDoubleClick(e);
-        });
-
         const stage = this.canvasManager.getStage();
         stage.on('click', (e) => {
             if (e.target === stage) {
@@ -189,30 +183,6 @@ class UIController {
                 this.propertiesPanel.showDefaultMessage();
             }
         });
-    }
-
-    /**
-     * Обработчик двойного клика на слой (для break points)
-     */
-    handleLayerDoubleClick(e) {
-        if (!this.isConnectionEditMode) return;
-
-        const selectedConnection = this.connectionManager.getSelectedConnection();
-        if (!selectedConnection) return;
-
-        const pointerPos = this.getPointerStageCoords();
-        const meta = selectedConnection.getAttr('connection-meta');
-        const segments = meta.segments;
-
-        const nearest = ConnectionRouter.findNearestSegment(segments, pointerPos, 30);
-        if (!nearest) return;
-
-        e.cancelBubble = true;
-        this.connectionManager.editor.addBreakPointToSegment(
-            selectedConnection,
-            nearest.segmentIndex,
-            pointerPos
-        );
     }
 
     /**
