@@ -59,6 +59,14 @@ class ConnectionEditor {
                 this.onHandleDragEnd(handle, connection);
             });
 
+            // НОВОЕ: двойной клик для удаления разрыва (только для средних обычных ручек)
+            if (!isEndSegment) {
+                handle.on('dblclick', (e) => {
+                    e.cancelBubble = true;
+                    this.removeBreakPointAtHandle(connection, i);
+                });
+            }
+
             layer.add(handle);
             handles.push(handle);
         }
@@ -68,6 +76,59 @@ class ConnectionEditor {
         meta.handles = handles;
         connection.setAttr('connection-meta', meta);
         layer.batchDraw();
+    }
+
+    /**
+     * Удалить разрыв на ручке двойным кликом
+     * Объединяются 3 сегмента в 1 (3 - 2 = 1)
+     * @param {Konva.Line} connection
+     * @param {number} handleSegmentIndex - индекс среднего сегмента
+     */
+    removeBreakPointAtHandle(connection, handleSegmentIndex) {
+        const meta = connection.getAttr('connection-meta');
+        const segments = meta.segments;
+
+        if (segments.length < 3) {
+            console.warn('Не можно удалить разрыв - минимум 2 сегмента');
+            return;
+        }
+
+        // Не можем удалить первый и последний сегменты
+        if (handleSegmentIndex === 0 || handleSegmentIndex === segments.length - 1) {
+            console.warn('Не можно удалить концевые разрывы');
+            return;
+        }
+
+        // Удаляем 3 сегмента: [i-1, i, i+1]
+        // При i=1 удаляем segments[0,1,2]
+        const leftSegment = segments[handleSegmentIndex - 1];
+        const middleSegment = segments[handleSegmentIndex];
+        const rightSegment = segments[handleSegmentIndex + 1];
+
+        // После удаления этих 3 сегментов соединяя затвор
+        // с с левым и правым, робим один сегмент с правым direction
+        const mergedSegment = {
+            index: handleSegmentIndex - 1,
+            direction: leftSegment.direction,
+            start: { x: leftSegment.start.x, y: leftSegment.start.y },
+            end: { x: rightSegment.end.x, y: rightSegment.end.y }
+        };
+
+        // Удалить 3 сегмента и вставить объединенный
+        segments.splice(handleSegmentIndex - 1, 3, mergedSegment);
+
+        // Перенумеровать индексы
+        for (let i = handleSegmentIndex - 1; i < segments.length; i++) {
+            segments[i].index = i;
+        }
+
+        meta.segments = segments;
+        connection.setAttr('connection-meta', meta);
+
+        this.redrawConnection(connection);
+        this.addLineEditHandles(connection);
+
+        console.log(`Удален разрыв (segments: ${segments.length + 2} → ${segments.length})`);
     }
 
     /**
