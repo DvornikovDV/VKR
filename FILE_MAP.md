@@ -1,8 +1,8 @@
 # КАРТА ФАЙЛОВ ПРОЕКТА
 
-**Версия**: 1.0  
-**Дата обновления**: 03.01.2026  
-**Статус**: Актуальная после рефакторинга
+**Версия**: 1.1  
+**Дата обновления**: 12.01.2026  
+**Статус**: Актуальная с итерацией 4 (разрывы соединений)
 
 ---
 
@@ -19,6 +19,8 @@ VKR/
 │   ├── image-manager.js              (работа с изображениями)
 │   ├── connection-point-manager.js   (точки соединения)
 │   ├── connection-manager.js         (линии с ортогональностью)
+│   ├── connection-router.js          (NEW) поиск сегментов, конвертация
+│   ├── connection-editor.js          (NEW) редактирование разрывов на линиях
 │   ├── selection-manager.js          (выделение элементов)
 │   ├── properties-panel.js           (панель свойств)
 │   └── file-manager.js               (сохранение/загрузка)
@@ -59,6 +61,12 @@ VKR/
 **обновление линий при движении**
 → `connection-manager.js` / `updateConnectionsForPin()`
 
+**разрывы соединений (итерация 4)**
+→ `connection-editor.js` / `addBreakPointToSegment()`, `editMode`
+
+**поиск сегментов линии**
+→ `connection-router.js` / `findNearestSegment()`, `segmentsToPoints()`
+
 **панель свойств**
 → `properties-panel.js` / `showPropertiesForPoint()`, `showPropertiesForConnection()`
 
@@ -67,6 +75,9 @@ VKR/
 
 **режим создания линий**
 → `ui-controller.js` / `toggleLineCreationMode()`, `handlePinClickForLineCreation()`
+
+**режим редактирования соединений (итерация 4)**
+→ `ui-controller.js` / `toggleConnectionEditMode()`, `isConnectionEditMode`
 
 **связь между менеджерами**
 → `ui-controller.js` / `setupManagerCallbacks()`
@@ -78,6 +89,33 @@ VKR/
 → `file-manager.js` / `saveScheme()`, `loadScheme()`
 
 ---
+
+## НОВЫЕ КОМПОНЕНТЫ ИТЕРАЦИИ 4
+
+### `connection-router.js`
+**Назначение**: Утилиты для работы с сегментами линий
+
+**Ключевые методы**:
+- `findNearestSegment(segments, clickPos, tolerance)` - поиск ближайшего сегмента для разрыва
+- `segmentsToPoints(segments)` - конвертация объектов сегментов в плоский массив координат
+- `getProjectedPointOnSegment(segment, point)` - проекция точки на сегмент
+
+**Когда использовать**: При поиске места для разрыва, при перерисовке линии
+
+### `connection-editor.js`
+**Назначение**: Редактирование существующих соединений (добавление разрывов)
+
+**Ключевые методы**:
+- `addBreakPointToSegment(connection, segmentIndex, clickPoint)` - добавить разрыв
+- `redrawConnection(connection)` - пересчитать координаты из сегментов
+- `addLineEditHandles(connection)` - создать ручки редактирования
+- `removeLineEditHandles(connection)` - удалить ручки
+- `updateSegmentPosition(handle, connection)` - при перетаскивании ручки
+
+**Когда использовать**: При двойном клике на линию в режиме редактирования
+
+---
+
 ## ДОКУМЕНТАЦИЯ
 
 ### `doc/vision.md` ТЕХНИЧЕСКОЕ ВИДЕНИЕ
@@ -94,6 +132,28 @@ VKR/
 
 ---
 
+## ИТЕРАЦИЯ 4: РАЗРЫВЫ СОЕДИНЕНИЙ
+
+**Проблемы в начале итерации**:
+1. Разрывы на соединениях не появляются
+2. Режимы создания и редактирования линий конфликтовали
+3. Двойной клик не срабатывал на линиях
+
+**Решения в итерации 4**:
+- Добавлен режим редактирования соединений `isConnectionEditMode`
+- Синхронизация режимов через взаимоисключающие коллбэки
+- Двойной клик теперь напрямую на объекте соединения (Konva.Line)
+- Hitbox ручек редактирования уменьшен для избежания конфликтов
+- Новые файлы `connection-router.js` и `connection-editor.js`
+
+**Ключевые коммиты**:
+- 94d07a0: Синхронизация режимов и панель свойств
+- 0d6b64f: Hitbox для ручек и z-ordering
+- 4ef676d: Double-click обработчик
+
+---
+
 **Статус**: Production-Ready  
 **Контекст на файл (UIController)**: 450 строк (было 1500!)  
-**Пользуйся этой картой при разработке!** 
+**Контекст на файл (ConnectionManager)**: 550 строк (было 800!)  
+**Пользуйся этой картой при разработке!**

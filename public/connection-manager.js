@@ -14,7 +14,6 @@ class ConnectionManager {
         this.editor = new ConnectionEditor(canvasManager);
         this.updater = new ConnectionUpdater(canvasManager);
         
-        // Коллбэки
         this.onConnectionCreated = null;
         this.onConnectionSelected = null;
         this.onConnectionDeleted = null;
@@ -60,6 +59,11 @@ class ConnectionManager {
             }
         });
 
+        connection.on('dblclick', (e) => {
+            e.cancelBubble = true;
+            this.handleBreakPoint(connection);
+        });
+
         meta1.connectedTo = meta2.id;
         meta2.connectedTo = meta1.id;
         pin1.setAttr('cp-meta', meta1);
@@ -78,6 +82,36 @@ class ConnectionManager {
 
         console.log(`Создано соединение между ${meta1.id} и ${meta2.id}`);
         return connection;
+    }
+
+    /**
+     * Обработчик добавления разрыва (double-click)
+     * Найти ближайший сегмент к клику и вставить 2 новые точки
+     */
+    handleBreakPoint(connection) {
+        const pointerPos = this.canvasManager.getStage().getPointerPosition();
+        const meta = connection.getAttr('connection-meta');
+        const segments = meta.segments;
+
+        if (!segments || segments.length === 0) {
+            console.warn('No segments in connection');
+            return;
+        }
+
+        const nearestSegment = ConnectionRouter.findNearestSegment(segments, pointerPos, 30);
+        if (!nearestSegment) {
+            console.log('Click too far from any segment');
+            return;
+        }
+
+        const segmentIndex = nearestSegment.segmentIndex;
+        const prevCount = segments.length;
+        
+        this.editor.addBreakPointToSegment(connection, segmentIndex, pointerPos);
+        
+        const newCount = meta.segments.length;
+        console.log(`Added break point: ${prevCount} segments → ${newCount} segments`);
+        this.selectConnection(connection);
     }
 
     /**
@@ -120,22 +154,13 @@ class ConnectionManager {
 
     /**
      * Унифицированный метод обновления соединений
-     * Новые координаты трансмиттируются прямо в ConnectionUpdater
-     * 
-     * @param {Konva.Circle} pin - Пин, связанный с движением
-     * @param {number} newX - Новая X координата пина
-     * @param {number} newY - Новая Y координата пина
-     * @param {boolean} isImageDrag - true если движение изображения
      */
     updateConnectionsForPin(pin, newX, newY, isImageDrag = false) {
-        // Получить старые координаты ДО обновления пина
         const oldX = pin.x();
         const oldY = pin.y();
         
-        // Обновить позицию пина
         pin.position({ x: newX, y: newY });
         
-        // Обновить соединения с новыми и старыми координатами
         this.updater.updateConnections(
             pin,
             newX,
@@ -146,7 +171,6 @@ class ConnectionManager {
             this.connections,
             (conn) => {
                 this.editor.redrawConnection(conn);
-                // Обновить подсветку соединения если выбрано
                 const connMeta = conn.getAttr('connection-meta');
                 if (connMeta && connMeta.highlightLine) {
                     connMeta.highlightLine.points(conn.points());
@@ -155,45 +179,27 @@ class ConnectionManager {
         );
     }
 
-    /**
-     * Показать ручки редактирования
-     */
     showHandles(connection) {
         this.editor.showHandles(connection);
     }
 
-    /**
-     * Скрыть ручки редактирования
-     */
     hideHandles(connection) {
         this.editor.hideHandles(connection);
     }
 
-    /**
-     * Добавить ручки редактирования
-     * Оспальзуется selectionManager
-     */
     addLineEditHandles(connection) {
         this.editor.addLineEditHandles(connection);
     }
 
-    /**
-     * Удалить ручки редактирования
-     * Оспальзуется selectionManager
-     */
     removeLineEditHandles(connection) {
         this.editor.removeLineEditHandles(connection);
     }
 
-    /**
-     * Выбрать соединение и показать ручки
-     */
     selectConnection(connection) {
         if (this.selectedConnection === connection) {
-            return; // Уже выбрано
+            return;
         }
 
-        // Убрать ручки с предыдущего
         if (this.selectedConnection && this.selectedConnection !== connection) {
             this.hideHandles(this.selectedConnection);
         }
@@ -202,9 +208,6 @@ class ConnectionManager {
         this.addLineEditHandles(connection);
     }
 
-    /**
-     * Снять выделение соединения
-     */
     deselectConnection(connection) {
         if (this.selectedConnection === connection) {
             this.hideHandles(connection);
@@ -212,38 +215,23 @@ class ConnectionManager {
         }
     }
 
-    /**
-     * Установить выбранное соединение (оласпальзуется selection-manager)
-     */
     setSelectedConnection(connection) {
         this.selectedConnection = connection;
     }
 
-    /**
-     * Получить выбранное соединение
-     */
     getSelectedConnection() {
         return this.selectedConnection;
     }
 
-    /**
-     * Получить все соединения
-     */
     getConnections() {
         return this.connections;
     }
 
-    /**
-     * Очистить все соединения
-     */
     clear() {
         this.connections.forEach(c => c.destroy());
         this.connections = [];
     }
 
-    /**
-     * Валидировать целостность соединения
-     */
     validateConnectionIntegrity(connection) {
         ConnectionRouter.validateConnectionIntegrity(connection);
     }

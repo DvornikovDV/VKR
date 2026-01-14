@@ -17,6 +17,7 @@ class ConnectionEditor {
         const meta = connection.getAttr('connection-meta');
         const segments = meta.segments;
         const handles = [];
+        const layer = this.canvasManager.getLayer();
 
         for (let i = 0; i < segments.length; i++) {
             const seg = segments[i];
@@ -33,7 +34,8 @@ class ConnectionEditor {
                 stroke: '#fff',
                 strokeWidth: 1.5,
                 draggable: !isEndSegment,
-                listening: true
+                listening: true,
+                hitStrokeWidth: 8
             });
 
             handle.setAttr('segment-handle-meta', {
@@ -57,27 +59,229 @@ class ConnectionEditor {
                 this.onHandleDragEnd(handle, connection);
             });
 
-            // DBL-CLICK: добавить разрыв
+            // НОВОЕ: двойной клик для добавления/удаления разрыва
+            // dblclick: добавить разрыв (любых сегментов, включая крайние)
+            // Ctrl+dblclick: удалить разрыв (только НЕ крайних сегментов)
             handle.on('dblclick', (e) => {
                 e.cancelBubble = true;
-                this.addBreakPointAtHandle(connection, i);
-            });
-
-            // CTRL+DBL-CLICK: удалить разрыв
-            handle.on('dblclick', (e) => {
                 if (e.evt.ctrlKey) {
-                    e.cancelBubble = true;
-                    this.removeBreakPointAtHandle(connection, i);
+                    // Удаление: только не крайние
+                    if (!isEndSegment) {
+                        this.removeBreakPointAtHandle(connection, i);
+                    }
+                } else {
+                    // Добавление: все
+                    this.addBreakPointOnHandle(connection, i);
                 }
             });
 
-            this.canvasManager.getLayer().add(handle);
+            layer.add(handle);
             handles.push(handle);
         }
 
+        handles.forEach(h => layer.moveToTop(h));
+
         meta.handles = handles;
         connection.setAttr('connection-meta', meta);
-        this.canvasManager.getLayer().batchDraw();
+        layer.batchDraw();
+    }
+
+    /**
+     * Добавить разрыв на ручке (двойной клик без модификаторов)
+     * Вставляет 2 новых точки посередине сегмента под ручкой
+     * @param {Konva.Line} connection
+     * @param {number} handleIndex - индекс ручки
+     */
+    addBreakPointOnHandle(connection, handleIndex) {
+        const meta = connection.getAttr('connection-meta');
+        const segment = meta.segments[handleIndex];
+        
+        // точка посередине ручки (посередине сегмента)
+        const midPoint = {
+            x: (segment.start.x + segment.end.x) / 2,
+            y: (segment.start.y + segment.end.y) / 2
+        };
+        
+        this.addBreakPointToSegment(connection, handleIndex, midPoint);
+    }
+
+    /**
+     * Удалить разрыв на ручке (Ctrl+двойной клик)
+     * Удаляет только 2 точки сегмента и нормализует соединение
+     * @param {Konva.Line} connection
+     * @param {number} handleSegmentIndex - индекс сегмента для удаления
+     */
+    removeBreakPointAtHandle(connection, handleSegmentIndex) {
+        const meta = connection.getAttr('connection-meta');
+        const segments = meta.segments;
+
+        // Минимально 2 сегмента для HV или VH
+        if (segments.length < 3) {
+            console.warn('Не можно удалить разрыв - минимум 2 сегмента');
+            return;
+        }
+
+        // Не можем удалить первый и последний сегменты
+        if (handleSegmentIndex === 0 || handleSegmentIndex === segments.length - 1) {
+            console.warn('Не можно удалить концевые разрывы');
+            return;
+        }
+
+        // Проверяем: после удаления не получится ли одностороннее (HHH или VVV)
+        const leftSegment = segments[handleSegmentIndex - 1];
+        const centerSegment = segments[handleSegmentIndex];
+        const rightSegment = segments[handleSegmentIndex + 1];
+
+        // После удаления центр одного сегмента будет segments.length - 1
+        // Если осталось только 2, то это HV или VH - OK
+        // Если осталось 3+, проверяем соседей центра
+        if (segments.length > 3) {
+            // Если все три одного направления - нельзя
+            if (leftSegment.direction === centerSegment.direction &&
+                centerSegment.direction === rightSegment.direction) {
+                console.warn('Нельзя удалить - соединение станет односторонним');
+                return;
+            }
+        }
+
+        // Просто удаляем 1 сегмент (только среднее звено)
+        segments.splice(handleSegmentIndex, 1);
+
+        // Перенумеровать
+        for (let i = 0; i < segments.length; i++) {
+            segments[i].index = i;
+        }
+
+        meta.segments = segments;
+        connection.setAttr('connection-meta', meta);
+
+        // Нормализируем соединение чтобы вернуть ортогональность
+        this.normalizeSegments(segments);
+
+        this.redrawConnection(connection);
+        this.addLineEditHandles(connection);
+
+        console.log(`Удален разрыв (segments: ${segments.length + 1} → ${segments.length})`);
+    }
+
+    /**
+     * Нормализировать сегменты для восстановления ортогональности
+     * Основывается на направлениях сегментов и автоматически исправляет координаты
+     */
+    normalizeSegments(segments) {
+        if (segments.length < 2) return;
+
+        // Проходим по всем соединениям и риортанизируем их границы
+        for (let i = 0; i < segments.length - 1; i++) {
+            const seg = segments[i];
+            const nextSeg = segments[i + 1];
+
+            // Ортогональные сегменты должны делить одну ось
+            // H (горизонтальный) меняет X, V (вертикальный) меняет Y
+
+            if (seg.direction === 'H' && nextSeg.direction === 'V') {
+                // H→V: обеспечить что закончиться H в той х, где начинается V
+                seg.end.x = nextSeg.start.x;
+                nextSeg.start.x = seg.end.x;
+                nextSeg.start.y = seg.end.y;
+            } else if (seg.direction === 'V' && nextSeg.direction === 'H') {
+                // V→H: обеспечить что закончиться V в том Y, где начинается H
+                seg.end.y = nextSeg.start.y;
+                nextSeg.start.y = seg.end.y;
+                nextSeg.start.x = seg.end.x;
+            }
+        }
+    }
+
+    /**
+     * Добавить разрыв на сегмент
+     * Вставить 2 новых точки в центр сегмента
+     * @param {Konva.Line} connection - соединение
+     * @param {number} segmentIndex - индекс сегмента для разрыва
+     * @param {Object} clickPoint - точка разрыва {x, y}
+     */
+    addBreakPointToSegment(connection, segmentIndex, clickPoint) {
+        const meta = connection.getAttr('connection-meta');
+        const segments = meta.segments;
+
+        if (segmentIndex < 0 || segmentIndex >= segments.length) {
+            console.warn('Некорректный индекс сегмента');
+            return;
+        }
+
+        const segment = segments[segmentIndex];
+        const prevSegmentCount = segments.length;
+        
+        const newPoint = this.getProjectedPointOnSegment(clickPoint, segment);
+
+        if ((segment.direction === 'H' && newPoint.x === segment.start.x && newPoint.x === segment.end.x) ||
+            (segment.direction === 'V' && newPoint.y === segment.start.y && newPoint.y === segment.end.y)) {
+            console.warn('Разрыв не может быть ат конце');
+            return;
+        }
+
+        const newSegment1 = {
+            index: segmentIndex,
+            direction: segment.direction,
+            start: { x: segment.start.x, y: segment.start.y },
+            end: { x: newPoint.x, y: newPoint.y }
+        };
+
+        const newSegment2 = {
+            index: segmentIndex + 1,
+            direction: segment.direction === 'H' ? 'V' : 'H',
+            start: { x: newPoint.x, y: newPoint.y },
+            end: { x: newPoint.x, y: newPoint.y }
+        };
+
+        const newSegment3 = {
+            index: segmentIndex + 2,
+            direction: segment.direction,
+            start: { x: newPoint.x, y: newPoint.y },
+            end: { x: segment.end.x, y: segment.end.y }
+        };
+
+        segments.splice(segmentIndex, 1, newSegment1, newSegment2, newSegment3);
+
+        for (let i = segmentIndex; i < segments.length; i++) {
+            segments[i].index = i;
+        }
+
+        meta.segments = segments;
+        connection.setAttr('connection-meta', meta);
+
+        this.redrawConnection(connection);
+        this.addLineEditHandles(connection);
+        
+        console.log(`Вставлены 2 новых точки (segments: ${prevSegmentCount} → ${segments.length})`);
+    }
+
+    /**
+     * Получить проецируемую точку на сегмент
+     * @param {Object} clickPoint - исходная точка клика
+     * @param {Object} segment - сегмент
+     * @returns {Object} - проецируемая точка {x, y}
+     */
+    getProjectedPointOnSegment(clickPoint, segment) {
+        const { start, end, direction } = segment;
+
+        if (direction === 'H') {
+            const minX = Math.min(start.x, end.x);
+            const maxX = Math.max(start.x, end.x);
+            const projectedX = Math.max(minX, Math.min(maxX, clickPoint.x));
+            return {
+                x: projectedX,
+                y: start.y
+            };
+        } else {
+            const minY = Math.min(start.y, end.y);
+            const maxY = Math.max(start.y, end.y);
+            const projectedY = Math.max(minY, Math.min(maxY, clickPoint.y));
+            return {
+                x: start.x,
+                y: projectedY
+            };
+        }
     }
 
     /**
@@ -308,7 +512,7 @@ class ConnectionEditor {
         const points = ConnectionRouter.segmentsToPoints(meta.segments);
         connection.points(points);
 
-        if (meta.handles && meta.handles.length > 0) {
+        if (meta.handles && meta.handles.length === meta.segments.length) {
             for (let i = 0; i < meta.segments.length; i++) {
                 const seg = meta.segments[i];
                 const handle = meta.handles[i];
@@ -321,7 +525,7 @@ class ConnectionEditor {
     }
 
     /**
-     * Обновить подсветку выделения
+     * Обновить подсвечивание выделения
      */
     refreshConnectionHighlight(connection) {
         const meta = connection.getAttr('connection-meta');
