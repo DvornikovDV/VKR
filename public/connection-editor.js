@@ -106,20 +106,27 @@ class ConnectionEditor {
 
     /**
      * Удалить разрыв на ручке (Ctrl+двойной клик)
-     * Удаляет центральный сегмент и пересчитывает координаты соседей
+     * Удаляет ДВЕ точки из массива points и пересчитывает сегменты
      * 
      * Валидация типов:
      * Type 1 (четные точки, нечетные сегменты): минимум 5 сегментов
      * Type 2 (нечетные точки, четные сегменты): минимум 4 сегмента
      * 
+     * Порядок операций:
+     * 1. Валидация (тип, минимум, крайние)
+     * 2. Удалить ДВЕ точки из массива points
+     * 3. Пересчитать сегменты из нового массива points
+     * 4. Нормализовать координаты для ортогональности
+     * 5. Отрисовать
+     * 
      * @param {Konva.Line} connection
-     * @param {number} handleSegmentIndex - индекс сегмента для удаления
+     * @param {number} handleSegmentIndex - индекс ручки (сегмента для удаления)
      */
     removeBreakPointAtHandle(connection, handleSegmentIndex) {
         const meta = connection.getAttr('connection-meta');
         const segments = meta.segments;
 
-        // ЗАЩИТА 1: не удалять крайние разрывы (всегда)
+        // ЗАЩИТА 1: не удалять крайние разрывы
         if (handleSegmentIndex === 0 || handleSegmentIndex === segments.length - 1) {
             console.warn('Нельзя удалить концевой разрыв');
             return;
@@ -143,46 +150,76 @@ class ConnectionEditor {
             }
         }
 
-        // УДАЛЕНИЕ: просто удаляем центральный сегмент
-        segments.splice(handleSegmentIndex, 1);
+        // ШАГ 1: Конвертировать сегменты в плоский массив точек
+        let points = ConnectionRouter.segmentsToPoints(segments);
         
-        // ПЕРЕСЧЕТ КООРДИНАТ соседних сегментов
-        this.recalculateSegmentCoordinates(segments, handleSegmentIndex);
+        // ШАГ 2: Удалить ДВЕ точки (соответствующие удаляемому сегменту)
+        // Сегмент N начинается с точки (N*2), поэтому удаляем с индекса (N*2) две точки
+        const pointIndexToRemove = handleSegmentIndex * 2;
+        points.splice(pointIndexToRemove, 4);  // удалить 2 координаты (4 элемента массива: x1, y1, x2, y2)
         
-        // ОБНОВИТЬ индексы
-        for (let i = 0; i < segments.length; i++) {
-            segments[i].index = i;
-        }
+        // ШАГ 3: Пересчитать сегменты из обновленного массива точек
+        const newSegments = ConnectionRouter.pointsToSegments(points);
         
-        meta.segments = segments;
+        // ШАГ 4: Нормализовать координаты для обеспечения ортогональности
+        this.normalizeAfterBreakRemoval(newSegments, handleSegmentIndex);
+        
+        // ШАГ 5: Обновить метаданные
+        meta.segments = newSegments;
         meta.userModified = true;
         connection.setAttr('connection-meta', meta);
 
+        // ШАГ 6: Отрисовать
         this.redrawConnection(connection);
         this.addLineEditHandles(connection);
 
-        console.log(`Удален разрыв (segments: ${segments.length + 1} → ${segments.length})`);
+        console.log(`Удален разрыв (segments: ${segments.length} → ${newSegments.length}, points: ${points.length / 2})`)
     }
 
     /**
-     * Пересчитать координаты соседних сегментов после удаления
-     * Стыкует сегменты так, чтобы конец одного = начало следующего
+     * Нормализовать координаты после удаления разрыва
+     * Обеспечивает ортогональность путем перемещения точек по нужной оси
      * 
-     * @param {Array} segments - массив сегментов
-     * @param {number} deletionIndex - индекс удаленного сегмента
+     * Алгоритм:
+     * 1. Проверить соседние сегменты вокруг места удаления
+     * 2. Если направления разные (H→V или V→H): переместить точку стыка
+     * 3. Если направления одинаковые (H→H или V→V): слить в один сегмент
+     * 
+     * @param {Array} segments - массив сегментов после пересчета
+     * @param {number} deletionIndex - индекс, где был удален сегмент
      */
-    recalculateSegmentCoordinates(segments, deletionIndex) {
-        // Область пересчета: вокруг места удаления
-        const startIdx = Math.max(0, deletionIndex - 1);
-        const endIdx = Math.min(segments.length - 2, deletionIndex);
+    normalizeAfterBreakRemoval(segments, deletionIndex) {
+        if (segments.length < 2) return;
         
-        for (let i = startIdx; i <= endIdx; i++) {
-            const currentSeg = segments[i];
-            const nextSeg = segments[i + 1];
-            
-            // Стыковать сегменты: конец текущего = начало следующего
-            nextSeg.start.x = currentSeg.end.x;
-            nextSeg.start.y = currentSeg.end.y;
+        // После удаления нужно проверить точку стыка
+        // Индекс в новом массиве: deletionIndex (так как мы удалили сегмент на этой позиции)
+        const checkIdx = Math.min(deletionIndex, segments.length - 2);
+        
+        if (checkIdx < 0 || checkIdx >= segments.length - 1) return;
+        
+        const leftSeg = segments[checkIdx];
+        const rightSeg = segments[checkIdx + 1];
+        
+        // Проверить и исправить стык между левым и правым сегментом
+        if (leftSeg.direction === 'H' && rightSeg.direction === 'V') {
+            // H→V: правый сегмент должен начинаться под концом левого
+            rightSeg.start.x = leftSeg.end.x;
+            rightSeg.start.y = leftSeg.end.y;
+        } else if (leftSeg.direction === 'V' && rightSeg.direction === 'H') {
+            // V→H: правый сегмент должен начинаться справа от левого
+            rightSeg.start.x = leftSeg.end.x;
+            rightSeg.start.y = leftSeg.end.y;
+        } else if (leftSeg.direction === rightSeg.direction) {
+            // Одинаковые направления: должны быть слиты в один
+            // Слить: расширить левый до конца правого
+            leftSeg.end.x = rightSeg.end.x;
+            leftSeg.end.y = rightSeg.end.y;
+            // Удалить правый сегмент
+            segments.splice(checkIdx + 1, 1);
+            // Пересчитать индексы
+            for (let i = 0; i < segments.length; i++) {
+                segments[i].index = i;
+            }
         }
     }
 
