@@ -179,8 +179,9 @@ class ConnectionEditor {
         meta.userModified = true;
         connection.setAttr('connection-meta', meta);
 
-        // ШАГ 7: Отрисовать
+        // ШАГ 7: Отрисовать и обновить подсвечивание
         this.redrawConnection(connection);
+        this.refreshConnectionHighlight(connection);
         this.addLineEditHandles(connection);
 
         console.log(`Удален разрыв (segments: ${prevSegmentCount} → ${newSegments.length}, points: ${points.length / 2})`);
@@ -191,12 +192,16 @@ class ConnectionEditor {
      * Алгоритм Вариант 1: проходит от первого пина по всем сегментам
      * и исправляет координаты для обеспечения полной ортогональности
      * 
+     * Ключ к успеху: когда сегменты одного направления предстоит слить,
+     * нужно расширить первый сегмент до конца второго, а не создавать разрывы
+     * 
      * Процесс:
-     * 1. Первая точка = позиция первого пина (закреплена)
-     * 2. Для каждого сегмента: если H-сегмент → конец на Y первой точки
-     *                           если V-сегмент → конец на X первой точки
-     * 3. Если два соседних сегмента имеют одинаковое направление → слить в один
-     * 4. Результат: все сегменты чередуют H и V, полная ортогональность
+     * 1. Установить первую точку = позиция первого пина
+     * 2. Для каждого сегмента: связать с предыдущим (начало = конец предыдущего)
+     * 3. Исправить конец текущего сегмента согласно его направлению
+     * 4. Установить последнюю точку = позиция конечного пина
+     * 5. Слить соседние сегменты одинакового направления (расширение, не удаление)
+     * 6. Результат: все сегменты чередуют H и V, полная ортогональность
      * 
      * @param {Array} segments - массив сегментов после пересчета
      * @param {Konva.Circle} fromPin - начальный пин (закреплённая позиция)
@@ -210,56 +215,50 @@ class ConnectionEditor {
         const fromPos = fromPin.position();
         const toPos = toPin.position();
         
-        // Начать с позиции первого пина (закреплена)
+        // Шаг 1: Начать с позиции первого пина (закреплена)
         segments[0].start.x = fromPos.x;
         segments[0].start.y = fromPos.y;
         
-        // Пройти по всем сегментам и исправить координаты
+        // Шаг 2: Пройти по всем сегментам и исправить координаты
         for (let i = 0; i < segments.length; i++) {
             const seg = segments[i];
             
-            if (i === 0) {
-                // Первый сегмент начинается от fromPin
-                if (seg.direction === 'H') {
-                    seg.start.y = fromPos.y;
-                    seg.end.y = fromPos.y;
-                } else {
-                    seg.start.x = fromPos.x;
-                    seg.end.x = fromPos.x;
-                }
-            } else {
+            if (i > 0) {
                 // Остальные сегменты начинаются из конца предыдущего
                 const prevSeg = segments[i - 1];
                 seg.start.x = prevSeg.end.x;
                 seg.start.y = prevSeg.end.y;
-                
-                if (seg.direction === 'H') {
-                    // Горизонтальный сегмент: конец на той же Y
-                    seg.end.y = seg.start.y;
-                } else {
-                    // Вертикальный сегмент: конец на том же X
-                    seg.end.x = seg.start.x;
-                }
+            }
+            
+            // Шаг 3: Исправить конец текущего сегмента
+            if (seg.direction === 'H') {
+                // Горизонтальный сегмент: Y остаётся как у начала
+                seg.end.y = seg.start.y;
+                // X остаётся как есть (уже установлена конвертацией points→segments)
+            } else {
+                // Вертикальный сегмент: X остаётся как у начала
+                seg.end.x = seg.start.x;
+                // Y остаётся как есть (уже установлена конвертацией points→segments)
             }
         }
         
-        // Установить конец последнего сегмента в позицию toPin
+        // Шаг 4: Установить конец последнего сегмента в позицию toPin
         const lastSeg = segments[segments.length - 1];
         lastSeg.end.x = toPos.x;
         lastSeg.end.y = toPos.y;
         
-        // Слить сегменты одинакового направления
+        // Шаг 5: Слить сегменты одинакового направления
         // Проходим в обратном порядке чтобы индексы не сдвигались при удалении
         for (let i = segments.length - 2; i >= 0; i--) {
             if (segments[i].direction === segments[i + 1].direction) {
-                // Слить i-й и (i+1)-й сегменты
+                // Слить: расширить i-й сегмент до конца (i+1)-го, затем удалить (i+1)-й
                 segments[i].end.x = segments[i + 1].end.x;
                 segments[i].end.y = segments[i + 1].end.y;
                 segments.splice(i + 1, 1);
             }
         }
         
-        // Пересчитать индексы
+        // Шаг 6: Пересчитать индексы
         for (let i = 0; i < segments.length; i++) {
             segments[i].index = i;
         }
