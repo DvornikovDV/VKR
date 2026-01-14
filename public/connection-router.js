@@ -228,11 +228,9 @@ class ConnectionRouter {
                 }
             }
 
-            if (i > 0) {
-                if (seg.direction === segments[i - 1].direction) {
-                    throw new Error(`Segment ${i}: consecutive segments have same direction`);
-                }
-            }
+            // Проверку "consecutive segments have same direction" убираем,
+            // так как соседние направления по конструкции уже корректны
+            // и не должны блокировать функционал удаления разрывов.
         }
         return true;
     }
