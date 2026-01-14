@@ -107,6 +107,7 @@ class ConnectionEditor {
     /**
      * Удалить разрыв на ручке (Ctrl+двойной клик)
      * Удаляет ДВЕ точки из массива points и пересчитывает сегменты
+     * Затем выполняет глобальную нормализацию для обеспечения ортогональности
      * 
      * Валидация типов:
      * Type 1 (четные точки, нечетные сегменты): минимум 5 сегментов
@@ -116,7 +117,7 @@ class ConnectionEditor {
      * 1. Валидация (тип, минимум, крайние)
      * 2. Удалить ДВЕ точки из массива points
      * 3. Пересчитать сегменты из нового массива points
-     * 4. Нормализовать координаты для ортогональности
+     * 4. Выполнить глобальную нормализацию всех сегментов
      * 5. Отрисовать
      * 
      * @param {Konva.Line} connection
@@ -152,6 +153,7 @@ class ConnectionEditor {
 
         // ШАГ 1: Конвертировать сегменты в плоский массив точек
         let points = ConnectionRouter.segmentsToPoints(segments);
+        const prevSegmentCount = segments.length;
         
         // ШАГ 2: Удалить ДВЕ точки (соответствующие удаляемому сегменту)
         // Сегмент N начинается с точки (N*2), поэтому удаляем с индекса (N*2) две точки
@@ -159,68 +161,110 @@ class ConnectionEditor {
         points.splice(pointIndexToRemove, 4);  // удалить 2 координаты (4 элемента массива: x1, y1, x2, y2)
         
         // ШАГ 3: Пересчитать сегменты из обновленного массива точек
-        const newSegments = ConnectionRouter.pointsToSegments(points);
+        let newSegments = ConnectionRouter.pointsToSegments(points);
         
-        // ШАГ 4: Нормализовать координаты для обеспечения ортогональности
-        this.normalizeAfterBreakRemoval(newSegments, handleSegmentIndex);
+        // ШАГ 4: Выполнить глобальную нормализацию всех сегментов
+        newSegments = this.normalizeAllSegments(newSegments, meta.fromPin, meta.toPin);
         
-        // ШАГ 5: Обновить метаданные
+        // ШАГ 5: Валидировать результат
+        try {
+            ConnectionRouter.validateSegments(newSegments);
+        } catch (e) {
+            console.error('Ошибка валидации после удаления разрыва:', e.message);
+            return;
+        }
+        
+        // ШАГ 6: Обновить метаданные
         meta.segments = newSegments;
         meta.userModified = true;
         connection.setAttr('connection-meta', meta);
 
-        // ШАГ 6: Отрисовать
+        // ШАГ 7: Отрисовать
         this.redrawConnection(connection);
         this.addLineEditHandles(connection);
 
-        console.log(`Удален разрыв (segments: ${segments.length} → ${newSegments.length}, points: ${points.length / 2})`)
+        console.log(`Удален разрыв (segments: ${prevSegmentCount} → ${newSegments.length}, points: ${points.length / 2})`);
     }
 
     /**
-     * Нормализовать координаты после удаления разрыва
-     * Обеспечивает ортогональность путем перемещения точек по нужной оси
+     * Нормализовать все сегменты глобально
+     * Алгоритм Вариант 1: проходит от первого пина по всем сегментам
+     * и исправляет координаты для обеспечения полной ортогональности
      * 
-     * Алгоритм:
-     * 1. Проверить соседние сегменты вокруг места удаления
-     * 2. Если направления разные (H→V или V→H): переместить точку стыка
-     * 3. Если направления одинаковые (H→H или V→V): слить в один сегмент
+     * Процесс:
+     * 1. Первая точка = позиция первого пина (закреплена)
+     * 2. Для каждого сегмента: если H-сегмент → конец на Y первой точки
+     *                           если V-сегмент → конец на X первой точки
+     * 3. Если два соседних сегмента имеют одинаковое направление → слить в один
+     * 4. Результат: все сегменты чередуют H и V, полная ортогональность
      * 
      * @param {Array} segments - массив сегментов после пересчета
-     * @param {number} deletionIndex - индекс, где был удален сегмент
+     * @param {Konva.Circle} fromPin - начальный пин (закреплённая позиция)
+     * @param {Konva.Circle} toPin - конечный пин (целевая позиция)
+     * @returns {Array} - нормализованные сегменты
      */
-    normalizeAfterBreakRemoval(segments, deletionIndex) {
-        if (segments.length < 2) return;
+    normalizeAllSegments(segments, fromPin, toPin) {
+        if (segments.length === 0) return segments;
+        if (segments.length === 1) return segments;
+
+        const fromPos = fromPin.position();
+        const toPos = toPin.position();
         
-        // После удаления нужно проверить точку стыка
-        // Индекс в новом массиве: deletionIndex (так как мы удалили сегмент на этой позиции)
-        const checkIdx = Math.min(deletionIndex, segments.length - 2);
+        // Начать с позиции первого пина (закреплена)
+        segments[0].start.x = fromPos.x;
+        segments[0].start.y = fromPos.y;
         
-        if (checkIdx < 0 || checkIdx >= segments.length - 1) return;
-        
-        const leftSeg = segments[checkIdx];
-        const rightSeg = segments[checkIdx + 1];
-        
-        // Проверить и исправить стык между левым и правым сегментом
-        if (leftSeg.direction === 'H' && rightSeg.direction === 'V') {
-            // H→V: правый сегмент должен начинаться под концом левого
-            rightSeg.start.x = leftSeg.end.x;
-            rightSeg.start.y = leftSeg.end.y;
-        } else if (leftSeg.direction === 'V' && rightSeg.direction === 'H') {
-            // V→H: правый сегмент должен начинаться справа от левого
-            rightSeg.start.x = leftSeg.end.x;
-            rightSeg.start.y = leftSeg.end.y;
-        } else if (leftSeg.direction === rightSeg.direction) {
-            // Одинаковые направления: должны быть слиты в один
-            // Слить: расширить левый до конца правого
-            leftSeg.end.x = rightSeg.end.x;
-            leftSeg.end.y = rightSeg.end.y;
-            // Удалить правый сегмент
-            segments.splice(checkIdx + 1, 1);
-            // Пересчитать индексы
-            for (let i = 0; i < segments.length; i++) {
-                segments[i].index = i;
+        // Пройти по всем сегментам и исправить координаты
+        for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i];
+            
+            if (i === 0) {
+                // Первый сегмент начинается от fromPin
+                if (seg.direction === 'H') {
+                    seg.start.y = fromPos.y;
+                    seg.end.y = fromPos.y;
+                } else {
+                    seg.start.x = fromPos.x;
+                    seg.end.x = fromPos.x;
+                }
+            } else {
+                // Остальные сегменты начинаются из конца предыдущего
+                const prevSeg = segments[i - 1];
+                seg.start.x = prevSeg.end.x;
+                seg.start.y = prevSeg.end.y;
+                
+                if (seg.direction === 'H') {
+                    // Горизонтальный сегмент: конец на той же Y
+                    seg.end.y = seg.start.y;
+                } else {
+                    // Вертикальный сегмент: конец на том же X
+                    seg.end.x = seg.start.x;
+                }
             }
         }
+        
+        // Установить конец последнего сегмента в позицию toPin
+        const lastSeg = segments[segments.length - 1];
+        lastSeg.end.x = toPos.x;
+        lastSeg.end.y = toPos.y;
+        
+        // Слить сегменты одинакового направления
+        // Проходим в обратном порядке чтобы индексы не сдвигались при удалении
+        for (let i = segments.length - 2; i >= 0; i--) {
+            if (segments[i].direction === segments[i + 1].direction) {
+                // Слить i-й и (i+1)-й сегменты
+                segments[i].end.x = segments[i + 1].end.x;
+                segments[i].end.y = segments[i + 1].end.y;
+                segments.splice(i + 1, 1);
+            }
+        }
+        
+        // Пересчитать индексы
+        for (let i = 0; i < segments.length; i++) {
+            segments[i].index = i;
+        }
+        
+        return segments;
     }
 
     /**
