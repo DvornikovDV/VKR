@@ -64,14 +64,18 @@ class ConnectionEditor {
             // Ctrl+dblclick: удалить разрыв (только НЕ крайних сегментов)
             handle.on('dblclick', (e) => {
                 e.cancelBubble = true;
+                const meta = handle.getAttr('segment-handle-meta');
+                const segmentIndex = meta.segmentIndex;
+                const isEndSegment = meta.isEndSegment;
+                
                 if (e.evt.ctrlKey) {
                     // Удаление: только не крайние
                     if (!isEndSegment) {
-                        this.removeBreakPointAtHandle(connection, i);
+                        this.removeBreakPointAtHandle(connection, segmentIndex);
                     }
                 } else {
                     // Добавление: все
-                    this.addBreakPointOnHandle(connection, i);
+                    this.addBreakPointOnHandle(connection, segmentIndex);
                 }
             });
 
@@ -189,19 +193,19 @@ class ConnectionEditor {
 
     /**
      * Нормализовать все сегменты глобально
-     * Алгоритм Вариант 1: проходит от первого пина по всем сегментам
+     * Алгоритм: проходит от первого пина по всем сегментам
      * и исправляет координаты для обеспечения полной ортогональности
      * 
-     * Ключ к успеху: когда сегменты одного направления предстоит слить,
-     * нужно расширить первый сегмент до конца второго, а не создавать разрывы
+     * Ключная гарантия: сегменты строятся из точек, и соседние сегменты
+     * ВСЕГДА имеют разные направления (H/V чередуются) по конструкции.
+     * Нет необходимости в слиянии или коррекции порядка направлений.
      * 
      * Процесс:
      * 1. Установить первую точку = позиция первого пина
      * 2. Для каждого сегмента: связать с предыдущим (начало = конец предыдущего)
      * 3. Исправить конец текущего сегмента согласно его направлению
      * 4. Установить последнюю точку = позиция конечного пина
-     * 5. Слить соседние сегменты одинакового направления (расширение, не удаление)
-     * 6. Результат: все сегменты чередуют H и V, полная ортогональность
+     * 5. Пересчитать индексы
      * 
      * @param {Array} segments - массив сегментов после пересчета
      * @param {Konva.Circle} fromPin - начальный пин (закреплённая позиция)
@@ -247,18 +251,7 @@ class ConnectionEditor {
         lastSeg.end.x = toPos.x;
         lastSeg.end.y = toPos.y;
         
-        // Шаг 5: Слить сегменты одинакового направления
-        // Проходим в обратном порядке чтобы индексы не сдвигались при удалении
-        for (let i = segments.length - 2; i >= 0; i--) {
-            if (segments[i].direction === segments[i + 1].direction) {
-                // Слить: расширить i-й сегмент до конца (i+1)-го, затем удалить (i+1)-й
-                segments[i].end.x = segments[i + 1].end.x;
-                segments[i].end.y = segments[i + 1].end.y;
-                segments.splice(i + 1, 1);
-            }
-        }
-        
-        // Шаг 6: Пересчитать индексы
+        // Шаг 5: Пересчитать индексы
         for (let i = 0; i < segments.length; i++) {
             segments[i].index = i;
         }
