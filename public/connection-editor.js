@@ -202,7 +202,7 @@ class ConnectionEditor {
      *    - Исправить seg[i].end согласно направлению:
      *      * H: end.y = start.y (горизонтальная линия)
      *      * V: end.x = start.x (вертикальная линия)
-     * 3. Зафиксировать последнюю точку = toPin.position()
+     * 3. Зафиксировать последнюю точку = toPin.position(), соблюдая её направление
      * 4. Пересчитать индексы
      * 
      * @param {Array} segments - массив сегментов после пересчета
@@ -242,10 +242,17 @@ class ConnectionEditor {
             }
         }
         
-        // Шаг 3: Зафиксировать последнюю точку = toPin
+        // Шаг 3: Зафиксировать последнюю точку = toPin, соблюдая её направление
         const lastSeg = segments[segments.length - 1];
-        lastSeg.end.x = toPos.x;
-        lastSeg.end.y = toPos.y;
+        if (lastSeg.direction === 'H') {
+            // H-сегмент: фиксируем только X, Y должен совпадать с start.y
+            lastSeg.end.x = toPos.x;
+            lastSeg.end.y = lastSeg.start.y;
+        } else if (lastSeg.direction === 'V') {
+            // V-сегмент: фиксируем только Y, X должен совпадать с start.x
+            lastSeg.end.y = toPos.y;
+            lastSeg.end.x = lastSeg.start.x;
+        }
         
         // Шаг 4: Пересчитать индексы
         for (let i = 0; i < segments.length; i++) {
