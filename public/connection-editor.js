@@ -104,15 +104,15 @@ class ConnectionEditor {
 
     /**
      * Удалить разрыв на ручке (Ctrl+двойной клик)
-     * Упрощённый алгоритм: удалить две точки, пересчитать направления из новых точек,
-     * зафиксировать одну координату у точки между новыми соседями для ортогональности.
+     * Упрощённый алгоритм: удалить две точки, пересчитать направления, зафиксировать одну координату для диагонали.
+     * Затем обновить конечные сегменты чтобы пины были на месте.
      * 
      * Валидация:
      * - Не удалять конечные сегменты (затрагивают пины)
      * - Минимум точек: 5 для нечётного, 6 для чётного исходного количества
      * 
      * @param {Konva.Line} connection
-     * @param {number} handleSegmentIndex - индекс сегмента, на котором лежит ручка (удаляется этот и следующий сегмент)
+     * @param {number} handleSegmentIndex - индекс сегмента, на котором лежит ручка
      */
     removeBreakPointAtHandle(connection, handleSegmentIndex) {
         const meta = connection.getAttr('connection-meta');
@@ -135,7 +135,6 @@ class ConnectionEditor {
         }
 
         // Валидация 2: минимум точек
-        // Исходная ортогональность гарантирует: для безопасности минимум 5 (Type A) и 6 (Type B)
         const isTypeA = (N % 2 === 1);
         const minPoints = isTypeA ? 5 : 6;
         if (N < minPoints) {
@@ -171,8 +170,8 @@ class ConnectionEditor {
             } else if (start.y === end.y) {
                 direction = 'H';
             } else {
-                // Диагональный сегмент — нужно зафиксировать координату
-                // Сегмент до удаляемой пары (если есть) определит нам, какую координату менять
+                // Диагональный сегмент — нужно зафиксировать одну координату
+                // Сегмент до удаляемой пары (если есть) определит, какую координату менять
                 if (i < firstPointIndex) {
                     // Сегмент ДО удаляемой пары
                     const prevSeg = newSegments[i - 1];
@@ -187,8 +186,8 @@ class ConnectionEditor {
                 } else {
                     // Сегмент ПОСЛЕ удаляемой пары
                     if (i === firstPointIndex) {
-                        // Это сегмент, который мостит разрыв (соединяет соседей удаляемых)
-                        // Определяем направление чередованием: если перед этим был V, то сейчас H
+                        // Этот сегмент мостит разрыв (соединяет соседей удаляемых)
+                        // Определяем направление чередованием: если перед ним был V, то этот H
                         const prevSeg = newSegments[i - 1];
                         if (prevSeg && prevSeg.direction === 'V') {
                             direction = 'H';
@@ -227,7 +226,35 @@ class ConnectionEditor {
             return false;
         }
 
-        // Шаг 6: применить изменения
+        // Шаг 6: обновить конечные сегменты чтобы пины были точно на месте
+        // Это исправляет баг где правые сегменты не приходят в пин
+        const fromPin = meta.fromPin;
+        const toPin = meta.toPin;
+        const fromPinPos = fromPin.position();
+        const toPinPos = toPin.position();
+
+        // Первый сегмент начинается с fromPin
+        newSegments[0].start.x = fromPinPos.x;
+        newSegments[0].start.y = fromPinPos.y;
+
+        // Обновить начало второго сегмента если есть
+        if (newSegments.length > 1) {
+            newSegments[1].start.x = newSegments[0].end.x;
+            newSegments[1].start.y = newSegments[0].end.y;
+        }
+
+        // Последний сегмент заканчивается на toPin
+        const lastSeg = newSegments[newSegments.length - 1];
+        lastSeg.end.x = toPinPos.x;
+        lastSeg.end.y = toPinPos.y;
+
+        // Обновить конец предпоследнего сегмента если есть
+        if (newSegments.length > 1) {
+            newSegments[newSegments.length - 2].end.x = lastSeg.start.x;
+            newSegments[newSegments.length - 2].end.y = lastSeg.start.y;
+        }
+
+        // Шаг 7: применить изменения
         meta.segments = newSegments;
         meta.userModified = true;
         connection.setAttr('connection-meta', meta);
