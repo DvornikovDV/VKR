@@ -4,8 +4,9 @@
 import { ConnectionRouter } from './connection-router.js';
 
 class ConnectionEditor {
-    constructor(canvasManager) {
+    constructor(canvasManager, connectionManager) {
         this.canvasManager = canvasManager;
+        this.connectionManager = connectionManager;
     }
 
     /**
@@ -104,8 +105,8 @@ class ConnectionEditor {
 
     /**
      * Удалить разрыв на ручке (Ctrl+двойной клик)
-     * Упрощённый алгоритм: удалить две точки, пересчитать направления, зафиксировать одну координату для диагонали.
-     * Затем обновить конечные сегменты чтобы пины были на месте.
+     * Упрощённый алгоритм: удалить две точки, пересчитать направления, зафиксировать одну координату для диагоналей.
+     * Затем вызвать updateConnectionsForPin() для toPin, чтобы пересчитать конечные координаты.
      * 
      * Валидация:
      * - Не удалять конечные сегменты (затрагивают пины)
@@ -226,35 +227,7 @@ class ConnectionEditor {
             return false;
         }
 
-        // Шаг 6: обновить конечные сегменты чтобы пины были точно на месте
-        // Это исправляет баг где правые сегменты не приходят в пин
-        const fromPin = meta.fromPin;
-        const toPin = meta.toPin;
-        const fromPinPos = fromPin.position();
-        const toPinPos = toPin.position();
-
-        // Первый сегмент начинается с fromPin
-        newSegments[0].start.x = fromPinPos.x;
-        newSegments[0].start.y = fromPinPos.y;
-
-        // Обновить начало второго сегмента если есть
-        if (newSegments.length > 1) {
-            newSegments[1].start.x = newSegments[0].end.x;
-            newSegments[1].start.y = newSegments[0].end.y;
-        }
-
-        // Последний сегмент заканчивается на toPin
-        const lastSeg = newSegments[newSegments.length - 1];
-        lastSeg.end.x = toPinPos.x;
-        lastSeg.end.y = toPinPos.y;
-
-        // Обновить конец предпоследнего сегмента если есть
-        if (newSegments.length > 1) {
-            newSegments[newSegments.length - 2].end.x = lastSeg.start.x;
-            newSegments[newSegments.length - 2].end.y = lastSeg.start.y;
-        }
-
-        // Шаг 7: применить изменения
+        // Шаг 6: применить изменения
         meta.segments = newSegments;
         meta.userModified = true;
         connection.setAttr('connection-meta', meta);
@@ -264,6 +237,15 @@ class ConnectionEditor {
         this.addLineEditHandles(connection);
 
         console.log(`Удаление разрыва: ${N} → ${newPoints.length} точек, ${prevSegmentCount} → ${newSegments.length} сегментов`);
+
+        // Шаг 7: обновить конечные координаты через updateConnectionsForPin для toPin
+        // Это исправляет баг когда правые сегменты не приходят в пин
+        if (this.connectionManager) {
+            const toPin = meta.toPin;
+            const toPinPos = toPin.position();
+            this.connectionManager.updateConnectionsForPin(toPin, toPinPos.x, toPinPos.y, false);
+        }
+
         return true;
     }
 
@@ -370,7 +352,7 @@ class ConnectionEditor {
 
         if (!segment) return;
 
-        // Вычислить середину сегмента
+        // Вычислить серединy сегмента
         const midX = (segment.start.x + segment.end.x) / 2;
         const midY = (segment.start.y + segment.end.y) / 2;
 
