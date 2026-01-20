@@ -4,8 +4,9 @@
 import { ConnectionRouter } from './connection-router.js';
 
 class ConnectionEditor {
-    constructor(canvasManager) {
+    constructor(canvasManager, connectionManager) {
         this.canvasManager = canvasManager;
+        this.connectionManager = connectionManager;
     }
 
     /**
@@ -59,22 +60,16 @@ class ConnectionEditor {
                 this.onHandleDragEnd(handle, connection);
             });
 
-            // двойной клик для добавления/удаления разрыва
-            // dblclick: добавить разрыв (любых сегментов, включая крайние)
-            // Ctrl+dblclick: удалить разрыв (только НЕ крайних сегментов)
+            // dblclick: добавить разрыв
+            // Ctrl+dblclick: удалить разрыв (любой, кроме конечных)
             handle.on('dblclick', (e) => {
                 e.cancelBubble = true;
                 const meta = handle.getAttr('segment-handle-meta');
                 const segmentIndex = meta.segmentIndex;
-                const isEndSegment = meta.isEndSegment;
-                
+
                 if (e.evt.ctrlKey) {
-                    // Удаление: только не крайние
-                    if (!isEndSegment) {
-                        this.removeBreakPointAtHandle(connection, segmentIndex);
-                    }
+                    this.removeBreakPointAtHandle(connection, segmentIndex);
                 } else {
-                    // Добавление: все
                     this.addBreakPointOnHandle(connection, segmentIndex);
                 }
             });
@@ -99,164 +94,160 @@ class ConnectionEditor {
     addBreakPointOnHandle(connection, handleIndex) {
         const meta = connection.getAttr('connection-meta');
         const segment = meta.segments[handleIndex];
-        
+
         const midPoint = {
             x: (segment.start.x + segment.end.x) / 2,
             y: (segment.start.y + segment.end.y) / 2
         };
-        
+
         this.addBreakPointToSegment(connection, handleIndex, midPoint);
     }
 
     /**
      * Удалить разрыв на ручке (Ctrl+двойной клик)
-     * Удаляет ДВЕ точки из массива points и пересчитывает сегменты
-     * Затем выполняет глобальную нормализацию для обеспечения ортогональности
+     * Упрощённый алгоритм: удалить две точки, пересчитать направления, зафиксировать одну координату для диагоналей.
+     * Затем перерисовать и вызвать updateConnectionsForPin() для toPin для финального контроля координат.
      * 
-     * Валидация типов:
-     * Type 1 (четные точки, нечетные сегменты): минимум 5 сегментов
-     * Type 2 (нечетные точки, четные сегменты): минимум 4 сегмента
-     * 
-     * Порядок операций:
-     * 1. Валидация (тип, минимум, крайние)
-     * 2. Удалить ДВЕ точки из массива points
-     * 3. Пересчитать сегменты из нового массива points
-     * 4. Выполнить глобальную нормализацию всех сегментов
-     * 5. Отрисовать
+     * Валидация:
+     * - Не удалять конечные сегменты (затрагивают пины)
+     * - Минимум точек: 5 для нечётного, 6 для чётного исходного количества
      * 
      * @param {Konva.Line} connection
-     * @param {number} handleSegmentIndex - индекс ручки (сегмента для удаления)
+     * @param {number} handleSegmentIndex - индекс сегмента, на котором лежит ручка
      */
     removeBreakPointAtHandle(connection, handleSegmentIndex) {
         const meta = connection.getAttr('connection-meta');
         const segments = meta.segments;
 
-        // ЗАЩИТА 1: не удалять крайние разрывы
-        if (handleSegmentIndex === 0 || handleSegmentIndex === segments.length - 1) {
-            console.warn('Нельзя удалить концевой разрыв');
-            return;
-        }
-        
-        // ЗАЩИТА 2: определить тип соединения
-        const isType1 = segments.length % 2 === 1;  // нечетное число = Type 1
-        
-        // ЗАЩИТА 3: валидация минимума в зависимости от типа
-        if (isType1) {
-            // Type 1 (четные точки): требуется минимум 5 сегментов
-            if (segments.length < 5) {
-                console.warn(`Нельзя удалить - недостаточно сегментов (минимум 5 для Type 1, текущих: ${segments.length})`);
-                return;
-            }
-        } else {
-            // Type 2 (нечетные точки): требуется минимум 4 сегмента
-            if (segments.length < 4) {
-                console.warn(`Нельзя удалить - недостаточно сегментов (минимум 4 для Type 2, текущих: ${segments.length})`);
-                return;
-            }
+        // Шаг 1: Сегменты → точки (точки — источник истины)
+        const flatPoints = ConnectionRouter.segmentsToPoints(segments);
+        const points = [];
+        for (let i = 0; i < flatPoints.length; i += 2) {
+            points.push({ x: flatPoints[i], y: flatPoints[i + 1] });
         }
 
-        // ШАГ 1: Конвертировать сегменты в плоский массив точек
-        let points = ConnectionRouter.segmentsToPoints(segments);
+        const N = points.length;
         const prevSegmentCount = segments.length;
-        
-        // ШАГ 2: Удалить ДВЕ точки (соответствующие удаляемому сегменту)
-        // Сегмент N начинается с точки (N*2), поэтому удаляем с индекса (N*2) две точки
-        const pointIndexToRemove = handleSegmentIndex * 2;
-        points.splice(pointIndexToRemove, 4);  // удалить 2 координаты (4 элемента массива: x1, y1, x2, y2)
-        
-        // ШАГ 3: Пересчитать сегменты из обновленного массива точек
-        let newSegments = ConnectionRouter.pointsToSegments(points);
-        
-        // ШАГ 4: Выполнить глобальную нормализацию всех сегментов
-        newSegments = this.normalizeAllSegments(newSegments, meta.fromPin, meta.toPin);
-        
-        // ШАГ 5: Валидировать результат
+
+        // Валидация 1: не крайние сегменты (они затрагивают пины)
+        if (handleSegmentIndex === 0 || handleSegmentIndex === prevSegmentCount - 1) {
+            console.warn(`Нельзя удалить крайний сегмент (пины): индекс ${handleSegmentIndex}`);
+            return false;
+        }
+
+        // Валидация 2: минимум точек
+        const isTypeA = (N % 2 === 1);
+        const minPoints = isTypeA ? 5 : 6;
+        if (N < minPoints) {
+            console.warn(`Недостаточно точек для удаления: ${N} < ${minPoints} (Type ${isTypeA ? 'A' : 'B'})`);
+            return false;
+        }
+
+        // Шаг 2: индексы точек для удаления
+        // Сегмент i соединяет points[i] и points[i+1]
+        // Удаляем обе точки: points[handleSegmentIndex] и points[handleSegmentIndex+1]
+        const firstPointIndex = handleSegmentIndex;
+        const secondPointIndex = handleSegmentIndex + 1;
+
+        // Шаг 3: удалить две точки
+        const newPoints = points.slice();
+        newPoints.splice(firstPointIndex, 2);
+
+        if (newPoints.length < 2) {
+            console.error('После удаления не осталось точек для соединения');
+            return false;
+        }
+
+        // Шаг 4: пересчитать сегменты из оставшихся точек
+        // Определяем направления по координатам
+        const newSegments = [];
+        for (let i = 0; i < newPoints.length - 1; i++) {
+            const start = newPoints[i];
+            const end = newPoints[i + 1];
+            let direction;
+
+            if (start.x === end.x) {
+                direction = 'V';
+            } else if (start.y === end.y) {
+                direction = 'H';
+            } else {
+                // Диагональный сегмент — нужно зафиксировать одну координату
+                // Сегмент до удаляемой пары (если есть) определит, какую координату менять
+                if (i < firstPointIndex) {
+                    // Сегмент ДО удаляемой пары
+                    const prevSeg = newSegments[i - 1];
+                    if (prevSeg && prevSeg.direction === 'H') {
+                        // Предыдущий был горизонтальный → этот должен быть вертикальный
+                        direction = 'V';
+                        end.x = start.x; // фиксируем X
+                    } else {
+                        direction = 'H';
+                        end.y = start.y; // фиксируем Y
+                    }
+                } else {
+                    // Сегмент ПОСЛЕ удаляемой пары
+                    if (i === firstPointIndex) {
+                        // Этот сегмент мостит разрыв (соединяет соседей удаляемых)
+                        // Определяем направление чередованием: если перед ним был V, то этот H
+                        const prevSeg = newSegments[i - 1];
+                        if (prevSeg && prevSeg.direction === 'V') {
+                            direction = 'H';
+                            end.y = start.y;
+                        } else {
+                            direction = 'V';
+                            end.x = start.x;
+                        }
+                    } else {
+                        // Регулярный сегмент после пересчёта
+                        const prevSeg = newSegments[i - 1];
+                        if (prevSeg && prevSeg.direction === 'H') {
+                            direction = 'V';
+                            end.x = start.x;
+                        } else {
+                            direction = 'H';
+                            end.y = start.y;
+                        }
+                    }
+                }
+            }
+
+            newSegments.push({
+                index: i,
+                direction: direction,
+                start: { x: start.x, y: start.y },
+                end: { x: end.x, y: end.y }
+            });
+        }
+
+        // Шаг 5: валидировать результат
         try {
             ConnectionRouter.validateSegments(newSegments);
         } catch (e) {
-            console.error('Ошибка валидации после удаления разрыва:', e.message);
-            return;
+            console.error('Ошибка валидации после удаления:', e.message);
+            return false;
         }
-        
-        // ШАГ 6: Обновить метаданные
+
+        // Шаг 6: применить изменения и перерисовать
         meta.segments = newSegments;
         meta.userModified = true;
         connection.setAttr('connection-meta', meta);
 
-        // ШАГ 7: Отрисовать и обновить подсвечивание
         this.redrawConnection(connection);
         this.refreshConnectionHighlight(connection);
         this.addLineEditHandles(connection);
 
-        console.log(`Удален разрыв (segments: ${prevSegmentCount} → ${newSegments.length}, points: ${points.length / 2})`);
-    }
+        console.log(`Удаление разрыва: ${N} → ${newPoints.length} точек, ${prevSegmentCount} → ${newSegments.length} сегментов`);
 
-    /**
-     * Нормализовать все сегменты глобально
-     * Алгоритм: проходит от первого пина по всем сегментам
-     * и исправляет координаты для обеспечения полной ортогональности
-     * 
-     * Ключная гарантия: сегменты строятся из точек, и соседние сегменты
-     * ВСЕГДА имеют разные направления (H/V чередуются) по конструкции.
-     * Нет необходимости в слиянии или коррекции порядка направлений.
-     * 
-     * Процесс:
-     * 1. Установить первую точку = позиция первого пина
-     * 2. Для каждого сегмента: связать с предыдущим (начало = конец предыдущего)
-     * 3. Исправить конец текущего сегмента согласно его направлению
-     * 4. Установить последнюю точку = позиция конечного пина
-     * 5. Пересчитать индексы
-     * 
-     * @param {Array} segments - массив сегментов после пересчета
-     * @param {Konva.Circle} fromPin - начальный пин (закреплённая позиция)
-     * @param {Konva.Circle} toPin - конечный пин (целевая позиция)
-     * @returns {Array} - нормализованные сегменты
-     */
-    normalizeAllSegments(segments, fromPin, toPin) {
-        if (segments.length === 0) return segments;
-        if (segments.length === 1) return segments;
+        // Шаг 7: вызвать updateConnectionsForPin для toPin В КОНЦЕ
+        // Спа перерисовки и обновления ручек
+        if (this.connectionManager) {
+            const toPin = meta.toPin;
+            const toPinPos = toPin.position();
+            // Это вызов пересчитает конечные координаты как при драге изображения
+            this.connectionManager.updateConnectionsForPin(toPin, toPinPos.x, toPinPos.y, true);
+        }
 
-        const fromPos = fromPin.position();
-        const toPos = toPin.position();
-        
-        // Шаг 1: Начать с позиции первого пина (закреплена)
-        segments[0].start.x = fromPos.x;
-        segments[0].start.y = fromPos.y;
-        
-        // Шаг 2: Пройти по всем сегментам и исправить координаты
-        for (let i = 0; i < segments.length; i++) {
-            const seg = segments[i];
-            
-            if (i > 0) {
-                // Остальные сегменты начинаются из конца предыдущего
-                const prevSeg = segments[i - 1];
-                seg.start.x = prevSeg.end.x;
-                seg.start.y = prevSeg.end.y;
-            }
-            
-            // Шаг 3: Исправить конец текущего сегмента
-            if (seg.direction === 'H') {
-                // Горизонтальный сегмент: Y остаётся как у начала
-                seg.end.y = seg.start.y;
-                // X остаётся как есть (уже установлена конвертацией points→segments)
-            } else {
-                // Вертикальный сегмент: X остаётся как у начала
-                seg.end.x = seg.start.x;
-                // Y остаётся как есть (уже установлена конвертацией points→segments)
-            }
-        }
-        
-        // Шаг 4: Установить конец последнего сегмента в позицию toPin
-        const lastSeg = segments[segments.length - 1];
-        lastSeg.end.x = toPos.x;
-        lastSeg.end.y = toPos.y;
-        
-        // Шаг 5: Пересчитать индексы
-        for (let i = 0; i < segments.length; i++) {
-            segments[i].index = i;
-        }
-        
-        return segments;
+        return true;
     }
 
     /**
@@ -277,7 +268,7 @@ class ConnectionEditor {
 
         const segment = segments[segmentIndex];
         const prevSegmentCount = segments.length;
-        
+
         const newPoint = this.getProjectedPointOnSegment(clickPoint, segment);
 
         if ((segment.direction === 'H' && newPoint.x === segment.start.x && newPoint.x === segment.end.x) ||
@@ -318,15 +309,15 @@ class ConnectionEditor {
 
         this.redrawConnection(connection);
         this.addLineEditHandles(connection);
-        
+
         console.log(`Вставлены 2 новых точки (segments: ${prevSegmentCount} → ${segments.length})`);
     }
 
     /**
-     * Получить проецируемую точку на сегмент
+     * Получить проекцируемую точку на сегмент
      * @param {Object} clickPoint - исходная точка клика
      * @param {Object} segment - сегмент
-     * @returns {Object} - проецируемая точка {x, y}
+     * @returns {Object} - проекцируемая точка {x, y}
      */
     getProjectedPointOnSegment(clickPoint, segment) {
         const { start, end, direction } = segment;
