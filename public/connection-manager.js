@@ -11,7 +11,7 @@ class ConnectionManager {
         this.canvasManager = canvasManager;
         this.connections = [];
         this.router = new ConnectionRouter();
-        this.editor = new ConnectionEditor(canvasManager);
+        this.editor = new ConnectionEditor(canvasManager, this);
         this.updater = new ConnectionUpdater(canvasManager);
         
         this.onConnectionCreated = null;
