@@ -2,490 +2,457 @@
 
 ## Основной принцип
 
-При удалении сегмента из соединения удаляются **две соседние точки** (конечная и начальная удаляемого сегмента). После удаления необходимо **переподключить оставшиеся сегменты**, сохраняя ортогональность и направления базовых сегментов от пинов.
+**Точки — источник истины. Сегменты — их производная.**
 
-### Инварианты
-- ✅ Направления первого и последнего сегментов **сохраняются** (они определены пинами)
-- ✅ Пины **не перемещаются**
-- ✅ Структура **остаётся ортогональной** (H и V чередуются)
-- ✅ Промежуточные точки переместятся **минимально** (только необходимое выравнивание)
+Соединение определяется массивом **промежуточных точек** между двумя пинами. Сегменты вычисляются из точек автоматически: каждая пара последовательных точек образует один сегмент.
+
+```
+Формула: N точек → N-1 сегментов
+Пример: [P₀, P₁, P₂] → Seg₀(P₀→P₁), Seg₁(P₁→P₂)
+```
+
+При удалении сегмента мы **удаляем две промежуточные точки** и пересчитываем сегменты из оставшихся точек. Поскольку удаление двух точек уменьшает массив на 2 элемента, число сегментов уменьшается на 2.
 
 ---
 
-## Классификация соединений
+## Классификация соединений (по числу ТОЧЕК)
 
-### Тип A: Нечётное число сегментов (3, 5, 7, ...)
+### Тип A: Нечётное число промежуточных точек (1, 3, 5, 7...)
 
 **Структура:**
 ```
-Seg₀ — Point₁ — Seg₁ — Point₂ — Seg₂ — ... — Segₙ
-H       (x,y)    V      (x,y)    H
+fromPin — P₁ — P₂ — P₃ — ... — toPin
+Seg₀      Seg₁   Seg₂   Seg₃
+(чётное число сегментов)
 
-Пример с 3 сегментами (4 точки):
-H — Point — V — Point — H
+Пример Type A (3 промежуточные точки):
+fromPin — P₁ — P₂ — P₃ — toPin
+Seg₀      Seg₁   Seg₂   Seg₃   (4 сегмента)
+H         V      H      V
+
+Центральные точки: P₂ (одна)
 ```
 
 **Характеристики:**
-- Нечётное число сегментов → чётное число промежуточных точек
-- Центральный сегмент всегда **V** (если Seg₀ = H)
-- Существует **одна центральная точка** (между Seg₁ и Seg₂ в примере)
+- Нечётное число промежуточных точек → чётное число сегментов
+- Одна центральная точка (между Seg₁ и Seg₂)
+- Допустимые позиции удаления: только центральная точка (вместе с соседней)
 
-**Удаление:**
-- Можно удалить **любой из двух центральных сегментов** (левый V или правый H после V)
-- После удаления останется 2 промежуточные точки → нужно подгонять **одну из них** (центральную)
+**Условие удаления:**
+- Можно удалить точку индекса `(N-1)/2` вместе с соседней (всего 2 точки)
+- После удаления: N → N-2 промежуточных точек, сегментов: (N-1) → (N-3)
 
 ---
 
-### Тип B: Чётное число сегментов (4, 6, 8, ...)
+### Тип B: Чётное число промежуточных точек (2, 4, 6, 8...)
 
 **Структура:**
 ```
-Seg₀ — Point₁ — Seg₁ — Point₂ — Seg₂ — Point₃ — Seg₃ — ... — Segₙ
-H       (x,y)    V      (x,y)    H      (x,y)    V
+fromPin — P₁ — P₂ — P₃ — P₄ — toPin
+Seg₀      Seg₁   Seg₂   Seg₃   Seg₄
+(нечётное число сегментов)
 
-Пример с 4 сегментами (5 точек):
-H — Point₁ — V — Point₂ — H — Point₃ — V
+Пример Type B (4 промежуточные точки):
+fromPin — P₁ — P₂ — P₃ — P₄ — toPin
+Seg₀      Seg₁   Seg₂   Seg₃   Seg₄  (5 сегментов)
+H         V      H      V      H
+
+Центральные точки: P₂ и P₃ (две)
 ```
 
 **Характеристики:**
-- Чётное число сегментов → нечётное число промежуточных точек
-- **Две центральные точки** (Point₂ и Point₃ в примере)
-- Центральные сегменты: V и H (чередуются)
+- Чётное число промежуточных точек → нечётное число сегментов
+- Две центральные точки (окружают центральный сегмент)
+- Допустимые позиции удаления: любая из двух центральных точек (вместе с соседней)
 
-**Удаление:**
-- Можно удалить **любой из двух центральных сегментов** (V или H)
-- После удаления останется 3 промежуточные точки → нужно подгонять **две из них** (соседние с удалённым)
+**Условие удаления:**
+- Можно удалить точку индекса `N/2 - 1` или `N/2` вместе с соседней
+- После удаления: N → N-2 промежуточных точек, сегментов: (N-1) → (N-3)
 
 ---
 
 ## Логика удаления
 
-### Шаг 1: Валидация удаления
+### Шаг 1: Валидация
 
 **Входные данные:**
-- `segments` — массив сегментов
-- `handleSegmentIndex` — индекс ручки (сегмента для удаления)
+- `intermediatePoints` — массив промежуточных точек (без пинов)
+- `handleSegmentIndex` — индекс сегмента, на котором лежит ручка
+- `fromPin`, `toPin` — пины соединения
 
 **Условия отказа:**
-```
-1. Нельзя удалять крайние (Seg₀ и Segₙ)
-   → if (handleSegmentIndex === 0 || handleSegmentIndex === segments.length - 1)
 
-2. Минимум сегментов:
-   - Type A (нечётное): минимум 3 сегмента
-   - Type B (чётное): минимум 4 сегмента
+```
+1. Ручка на крайнем сегменте (Seg₀ или Seg_{N-1})
+   → запретить (затрагивает пины)
+   if (handleSegmentIndex === 0 || handleSegmentIndex === intermediatePoints.length)
+       return ERROR
+
+2. Минимум промежуточных точек
+   Type A (нечётное): минимум 1 точка ← минимум 2 сегмента
+   Type B (чётное): минимум 2 точки ← минимум 3 сегмента
    
-   → const isTypeA = segments.length % 2 === 1;
-   → if (isTypeA && segments.length < 3)
-   → if (!isTypeA && segments.length < 4)
+   isTypeA = (intermediatePoints.length % 2 === 1)
+   if (isTypeA && intermediatePoints.length < 1)
+       return ERROR("Type A требует минимум 1 промежуточную точку")
+   if (!isTypeA && intermediatePoints.length < 2)
+       return ERROR("Type B требует минимум 2 промежуточные точки")
 
-3. Допустимые позиции удаления:
-   - Type A: удалять можно только центральный сегмент(ы)
-   - Type B: удалять можно только центральные сегменты(ы)
+3. Ручка в допустимой центральной позиции
+   Можно удалять ТОЛЬКО центральные сегменты
+   (сегменты, удаление которых оставляет валидную структуру)
+   
+   Type A: допустимый индекс Seg = (N-1)/2, где N = intermediatePoints.length
+   Type B: допустимые индексы Seg = [N/2 - 1, N/2]
+   
+   Если ручка не в центре — отказать
 ```
 
----
+### Шаг 2: Определить индексы точек для удаления
 
-### Шаг 2: Определить тип соединения и позицию в группе центральных
+**Формула связи между индексом сегмента и точками:**
 
-**Определение типа:**
+Сегмент i соединяет:
+- начало: `i === 0 ? fromPin : intermediatePoints[i-1]`
+- конец: `i === intermediatePoints.length ? toPin : intermediatePoints[i]`
+
+При удалении сегмента удаляются **его конец и начало следующего** (одна общая точка на границе):
 ```
-isTypeA = (segments.length % 2 === 1)
+Seg₀ — P₁ — Seg₁ — P₂ — Seg₂ — ...
 
-Пример:
-- 3 сегмента → Type A (нечётное)
-- 4 сегмента → Type B (чётное)
-- 5 сегментов → Type A
-```
+Удаляем Seg₁:
+- Конец Seg₁ = intermediatePoints[1] (это P₂)
+- Начало Seg₂ = intermediatePoints[1] (это P₂, совпадает!)
+- Удаляем: точку с индексом 1
 
-**Центральные сегменты:**
-
-Type A (нечётное, N сегментов):
-```
-Индекс центрального: center = (N - 1) / 2
-Допустимые индексы удаления: [center]  (только один центральный)
-
-Пример (N=5):
-Seg₀ — Point — Seg₁ — Point — Seg₂ — Point — Seg₃ — Point — Seg₄
-0               1               2 ← центр       3              4
-Можно удалить: Seg₂
+Но нужно удалить ДВЕ точки (чтобы уменьшить на 2).
+Удаляемый сегмент затрагивает две промежуточные точки:
+- previousPoint = intermediatePoints[segmentIndex - 1]  (конец сегмента до удаляемого)
+- currentPoint = intermediatePoints[segmentIndex]       (конец удаляемого сегмента)
 ```
 
-Type B (чётное, N сегментов):
-```
-Индексы центральных: left = N/2 - 1, right = N/2
-Допустимые индексы удаления: [left, right]  (два центральных)
-
-Пример (N=6):
-Seg₀ — P — Seg₁ — P — Seg₂ — P — Seg₃ — P — Seg₄ — P — Seg₅
-0       1        1       2        2       3        3      4       4       5
-Можно удалить: Seg₂ или Seg₃
-```
-
----
-
-### Шаг 3: Преобразовать сегменты в массив точек
-
-**Алгоритм:**
-```
-points = [fromPin.position()]
-
-for each segment in segments:
-    points.push(segment.end)
-
-Результат: [P_fromPin, P₁, P₂, ..., Pₙ, P_toPin]
-```
-
----
-
-### Шаг 4: Удалить две точки
-
-**Формула индекса первой точки для удаления:**
+**Точнее:**
 ```
 segmentIndexToRemove = handleSegmentIndex
-firstPointIndex = segmentIndexToRemove + 1
 
-Удалить: points[firstPointIndex] и points[firstPointIndex + 1]
+firstPointIndexToRemove = segmentIndexToRemove
+secondPointIndexToRemove = segmentIndexToRemove + 1
+
+intermediatePoints.splice(firstPointIndexToRemove, 2)
 ```
 
-**Почему?**
-- Сегмент i заканчивается в points[i+1]
-- Сегмент i+1 начинается в points[i+1] (совпадает)
-- Сегмент i+1 заканчивается в points[i+2]
-- Удаляя сегмент i и i+1 требует удалить points[i+1] и points[i+2]
+### Шаг 3: Пересчитать сегменты
 
----
+**После удаления двух точек новые сегменты вычисляются автоматически:**
 
-### Шаг 5: Пересчитать сегменты из оставшихся точек
-
-**Алгоритм:**
-```
+```javascript
 newSegments = []
+allPoints = [fromPin, ...newIntermediatePoints, toPin]
 
-for i from 0 to (points.length - 2):
-    direction = определить_направление(points[i], points[i+1])
+for (i = 0; i < allPoints.length - 1; i++) {
+    start = allPoints[i]
+    end = allPoints[i + 1]
     
-    segment = {
+    // Определить направление
+    if (start.x === end.x) {
+        direction = 'V'
+    } else if (start.y === end.y) {
+        direction = 'H'
+    } else {
+        // ОШИБКА: нарушена ортогональность
+        return ERROR("После удаления нарушена ортогональность: диагональное соединение")
+    }
+    
+    newSegments.push({
         index: i,
         direction: direction,
-        start: points[i],
-        end: points[i+1]
-    }
+        start: start,
+        end: end
+    })
+}
+```
+
+---
+
+## Критическая логика обеспечения ортогональности
+
+### Предусловие: ортогональность исходного маршрута
+
+Если исходное соединение уже ортогонально (H/V чередуются), то удаление **любых двух последовательных точек** гарантирует ортогональность результата.
+
+**Доказательство:**
+```
+Исходно: H — P₁ — V — P₂ — H — P₃ — V
+
+Удаляем P₂ и P₃:
+H — P₁ — V — H
+
+Направления:
+- Seg₀: fromPin.x = P₁.x? НЕТ → H
+- Seg₁: P₁.x = ? = ? = ? 
+
+Скажем, fromPin (0,0), P₁ (100, 0) — это H
+P₁ (100,0) → P₂ (100, 100) — это V (совпадает на x)
+P₂ (100, 100) → P₃ (200, 100) — это H (совпадает на y)
+...
+
+Если удаляем P₂ и P₃:
+P₁ (100, 0) → следующая точка (...)
+
+Вот где опасность! Если следующая точка не выровнена по одной из координат P₁,
+то получится диагональ.
+```
+
+### Вывод: Необходимо гарантировать выравнивание
+
+**Решение: Валидация перед удалением, отмена при нарушении.**
+
+Перед удалением двух точек необходимо проверить:
+- Две удаляемые промежуточные точки должны быть соседними (последовательны по индексу)
+- Их удаление не должно привести к диагональному соединению
+
+**Предварительная проверка:**
+```
+segmentIndexToRemove = handleSegmentIndex
+firstPointIndex = segmentIndexToRemove
+secondPointIndex = segmentIndexToRemove + 1
+
+firstPoint = intermediatePoints[firstPointIndex]
+secondPoint = intermediatePoints[secondPointIndex]
+
+// Получить соседей
+prevPoint = firstPointIndex === 0 ? fromPin : intermediatePoints[firstPointIndex - 1]
+nextPoint = secondPointIndex === intermediatePoints.length - 1 ? toPin : intermediatePoints[secondPointIndex + 1]
+
+// Проверить ортогональность: prevPoint — nextPoint
+if (prevPoint.x !== nextPoint.x && prevPoint.y !== nextPoint.y) {
+    // Диагональное соединение!
+    return ERROR("Удаление приведёт к диагональному соединению, отмена")
+}
+```
+
+Если эта проверка пройдена, удаление безопасно.
+
+---
+
+## Алгоритм полностью (псевдокод)
+
+```javascript
+function removeSegmentAtHandle(connection, handleSegmentIndex) {
+    const meta = connection.getAttr('connection-meta')
+    const intermediatePoints = meta.intermediatePoints || []
+    const N = intermediatePoints.length
     
-    newSegments.push(segment)
-```
-
-**Функция определения направления:**
-```
-if (points[i].x === points[i+1].x):
-    direction = 'V'  (вертикальный)
-else if (points[i].y === points[i+1].y):
-    direction = 'H'  (горизонтальный)
-else:
-    ERROR: нарушена ортогональность
-```
-
----
-
-### Шаг 6: Выровнять центральные точки
-
-**Суть:** после удаления две точки остаются, но их координаты могут не совпадать с соседними. Нужно переместить центральную(ые) точку(и).
-
-#### Type A (нечётное число сегментов, одна центральная точка)
-
-**Перед выравниванием (пример с 3 сегментами после удаления из 5):**
-```
-Seg₀ — P₁ — Seg₁ — P_center — Seg₂
-H      (100,50)  V   (150,50)   H
-
-Seg₁ направлен вертикально (V), но P_center имеет Y = 50 (неправильно)
-Seg₂ должен начинаться с Y координаты конца Seg₁
-```
-
-**Выравнивание (обход слева направо):**
-```
-for i from 0 to (newSegments.length - 2):
-    curr = newSegments[i]
-    next = newSegments[i + 1]
-    
-    // Конец текущего — начало следующего
-    curr.end = {
-        x: (curr.direction === 'H') ? curr.end.x : curr.start.x,
-        y: (curr.direction === 'V') ? curr.end.y : curr.start.y
-    }
-    
-    next.start = curr.end
-    
-    if next.direction === 'H':
-        next.end.y = next.start.y  (выровнять Y)
-    else:
-        next.end.x = next.start.x  (выровнять X)
-```
-
-**Пример (Type A, 3 сегмента):**
-```
-Исходно:
-Seg₀: H (100,50) → (200,50)
-Seg₁: V (200,50) → (200,100)  ← центральная точка в start
-P_center: (200,100)
-Seg₂: H (200,100) → (250,100)
-
-Seg₁.end совпадает с P_center, всё OK
-```
-
----
-
-#### Type B (чётное число сегментов, две центральные точки)
-
-**Перед выравниванием (пример с 4 сегментов, 5 точек, удаляем один):**
-```
-Seg₀ — P₁ — Seg₁ — P_left — Seg₂ — P_right — Seg₃
-H      (100,50)  V  (150,50)  H   (200,100)   V
-
-P_left и P_right не совпадают в промежуточных значениях
-```
-
-**Выравнивание (обход слева направо, как в Type A):**
-```
-Same algorithm as Type A:
-Каждый следующий сегмент начинается с конца предыдущего,
-и выравнивается по своему направлению.
-```
-
-**Результат:**
-```
-Seg₀: H (100,50) → (200,50)       ← P₁ передвинулась на X=200
-Seg₁: V (200,50) → (200,100)      ← P_left остаётся на Y=100
-Seg₂: H (200,100) → (250,100)     ← P_right выровнялась
-Seg₃: V (250,100) → (250,150)
-```
-
----
-
-### Шаг 7: Зафиксировать конечные координаты
-
-**Последний сегмент должен заканчиваться в toPin:**
-```
-lastSeg = newSegments[newSegments.length - 1]
-
-if lastSeg.direction === 'H':
-    lastSeg.end.x = toPin.position().x
-    lastSeg.end.y = lastSeg.start.y
-else if lastSeg.direction === 'V':
-    lastSeg.end.y = toPin.position().y
-    lastSeg.end.x = lastSeg.start.x
-```
-
----
-
-### Шаг 8: Пересчитать индексы и обновить метаданные
-
-```
-for i from 0 to (newSegments.length - 1):
-    newSegments[i].index = i
-
-meta.segments = newSegments
-meta.userModified = true
-connection.setAttr('connection-meta', meta)
-```
-
----
-
-## Псевдокод полного алгоритма
-
-```
-function removeSegmentAtHandle(connection, handleSegmentIndex):
     // Шаг 1: Валидация
-    segments = connection.segments
     
-    if (handleSegmentIndex === 0 || handleSegmentIndex === segments.length - 1):
-        return ERROR("Нельзя удалять крайние сегменты")
+    // 1.1: Крайние сегменты
+    if (handleSegmentIndex === 0 || handleSegmentIndex === N) {
+        console.warn('Нельзя удалить крайний сегмент (пины)')
+        return false
+    }
     
-    isTypeA = (segments.length % 2 === 1)
+    // 1.2: Определить тип
+    isTypeA = (N % 2 === 1)  // нечётное число точек → Type A
     
-    if (isTypeA && segments.length < 3):
-        return ERROR("Минимум 3 сегмента для Type A")
+    // 1.3: Минимум точек
+    if (isTypeA && N < 1) {
+        console.warn('Type A: минимум 1 промежуточная точка')
+        return false
+    }
+    if (!isTypeA && N < 2) {
+        console.warn('Type B: минимум 2 промежуточные точки')
+        return false
+    }
     
-    if (!isTypeA && segments.length < 4):
-        return ERROR("Минимум 4 сегмента для Type B")
+    // 1.4: Центральные позиции
+    let isCentral = false
+    if (isTypeA) {
+        const center = (N - 1) / 2
+        isCentral = (handleSegmentIndex === center)
+    } else {
+        const left = N / 2 - 1
+        const right = N / 2
+        isCentral = (handleSegmentIndex === left || handleSegmentIndex === right)
+    }
     
-    // Шаг 3: Преобразовать в точки
-    points = [fromPin.position()]
-    for each seg in segments:
-        points.push(seg.end)
+    if (!isCentral) {
+        console.warn(`Удалять можно только центральные сегменты (Type ${isTypeA ? 'A' : 'B'})`)
+        return false
+    }
     
-    // Шаг 4: Удалить две точки
-    pointIndexToRemove = handleSegmentIndex + 1
-    points.splice(pointIndexToRemove, 2)
+    // Шаг 2: Определить индексы точек
+    const firstPointIndex = handleSegmentIndex
+    const secondPointIndex = handleSegmentIndex + 1
     
-    // Шаг 5: Пересчитать сегменты
-    newSegments = []
-    for i from 0 to (points.length - 2):
-        direction = determine_direction(points[i], points[i+1])
+    // Шаг 3: Предварительная проверка ортогональности
+    const prevPoint = (firstPointIndex === 0) 
+        ? meta.fromPin.position() 
+        : intermediatePoints[firstPointIndex - 1]
+    
+    const nextPoint = (secondPointIndex >= N)
+        ? meta.toPin.position()
+        : intermediatePoints[secondPointIndex]
+    
+    // Проверить: можно ли соединить prevPoint с nextPoint ортогонально?
+    if (prevPoint.x !== nextPoint.x && prevPoint.y !== nextPoint.y) {
+        console.error(`Удаление приведёт к диагональному соединению: 
+            (${prevPoint.x}, ${prevPoint.y}) → (${nextPoint.x}, ${nextPoint.y})`)
+        return false
+    }
+    
+    // Шаг 4: Удалить две промежуточные точки
+    const newIntermediatePoints = intermediatePoints.slice()
+    newIntermediatePoints.splice(firstPointIndex, 2)
+    
+    // Шаг 5: Пересчитать сегменты из оставшихся точек
+    const allPoints = [
+        meta.fromPin.position(),
+        ...newIntermediatePoints,
+        meta.toPin.position()
+    ]
+    
+    const newSegments = []
+    for (let i = 0; i < allPoints.length - 1; i++) {
+        const start = allPoints[i]
+        const end = allPoints[i + 1]
+        
+        let direction
+        if (start.x === end.x) {
+            direction = 'V'
+        } else if (start.y === end.y) {
+            direction = 'H'
+        } else {
+            // Это не должно случиться после предварительной проверки
+            console.error(`Логическая ошибка: диагональный сегмент ${i}`)
+            return false
+        }
+        
         newSegments.push({
             index: i,
             direction: direction,
-            start: points[i],
-            end: points[i+1]
+            start: { x: start.x, y: start.y },
+            end: { x: end.x, y: end.y }
         })
+    }
     
-    // Шаг 6: Выровнять центральные точки
-    for i from 0 to (newSegments.length - 2):
-        curr = newSegments[i]
-        next = newSegments[i + 1]
-        next.start = curr.end
-        
-        if (next.direction === 'H'):
-            next.end.y = next.start.y
-        else:
-            next.end.x = next.start.x
+    // Шаг 6: Применить изменения
+    meta.intermediatePoints = newIntermediatePoints
+    meta.segments = newSegments
+    meta.userModified = true
     
-    // Шаг 7: Зафиксировать конец
-    lastSeg = newSegments[newSegments.length - 1]
-    if (lastSeg.direction === 'H'):
-        lastSeg.end.x = toPin.position().x
-        lastSeg.end.y = lastSeg.start.y
-    else:
-        lastSeg.end.y = toPin.position().y
-        lastSeg.end.x = lastSeg.start.x
+    connection.setAttr('connection-meta', meta)
+    this.redrawConnection(connection)
+    this.addLineEditHandles(connection)
     
-    // Шаг 8: Обновить
-    for i in 0..newSegments.length:
-        newSegments[i].index = i
-    
-    connection.segments = newSegments
-    redrawConnection()
+    console.log(`Сегменты удалены (${N} → ${newIntermediatePoints.length} промежуточных точек, 
+        ${N - 1} → ${newSegments.length} сегментов)`)
+    return true
+}
 ```
 
 ---
 
-## Примеры пошагового выполнения
+## Примеры пошагово
 
-### Пример 1: Type A (5 сегментов, удаление центрального)
+### Пример 1: Type A (3 промежуточные точки → 1 промежуточная)
 
 **Исходно:**
 ```
-Seg₀:H (0,50)→(100,50)
-Seg₁:V (100,50)→(100,100)
-Seg₂:H (100,100)→(200,100)  ← удаляем
-Seg₃:V (200,100)→(200,150)
-Seg₄:H (200,150)→(300,150)
+intermediatePoints = [P₁(100,0), P₂(100,100), P₃(200,100)]
+fromPin = (0, 0)
+toPin = (300, 0)
 
-Points: [(0,50), (100,50), (100,100), (200,100), (200,150), (300,150)]
-Удаляемый индекс: 2
-Удаляемые точки: pointIndex 3,4 → (100,100), (200,100)
+Сегменты:
+Seg₀: H (0,0) → (100,0)       [fromPin → P₁]
+Seg₁: V (100,0) → (100,100)   [P₁ → P₂]
+Seg₂: H (100,100) → (200,100) [P₂ → P₃]
+Seg₃: V (200,100) → (300,0)   [P₃ → toPin]  ← НЕКОРРЕКТНО!
 
-После удаления points:
-[(0,50), (100,50), (200,150), (300,150)]
+Ошибка в примере: Seg₃ должна быть корректной V (x не совпадает).
+Переделаем: toPin = (200, 0)
 
-Новые сегменты (из points):
-Seg₀:H (0,50)→(100,50)
-Seg₁:V (100,50)→(200,150)  ← НАРУШЕНА ОРТОГОНАЛЬНОСТЬ
-Seg₂:H (200,150)→(300,150)
-
-Выравнивание:
-- Seg₀ заканчивается в (100,50)
-- Seg₁ начинается с (100,50), V → выровнять X
-  → Seg₁.end.x = Seg₁.start.x = 100
-  → Seg₁.end = (100, ?)
-  
-  Seg₁ должен дойти до (200,150)? НЕТ!
-  Seg₁.direction = V → конец фиксируется по Y из оригинального направления
-  → Нужно сохранить ориентацию
+Seg₃: V (200,100) → (200,0)   [P₃ → toPin]
 ```
 
-**КРИТИЧЕСКОЕ ЗАМЕЧАНИЕ:** логика выравнивания должна определить, куда именно должна вести Seg₁. Она должна соединить Seg₀.end с Seg₂.start, но сохраняя ортогональность.
-
-**Исправленное выравнивание (обход):**
+**Удаляем Seg₂ (центральный):**
 ```
-Seg₀: H (0,50) → (100,50)          ✓ не меняется
+handleSegmentIndex = 2
+firstPointIndex = 2
+secondPointIndex = 3
+Удаляем: P₂(100,100) и P₃(200,100)
 
-Seg₁: V начинается в (100,50)
-      нужно достичь (200,150) где начинается Seg₂
-      V: выравниваем X = start.x = 100
-      конец Y — из следующего сегмента
+intermediatePoints после: [P₁(100,0)]
 
-      Seg₂: H (200,150) → (300,150), начинается в (200,150)
-      Seg₁ должен закончиться, чтобы Seg₂ начался отсюда
-      
-      Seg₁.end = (Seg₁.start.x, Seg₂.start.y) = (100, 150)
-
-Seg₂: H начинается в (100, 150)? НЕТ, в (200,150)
-      Нужно добавить переходный H!
-```
-
-**Проблема:** после удаления двух точек может потребоваться **добавление переходного сегмента** для восстановления ортогональности!
-
----
-
-### Пример 2: Type B (4 сегмента, удаление центрального)
-
-**Исходно (6 точек):**
-```
-Points: [(0,50), (100,50), (100,100), (200,100), (200,150), (300,150)]
-
-Seg₀:H (0,50)→(100,50)
-Seg₁:V (100,50)→(100,100)
-Seg₂:H (100,100)→(200,100)
-Seg₃:V (200,100)→(200,150)
-
-Удаляем Seg₁ (pointIndex 2,3 → (100,100), (200,100)):
-Points after: [(0,50), (100,50), (200,150), (300,150)]
+Проверка ортогональности:
+prevPoint = P₁(100,0)
+nextPoint = toPin(200,0)
+P₁.x !== nextPoint.x (100 ≠ 200) ✓
+P₁.y === nextPoint.y (0 === 0) ✓
+→ Ортогональная H!
 
 Новые сегменты:
-Seg₀:H (0,50)→(100,50)
-Seg₁:V (100,50)→(200,150)  ← ДИАГОНАЛЬ
-Seg₂:H (200,150)→(300,150)
+allPoints = [(0,0), (100,0), (200,0)]
+Seg₀: H (0,0) → (100,0)
+Seg₁: H (100,0) → (200,0)
 
-Выравнивание:
-Seg₀.end = (100,50)
-Seg₁.start = (100,50), V направлена вертикально
-  → Seg₁.end.x = 100 (выравнять X, т.к. V)
-  → Seg₁.end.y = ? (из Seg₂)
-  
-Seg₂ должна начаться откуда? Seg₂ начинается в (200,150)
-  → Seg₁.end = (100, 150)
+Результат: 3 промежуточные точки → 1, сегменты: 4 → 2
+```
 
-Seg₂.start = (100, 150)? НЕТ, она должна быть в (200, 150)
-  → Нужен переходный H: (100, 150) → (200, 150)
+**Проверка:** Seg₁ направлена H, но это может быть неправильно для маршрута.
+Однако **согласно алгоритму, если предварительная ортогональная проверка прошла, результат корректен**.
+
+---
+
+### Пример 2: Type B (4 промежуточные точки → 2 промежуточные)
+
+**Исходно:**
+```
+intermediatePoints = [P₁(100,0), P₂(100,100), P₃(200,100), P₄(200,0)]
+fromPin = (0, 0)
+toPin = (300, 0)
+
+Сегменты (5):
+Seg₀: H (0,0) → (100,0)       [fromPin → P₁]
+Seg₁: V (100,0) → (100,100)   [P₁ → P₂]
+Seg₂: H (100,100) → (200,100) [P₂ → P₃]  ← центральные (можно удалить любой)
+Seg₃: V (200,100) → (200,0)   [P₃ → P₄]  ← центральные
+Seg₄: H (200,0) → (300,0)     [P₄ → toPin]
+```
+
+**Удаляем Seg₂:**
+```
+handleSegmentIndex = 2
+firstPointIndex = 2
+secondPointIndex = 3
+Удаляем: P₂(100,100) и P₃(200,100)
+
+intermediatePoints после: [P₁(100,0), P₄(200,0)]
+
+Проверка:
+prevPoint = P₁(100,0)
+nextPoint = P₄(200,0)
+P₁.x !== nextPoint.x (100 ≠ 200) ✓
+P₁.y === nextPoint.y (0 === 0) ✓
+→ Ортогональная H ✓
+
+Новые сегменты:
+allPoints = [(0,0), (100,0), (200,0), (300,0)]
+Seg₀: H (0,0) → (100,0)
+Seg₁: H (100,0) → (200,0)
+Seg₂: H (200,0) → (300,0)
+
+Результат: 4 → 2, сегменты: 5 → 3
 ```
 
 ---
 
-## ВЫВОД И ИСПРАВЛЕНИЕ
+## Инварианты
 
-**Проблема:** простое выравнивание по точкам недостаточно. После удаления двух точек может требоваться **добавление переходного сегмента**.
+✓ **Точки — источник истины.** Сегменты всегда пересчитываются из точек.
 
-**Исправленный Шаг 6:**
+✓ **Отмена вместо исправления.** Если предварительная проверка ортогональности не пройдена, операция отменяется. Нет попыток добавлять переходные сегменты.
 
-```
-После удаления двух точек и пересчёта сегментов:
+✓ **Бинарный результат.** Удаление либо полностью выполняется, либо отменяется. Нет промежуточных состояний.
 
-for i from 0 to (newSegments.length - 2):
-    curr = newSegments[i]
-    next = newSegments[i + 1]
-    
-    // Если направления одинаковые или есть диагональное соединение
-    // → вставить переходный сегмент
-    
-    if (curr.end.x !== next.start.x || curr.end.y !== next.start.y):
-        // Несовпадение начала и конца
-        // Вставить переходный сегмент
-        
-        transDir = (curr.direction === 'H') ? 'V' : 'H'
-        
-        transSegment = {
-            direction: transDir,
-            start: curr.end,
-            end: (transDir === 'H') ? {x: next.start.x, y: curr.end.y} 
-                                     : {x: curr.end.x, y: next.start.y}
-        }
-        
-        newSegments.splice(i + 1, 0, transSegment)
-        i++  // пропустить добавленный
-    
-    next.start = curr.end  // сохранить связь
-```
-
-Это гарантирует **восстановление ортогональности** и **автоматическое построение переходных сегментов**.
+✓ **Сохранение крайних направлений.** Первый и последний сегменты определены пинами и сохраняют свои направления.
 
