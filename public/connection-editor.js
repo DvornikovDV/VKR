@@ -59,9 +59,8 @@ class ConnectionEditor {
                 this.onHandleDragEnd(handle, connection);
             });
 
-            // двойной клик для добавления/удаления разрыва
-            // dblclick: добавить разрыв (любых сегментов, включая крайние)
-            // Ctrl+dblclick: удалить разрыв (только допустимые центральные сегменты по алгоритму)
+            // dblclick: добавить разрыв
+            // Ctrl+dblclick: удалить разрыв (любой, кроме конечных)
             handle.on('dblclick', (e) => {
                 e.cancelBubble = true;
                 const meta = handle.getAttr('segment-handle-meta');
@@ -105,20 +104,21 @@ class ConnectionEditor {
 
     /**
      * Удалить разрыв на ручке (Ctrl+двойной клик)
-     * Реализация по алгоритму docs/segment-removal-algorithm.md.
-     * Удаляет две точки из маршрута, если операция безопасна по всем инвариантам:
-     * - не трогаем крайние сегменты (пины)
-     * - соблюдаем минимум точек для Type A/B
-     * - разрешаем только центральные сегменты
-     * - не допускаем диагональных соединений после удаления
+     * Упрощённый алгоритм: удалить две точки, пересчитать направления из новых точек,
+     * зафиксировать одну координату у точки между новыми соседями для ортогональности.
+     * 
+     * Валидация:
+     * - Не удалять конечные сегменты (затрагивают пины)
+     * - Минимум точек: 5 для нечётного, 6 для чётного исходного количества
+     * 
      * @param {Konva.Line} connection
-     * @param {number} handleSegmentIndex - индекс сегмента, на котором лежит ручка
+     * @param {number} handleSegmentIndex - индекс сегмента, на котором лежит ручка (удаляется этот и следующий сегмент)
      */
     removeBreakPointAtHandle(connection, handleSegmentIndex) {
         const meta = connection.getAttr('connection-meta');
         const segments = meta.segments;
 
-        // 1. Сегменты → точки (точки — источник истины)
+        // Шаг 1: Сегменты → точки (точки — источник истины)
         const flatPoints = ConnectionRouter.segmentsToPoints(segments);
         const points = [];
         for (let i = 0; i < flatPoints.length; i += 2) {
@@ -126,78 +126,108 @@ class ConnectionEditor {
         }
 
         const N = points.length;
+        const prevSegmentCount = segments.length;
 
-        // ЗАЩИТА 1: ручка на крайних сегментах (затрагивает пины)
-        if (handleSegmentIndex === 0 || handleSegmentIndex === N - 1) {
-            console.warn('Нельзя удалить крайний сегмент (пины)');
+        // Валидация 1: не крайние сегменты (они затрагивают пины)
+        if (handleSegmentIndex === 0 || handleSegmentIndex === prevSegmentCount - 1) {
+            console.warn(`Нельзя удалить крайний сегмент (пины): индекс ${handleSegmentIndex}`);
             return false;
         }
 
-        // ЗАЩИТА 2: определить тип по количеству точек
-        const isTypeA = (N % 2 === 1); // нечётное число точек → Type A
-
-        // ЗАЩИТА 3: минимальное количество точек
-        if (isTypeA && N < 5) {
-            console.warn(`Type A: минимум 5 точек, сейчас ${N}`);
-            return false;
-        }
-        if (!isTypeA && N < 6) {
-            console.warn(`Type B: минимум 6 точек, сейчас ${N}`);
-            return false;
-        }
-
-        // ЗАЩИТА 4: ручка должна быть на центральном сегменте
-        let isCentral = false;
-        if (isTypeA) {
-            const center = (N - 1) / 2; // единственный центральный сегмент
-            isCentral = (handleSegmentIndex === center);
-        } else {
-            const left = N / 2 - 1;
-            const right = N / 2;
-            isCentral = (handleSegmentIndex === left || handleSegmentIndex === right);
-        }
-
-        if (!isCentral) {
-            console.warn(`Удалять можно только центральные сегменты для Type ${isTypeA ? 'A' : 'B'} (index=${handleSegmentIndex}, N=${N})`);
+        // Валидация 2: минимум точек
+        // Исходная ортогональность гарантирует: для безопасности минимум 5 (Type A) и 6 (Type B)
+        const isTypeA = (N % 2 === 1);
+        const minPoints = isTypeA ? 5 : 6;
+        if (N < minPoints) {
+            console.warn(`Недостаточно точек для удаления: ${N} < ${minPoints} (Type ${isTypeA ? 'A' : 'B'})`);
             return false;
         }
 
         // Шаг 2: индексы точек для удаления
+        // Сегмент i соединяет points[i] и points[i+1]
+        // Удаляем обе точки: points[handleSegmentIndex] и points[handleSegmentIndex+1]
         const firstPointIndex = handleSegmentIndex;
         const secondPointIndex = handleSegmentIndex + 1;
 
-        // Шаг 3: предварительная проверка ортогональности prevPoint → nextPoint
-        const prevPoint = points[firstPointIndex - 1];
-        const nextPoint = points[secondPointIndex + 1];
-
-        if (!prevPoint || !nextPoint) {
-            console.error('Некорректные индексы точек для проверки ортогональности');
-            return false;
-        }
-
-        if (prevPoint.x !== nextPoint.x && prevPoint.y !== nextPoint.y) {
-            console.error(`Удаление приведёт к диагональному соединению: (${prevPoint.x}, ${prevPoint.y}) → (${nextPoint.x}, ${nextPoint.y})`);
-            return false;
-        }
-
-        // Шаг 4: удалить две точки
+        // Шаг 3: удалить две точки
         const newPoints = points.slice();
         newPoints.splice(firstPointIndex, 2);
 
-        // Шаг 5: пересчитать сегменты из оставшихся точек
-        const newFlatPoints = [];
-        for (let i = 0; i < newPoints.length; i++) {
-            newFlatPoints.push(newPoints[i].x, newPoints[i].y);
-        }
-        const newSegments = ConnectionRouter.pointsToSegments(newFlatPoints);
-
-        try {
-            ConnectionRouter.validateSegments(newSegments);
-        } catch (e) {
-            console.error('Ошибка валидации после удаления разрыва:', e.message);
+        if (newPoints.length < 2) {
+            console.error('После удаления не осталось точек для соединения');
             return false;
         }
 
+        // Шаг 4: пересчитать сегменты из оставшихся точек
+        // Определяем направления по координатам
+        const newSegments = [];
+        for (let i = 0; i < newPoints.length - 1; i++) {
+            const start = newPoints[i];
+            const end = newPoints[i + 1];
+            let direction;
+
+            if (start.x === end.x) {
+                direction = 'V';
+            } else if (start.y === end.y) {
+                direction = 'H';
+            } else {
+                // Диагональный сегмент — нужно зафиксировать координату
+                // Сегмент до удаляемой пары (если есть) определит нам, какую координату менять
+                if (i < firstPointIndex) {
+                    // Сегмент ДО удаляемой пары
+                    const prevSeg = newSegments[i - 1];
+                    if (prevSeg && prevSeg.direction === 'H') {
+                        // Предыдущий был горизонтальный → этот должен быть вертикальный
+                        direction = 'V';
+                        end.x = start.x; // фиксируем X
+                    } else {
+                        direction = 'H';
+                        end.y = start.y; // фиксируем Y
+                    }
+                } else {
+                    // Сегмент ПОСЛЕ удаляемой пары
+                    if (i === firstPointIndex) {
+                        // Это сегмент, который мостит разрыв (соединяет соседей удаляемых)
+                        // Определяем направление чередованием: если перед этим был V, то сейчас H
+                        const prevSeg = newSegments[i - 1];
+                        if (prevSeg && prevSeg.direction === 'V') {
+                            direction = 'H';
+                            end.y = start.y;
+                        } else {
+                            direction = 'V';
+                            end.x = start.x;
+                        }
+                    } else {
+                        // Регулярный сегмент после пересчёта
+                        const prevSeg = newSegments[i - 1];
+                        if (prevSeg && prevSeg.direction === 'H') {
+                            direction = 'V';
+                            end.x = start.x;
+                        } else {
+                            direction = 'H';
+                            end.y = start.y;
+                        }
+                    }
+                }
+            }
+
+            newSegments.push({
+                index: i,
+                direction: direction,
+                start: { x: start.x, y: start.y },
+                end: { x: end.x, y: end.y }
+            });
+        }
+
+        // Шаг 5: валидировать результат
+        try {
+            ConnectionRouter.validateSegments(newSegments);
+        } catch (e) {
+            console.error('Ошибка валидации после удаления:', e.message);
+            return false;
+        }
+
+        // Шаг 6: применить изменения
         meta.segments = newSegments;
         meta.userModified = true;
         connection.setAttr('connection-meta', meta);
@@ -206,7 +236,7 @@ class ConnectionEditor {
         this.refreshConnectionHighlight(connection);
         this.addLineEditHandles(connection);
 
-        console.log(`Удаление разрыва выполнено: точек ${N} → ${newPoints.length}, сегментов ${segments.length} → ${newSegments.length}`);
+        console.log(`Удаление разрыва: ${N} → ${newPoints.length} точек, ${prevSegmentCount} → ${newSegments.length} сегментов`);
         return true;
     }
 
