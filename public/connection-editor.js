@@ -106,7 +106,7 @@ class ConnectionEditor {
     /**
      * Удалить разрыв на ручке (Ctrl+двойной клик)
      * Упрощённый алгоритм: удалить две точки, пересчитать направления, зафиксировать одну координату для диагоналей.
-     * Затем вызвать updateConnectionsForPin() для toPin, чтобы пересчитать конечные координаты.
+     * Затем перерисовать и вызвать updateConnectionsForPin() для toPin для финального контроля координат.
      * 
      * Валидация:
      * - Не удалять конечные сегменты (затрагивают пины)
@@ -227,7 +227,7 @@ class ConnectionEditor {
             return false;
         }
 
-        // Шаг 6: применить изменения
+        // Шаг 6: применить изменения и перерисовать
         meta.segments = newSegments;
         meta.userModified = true;
         connection.setAttr('connection-meta', meta);
@@ -238,12 +238,13 @@ class ConnectionEditor {
 
         console.log(`Удаление разрыва: ${N} → ${newPoints.length} точек, ${prevSegmentCount} → ${newSegments.length} сегментов`);
 
-        // Шаг 7: обновить конечные координаты через updateConnectionsForPin для toPin
-        // Это исправляет баг когда правые сегменты не приходят в пин
+        // Шаг 7: вызвать updateConnectionsForPin для toPin В КОНЦЕ
+        // Спа перерисовки и обновления ручек
         if (this.connectionManager) {
             const toPin = meta.toPin;
             const toPinPos = toPin.position();
-            this.connectionManager.updateConnectionsForPin(toPin, toPinPos.x, toPinPos.y, false);
+            // Это вызов пересчитает конечные координаты как при драге изображения
+            this.connectionManager.updateConnectionsForPin(toPin, toPinPos.x, toPinPos.y, true);
         }
 
         return true;
@@ -313,10 +314,10 @@ class ConnectionEditor {
     }
 
     /**
-     * Получить проецируемую точку на сегмент
+     * Получить проекцируемую точку на сегмент
      * @param {Object} clickPoint - исходная точка клика
      * @param {Object} segment - сегмент
-     * @returns {Object} - проецируемая точка {x, y}
+     * @returns {Object} - проекцируемая точка {x, y}
      */
     getProjectedPointOnSegment(clickPoint, segment) {
         const { start, end, direction } = segment;
@@ -352,7 +353,7 @@ class ConnectionEditor {
 
         if (!segment) return;
 
-        // Вычислить серединy сегмента
+        // Вычислить середину сегмента
         const midX = (segment.start.x + segment.end.x) / 2;
         const midY = (segment.start.y + segment.end.y) / 2;
 
