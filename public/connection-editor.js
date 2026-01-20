@@ -61,20 +61,15 @@ class ConnectionEditor {
 
             // двойной клик для добавления/удаления разрыва
             // dblclick: добавить разрыв (любых сегментов, включая крайние)
-            // Ctrl+dblclick: удалить разрыв (только НЕ крайних сегментов)
+            // Ctrl+dblclick: удалить разрыв (только допустимые центральные сегменты по алгоритму)
             handle.on('dblclick', (e) => {
                 e.cancelBubble = true;
                 const meta = handle.getAttr('segment-handle-meta');
                 const segmentIndex = meta.segmentIndex;
-                const isEndSegment = meta.isEndSegment;
-                
+
                 if (e.evt.ctrlKey) {
-                    // Удаление: только не крайние
-                    if (!isEndSegment) {
-                        this.removeBreakPointAtHandle(connection, segmentIndex);
-                    }
+                    this.removeBreakPointAtHandle(connection, segmentIndex);
                 } else {
-                    // Добавление: все
                     this.addBreakPointOnHandle(connection, segmentIndex);
                 }
             });
@@ -99,167 +94,120 @@ class ConnectionEditor {
     addBreakPointOnHandle(connection, handleIndex) {
         const meta = connection.getAttr('connection-meta');
         const segment = meta.segments[handleIndex];
-        
+
         const midPoint = {
             x: (segment.start.x + segment.end.x) / 2,
             y: (segment.start.y + segment.end.y) / 2
         };
-        
+
         this.addBreakPointToSegment(connection, handleIndex, midPoint);
     }
 
     /**
      * Удалить разрыв на ручке (Ctrl+двойной клик)
-     * Удаляет ДВЕ точки из массива points и пересчитывает сегменты
-     * Затем выполняет глобальную нормализацию для обеспечения ортогональности
-     * 
-     * Валидация типов:
-     * Type 1 (четные точки, нечетные сегменты): минимум 5 сегментов
-     * Type 2 (нечетные точки, четные сегменты): минимум 4 сегмента
-     * 
-     * Порядок операций:
-     * 1. Валидация (тип, минимум, крайние)
-     * 2. Удалить ДВЕ точки из массива points
-     * 3. Пересчитать сегменты из нового массива points
-     * 4. Выполнить глобальную нормализацию всех сегментов
-     * 5. Отрисовать
-     * 
+     * Реализация по алгоритму docs/segment-removal-algorithm.md.
+     * Удаляет две точки из маршрута, если операция безопасна по всем инвариантам:
+     * - не трогаем крайние сегменты (пины)
+     * - соблюдаем минимум точек для Type A/B
+     * - разрешаем только центральные сегменты
+     * - не допускаем диагональных соединений после удаления
      * @param {Konva.Line} connection
-     * @param {number} handleSegmentIndex - индекс ручки (сегмента для удаления)
+     * @param {number} handleSegmentIndex - индекс сегмента, на котором лежит ручка
      */
     removeBreakPointAtHandle(connection, handleSegmentIndex) {
         const meta = connection.getAttr('connection-meta');
         const segments = meta.segments;
 
-        // ЗАЩИТА 1: не удалять крайние разрывы
-        if (handleSegmentIndex === 0 || handleSegmentIndex === segments.length - 1) {
-            console.warn('Нельзя удалить концевой разрыв');
-            return;
-        }
-        
-        // ЗАЩИТА 2: определить тип соединения
-        const isType1 = segments.length % 2 === 1;  // нечетное число = Type 1
-        
-        // ЗАЩИТА 3: валидация минимума в зависимости от типа
-        if (isType1) {
-            // Type 1 (четные точки): требуется минимум 5 сегментов
-            if (segments.length < 5) {
-                console.warn(`Нельзя удалить - недостаточно сегментов (минимум 5 для Type 1, текущих: ${segments.length})`);
-                return;
-            }
-        } else {
-            // Type 2 (нечетные точки): требуется минимум 4 сегмента
-            if (segments.length < 4) {
-                console.warn(`Нельзя удалить - недостаточно сегментов (минимум 4 для Type 2, текущих: ${segments.length})`);
-                return;
-            }
+        // 1. Сегменты → точки (точки — источник истины)
+        const flatPoints = ConnectionRouter.segmentsToPoints(segments);
+        const points = [];
+        for (let i = 0; i < flatPoints.length; i += 2) {
+            points.push({ x: flatPoints[i], y: flatPoints[i + 1] });
         }
 
-        // ШАГ 1: Конвертировать сегменты в плоский массив точек
-        let points = ConnectionRouter.segmentsToPoints(segments);
-        const prevSegmentCount = segments.length;
-        
-        // ШАГ 2: Удалить ДВЕ точки (соответствующие удаляемому сегменту)
-        // Сегмент N начинается с точки (N*2), поэтому удаляем с индекса (N*2) две точки
-        const pointIndexToRemove = handleSegmentIndex * 2;
-        points.splice(pointIndexToRemove, 4);  // удалить 2 координаты (4 элемента массива: x1, y1, x2, y2)
-        
-        // ШАГ 3: Пересчитать сегменты из обновленного массива точек
-        let newSegments = ConnectionRouter.pointsToSegments(points);
-        
-        // ШАГ 4: Выполнить глобальную нормализацию всех сегментов
-        newSegments = this.normalizeAllSegments(newSegments, meta.fromPin, meta.toPin);
-        
-        // ШАГ 5: Валидировать результат
+        const N = points.length;
+
+        // ЗАЩИТА 1: ручка на крайних сегментах (затрагивает пины)
+        if (handleSegmentIndex === 0 || handleSegmentIndex === N - 1) {
+            console.warn('Нельзя удалить крайний сегмент (пины)');
+            return false;
+        }
+
+        // ЗАЩИТА 2: определить тип по количеству точек
+        const isTypeA = (N % 2 === 1); // нечётное число точек → Type A
+
+        // ЗАЩИТА 3: минимальное количество точек
+        if (isTypeA && N < 5) {
+            console.warn(`Type A: минимум 5 точек, сейчас ${N}`);
+            return false;
+        }
+        if (!isTypeA && N < 6) {
+            console.warn(`Type B: минимум 6 точек, сейчас ${N}`);
+            return false;
+        }
+
+        // ЗАЩИТА 4: ручка должна быть на центральном сегменте
+        let isCentral = false;
+        if (isTypeA) {
+            const center = (N - 1) / 2; // единственный центральный сегмент
+            isCentral = (handleSegmentIndex === center);
+        } else {
+            const left = N / 2 - 1;
+            const right = N / 2;
+            isCentral = (handleSegmentIndex === left || handleSegmentIndex === right);
+        }
+
+        if (!isCentral) {
+            console.warn(`Удалять можно только центральные сегменты для Type ${isTypeA ? 'A' : 'B'} (index=${handleSegmentIndex}, N=${N})`);
+            return false;
+        }
+
+        // Шаг 2: индексы точек для удаления
+        const firstPointIndex = handleSegmentIndex;
+        const secondPointIndex = handleSegmentIndex + 1;
+
+        // Шаг 3: предварительная проверка ортогональности prevPoint → nextPoint
+        const prevPoint = points[firstPointIndex - 1];
+        const nextPoint = points[secondPointIndex + 1];
+
+        if (!prevPoint || !nextPoint) {
+            console.error('Некорректные индексы точек для проверки ортогональности');
+            return false;
+        }
+
+        if (prevPoint.x !== nextPoint.x && prevPoint.y !== nextPoint.y) {
+            console.error(`Удаление приведёт к диагональному соединению: (${prevPoint.x}, ${prevPoint.y}) → (${nextPoint.x}, ${nextPoint.y})`);
+            return false;
+        }
+
+        // Шаг 4: удалить две точки
+        const newPoints = points.slice();
+        newPoints.splice(firstPointIndex, 2);
+
+        // Шаг 5: пересчитать сегменты из оставшихся точек
+        const newFlatPoints = [];
+        for (let i = 0; i < newPoints.length; i++) {
+            newFlatPoints.push(newPoints[i].x, newPoints[i].y);
+        }
+        const newSegments = ConnectionRouter.pointsToSegments(newFlatPoints);
+
         try {
             ConnectionRouter.validateSegments(newSegments);
         } catch (e) {
             console.error('Ошибка валидации после удаления разрыва:', e.message);
-            return;
+            return false;
         }
-        
-        // ШАГ 6: Обновить метаданные
+
         meta.segments = newSegments;
         meta.userModified = true;
         connection.setAttr('connection-meta', meta);
 
-        // ШАГ 7: Отрисовать и обновить подсвечивание
         this.redrawConnection(connection);
         this.refreshConnectionHighlight(connection);
         this.addLineEditHandles(connection);
 
-        console.log(`Удален разрыв (segments: ${prevSegmentCount} → ${newSegments.length}, points: ${points.length / 2})`);
-    }
-
-    /**
-     * Нормализовать все сегменты глобально
-     * Обеспечивает полную ортогональность и совместимость соседних сегментов
-     * 
-     * Алгоритм:
-     * 1. Зафиксировать первую точку = fromPin.position()
-     * 2. Для каждого сегмента i:
-     *    - Если i > 0: seg[i].start = seg[i-1].end (синхронизация)
-     *    - Исправить seg[i].end согласно направлению:
-     *      * H: end.y = start.y (горизонтальная линия)
-     *      * V: end.x = start.x (вертикальная линия)
-     * 3. Зафиксировать последнюю точку = toPin.position(), соблюдая её направление
-     * 4. Пересчитать индексы
-     * 
-     * @param {Array} segments - массив сегментов после пересчета
-     * @param {Konva.Circle} fromPin - начальный пин (закреплённая позиция)
-     * @param {Konva.Circle} toPin - конечный пин (целевая позиция)
-     * @returns {Array} - нормализованные сегменты
-     */
-    normalizeAllSegments(segments, fromPin, toPin) {
-        if (segments.length === 0) return segments;
-        if (segments.length === 1) return segments;
-
-        const fromPos = fromPin.position();
-        const toPos = toPin.position();
-        
-        // Шаг 1: Зафиксировать первую точку = fromPin
-        segments[0].start.x = fromPos.x;
-        segments[0].start.y = fromPos.y;
-        
-        // Шаг 2: Пройти по всем сегментам и синхронизировать + исправить
-        for (let i = 0; i < segments.length; i++) {
-            const seg = segments[i];
-            
-            // 2a: Синхронизировать начало с концом предыдущего (если есть)
-            if (i > 0) {
-                const prevSeg = segments[i - 1];
-                seg.start.x = prevSeg.end.x;
-                seg.start.y = prevSeg.end.y;
-            }
-            
-            // 2b: Исправить конец текущего сегмента (согласно его направлению)
-            if (seg.direction === 'H') {
-                // H-сегмент: Y совпадает с Y начала
-                seg.end.y = seg.start.y;
-            } else if (seg.direction === 'V') {
-                // V-сегмент: X совпадает с X начала
-                seg.end.x = seg.start.x;
-            }
-        }
-        
-        // Шаг 3: Зафиксировать последнюю точку = toPin, соблюдая её направление
-        const lastSeg = segments[segments.length - 1];
-        if (lastSeg.direction === 'H') {
-            // H-сегмент: фиксируем только X, Y должен совпадать с start.y
-            lastSeg.end.x = toPos.x;
-            lastSeg.end.y = lastSeg.start.y;
-        } else if (lastSeg.direction === 'V') {
-            // V-сегмент: фиксируем только Y, X должен совпадать с start.x
-            lastSeg.end.y = toPos.y;
-            lastSeg.end.x = lastSeg.start.x;
-        }
-        
-        // Шаг 4: Пересчитать индексы
-        for (let i = 0; i < segments.length; i++) {
-            segments[i].index = i;
-        }
-        
-        return segments;
+        console.log(`Удаление разрыва выполнено: точек ${N} → ${newPoints.length}, сегментов ${segments.length} → ${newSegments.length}`);
+        return true;
     }
 
     /**
@@ -280,7 +228,7 @@ class ConnectionEditor {
 
         const segment = segments[segmentIndex];
         const prevSegmentCount = segments.length;
-        
+
         const newPoint = this.getProjectedPointOnSegment(clickPoint, segment);
 
         if ((segment.direction === 'H' && newPoint.x === segment.start.x && newPoint.x === segment.end.x) ||
@@ -321,7 +269,7 @@ class ConnectionEditor {
 
         this.redrawConnection(connection);
         this.addLineEditHandles(connection);
-        
+
         console.log(`Вставлены 2 новых точки (segments: ${prevSegmentCount} → ${segments.length})`);
     }
 
