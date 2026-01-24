@@ -225,6 +225,78 @@ body {
     border-color: #007bff;
 }
 
+/* ========== КОНТЕКСТНОЕ МЕНЮ ========== */
+.context-menu {
+    position: fixed;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 10000;
+    min-width: 200px;
+    padding: 4px 0;
+    font-size: 14px;
+}
+
+.context-menu-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s ease;
+    position: relative;
+}
+
+.context-menu-item:hover {
+    background-color: #f0f0f0;
+}
+
+.context-menu-item.hover {
+    background-color: #e3f2fd;
+}
+
+.context-menu-item.disabled {
+    color: #999;
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.context-menu-separator {
+    height: 1px;
+    background-color: #e0e0e0;
+    margin: 4px 0;
+}
+
+.submenu-container {
+    position: relative;
+}
+
+.submenu-label {
+    display: inline-block;
+    flex: 1;
+}
+
+.submenu-arrow {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 10px;
+    color: #666;
+}
+
+.context-submenu {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    min-width: 180px;
+    padding: 4px 0;
+    margin-left: 2px;
+}
+
 /* Адаптивность */
 @media (max-width: 768px) {
     .properties-panel {
