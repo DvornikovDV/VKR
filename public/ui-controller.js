@@ -36,23 +36,26 @@ class UIController {
         this.connectionManager = new ConnectionManager(this.canvasManager);
         this.selectionManager = new SelectionManager(this.canvasManager, this.connectionManager);
         this.propertiesPanel = new PropertiesPanel(this.canvasManager);
-        this.widgetManager = new WidgetManager(
-            this.canvasManager.getLayer(),
-            this.imageManager,
-            this.canvasManager
-        );
-        this.fileManager = new FileManager(
-            this.canvasManager,
-            this.imageManager,
-            this.connectionPointManager,
-            this.connectionManager,
-            this.widgetManager
-        );
+        
+        // Отложить инициализацию WidgetManager до stage ready
+        this.canvasManager.onStageReady = () => {
+            this.widgetManager = new WidgetManager(
+                this.canvasManager.getLayer(),
+                this.imageManager,
+                this.canvasManager
+            );
+            this.fileManager = new FileManager(
+                this.canvasManager,
+                this.imageManager,
+                this.connectionPointManager,
+                this.connectionManager,
+                this.widgetManager
+            );
+            this.setupManagerCallbacks();
+            this.setupEventListeners();
+        };
 
         this.imageManager.setConnectionManager(this.connectionManager);
-
-        this.setupManagerCallbacks();
-        this.setupEventListeners();
     }
 
     /**
@@ -76,19 +79,21 @@ class UIController {
             this.connectionPointManager.createConnectionPointOnSide(konvaImg, sideMeta.side, sideMeta.offset);
         };
 
-        // НОВОЕ: установить callback для обновления соединений при resize изображения
+        // Обновить виджеты при ресайзе изображения
         this.imageManager.setUpdateConnectionsCallback((imageNode) => {
             if (Array.isArray(imageNode._cp_points)) {
                 imageNode._cp_points.forEach(pin => {
                     this.connectionManager.updateConnectionsForPin(pin, pin.x(), pin.y(), true);
                 });
             }
-            // Обновить виджеты при ресайзе изображения
-            const imageId = imageNode.getAttr('imageId');
-            if (imageId) {
-                const image = this.imageManager.getImage(imageId);
-                if (image) {
-                    this.widgetManager.onImageResize(imageId, image.width, image.height);
+            // Обновить виджеты только если widgetManager инициализирован
+            if (this.widgetManager) {
+                const imageId = imageNode.getAttr('imageId');
+                if (imageId) {
+                    const image = this.imageManager.getImage(imageId);
+                    if (image) {
+                        this.widgetManager.onImageResize(imageId, image.width, image.height);
+                    }
                 }
             }
         });
@@ -193,12 +198,14 @@ class UIController {
         }
 
         const stage = this.canvasManager.getStage();
-        stage.on('click', (e) => {
-            if (e.target === stage) {
-                this.setConnectionEditMode(false);
-                this.propertiesPanel.showDefaultMessage();
-            }
-        });
+        if (stage) {
+            stage.on('click', (e) => {
+                if (e.target === stage) {
+                    this.setConnectionEditMode(false);
+                    this.propertiesPanel.showDefaultMessage();
+                }
+            });
+        }
     }
 
     /**
