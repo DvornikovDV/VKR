@@ -342,11 +342,8 @@ export class WidgetManager {
       // Проверить, что носитель существует
       if (!this.imageManager.getImage(data.imageId)) return;
       
-      const widget = createWidget(data.type, {
-        ...data,
-        x: data.x,
-        y: data.y
-      });
+      // Передать данные целиком, без изменения структуры
+      const widget = createWidget(data.type, data);
       
       if (widget) {
         widget.render(this.layer);
