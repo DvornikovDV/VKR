@@ -14,6 +14,16 @@ class ImageManager {
         this.onImageScaled = null;
         this.connectionManager = null; // будет продан из UIController
         this.updateConnectionsCallback = null; // callback для обновления соединений при resize
+        this.contextMenu = null; // будет установлен из UIController
+        this.widgetManager = null; // опционально, для создания виджетов
+    }
+
+    /**
+     * Установить контекстное меню и менеджер виджетов
+     */
+    setContextMenu(contextMenu, widgetManager) {
+        this.contextMenu = contextMenu;
+        this.widgetManager = widgetManager;
     }
 
     /**
@@ -51,8 +61,12 @@ class ImageManager {
             konvaImg._id = 'img_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
             konvaImg._cp_points = []; // точки соединения
 
+            // сохраняем imageId как атрибут для поиска
+            konvaImg.setAttr('imageId', konvaImg._id);
+
             layer.add(konvaImg);
             this.attachSelectionFrame(konvaImg);
+            this.attachContextMenu(konvaImg);
             layer.draw();
             this.images.push(konvaImg);
         };
@@ -242,6 +256,52 @@ class ImageManager {
     }
 
     /**
+     * Привязать контекстное меню к изображению (ПКМ)
+     */
+    attachContextMenu(konvaImg) {
+        if (!this.contextMenu || !this.widgetManager) return;
+
+        konvaImg.on('contextmenu', (e) => {
+            e.evt.preventDefault();
+            const imageId = konvaImg.getAttr('imageId');
+            if (!imageId) return;
+
+            const pointer = this.canvasManager.getStage().getPointerPosition();
+            if (!pointer) return;
+
+            const menuItems = [
+                {
+                    label: 'Добавить виджет',
+                    submenu: [
+                        { label: '📊 Числовой дисплей', type: 'number-display' },
+                        { label: '📝 Текстовый дисплей', type: 'text-display' },
+                        { label: '💡 Индикатор', type: 'led' },
+                        { label: '📈 Манометр', type: 'gauge' }
+                    ],
+                    onSelect: (type) => {
+                        const stagePos = this.canvasManager.getStage().getPointerPosition();
+                        if (!stagePos) return;
+                        const pos = {
+                            x: (stagePos.x - this.canvasManager.getStage().x()) / this.canvasManager.getStage().scaleX(),
+                            y: (stagePos.y - this.canvasManager.getStage().y()) / this.canvasManager.getStage().scaleY()
+                        };
+                        this.widgetManager.create({
+                            type,
+                            imageId,
+                            x: pos.x,
+                            y: pos.y,
+                            width: 80,
+                            height: 30
+                        });
+                    }
+                }
+            ];
+
+            this.contextMenu.show(menuItems, e.evt.clientX, e.evt.clientY);
+        });
+    }
+
+    /**
      * Преобразование стороны и месмещения в координаты
      */
     sideAndOffsetToXY(imageNode, side, offset) {
@@ -264,6 +324,13 @@ class ImageManager {
      */
     getImages() {
         return this.images;
+    }
+
+    /**
+     * Получить изображение по imageId
+     */
+    getImage(imageId) {
+        return this.images.find(img => img.getAttr('imageId') === imageId) || null;
     }
 
     /**
