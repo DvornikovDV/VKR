@@ -29,33 +29,31 @@ class UIController {
         this.init();
     }
 
-    init() {
+    async init() {
         this.canvasManager = new CanvasManager();
+        await this.canvasManager.ready();
+
         this.imageManager = new ImageManager(this.canvasManager);
         this.connectionPointManager = new ConnectionPointManager(this.canvasManager);
         this.connectionManager = new ConnectionManager(this.canvasManager);
         this.selectionManager = new SelectionManager(this.canvasManager, this.connectionManager);
         this.propertiesPanel = new PropertiesPanel(this.canvasManager);
-        
-        // Отложить инициализацию WidgetManager до stage ready
-        this.canvasManager.onStageReady = () => {
-            this.widgetManager = new WidgetManager(
-                this.canvasManager.getLayer(),
-                this.imageManager,
-                this.canvasManager
-            );
-            this.fileManager = new FileManager(
-                this.canvasManager,
-                this.imageManager,
-                this.connectionPointManager,
-                this.connectionManager,
-                this.widgetManager
-            );
-            this.setupManagerCallbacks();
-            this.setupEventListeners();
-        };
+        this.widgetManager = new WidgetManager(
+            this.canvasManager.getLayer(),
+            this.imageManager,
+            this.canvasManager
+        );
+        this.fileManager = new FileManager(
+            this.canvasManager,
+            this.imageManager,
+            this.connectionPointManager,
+            this.connectionManager,
+            this.widgetManager
+        );
 
         this.imageManager.setConnectionManager(this.connectionManager);
+        this.setupManagerCallbacks();
+        this.setupEventListeners();
     }
 
     /**
@@ -86,7 +84,6 @@ class UIController {
                     this.connectionManager.updateConnectionsForPin(pin, pin.x(), pin.y(), true);
                 });
             }
-            // Обновить виджеты только если widgetManager инициализирован
             if (this.widgetManager) {
                 const imageId = imageNode.getAttr('imageId');
                 if (imageId) {
