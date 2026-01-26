@@ -10,6 +10,7 @@ class CanvasManager {
         this.layer = null;
         this.zoom = 1;
         this.isPanning = false;
+        this.onStageReady = null;  // Callback, вызываемый после инициализации stage
         this.init();
     }
 
@@ -18,6 +19,10 @@ class CanvasManager {
         setTimeout(() => {
             this.createStage();
             this.setupEventListeners();
+            // Вызвать callback если установлен
+            if (this.onStageReady) {
+                this.onStageReady();
+            }
         }, 100);
     }
 
