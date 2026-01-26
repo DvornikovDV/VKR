@@ -9,6 +9,7 @@ import { SelectionManager } from './selection-manager.js';
 import { PropertiesPanel } from './properties-panel.js';
 import { FileManager } from './file-manager.js';
 import { WidgetManager } from './widget-manager.js';
+import { ContextMenu } from './context-menu.js';
 
 class UIController {
     constructor() {
@@ -20,6 +21,7 @@ class UIController {
         this.propertiesPanel = null;
         this.fileManager = null;
         this.widgetManager = null;
+        this.contextMenu = null;
 
         this.isCreateLineMode = false;
         this.isConnectionEditMode = false;
@@ -50,6 +52,10 @@ class UIController {
             this.connectionManager,
             this.widgetManager
         );
+        this.contextMenu = new ContextMenu();
+
+        // привязка меню и менеджера виджетов к imageManager
+        this.imageManager.setContextMenu(this.contextMenu, this.widgetManager);
 
         this.imageManager.setConnectionManager(this.connectionManager);
         this.setupManagerCallbacks();
@@ -89,7 +95,7 @@ class UIController {
                 if (imageId) {
                     const image = this.imageManager.getImage(imageId);
                     if (image) {
-                        this.widgetManager.onImageResize(imageId, image.width, image.height);
+                        this.widgetManager.onImageResize(imageId, image.width() * image.scaleX(), image.height() * image.scaleY());
                     }
                 }
             }
@@ -164,21 +170,33 @@ class UIController {
             });
         } catch (_) {}
 
-        document.getElementById('add-image-btn').addEventListener('click', () => {
-            this.addImage();
-        });
+        const addImageBtn = document.getElementById('add-image-btn');
+        if (addImageBtn) {
+            addImageBtn.addEventListener('click', () => {
+                this.addImage();
+            });
+        }
 
-        document.getElementById('save-btn').addEventListener('click', () => {
-            this.fileManager.saveScheme();
-        });
+        const saveBtn = document.getElementById('save-btn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                this.fileManager.saveScheme();
+            });
+        }
 
-        document.getElementById('load-btn').addEventListener('click', () => {
-            this.fileManager.loadScheme();
-        });
+        const loadBtn = document.getElementById('load-btn');
+        if (loadBtn) {
+            loadBtn.addEventListener('click', () => {
+                this.fileManager.loadScheme();
+            });
+        }
 
-        document.getElementById('clear-btn').addEventListener('click', () => {
-            this.fileManager.clearCanvas();
-        });
+        const clearBtn = document.getElementById('clear-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                this.fileManager.clearCanvas();
+            });
+        }
 
         const createLineBtn = document.getElementById('create-line-btn');
         if (createLineBtn) {
@@ -229,6 +247,7 @@ class UIController {
      */
     addImage() {
         const fileInput = document.getElementById('file-input');
+        if (!fileInput) return;
         fileInput.onchange = (e) => {
             const file = e.target.files && e.target.files[0];
             if (!file) return;
