@@ -309,6 +309,54 @@ export class WidgetManager {
     console.log(`Deleted ${widgetIds.length} widgets from image ${imageId}`);
   }
   
+  // Очистить все виджеты
+  clear() {
+    const ids = this.widgets.map(w => w.id);
+    ids.forEach(id => this.delete(id));
+    console.log('All widgets cleared');
+  }
+  
+  // Экспорт виджетов для сохранения
+  exportWidgets() {
+    return this.widgets.map(w => ({
+      id: w.id,
+      type: w.type,
+      imageId: w.imageId,
+      x: w.x,
+      y: w.y,
+      width: w.width,
+      height: w.height,
+      relativeX: w.relativeX,
+      relativeY: w.relativeY,
+      fontSize: w.fontSize,
+      color: w.color,
+      backgroundColor: w.backgroundColor,
+      bindingId: w.bindingId,
+      displayValue: w.displayValue
+    }));
+  }
+  
+  // Импорт виджетов из сохраненных данных
+  importWidgets(widgetsData) {
+    widgetsData.forEach(data => {
+      // Проверить, что носитель существует
+      if (!this.imageManager.getImage(data.imageId)) return;
+      
+      const widget = createWidget(data.type, {
+        ...data,
+        x: data.x,
+        y: data.y
+      });
+      
+      if (widget) {
+        widget.render(this.layer);
+        this.attachDragHandlers(widget);
+        this.widgets.push(widget);
+      }
+    });
+    console.log(`Imported ${widgetsData.length} widgets`);
+  }
+  
   // Привязать обработчики drag'а
   attachDragHandlers(widget) {
     if (!widget.konvaGroup) return;
