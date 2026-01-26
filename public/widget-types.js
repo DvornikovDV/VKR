@@ -1,6 +1,56 @@
 // widget-types.js - Определение всех типов виджетов и их рендеринг
 
-import { DisplayWidget } from './widget-manager.js';
+// Базовый класс для Display виджетов (read-only)
+export class DisplayWidget {
+  constructor(config) {
+    this.id = config.id;
+    this.type = config.type;
+    this.imageId = config.imageId;
+    
+    this.x = config.x;
+    this.y = config.y;
+    this.width = config.width;
+    this.height = config.height;
+    
+    this.relativeX = config.relativeX || 0;
+    this.relativeY = config.relativeY || 0;
+    
+    this.fontSize = config.fontSize || 14;
+    this.color = config.color || '#000000';
+    this.backgroundColor = config.backgroundColor || '#f5f5f5';
+    
+    this.konvaGroup = null;
+    
+    this.bindingId = config.bindingId || null;
+    this.isReadOnly = true;
+    this.displayValue = config.displayValue || null;
+  }
+  
+  getCategory() {
+    const displayTypes = ['number-display', 'text-display', 'led', 'gauge'];
+    return 'display';
+  }
+  
+  render(layer) {
+    throw new Error('render() must be implemented in subclass');
+  }
+  
+  destroy() {
+    if (this.konvaGroup) {
+      this.konvaGroup.destroy();
+      this.konvaGroup = null;
+    }
+  }
+  
+  onValueUpdate(newValue, layer) {
+    this.displayValue = newValue;
+    this.render(layer);
+  }
+  
+  formatValue(value) {
+    return value;
+  }
+}
 
 // Константы по умолчанию для каждого типа
 export const WIDGET_DEFAULTS = {
