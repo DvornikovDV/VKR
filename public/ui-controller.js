@@ -8,6 +8,7 @@ import { ConnectionManager } from './connection-manager.js';
 import { SelectionManager } from './selection-manager.js';
 import { PropertiesPanel } from './properties-panel.js';
 import { FileManager } from './file-manager.js';
+import { WidgetManager } from './widget-manager.js';
 
 class UIController {
     constructor() {
@@ -18,6 +19,7 @@ class UIController {
         this.selectionManager = null;
         this.propertiesPanel = null;
         this.fileManager = null;
+        this.widgetManager = null;
 
         this.isCreateLineMode = false;
         this.isConnectionEditMode = false;
@@ -34,6 +36,11 @@ class UIController {
         this.connectionManager = new ConnectionManager(this.canvasManager);
         this.selectionManager = new SelectionManager(this.canvasManager, this.connectionManager);
         this.propertiesPanel = new PropertiesPanel(this.canvasManager);
+        this.widgetManager = new WidgetManager(
+            this.canvasManager.getLayer(),
+            this.imageManager,
+            this.canvasManager
+        );
         this.fileManager = new FileManager(
             this.canvasManager,
             this.imageManager,
@@ -74,6 +81,14 @@ class UIController {
                 imageNode._cp_points.forEach(pin => {
                     this.connectionManager.updateConnectionsForPin(pin, pin.x(), pin.y(), true);
                 });
+            }
+            // Обновить виджеты при ресайзе изображения
+            const imageId = imageNode.getAttr('imageId');
+            if (imageId) {
+                const image = this.imageManager.getImage(imageId);
+                if (image) {
+                    this.widgetManager.onImageResize(imageId, image.width, image.height);
+                }
             }
         });
 
@@ -321,7 +336,7 @@ class UIController {
     }
 
     /**
-     * Обновление рисунка предварительного линии
+     * Обновление рисунка преварительного линии
      */
     updatePreviewLine(startPos, endPos) {
         if (this.previewLine) {
