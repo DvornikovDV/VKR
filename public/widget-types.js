@@ -49,14 +49,11 @@ export class NumberDisplayWidget extends DisplayWidget {
     super(config);
     this.decimals = config.decimals || 1;
     this.unit = config.unit || '';
-    this.displayValue = config.displayValue || 0;
+    this.displayValue = this.formatValue(config.displayValue ?? 0);
   }
   
   render(layer) {
-    // Удалить старую группу
-    if (this.konvaGroup) {
-      this.konvaGroup.destroy();
-    }
+    if (this.konvaGroup) this.konvaGroup.destroy();
     
     this.konvaGroup = new Konva.Group({
       x: this.x,
@@ -65,7 +62,6 @@ export class NumberDisplayWidget extends DisplayWidget {
       height: this.height
     });
     
-    // Фон
     const background = new Konva.Rect({
       x: 0,
       y: 0,
@@ -77,11 +73,10 @@ export class NumberDisplayWidget extends DisplayWidget {
       cornerRadius: 3
     });
     
-    // Форматировать число
-    const formattedValue = this.displayValue.toFixed(this.decimals);
+    let value = this.formatValue(this.displayValue);
+    const formattedValue = Number(value).toFixed(this.decimals);
     const displayText = this.unit ? `${formattedValue} ${this.unit}` : formattedValue;
     
-    // Текст
     const text = new Konva.Text({
       x: 0,
       y: 0,
@@ -99,23 +94,18 @@ export class NumberDisplayWidget extends DisplayWidget {
     this.konvaGroup.add(text);
     layer.add(this.konvaGroup);
   }
-  
-  formatValue(value) {
-    return parseFloat(value).toFixed(this.decimals);
-  }
 }
 
 // Текстовый дисплей - показывает текст (статус, название)
 export class TextDisplayWidget extends DisplayWidget {
   constructor(config) {
     super(config);
-    this.displayText = config.text || config.displayValue || 'Label';
+    const raw = config.text ?? config.displayValue ?? 'Label';
+    this.displayText = String(raw);
   }
   
   render(layer) {
-    if (this.konvaGroup) {
-      this.konvaGroup.destroy();
-    }
+    if (this.konvaGroup) this.konvaGroup.destroy();
     
     this.konvaGroup = new Konva.Group({
       x: this.x,
@@ -124,7 +114,6 @@ export class TextDisplayWidget extends DisplayWidget {
       height: this.height
     });
     
-    // Фон
     const background = new Konva.Rect({
       x: 0,
       y: 0,
@@ -136,7 +125,6 @@ export class TextDisplayWidget extends DisplayWidget {
       cornerRadius: 3
     });
     
-    // Текст
     const text = new Konva.Text({
       x: 5,
       y: 0,
@@ -156,7 +144,7 @@ export class TextDisplayWidget extends DisplayWidget {
   }
   
   onValueUpdate(newValue, layer) {
-    this.displayText = String(newValue);
+    this.displayText = String(newValue ?? '');
     this.render(layer);
   }
 }
@@ -170,13 +158,11 @@ export class LedWidget extends DisplayWidget {
     this.colorOff = config.colorOff || '#cccccc';
     this.colorBorder = config.colorBorder || '#999999';
     this.borderWidth = config.borderWidth || 2;
-    this.isOn = config.isOn || false;
+    this.isOn = Boolean(config.isOn ?? false);
   }
   
   render(layer) {
-    if (this.konvaGroup) {
-      this.konvaGroup.destroy();
-    }
+    if (this.konvaGroup) this.konvaGroup.destroy();
     
     this.konvaGroup = new Konva.Group({
       x: this.x,
@@ -185,7 +171,6 @@ export class LedWidget extends DisplayWidget {
       height: this.height
     });
     
-    // Круг LED
     const led = new Konva.Circle({
       x: this.width / 2,
       y: this.height / 2,
@@ -195,7 +180,6 @@ export class LedWidget extends DisplayWidget {
       strokeWidth: this.borderWidth
     });
     
-    // Добавить эффект свечения при ON
     if (this.isOn) {
       const glow = new Konva.Circle({
         x: this.width / 2,
@@ -212,7 +196,7 @@ export class LedWidget extends DisplayWidget {
   }
   
   onValueUpdate(newValue, layer) {
-    this.isOn = !!newValue;
+    this.isOn = Boolean(newValue);
     this.render(layer);
   }
 }
@@ -221,16 +205,15 @@ export class LedWidget extends DisplayWidget {
 export class GaugeWidget extends DisplayWidget {
   constructor(config) {
     super(config);
-    this.min = config.min || 0;
-    this.max = config.max || 100;
+    this.min = Number.isFinite(config.min) ? config.min : 0;
+    this.max = Number.isFinite(config.max) ? config.max : 100;
+    if (this.max <= this.min) this.max = this.min + 1; // защита от max === min
     this.unit = config.unit || '';
-    this.displayValue = config.displayValue || this.min;
+    this.displayValue = this.formatValue(config.displayValue ?? this.min);
   }
   
   render(layer) {
-    if (this.konvaGroup) {
-      this.konvaGroup.destroy();
-    }
+    if (this.konvaGroup) this.konvaGroup.destroy();
     
     this.konvaGroup = new Konva.Group({
       x: this.x,
@@ -243,17 +226,15 @@ export class GaugeWidget extends DisplayWidget {
     const centerY = this.height / 2;
     const radius = Math.min(this.width, this.height) / 2 - 5;
     
-    // Фоновый круг
     const background = new Konva.Circle({
       x: centerX,
       y: centerY,
-      radius: radius,
+      radius,
       fill: '#f5f5f5',
       stroke: '#cccccc',
       strokeWidth: 2
     });
     
-    // Дуга шкалы (180° от -90° до 90°)
     const arc = new Konva.Arc({
       x: centerX,
       y: centerY,
@@ -264,12 +245,15 @@ export class GaugeWidget extends DisplayWidget {
       fill: '#e0e0e0'
     });
     
-    // Рассчитать угол стрелки
-    const normalizedValue = (this.displayValue - this.min) / (this.max - this.min);
-    const angle = -90 + normalizedValue * 180; // от -90° до 90°
+    let normalizedValue = 0;
+    if (this.max > this.min) {
+      normalizedValue = (this.displayValue - this.min) / (this.max - this.min);
+    }
+    normalizedValue = Math.max(0, Math.min(1, normalizedValue));
+    
+    const angle = -90 + normalizedValue * 180;
     const angleRad = (angle * Math.PI) / 180;
     
-    // Стрелка
     const needleLength = radius - 10;
     const needleEndX = centerX + needleLength * Math.cos(angleRad);
     const needleEndY = centerY + needleLength * Math.sin(angleRad);
@@ -281,7 +265,6 @@ export class GaugeWidget extends DisplayWidget {
       lineCap: 'round'
     });
     
-    // Центральная точка
     const centerDot = new Konva.Circle({
       x: centerX,
       y: centerY,
@@ -289,8 +272,8 @@ export class GaugeWidget extends DisplayWidget {
       fill: '#333'
     });
     
-    // Текст значения
-    const displayText = this.unit ? `${this.displayValue.toFixed(0)} ${this.unit}` : this.displayValue.toFixed(0);
+    const valueNum = this.formatValue(this.displayValue);
+    const displayText = this.unit ? `${valueNum.toFixed(0)} ${this.unit}` : valueNum.toFixed(0);
     const valueText = new Konva.Text({
       x: 0,
       y: centerY + radius - 15,
@@ -302,7 +285,6 @@ export class GaugeWidget extends DisplayWidget {
       align: 'center'
     });
     
-    // Мин/Макс метки
     const minText = new Konva.Text({
       x: 5,
       y: centerY + 5,
