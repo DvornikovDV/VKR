@@ -5,7 +5,7 @@ import { createWidget } from './widget-types.js';
 export class Widget {
   constructor(config) {
     this.id = config.id;
-    this.type = config.type;  // 'number-display', 'text-display', 'led', 'gauge'
+    this.type = config.type;
     this.imageId = config.imageId;
     
     this.x = config.x;
@@ -13,23 +13,18 @@ export class Widget {
     this.width = config.width;
     this.height = config.height;
     
-    // Относительные координаты для масштабирования
     this.relativeX = config.relativeX || 0;
     this.relativeY = config.relativeY || 0;
     
-    // Параметры оформления
     this.fontSize = config.fontSize || 14;
     this.color = config.color || '#000000';
     this.backgroundColor = config.backgroundColor || '#f5f5f5';
     
-    // Konva группа (будет создана при render)
     this.konvaGroup = null;
     
-    // Привязка к устройству
     this.bindingId = config.bindingId || null;
   }
   
-  // Категория виджета (display/input/control)
   getCategory() {
     const displayTypes = ['number-display', 'text-display', 'led', 'gauge'];
     const inputTypes = ['number-input', 'text-input'];
@@ -41,12 +36,10 @@ export class Widget {
     return 'unknown';
   }
   
-  // Отрисовка виджета (переопределяется в подклассах)
   render(layer) {
     throw new Error('render() must be implemented in subclass');
   }
   
-  // Удаление из Konva
   destroy() {
     if (this.konvaGroup) {
       this.konvaGroup.destroy();
@@ -55,32 +48,12 @@ export class Widget {
   }
 }
 
-// Базовый класс для Display виджетов (read-only)
-export class DisplayWidget extends Widget {
-  constructor(config) {
-    super(config);
-    this.isReadOnly = true;
-    this.displayValue = config.displayValue || null;
-  }
-  
-  // Обновление значения (от устройства)
-  onValueUpdate(newValue, layer) {
-    this.displayValue = newValue;
-    this.render(layer);
-  }
-  
-  // Валидация и форматирование значения
-  formatValue(value) {
-    return value;
-  }
-}
-
 export class WidgetManager {
   constructor(layer, imageManager, canvasManager) {
     this.layer = layer;
     this.imageManager = imageManager;
     this.canvasManager = canvasManager;
-    this.widgets = [];  // массив всех виджетов
+    this.widgets = [];
     this.nextWidgetId = 1;
   }
   
@@ -92,14 +65,11 @@ export class WidgetManager {
       return null;
     }
     
-    // Генерировать ID
     const widgetId = `widget_${config.type}_${this.nextWidgetId++}`;
     
-    // Рассчитать относительные координаты
     const relativeX = (config.x - image.x) / image.width;
     const relativeY = (config.y - image.y) / image.height;
     
-    // Создать виджет через фабрику
     const widget = createWidget(config.type, {
       ...config,
       id: widgetId,
@@ -112,13 +82,8 @@ export class WidgetManager {
       return null;
     }
     
-    // Отрисовать на слое
     widget.render(this.layer);
-    
-    // Привязать обработчики drag
     this.attachDragHandlers(widget);
-    
-    // Добавить в массив
     this.widgets.push(widget);
     
     console.log(`Widget created: ${widgetId} on image ${config.imageId}`);
@@ -134,11 +99,7 @@ export class WidgetManager {
     }
     
     const widget = this.widgets[index];
-    
-    // Удалить из Konva
     widget.destroy();
-    
-    // Удалить из массива
     this.widgets.splice(index, 1);
     
     console.log(`Widget deleted: ${widgetId}`);
@@ -155,7 +116,7 @@ export class WidgetManager {
     return this.widgets.filter(w => w.imageId === imageId);
   }
   
-  // Применить граничные проверки к координатам (переиспользуемый метод)
+  // Применить граничные проверки к координатам
   _applyBoundaryConstraints(widget, x, y) {
     const image = this.imageManager.getImage(widget.imageId);
     if (!image) return { x, y };
@@ -163,19 +124,15 @@ export class WidgetManager {
     let boundedX = x;
     let boundedY = y;
     
-    // Левая граница
     if (boundedX < image.x) {
       boundedX = image.x;
     }
-    // Правая граница
     if (boundedX + widget.width > image.x + image.width) {
       boundedX = image.x + image.width - widget.width;
     }
-    // Верхняя граница
     if (boundedY < image.y) {
       boundedY = image.y;
     }
-    // Нижняя граница
     if (boundedY + widget.height > image.y + image.height) {
       boundedY = image.y + image.height - widget.height;
     }
@@ -191,18 +148,14 @@ export class WidgetManager {
     const image = this.imageManager.getImage(widget.imageId);
     if (!image) return false;
     
-    // Применить граничные проверки
     const bounded = this._applyBoundaryConstraints(widget, newX, newY);
     
-    // Обновить координаты
     widget.x = bounded.x;
     widget.y = bounded.y;
     
-    // Пересчитать относительные координаты
     widget.relativeX = (bounded.x - image.x) / image.width;
     widget.relativeY = (bounded.y - image.y) / image.height;
     
-    // Обновить на canvas
     if (widget.konvaGroup) {
       widget.konvaGroup.x(bounded.x);
       widget.konvaGroup.y(bounded.y);
@@ -212,35 +165,30 @@ export class WidgetManager {
     return true;
   }
   
-  // Обновление размера (применяет граничные проверки после изменения размера)
+  // Обновление размера
   updateSize(widgetId, newWidth, newHeight) {
     const widget = this.getWidget(widgetId);
     if (!widget) return false;
     
-    // Ограничить размер
     let boundedWidth = Math.min(newWidth, this.imageManager.getImage(widget.imageId)?.width || newWidth);
     let boundedHeight = Math.min(newHeight, this.imageManager.getImage(widget.imageId)?.height || newHeight);
     
-    // Минимальный размер
     boundedWidth = Math.max(boundedWidth, 10);
     boundedHeight = Math.max(boundedHeight, 10);
     
     widget.width = boundedWidth;
     widget.height = boundedHeight;
     
-    // После изменения размера проверить позицию
     const bounded = this._applyBoundaryConstraints(widget, widget.x, widget.y);
     widget.x = bounded.x;
     widget.y = bounded.y;
     
-    // Обновить относительные координаты
     const image = this.imageManager.getImage(widget.imageId);
     if (image) {
       widget.relativeX = (bounded.x - image.x) / image.width;
       widget.relativeY = (bounded.y - image.y) / image.height;
     }
     
-    // Перерисовать
     widget.render(this.layer);
     this.layer.batchDraw();
     
@@ -274,17 +222,14 @@ export class WidgetManager {
     const widgets = this.getWidgetsByImageId(imageId);
     
     widgets.forEach(widget => {
-      // Пересчитать позицию по относительным координатам
       let newX = image.x + widget.relativeX * newWidth;
       let newY = image.y + widget.relativeY * newHeight;
       
-      // ПРИМЕНИТЬ граничные проверки (переиспользование)
       const bounded = this._applyBoundaryConstraints(widget, newX, newY);
       
       widget.x = bounded.x;
       widget.y = bounded.y;
       
-      // Обновить относительные координаты с учётом граничных проверок
       widget.relativeX = (bounded.x - image.x) / newWidth;
       widget.relativeY = (bounded.y - image.y) / newHeight;
       
@@ -339,10 +284,8 @@ export class WidgetManager {
   // Импорт виджетов из сохраненных данных
   importWidgets(widgetsData) {
     widgetsData.forEach(data => {
-      // Проверить, что носитель существует
       if (!this.imageManager.getImage(data.imageId)) return;
       
-      // Передать данные целиком, без изменения структуры
       const widget = createWidget(data.type, data);
       
       if (widget) {
@@ -372,7 +315,6 @@ export class WidgetManager {
       const newX = widget.konvaGroup.x();
       const newY = widget.konvaGroup.y();
       
-      // Применить граничные проверки
       this.updatePosition(widget.id, newX, newY);
     });
     
