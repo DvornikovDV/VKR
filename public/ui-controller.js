@@ -45,7 +45,8 @@ class UIController {
             this.canvasManager,
             this.imageManager,
             this.connectionPointManager,
-            this.connectionManager
+            this.connectionManager,
+            this.widgetManager
         );
 
         this.imageManager.setConnectionManager(this.connectionManager);
