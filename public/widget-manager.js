@@ -155,17 +155,13 @@ export class WidgetManager {
     return this.widgets.filter(w => w.imageId === imageId);
   }
   
-  // Обновление позиции с граничными проверками
-  updatePosition(widgetId, newX, newY) {
-    const widget = this.getWidget(widgetId);
-    if (!widget) return false;
-    
+  // Применить граничные проверки к координатам (переиспользуемый метод)
+  _applyBoundaryConstraints(widget, x, y) {
     const image = this.imageManager.getImage(widget.imageId);
-    if (!image) return false;
+    if (!image) return { x, y };
     
-    // Граничные проверки
-    let boundedX = newX;
-    let boundedY = newY;
+    let boundedX = x;
+    let boundedY = y;
     
     // Левая граница
     if (boundedX < image.x) {
@@ -184,31 +180,65 @@ export class WidgetManager {
       boundedY = image.y + image.height - widget.height;
     }
     
+    return { x: boundedX, y: boundedY };
+  }
+  
+  // Обновление позиции с граничными проверками
+  updatePosition(widgetId, newX, newY) {
+    const widget = this.getWidget(widgetId);
+    if (!widget) return false;
+    
+    const image = this.imageManager.getImage(widget.imageId);
+    if (!image) return false;
+    
+    // Применить граничные проверки
+    const bounded = this._applyBoundaryConstraints(widget, newX, newY);
+    
     // Обновить координаты
-    widget.x = boundedX;
-    widget.y = boundedY;
+    widget.x = bounded.x;
+    widget.y = bounded.y;
     
     // Пересчитать относительные координаты
-    widget.relativeX = (boundedX - image.x) / image.width;
-    widget.relativeY = (boundedY - image.y) / image.height;
+    widget.relativeX = (bounded.x - image.x) / image.width;
+    widget.relativeY = (bounded.y - image.y) / image.height;
     
     // Обновить на canvas
     if (widget.konvaGroup) {
-      widget.konvaGroup.x(boundedX);
-      widget.konvaGroup.y(boundedY);
+      widget.konvaGroup.x(bounded.x);
+      widget.konvaGroup.y(bounded.y);
       this.layer.batchDraw();
     }
     
     return true;
   }
   
-  // Обновление размера
+  // Обновление размера (применяет граничные проверки после изменения размера)
   updateSize(widgetId, newWidth, newHeight) {
     const widget = this.getWidget(widgetId);
     if (!widget) return false;
     
-    widget.width = newWidth;
-    widget.height = newHeight;
+    // Ограничить размер
+    let boundedWidth = Math.min(newWidth, this.imageManager.getImage(widget.imageId)?.width || newWidth);
+    let boundedHeight = Math.min(newHeight, this.imageManager.getImage(widget.imageId)?.height || newHeight);
+    
+    // Минимальный размер
+    boundedWidth = Math.max(boundedWidth, 10);
+    boundedHeight = Math.max(boundedHeight, 10);
+    
+    widget.width = boundedWidth;
+    widget.height = boundedHeight;
+    
+    // После изменения размера проверить позицию
+    const bounded = this._applyBoundaryConstraints(widget, widget.x, widget.y);
+    widget.x = bounded.x;
+    widget.y = bounded.y;
+    
+    // Обновить относительные координаты
+    const image = this.imageManager.getImage(widget.imageId);
+    if (image) {
+      widget.relativeX = (bounded.x - image.x) / image.width;
+      widget.relativeY = (bounded.y - image.y) / image.height;
+    }
     
     // Перерисовать
     widget.render(this.layer);
@@ -236,7 +266,7 @@ export class WidgetManager {
     }
   }
   
-  // При ресайзе изображения - масштабировать виджеты
+  // При ресайзе изображения - масштабировать виджеты и применить граничные проверки
   onImageResize(imageId, newWidth, newHeight) {
     const image = this.imageManager.getImage(imageId);
     if (!image) return;
@@ -245,12 +275,22 @@ export class WidgetManager {
     
     widgets.forEach(widget => {
       // Пересчитать позицию по относительным координатам
-      widget.x = image.x + widget.relativeX * newWidth;
-      widget.y = image.y + widget.relativeY * newHeight;
+      let newX = image.x + widget.relativeX * newWidth;
+      let newY = image.y + widget.relativeY * newHeight;
+      
+      // ПРИМЕНИТЬ граничные проверки (переиспользование)
+      const bounded = this._applyBoundaryConstraints(widget, newX, newY);
+      
+      widget.x = bounded.x;
+      widget.y = bounded.y;
+      
+      // Обновить относительные координаты с учётом граничных проверок
+      widget.relativeX = (bounded.x - image.x) / newWidth;
+      widget.relativeY = (bounded.y - image.y) / newHeight;
       
       if (widget.konvaGroup) {
-        widget.konvaGroup.x(widget.x);
-        widget.konvaGroup.y(widget.y);
+        widget.konvaGroup.x(bounded.x);
+        widget.konvaGroup.y(bounded.y);
       }
     });
     
