@@ -1,8 +1,8 @@
 # КАРТА ФАЙЛОВ ПРОЕКТА
 
-**Версия**: 1.3  
-**Дата обновления**: 24.01.2026  
-**Статус**: Актуальная - синхронизирована с main
+**Версия**: 1.4  
+**Дата обновления**: 26.01.2026  
+**Статус**: Актуальная - синхронизирована с feature/widgets-phase1-display
 
 ---
 
@@ -13,35 +13,38 @@ VKR/
 ├── public/                           ОСНОВНОЙ КОД
 │   ├── index.html                    точка входа браузера
 │   ├── main.js                       инициализация UIController
-│   ├── canvas-manager.js             управление Konva.js (7 KB)
-│   ├── ui-controller.js              КООРДИНАТОР менеджеров (14 KB)
+│   ├── canvas-manager.js             управление Konva.js (7.3 KB)
+│   ├── ui-controller.js              КООРДИНАТОР менеджеров (13.9 KB)
 │   ├── diagram-element.js            базовый класс элементов (1.4 KB)
-│   ├── image-manager.js              работа с изображениями (10 KB)
-│   ├── connection-point-manager.js   точки соединения на сторонах (7 KB)
-│   ├── connection-manager.js         линии с ортогональностью (7 KB)
-│   ├── connection-router.js          маршрутизация соединений (9 KB) [NEW]
-│   ├── connection-updater.js         обновление при движении (8 KB) [NEW]
-│   ├── connection-editor.js          редактирование разрывов (22 KB)
-│   ├── selection-manager.js          выделение элементов (4 KB)
-│   ├── properties-panel.js           панель свойств (4.6 KB)
+│   ├── image-manager.js              работа с изображениями (9.9 KB)
+│   ├── connection-point-manager.js   точки соединения на сторонах (7.2 KB)
+│   ├── connection-manager.js         линии с ортогональностью (7.2 KB)
+│   ├── connection-router.js          маршрутизация соединений (9.0 KB)
+│   ├── connection-updater.js         обновление при движении (8.3 KB)
+│   ├── connection-editor.js          редактирование разрывов (21.6 KB)
+│   ├── selection-manager.js          выделение элементов (4.3 KB)
+│   ├── properties-panel.js           панель свойств (4.5 KB)
 │   ├── file-manager.js               сохранение/загрузка JSON (1.6 KB)
-│   ├── styles.css                    все стили в одном файле (4.5 KB)
-│   └── note.md                       локальные заметки разработчика [NEW]
+│   ├── context-menu.js               контекстное меню и команды (4.8 KB)
+│   ├── widget-manager.js             менеджер виджетов на изображениях (8.7 KB)
+│   ├── widget-types.js               типы виджетов (индикаторы, дисплеи и т.п.) (8.4 KB)
+│   ├── styles.css                    все стили в одном файле (5.7 KB)
+│   └── note.md                       локальные заметки разработчика
 │
 ├── doc/                              ДОКУМЕНТАЦИЯ
 │   ├── vision.md                     техническое видение (1.9 KB)
-│   ├── conventions.md                правила кодирования (9 KB)
+│   ├── conventions.md                правила кодирования (9.0 KB)
 │   ├── workflow.md                   процесс разработки (1.9 KB)
-│   ├── connections-implementation-plan.md  план итерации 1 (26 KB)
-│   ├── status-system.md              план итерации 2 (12 KB)
-│   ├── widgets-dev-guide.md          руководство по виджетам (38 KB) [NEW]
-│   ├── widgets-implementation-plan.md план реализации виджетов (31 KB) [NEW]
-│   └── scada-architecture.md         полная архитектура системы (20 KB)
+│   ├── connections-implementation-plan.md  план итерации 1 (25.8 KB)
+│   ├── status-system.md              план итерации 2 (12.4 KB)
+│   ├── widgets-dev-guide.md          руководство по виджетам (37.9 KB)
+│   ├── widgets-implementation-plan.md план реализации виджетов (30.9 KB)
+│   └── scada-architecture.md         полная архитектура системы (19.9 KB)
 │
-├── АРХИТЕКТУРА_ПРОЕКТА.md            актуальная архитектура (19 KB)
-├── REFACTORING_COMPLETE.md           сводка рефакторинга (19 KB)
-├── refactoring-strategy.md           стратегия разработки (10 KB)
-├── README.md                         краткое описание (172 B)
+├── АРХИТЕКТУРА_ПРОЕКТА.md            актуальная архитектура (19.0 KB)
+├── REFACTORING_COMPLETE.md           сводка рефакторинга (19.0 KB)
+├── refactoring-strategy.md           стратегия разработки (10.3 KB)
+├── README.md                         краткое описание (0.2 KB)
 ├── FILE_MAP.md                       ЭТА КАРТА (актуальная)
 │
 └── server/                           BACKEND (БУДУЩЕЕ)
@@ -50,271 +53,13 @@ VKR/
 
 ---
 
-## БЫСТРАЯ НАВИГАЦИЯ
+## ИЗМЕНЕНИЯ В v1.4 (26.01.2026)
 
-### ЕСЛИ НУЖНО ДОБАВИТЬ НОВЫЙ ФУНКЦИОНАЛ
-
-**Шаг 1**: Создать новый менеджер в `public/<name>-manager.js`
-**Шаг 2**: Импортировать в `ui-controller.js`
-**Шаг 3**: Инициализировать в конструкторе UIController
-**Шаг 4**: Настроить коллбэки в `setupManagerCallbacks()`
+- ✓ Добавлены новые файлы: `public/context-menu.js`, `public/widget-manager.js`, `public/widget-types.js`
+- ✓ Обновлены размеры ключевых файлов в `public/` и `doc/` под текущее состояние ветки `feature/widgets-phase1-display`
+- ✓ Статус карты синхронизирован с feature-веткой (виджеты, контекстное меню)
+- ✓ Дальнейшие детали реализации виджетов смотри в `doc/widgets-dev-guide.md` и `doc/widgets-implementation-plan.md`
 
 ---
 
-### ЕСЛИ НУЖНО ИЗМЕНИТЬ...
-
-**логику добавления изображений**
-→ `image-manager.js` / `addImageFromBase64()`, `attachSelectionFrame()`
-
-**цвета и стили подсветки**
-→ `selection-manager.js` / `selectElement()`, `selectConnection()`
-
-**создание точек соединения**
-→ `connection-point-manager.js` / `createConnectionPointOnSide()`
-
-**рисование линий**
-→ `connection-manager.js` / `createConnection()`, `createSimpleLine()`
-
-**маршрутизация линий (расчет пути)**
-→ `connection-router.js` / `calculateRoute()`, `enforceOrthogonal()`
-
-**обновление линий при движении**
-→ `connection-updater.js` / `updateConnectionsForPin()` и `connection-manager.js`
-
-**разрывы соединений (break points)**
-→ `connection-editor.js` / `addBreakPointAtHandle()`, `removeBreakPointAtHandle()`
-
-**ручки редактирования для линий**
-→ `connection-editor.js` / `addLineEditHandles()`, `onHandleDragMove()`
-
-**панель свойств (отображение параметров)**
-→ `properties-panel.js` / `showPropertiesForImage()`, `showPropertiesForConnection()`
-
-**UI кнопки toolbar**
-→ `ui-controller.js` / `setupEventListeners()`
-
-**режим создания линий**
-→ `ui-controller.js` / `setupManagerCallbacks()` / `imageManager.onPointSelected`
-
-**режим редактирования соединений**
-→ `connection-editor.js` / управляется через `SelectionManager`
-
-**связь между менеджерами**
-→ `ui-controller.js` / `setupManagerCallbacks()`
-
-**HTML разметку и стили**
-→ `index.html` и `styles.css`
-
-**сохранение/загрузку схем**
-→ `file-manager.js` / `saveScheme()`, `loadScheme()`
-
-**виджеты (интерактивные элементы на схеме)**
-→ `doc/widgets-implementation-plan.md` + `doc/widgets-dev-guide.md`
-
----
-
-## АРХИТЕКТУРНЫЕ СЛОИ
-
-### 1. БАЗА: Canvas
-```
-CanvasManager (управляет Konva.js)
-└─ Все остальные менеджеры используют его
-```
-
-### 2. ДАННЫЕ: Менеджеры сущностей
-```
-ImageManager ─ управляет изображениями
-ConnectionPointManager ─ управляет точками
-ConnectionManager ─ управляет линиями
-```
-
-### 3. СПЕЦИАЛИЗИРОВАННАЯ ЛОГИКА: Маршрутизация и обновление
-```
-ConnectionRouter ─ расчет оптимальных маршрутов
-ConnectionUpdater ─ синхронизация при движении элементов
-ConnectionEditor ─ редактирование разрывов
-```
-
-### 4. ИНТЕГРАЦИЯ: Выделение и UI
-```
-SelectionManager ─ выделение элементов
-PropertiesPanel ─ отображение свойств
-```
-
-### 5. ФРЕЙМВОРК: Координатор и персистентность
-```
-UIController ─ связывает всех и обрабатывает toolbar
-FileManager ─ сохранение/загрузка
-```
-
----
-
-## ПОТОК ДАННЫХ: ТИПИЧНЫЕ СЦЕНАРИИ
-
-### Сценарий 1: Пользователь дважды кликает на рамку изображения
-```
-Пользователь ─ double click
-   ↓
-ImageManager.onFrameDoubleClick()
-   ↓
-UIController (callback)
-   ↓
-ConnectionPointManager.createConnectionPointOnSide()
-   ↓
-ConnectionPointManager.onPointCreated()
-   ↓
-UIController
-   ↓
-PropertiesPanel.showPropertiesForPoint()
-```
-
-### Сценарий 2: Пользователь переводит от точки к точке
-```
-Пользователь ─ drag от Point A к Point B
-   ↓
-ConnectionManager.createConnection(pinA, pinB)
-   ↓
-ConnectionRouter.calculateRoute() [NEW]
-   ↓
-ConnectionManager.enforceOrthogonal()
-   ↓
-ConnectionManager.onConnectionCreated()
-   ↓
-UIController
-   ↓
-SelectionManager.selectConnection()
-ConnectionEditor.addLineEditHandles()
-PropertiesPanel.showPropertiesForConnection()
-```
-
-### Сценарий 3: Пользователь перемещает изображение
-```
-Пользователь ─ drag изображение
-   ↓
-ImageManager.onImageMoved(deltaX, deltaY)
-   ↓
-UIController
-   ↓
-ConnectionUpdater.updateConnectionsForPin() [NEW]
-   ↓
-ConnectionManager (перересовка линий)
-   ↓
-ConnectionEditor (обновление ручек редактирования)
-```
-
-### Сценарий 4: Пользователь редактирует линию
-```
-Пользователь ─ double click на линию (режим редактирования)
-   ↓
-ConnectionEditor.addBreakPointAtHandle()
-   ↓
-ConnectionEditor (пересчёт сегментов)
-   ↓
-ConnectionRouter (перерасчет маршрута)
-   ↓
-ConnectionEditor.redrawConnection()
-```
-
----
-
-## МОДУЛЬНОСТЬ: КАК ДОБАВИТЬ НОВЫЙ ФУНКЦИОНАЛ
-
-### Пример: Добавить режим удаления элементов
-
-**Файл 1**: Создать `delete-manager.js`
-```javascript
-class DeleteManager {
-    constructor(canvasManager) {
-        this.canvasManager = canvasManager;
-    }
-    
-    deleteImage(image) { /* логика */ }
-    deleteConnection(connection) { /* логика */ }
-}
-```
-
-**Файл 2**: Обновить `ui-controller.js`
-```javascript
-import DeleteManager from './delete-manager.js';
-
-class UIController {
-    constructor() {
-        // ... все остальные менеджеры ...
-        this.deleteManager = new DeleteManager(this.canvasManager);
-        this.setupManagerCallbacks();
-    }
-    
-    setupManagerCallbacks() {
-        this.selectionManager.onElementSelected = (element) => {
-            document.getElementById('delete-btn').disabled = false;
-        };
-    }
-    
-    setupEventListeners() {
-        document.getElementById('delete-btn').addEventListener('click', () => {
-            const selected = this.selectionManager.getSelected();
-            if (selected.image) this.deleteManager.deleteImage(selected.image);
-            if (selected.connection) this.deleteManager.deleteConnection(selected.connection);
-        });
-    }
-}
-```
-
-**Готово!** Новая функция добавлена модульно.
-
----
-
-## ДОКУМЕНТАЦИЯ ПО ИТЕРАЦИЯМ
-
-### Итерация 1: ТЕКУЩАЯ (разрывы соединений)
-**Файл**: `doc/connections-implementation-plan.md`
-**Статус**: ЗАВЕРШЕНА (разрывы работают)
-**Дата**: 20.01.2026
-
-### Итерация 2: ТЕКУЩАЯ (виджеты и интерактивность)
-**Файлы**: `doc/widgets-implementation-plan.md`, `doc/widgets-dev-guide.md`
-**Статус**: АКТИВНАЯ РАЗРАБОТКА
-**Дата начала**: 22.01.2026
-**Содержит**: 4 фазы разработки виджетов (основы, слайдеры, мультивиджеты, интеграция)
-
-### Итерация 3: СТАТУСЫ И МОНИТОРИНГ
-**Файл**: `doc/status-system.md`
-**Статус**: ПЛАНИРУЕТСЯ
-**Содержит**: План визуального отображения состояний (ON/OFF/STANDBY, ошибки)
-
-### Итерация 4: BACKEND И MQTT
-**Файл**: `doc/scada-architecture.md`
-**Статус**: ПЛАНИРУЕТСЯ
-**Содержит**: Node.js сервер, MQTT, WebSocket для Dashboard
-
----
-
-## КЛЮЧЕВЫЕ МЕТРИКИ
-
-| Метрика | Значение |
-|---------|----------|
-| Менеджеров в public/ | 11 |
-| Документов в doc/ | 8 |
-| Общее количество строк кода | ~2000+ |
-| Строк UIController | 14 KB |
-| Строк ConnectionEditor | 22 KB (самый большой) |
-| Средний размер менеджера | 7-9 KB |
-| Архитектурный уровень модульности | ✓ Высокий |
-| SOLID-готовность | ✓ S, O, L, D |
-
----
-
-## ИЗМЕНЕНИЯ В v1.3 (24.01.2026)
-
-- ✓ Добавлены новые менеджеры: connection-router.js, connection-updater.js
-- ✓ Добавлены новые документы: widgets-dev-guide.md, widgets-implementation-plan.md
-- ✓ Обновлены размеры файлов (KB)
-- ✓ Актуализирован раздел "ДОКУМЕНТАЦИЯ ПО ИТЕРАЦИЯМ"
-- ✓ Уточнены сценарии потока данных
-- ✓ Добавлена информация о текущей разработке виджетов
-- ✓ Добавлены архитектурные слои для новых менеджеров
-
----
-
-**Пользуйся этой картой при разработке!**
-**Вопросы? Смотри АРХИТЕКТУРА_ПРОЕКТА.md или doc/conventions.md**
+**Эта карта актуальна для ветки feature/widgets-phase1-display.**
