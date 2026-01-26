@@ -43,13 +43,20 @@ export const WIDGET_DEFAULTS = {
   }
 };
 
+// Общая функция валидации и санитизации числовых значений
+function validateNumber(value, defaultValue = 0) {
+  if (value === null || value === undefined) return defaultValue;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : defaultValue;
+}
+
 // Числовой дисплей - показывает число с единицей измерения
 export class NumberDisplayWidget extends DisplayWidget {
   constructor(config) {
     super(config);
     this.decimals = config.decimals || 1;
     this.unit = config.unit || '';
-    this.displayValue = this.formatValue(config.displayValue ?? 0);
+    this.displayValue = validateNumber(config.displayValue, 0);
   }
   
   render(layer) {
@@ -73,8 +80,9 @@ export class NumberDisplayWidget extends DisplayWidget {
       cornerRadius: 3
     });
     
-    let value = this.formatValue(this.displayValue);
-    const formattedValue = Number(value).toFixed(this.decimals);
+    // Валидируем значение перед toFixed
+    const value = validateNumber(this.displayValue, 0);
+    const formattedValue = value.toFixed(this.decimals);
     const displayText = this.unit ? `${formattedValue} ${this.unit}` : formattedValue;
     
     const text = new Konva.Text({
@@ -205,11 +213,12 @@ export class LedWidget extends DisplayWidget {
 export class GaugeWidget extends DisplayWidget {
   constructor(config) {
     super(config);
-    this.min = Number.isFinite(config.min) ? config.min : 0;
-    this.max = Number.isFinite(config.max) ? config.max : 100;
-    if (this.max <= this.min) this.max = this.min + 1; // защита от max === min
+    this.min = validateNumber(config.min, 0);
+    this.max = validateNumber(config.max, 100);
+    // Защита от деления на ноль: если max <= min, то уличиваем max
+    if (this.max <= this.min) this.max = this.min + 1;
     this.unit = config.unit || '';
-    this.displayValue = this.formatValue(config.displayValue ?? this.min);
+    this.displayValue = validateNumber(config.displayValue, this.min);
   }
   
   render(layer) {
@@ -245,9 +254,11 @@ export class GaugeWidget extends DisplayWidget {
       fill: '#e0e0e0'
     });
     
+    // Валидируем значение и проверяем деление на ноль
+    const validValue = validateNumber(this.displayValue, this.min);
     let normalizedValue = 0;
     if (this.max > this.min) {
-      normalizedValue = (this.displayValue - this.min) / (this.max - this.min);
+      normalizedValue = (validValue - this.min) / (this.max - this.min);
     }
     normalizedValue = Math.max(0, Math.min(1, normalizedValue));
     
@@ -272,8 +283,8 @@ export class GaugeWidget extends DisplayWidget {
       fill: '#333'
     });
     
-    const valueNum = this.formatValue(this.displayValue);
-    const displayText = this.unit ? `${valueNum.toFixed(0)} ${this.unit}` : valueNum.toFixed(0);
+    const displayValue = validValue.toFixed(0);
+    const displayText = this.unit ? `${displayValue} ${this.unit}` : displayValue;
     const valueText = new Konva.Text({
       x: 0,
       y: centerY + radius - 15,
