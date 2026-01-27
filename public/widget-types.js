@@ -1,5 +1,21 @@
 // widget-types.js - Определение всех типов виджетов и их рендеринг
 
+// ПЛАНИРУЕМЫЙ НАБОР ВИДЖЕТОВ:
+// Display типы:
+//   - number-display (текущий) - показывает число с единицей
+//   - text-display (текущий) - показывает текст
+//   - led (текущий) - индикатор on/off
+//   - gauge (ОТЛОЖЕН) - стрелочный манометр (требует рефакторинга)
+//   - chart-display (будущее) - простой график
+// Input типы (Iteration 2):
+//   - number-input - число с валидацией
+//   - text-input - текстовое поле
+//   - slider - ползунок
+// Control типы (Iteration 3):
+//   - toggle - переключатель
+//   - button - кнопка управления
+//   - switch - переключатель режимов
+
 // Базовый класс для Display виджетов (read-only)
 export class DisplayWidget {
   constructor(config) {
@@ -27,7 +43,7 @@ export class DisplayWidget {
   }
   
   getCategory() {
-    const displayTypes = ['number-display', 'text-display', 'led', 'gauge'];
+    const displayTypes = ['number-display', 'text-display', 'led'];
     return 'display';
   }
   
@@ -81,14 +97,6 @@ export const WIDGET_DEFAULTS = {
     colorOn: '#4caf50',
     colorBorder: '#999999',
     borderWidth: 2,
-    readonly: true
-  },
-  'gauge': {
-    width: 120,
-    height: 120,
-    min: 0,
-    max: 100,
-    unit: '',
     readonly: true
   }
 };
@@ -259,138 +267,6 @@ export class LedWidget extends DisplayWidget {
   }
 }
 
-// Манометр (Gauge) - стрелочное отображение значения (ПЕРЕДЕЛАНА ВЕРСТКА)
-export class GaugeWidget extends DisplayWidget {
-  constructor(config) {
-    super(config);
-    this.min = validateNumber(config.min, 0);
-    this.max = validateNumber(config.max, 100);
-    if (this.max <= this.min) this.max = this.min + 1;
-    this.unit = config.unit || '';
-    this.displayValue = validateNumber(config.displayValue, this.min);
-  }
-  
-  render(layer) {
-    if (this.konvaGroup) this.konvaGroup.destroy();
-    
-    this.konvaGroup = new Konva.Group({
-      x: this.x,
-      y: this.y,
-      width: this.width,
-      height: this.height
-    });
-    
-    const cX = this.width / 2;
-    const cY = this.height / 2;
-    const r = (Math.min(this.width, this.height) / 2) - 8;
-    
-    // 1. Белый фон
-    const bg = new Konva.Circle({
-      x: cX,
-      y: cY,
-      radius: r,
-      fill: '#ffffff',
-      stroke: '#333333',
-      strokeWidth: 2
-    });
-    
-    // 2. Шкала (полукольцо внешнее)
-    const scale = new Konva.Arc({
-      x: cX,
-      y: cY,
-      innerRadius: r - 10,
-      outerRadius: r - 2,
-      angle: 180,
-      rotation: -90,
-      fill: '#d0d0d0'
-    });
-    
-    // 3. Стрелка
-    const val = validateNumber(this.displayValue, this.min);
-    let norm = 0;
-    if (this.max > this.min) norm = (val - this.min) / (this.max - this.min);
-    norm = Math.max(0, Math.min(1, norm));
-    
-    const angle = -90 + norm * 180;
-    const rad = (angle * Math.PI) / 180;
-    const needleLen = r * 0.7;
-    const nX = cX + needleLen * Math.cos(rad);
-    const nY = cY + needleLen * Math.sin(rad);
-    
-    const needle = new Konva.Line({
-      points: [cX, cY, nX, nY],
-      stroke: '#d32f2f',
-      strokeWidth: 3,
-      lineCap: 'round'
-    });
-    
-    // 4. Центр
-    const dot = new Konva.Circle({
-      x: cX,
-      y: cY,
-      radius: 5,
-      fill: '#333333'
-    });
-    
-    // 5. Значение в центре
-    const dispVal = val.toFixed(0);
-    const dispTxt = this.unit ? `${dispVal}${this.unit}` : dispVal;
-    const valText = new Konva.Text({
-      x: cX - 30,
-      y: cY - 5,
-      width: 60,
-      text: dispTxt,
-      fontSize: 12,
-      fontFamily: 'Arial',
-      fill: '#333',
-      align: 'center',
-      fontWeight: 'bold'
-    });
-    
-    // 6. Min - на шкале слева
-    const minAngleRad = (-90 * Math.PI) / 180;
-    const minR = r - 16;
-    const minX = cX + minR * Math.cos(minAngleRad);
-    const minY = cY + minR * Math.sin(minAngleRad);
-    const minTxt = new Konva.Text({
-      x: minX - 10,
-      y: minY - 4,
-      width: 20,
-      text: String(this.min),
-      fontSize: 8,
-      fontFamily: 'Arial',
-      fill: '#666',
-      align: 'center'
-    });
-    
-    // 7. Max - на шкале справа
-    const maxAngleRad = (90 * Math.PI) / 180;
-    const maxR = r - 16;
-    const maxX = cX + maxR * Math.cos(maxAngleRad);
-    const maxY = cY + maxR * Math.sin(maxAngleRad);
-    const maxTxt = new Konva.Text({
-      x: maxX - 10,
-      y: maxY - 4,
-      width: 20,
-      text: String(this.max),
-      fontSize: 8,
-      fontFamily: 'Arial',
-      fill: '#666',
-      align: 'center'
-    });
-    
-    // Слои: фон → шкала → min/max → стрелка → центр → значение
-    this.konvaGroup.add(bg);
-    this.konvaGroup.add(scale);
-    this.konvaGroup.add(minTxt);
-    this.konvaGroup.add(maxTxt);
-    this.konvaGroup.add(needle);
-    this.konvaGroup.add(dot);
-    this.konvaGroup.add(valText);
-    layer.add(this.konvaGroup);
-  }
-}
-
 // Фабрика для создания виджетов по типу
 export function createWidget(type, config) {
   const defaults = WIDGET_DEFAULTS[type];
@@ -408,8 +284,6 @@ export function createWidget(type, config) {
       return new TextDisplayWidget(finalConfig);
     case 'led':
       return new LedWidget(finalConfig);
-    case 'gauge':
-      return new GaugeWidget(finalConfig);
     default:
       console.error(`Unsupported widget type: ${type}`);
       return null;
