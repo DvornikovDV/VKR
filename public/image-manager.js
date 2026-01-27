@@ -281,8 +281,7 @@ class ImageManager {
                     submenu: [
                         { label: '📊 Числовой дисплей', type: 'number-display' },
                         { label: '📝 Текстовый дисплей', type: 'text-display' },
-                        { label: '💡 Индикатор', type: 'led' },
-                        { label: '📈 Манометр', type: 'gauge' }
+                        { label: '💡 Индикатор', type: 'led' }
                     ],
                     onSelect: (type) => {
                         const stagePos = this.canvasManager.getStage().getPointerPosition();
