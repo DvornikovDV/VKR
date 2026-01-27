@@ -265,7 +265,7 @@ export class GaugeWidget extends DisplayWidget {
     super(config);
     this.min = validateNumber(config.min, 0);
     this.max = validateNumber(config.max, 100);
-    // Защита от деления на ноль: если max <= min, то уличиваем max
+    // Защита от деления на ноль: если max <= min, то увеличиваем max
     if (this.max <= this.min) this.max = this.min + 1;
     this.unit = config.unit || '';
     this.displayValue = validateNumber(config.displayValue, this.min);
@@ -285,15 +285,17 @@ export class GaugeWidget extends DisplayWidget {
     const centerY = this.height / 2;
     const radius = Math.min(this.width, this.height) / 2 - 5;
     
-    const background = new Konva.Circle({
+    // Явный белый фоновый круг с чёрной рамкой
+    const backgroundCircle = new Konva.Circle({
       x: centerX,
       y: centerY,
       radius,
-      fill: '#f5f5f5',
-      stroke: '#cccccc',
+      fill: '#ffffff',
+      stroke: '#000000',
       strokeWidth: 2
     });
     
+    // Полукольцо (шкала) серого цвета
     const arc = new Konva.Arc({
       x: centerX,
       y: centerY,
@@ -319,6 +321,7 @@ export class GaugeWidget extends DisplayWidget {
     const needleEndX = centerX + needleLength * Math.cos(angleRad);
     const needleEndY = centerY + needleLength * Math.sin(angleRad);
     
+    // Красная стрелка
     const needle = new Konva.Line({
       points: [centerX, centerY, needleEndX, needleEndY],
       stroke: '#d32f2f',
@@ -326,6 +329,7 @@ export class GaugeWidget extends DisplayWidget {
       lineCap: 'round'
     });
     
+    // Центральная точка крепления стрелки
     const centerDot = new Konva.Circle({
       x: centerX,
       y: centerY,
@@ -333,6 +337,7 @@ export class GaugeWidget extends DisplayWidget {
       fill: '#333'
     });
     
+    // Значение в центре внизу
     const displayValue = validValue.toFixed(0);
     const displayText = this.unit ? `${displayValue} ${this.unit}` : displayValue;
     const valueText = new Konva.Text({
@@ -346,6 +351,7 @@ export class GaugeWidget extends DisplayWidget {
       align: 'center'
     });
     
+    // Минимум слева
     const minText = new Konva.Text({
       x: 5,
       y: centerY + 5,
@@ -354,6 +360,7 @@ export class GaugeWidget extends DisplayWidget {
       fill: '#666'
     });
     
+    // Максимум справа
     const maxText = new Konva.Text({
       x: this.width - 20,
       y: centerY + 5,
@@ -362,7 +369,7 @@ export class GaugeWidget extends DisplayWidget {
       fill: '#666'
     });
     
-    this.konvaGroup.add(background);
+    this.konvaGroup.add(backgroundCircle);
     this.konvaGroup.add(arc);
     this.konvaGroup.add(needle);
     this.konvaGroup.add(centerDot);
