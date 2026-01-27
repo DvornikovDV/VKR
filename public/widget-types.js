@@ -84,8 +84,8 @@ export const WIDGET_DEFAULTS = {
     readonly: true
   },
   'gauge': {
-    width: 80,
-    height: 80,
+    width: 120,
+    height: 120,
     min: 0,
     max: 100,
     unit: '',
@@ -259,13 +259,12 @@ export class LedWidget extends DisplayWidget {
   }
 }
 
-// Манометр (Gauge) - стрелочное отображение значения
+// Манометр (Gauge) - стрелочное отображение значения (ПЕРЕДЕЛАНА ВЕРСТКА)
 export class GaugeWidget extends DisplayWidget {
   constructor(config) {
     super(config);
     this.min = validateNumber(config.min, 0);
     this.max = validateNumber(config.max, 100);
-    // Защита от деления на ноль: если max <= min, то увеличиваем max
     if (this.max <= this.min) this.max = this.min + 1;
     this.unit = config.unit || '';
     this.displayValue = validateNumber(config.displayValue, this.min);
@@ -281,101 +280,113 @@ export class GaugeWidget extends DisplayWidget {
       height: this.height
     });
     
-    const centerX = this.width / 2;
-    const centerY = this.height / 2;
-    const radius = Math.min(this.width, this.height) / 2 - 5;
+    const cX = this.width / 2;
+    const cY = this.height / 2;
+    const r = (Math.min(this.width, this.height) / 2) - 8;
     
-    // Явный белый фоновый круг с чёрной рамкой
-    const backgroundCircle = new Konva.Circle({
-      x: centerX,
-      y: centerY,
-      radius,
+    // 1. Белый фон
+    const bg = new Konva.Circle({
+      x: cX,
+      y: cY,
+      radius: r,
       fill: '#ffffff',
-      stroke: '#000000',
+      stroke: '#333333',
       strokeWidth: 2
     });
     
-    // Полукольцо (шкала) серого цвета
-    const arc = new Konva.Arc({
-      x: centerX,
-      y: centerY,
-      innerRadius: radius - 8,
-      outerRadius: radius - 2,
+    // 2. Шкала (полукольцо внешнее)
+    const scale = new Konva.Arc({
+      x: cX,
+      y: cY,
+      innerRadius: r - 10,
+      outerRadius: r - 2,
       angle: 180,
       rotation: -90,
-      fill: '#e0e0e0'
+      fill: '#d0d0d0'
     });
     
-    // Валидируем значение и проверяем деление на ноль
-    const validValue = validateNumber(this.displayValue, this.min);
-    let normalizedValue = 0;
-    if (this.max > this.min) {
-      normalizedValue = (validValue - this.min) / (this.max - this.min);
-    }
-    normalizedValue = Math.max(0, Math.min(1, normalizedValue));
+    // 3. Стрелка
+    const val = validateNumber(this.displayValue, this.min);
+    let norm = 0;
+    if (this.max > this.min) norm = (val - this.min) / (this.max - this.min);
+    norm = Math.max(0, Math.min(1, norm));
     
-    const angle = -90 + normalizedValue * 180;
-    const angleRad = (angle * Math.PI) / 180;
+    const angle = -90 + norm * 180;
+    const rad = (angle * Math.PI) / 180;
+    const needleLen = r * 0.7;
+    const nX = cX + needleLen * Math.cos(rad);
+    const nY = cY + needleLen * Math.sin(rad);
     
-    const needleLength = radius - 10;
-    const needleEndX = centerX + needleLength * Math.cos(angleRad);
-    const needleEndY = centerY + needleLength * Math.sin(angleRad);
-    
-    // Красная стрелка
     const needle = new Konva.Line({
-      points: [centerX, centerY, needleEndX, needleEndY],
+      points: [cX, cY, nX, nY],
       stroke: '#d32f2f',
-      strokeWidth: 2,
+      strokeWidth: 3,
       lineCap: 'round'
     });
     
-    // Центральная точка крепления стрелки
-    const centerDot = new Konva.Circle({
-      x: centerX,
-      y: centerY,
-      radius: 4,
-      fill: '#333'
+    // 4. Центр
+    const dot = new Konva.Circle({
+      x: cX,
+      y: cY,
+      radius: 5,
+      fill: '#333333'
     });
     
-    // Значение в центре внизу
-    const displayValue = validValue.toFixed(0);
-    const displayText = this.unit ? `${displayValue} ${this.unit}` : displayValue;
-    const valueText = new Konva.Text({
-      x: 0,
-      y: centerY + radius - 15,
-      width: this.width,
-      text: displayText,
-      fontSize: 10,
+    // 5. Значение в центре
+    const dispVal = val.toFixed(0);
+    const dispTxt = this.unit ? `${dispVal}${this.unit}` : dispVal;
+    const valText = new Konva.Text({
+      x: cX - 30,
+      y: cY - 5,
+      width: 60,
+      text: dispTxt,
+      fontSize: 12,
       fontFamily: 'Arial',
       fill: '#333',
+      align: 'center',
+      fontWeight: 'bold'
+    });
+    
+    // 6. Min - на шкале слева
+    const minAngleRad = (-90 * Math.PI) / 180;
+    const minR = r - 16;
+    const minX = cX + minR * Math.cos(minAngleRad);
+    const minY = cY + minR * Math.sin(minAngleRad);
+    const minTxt = new Konva.Text({
+      x: minX - 10,
+      y: minY - 4,
+      width: 20,
+      text: String(this.min),
+      fontSize: 8,
+      fontFamily: 'Arial',
+      fill: '#666',
       align: 'center'
     });
     
-    // Минимум слева
-    const minText = new Konva.Text({
-      x: 5,
-      y: centerY + 5,
-      text: String(this.min),
-      fontSize: 8,
-      fill: '#666'
-    });
-    
-    // Максимум справа
-    const maxText = new Konva.Text({
-      x: this.width - 20,
-      y: centerY + 5,
+    // 7. Max - на шкале справа
+    const maxAngleRad = (90 * Math.PI) / 180;
+    const maxR = r - 16;
+    const maxX = cX + maxR * Math.cos(maxAngleRad);
+    const maxY = cY + maxR * Math.sin(maxAngleRad);
+    const maxTxt = new Konva.Text({
+      x: maxX - 10,
+      y: maxY - 4,
+      width: 20,
       text: String(this.max),
       fontSize: 8,
-      fill: '#666'
+      fontFamily: 'Arial',
+      fill: '#666',
+      align: 'center'
     });
     
-    this.konvaGroup.add(backgroundCircle);
-    this.konvaGroup.add(arc);
+    // Слои: фон → шкала → min/max → стрелка → центр → значение
+    this.konvaGroup.add(bg);
+    this.konvaGroup.add(scale);
+    this.konvaGroup.add(minTxt);
+    this.konvaGroup.add(maxTxt);
     this.konvaGroup.add(needle);
-    this.konvaGroup.add(centerDot);
-    this.konvaGroup.add(valueText);
-    this.konvaGroup.add(minText);
-    this.konvaGroup.add(maxText);
+    this.konvaGroup.add(dot);
+    this.konvaGroup.add(valText);
     layer.add(this.konvaGroup);
   }
 }
