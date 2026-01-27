@@ -81,6 +81,12 @@ class ImageManager {
         if (!konvaImg) return;
         
         const layer = this.canvasManager.getLayer();
+        const imageId = konvaImg.getAttr('imageId');
+        
+        // Удалить виджеты, привязанные к этому изображению
+        if (this.widgetManager && imageId) {
+            this.widgetManager.onImageDelete(imageId);
+        }
         
         // Удалить рамку и ручку
         if (konvaImg._frame) {
