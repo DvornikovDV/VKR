@@ -124,17 +124,23 @@ export class WidgetManager {
     let boundedX = x;
     let boundedY = y;
     
-    if (boundedX < image.x) {
-      boundedX = image.x;
+    // Обеспечить что виджет полностью остается в пределах изображения
+    const imgX = image.x();
+    const imgY = image.y();
+    const imgWidth = image.width() * image.scaleX();
+    const imgHeight = image.height() * image.scaleY();
+    
+    if (boundedX < imgX) {
+      boundedX = imgX;
     }
-    if (boundedX + widget.width > image.x + image.width) {
-      boundedX = image.x + image.width - widget.width;
+    if (boundedX + widget.width > imgX + imgWidth) {
+      boundedX = imgX + imgWidth - widget.width;
     }
-    if (boundedY < image.y) {
-      boundedY = image.y;
+    if (boundedY < imgY) {
+      boundedY = imgY;
     }
-    if (boundedY + widget.height > image.y + image.height) {
-      boundedY = image.y + image.height - widget.height;
+    if (boundedY + widget.height > imgY + imgHeight) {
+      boundedY = imgY + imgHeight - widget.height;
     }
     
     return { x: boundedX, y: boundedY };
@@ -153,8 +159,13 @@ export class WidgetManager {
     widget.x = bounded.x;
     widget.y = bounded.y;
     
-    widget.relativeX = (bounded.x - image.x) / image.width;
-    widget.relativeY = (bounded.y - image.y) / image.height;
+    const imgX = image.x();
+    const imgY = image.y();
+    const imgWidth = image.width() * image.scaleX();
+    const imgHeight = image.height() * image.scaleY();
+    
+    widget.relativeX = (bounded.x - imgX) / imgWidth;
+    widget.relativeY = (bounded.y - imgY) / imgHeight;
     
     if (widget.konvaGroup) {
       widget.konvaGroup.x(bounded.x);
@@ -170,8 +181,12 @@ export class WidgetManager {
     const widget = this.getWidget(widgetId);
     if (!widget) return false;
     
-    let boundedWidth = Math.min(newWidth, this.imageManager.getImage(widget.imageId)?.width || newWidth);
-    let boundedHeight = Math.min(newHeight, this.imageManager.getImage(widget.imageId)?.height || newHeight);
+    const image = this.imageManager.getImage(widget.imageId);
+    const imgWidth = image.width() * image.scaleX();
+    const imgHeight = image.height() * image.scaleY();
+    
+    let boundedWidth = Math.min(newWidth, imgWidth);
+    let boundedHeight = Math.min(newHeight, imgHeight);
     
     boundedWidth = Math.max(boundedWidth, 10);
     boundedHeight = Math.max(boundedHeight, 10);
@@ -183,11 +198,10 @@ export class WidgetManager {
     widget.x = bounded.x;
     widget.y = bounded.y;
     
-    const image = this.imageManager.getImage(widget.imageId);
-    if (image) {
-      widget.relativeX = (bounded.x - image.x) / image.width;
-      widget.relativeY = (bounded.y - image.y) / image.height;
-    }
+    const imgX = image.x();
+    const imgY = image.y();
+    widget.relativeX = (bounded.x - imgX) / imgWidth;
+    widget.relativeY = (bounded.y - imgY) / imgHeight;
     
     widget.render(this.layer);
     this.layer.batchDraw();
@@ -220,18 +234,20 @@ export class WidgetManager {
     if (!image) return;
     
     const widgets = this.getWidgetsByImageId(imageId);
+    const imgX = image.x();
+    const imgY = image.y();
     
     widgets.forEach(widget => {
-      let newX = image.x + widget.relativeX * newWidth;
-      let newY = image.y + widget.relativeY * newHeight;
+      let newX = imgX + widget.relativeX * newWidth;
+      let newY = imgY + widget.relativeY * newHeight;
       
       const bounded = this._applyBoundaryConstraints(widget, newX, newY);
       
       widget.x = bounded.x;
       widget.y = bounded.y;
       
-      widget.relativeX = (bounded.x - image.x) / newWidth;
-      widget.relativeY = (bounded.y - image.y) / newHeight;
+      widget.relativeX = (bounded.x - imgX) / newWidth;
+      widget.relativeY = (bounded.y - imgY) / newHeight;
       
       if (widget.konvaGroup) {
         widget.konvaGroup.x(bounded.x);
@@ -311,11 +327,30 @@ export class WidgetManager {
       startY = widget.y;
     });
     
+    // На dragmove енфорсим границы емедлитно, а не после
     widget.konvaGroup.on('dragmove', () => {
       const newX = widget.konvaGroup.x();
       const newY = widget.konvaGroup.y();
       
-      this.updatePosition(widget.id, newX, newY);
+      // Применяем границы и сразу наставляем позицию
+      const bounded = this._applyBoundaryConstraints(widget, newX, newY);
+      
+      widget.x = bounded.x;
+      widget.y = bounded.y;
+      widget.konvaGroup.x(bounded.x);
+      widget.konvaGroup.y(bounded.y);
+      
+      const image = this.imageManager.getImage(widget.imageId);
+      if (image) {
+        const imgX = image.x();
+        const imgY = image.y();
+        const imgWidth = image.width() * image.scaleX();
+        const imgHeight = image.height() * image.scaleY();
+        widget.relativeX = (bounded.x - imgX) / imgWidth;
+        widget.relativeY = (bounded.y - imgY) / imgHeight;
+      }
+      
+      this.layer.batchDraw();
     });
     
     widget.konvaGroup.on('dragend', () => {
