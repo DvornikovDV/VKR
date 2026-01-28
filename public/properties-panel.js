@@ -8,11 +8,17 @@ class PropertiesPanel {
         this.selectedImage = null;
         this.selectedWidget = null;
         this.widgetManager = null;
+        this.devices = []; // Реестр устройств
     }
     
     // Установить ссылку на WidgetManager для переприсоединения обработчиков
     setWidgetManager(widgetManager) {
         this.widgetManager = widgetManager;
+    }
+    
+    // Установить список устройств (из backend или config)
+    setDevices(devices) {
+        this.devices = devices || [];
     }
 
     /**
@@ -64,6 +70,7 @@ class PropertiesPanel {
         const y = widget.y.toFixed(0);
         const w = widget.width.toFixed(0);
         const h = widget.height.toFixed(0);
+        const bindingId = widget.bindingId || '';
 
         let html = `
             <div class="mb-2"><strong>Виджет</strong></div>
@@ -90,7 +97,7 @@ class PropertiesPanel {
             </div>
             <div class="mb-1">
               <label class="form-label small">Высота:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="height" value="${h}" min="10">
+              <input type="number" class="form-control form-control-sm widget-pnput" data-prop="height" value="${h}" min="10">
             </div>
             `;
         }
@@ -140,6 +147,44 @@ class PropertiesPanel {
             `;
         }
 
+        // Раздел привязки устройства
+        html += `
+            <div class="mb-2 mt-3"><strong>Привязка устройства</strong></div>
+            <div class="mb-1">
+              <label class="form-label small">Устройство:</label>
+              <select id="device-binding-select" class="form-control form-control-sm">
+                <option value="">-- не привязано --</option>
+        `;
+        
+        // Добавить опции устройств
+        this.devices.forEach(device => {
+            const selected = bindingId === device.id ? 'selected' : '';
+            html += `<option value="${device.id}" ${selected}>${device.name} (${device.type})</option>`;
+        });
+        
+        html += `
+              </select>
+            </div>
+        `;
+        
+        // Отобразить метаданные привязанного устройства (если есть)
+        if (bindingId) {
+            const device = this.devices.find(d => d.id === bindingId);
+            if (device) {
+                html += `
+            <div class="mt-2 p-2" style="background-color: #f8f9fa; border-radius: 4px; border-left: 3px solid #0d6efd;">
+              <div class="small text-muted mb-1"><strong>Метаданные устройства:</strong></div>
+              <div class="small">Тип: ${device.type || '-'}</div>
+              <div class="small">Единица: ${device.unit || '-'}</div>
+              <div class="small">Диапазон: ${device.min || '?'} - ${device.max || '?'}</div>
+              <div class="small text-muted" style="margin-top: 4px;">Описание: ${device.description || '-'}</div>
+              <div class="small text-muted">MQTT: ${device.mqttTopic || '-'}</div>
+              <div class="small text-muted">Тип данных: ${device.dataType || '-'}</div>
+            </div>
+                `;
+            }
+        }
+
         this.container.innerHTML = html;
         this.attachWidgetPropertyListeners(widget);
     }
@@ -180,6 +225,18 @@ class PropertiesPanel {
                 // Не пересоздавать весь HTML чтобы избежать потери фокуса
             });
         });
+        
+        // Обработчик выпадающего списка привязки устройств
+        const deviceSelect = this.container.querySelector('#device-binding-select');
+        if (deviceSelect) {
+            deviceSelect.addEventListener('change', (e) => {
+                const deviceId = e.target.value;
+                widget.bindingId = deviceId || null;
+                
+                // Пересоздать панель свойств чтобы показать/скрыть метаданные
+                this.showPropertiesForWidgeapevt);
+            });
+        }
     }
 
     /**
@@ -199,7 +256,7 @@ class PropertiesPanel {
     /**
      * Показать свойства точки соединения
      */
-    showPropertiesForPoint(point) {
+    showPro-premiuForPoint(point) {
         if (!this.container) return;
 
         this.selectedImage = null;
