@@ -170,7 +170,7 @@ body {
 
 /* Панель свойств */
 .properties-panel {
-    width: 300px;
+    width: 380px;
     background-color: white;
     border-left: 2px solid #e0e0e0;
     display: flex;
@@ -181,6 +181,7 @@ body {
     background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
     padding: 15px 20px;
     border-bottom: 2px solid #e0e0e0;
+    flex-shrink: 0;
 }
 
 .properties-header h5 {
@@ -191,8 +192,36 @@ body {
 
 .properties-content {
     flex: 1;
-    padding: 20px;
+    padding: 15px 20px;
     overflow-y: auto;
+    overflow-x: hidden;
+    background-color: #fafafa;
+}
+
+/* Стили прокрутки */
+.properties-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.properties-content::-webkit-scrollbar-track {
+    background: #f0f0f0;
+    border-radius: 10px;
+}
+
+.properties-content::-webkit-scrollbar-thumb {
+    background: #cccccc;
+    border-radius: 10px;
+    transition: background 0.3s ease;
+}
+
+.properties-content::-webkit-scrollbar-thumb:hover {
+    background: #999999;
+}
+
+/* Firefox стили */
+.properties-content {
+    scrollbar-width: thin;
+    scrollbar-color: #cccccc #f0f0f0;
 }
 
 /* Выделение элементов */
