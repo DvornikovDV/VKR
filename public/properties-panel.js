@@ -152,11 +152,11 @@ class PropertiesPanel {
             <div class="mb-2 mt-3"><strong>Привязка устройства</strong></div>
             <div class="mb-1">
               <label class="form-label small">Устройство:</label>
-              <select id="device-binding-select" class="form-control form-control-sm">
+              <select id="device-binding-select" class="form-control form-control-sm" style="max-height: 150px; overflow-y: auto;">
                 <option value="">-- не привязано --</option>
         `;
         
-        // Добавить опции устройств
+        // На windows/linux scrollbar работает только на select - в любом случае
         this.devices.forEach(device => {
             const selected = bindingId === device.id ? 'selected' : '';
             html += `<option value="${device.id}" ${selected}>${device.name} (${device.type})</option>`;
@@ -222,7 +222,7 @@ class PropertiesPanel {
                 }
                 
                 // Обновить панель свойств (просто обновляем значения input'ов)
-                // Не пересоздавать весь HTML чтобы избежать потери фокуса
+                // Не пересоздавать всь НТМЛ чтобы избежать потери фокуса
             });
         });
         
