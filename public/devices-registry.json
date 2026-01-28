@@ -1,0 +1,114 @@
+{
+  "devices": [
+    {
+      "id": "sensor_temp_01",
+      "name": "Датчик температуры 1",
+      "type": "sensor",
+      "unit": "°C",
+      "min": -10,
+      "max": 50,
+      "description": "Температура в теплице тепло",
+      "dataType": "float",
+      "mqttTopic": "greenhouse/temp/01"
+    },
+    {
+      "id": "sensor_humidity_01",
+      "name": "Датчик влажности 1",
+      "type": "sensor",
+      "unit": "%",
+      "min": 0,
+      "max": 100,
+      "description": "Относительная влажность в теплице",
+      "dataType": "float",
+      "mqttTopic": "greenhouse/humidity/01"
+    },
+    {
+      "id": "sensor_pressure_01",
+      "name": "Датчик давления",
+      "type": "sensor",
+      "unit": "hPa",
+      "min": 950,
+      "max": 1050,
+      "description": "Атмосферное давление",
+      "dataType": "float",
+      "mqttTopic": "greenhouse/pressure/01"
+    },
+    {
+      "id": "sensor_soil_01",
+      "name": "Датчик влаги почвы",
+      "type": "sensor",
+      "unit": "%",
+      "min": 0,
+      "max": 100,
+      "description": "Овлажнение почвы",
+      "dataType": "float",
+      "mqttTopic": "greenhouse/soil/moisture/01"
+    },
+    {
+      "id": "pump_water_01",
+      "name": "Насос полива 1",
+      "type": "pump",
+      "unit": "статус",
+      "min": 0,
+      "max": 1,
+      "description": "Насос воды (он/офф)",
+      "dataType": "boolean",
+      "mqttTopic": "greenhouse/pump/water/01"
+    },
+    {
+      "id": "valve_vent_01",
+      "name": "Политок вентиляции",
+      "type": "valve",
+      "unit": "%",
+      "min": 0,
+      "max": 100,
+      "description": "Поток воздуха вентиляции (процент открытия)",
+      "dataType": "float",
+      "mqttTopic": "greenhouse/ventilation/01"
+    },
+    {
+      "id": "heater_01",
+      "name": "Обогревател",
+      "type": "heater",
+      "unit": "kW",
+      "min": 0,
+      "max": 5,
+      "description": "Нагреватель теплицы",
+      "dataType": "float",
+      "mqttTopic": "greenhouse/heater/01"
+    },
+    {
+      "id": "light_led_01",
+      "name": "LED-светильник",
+      "type": "light",
+      "unit": "%",
+      "min": 0,
+      "max": 100,
+      "description": "Процент яркости LED",
+      "dataType": "float",
+      "mqttTopic": "greenhouse/light/led/01"
+    },
+    {
+      "id": "fan_01",
+      "name": "Вентилятор",
+      "type": "fan",
+      "unit": "RPM",
+      "min": 0,
+      "max": 3000,
+      "description": "Обороты вентилятора",
+      "dataType": "integer",
+      "mqttTopic": "greenhouse/fan/01"
+    },
+    {
+      "id": "counter_flow_01",
+      "name": "Счётчик полива",
+      "type": "counter",
+      "unit": "литров",
+      "min": 0,
+      "max": 10000,
+      "description": "Объём политой воды",
+      "dataType": "integer",
+      "mqttTopic": "greenhouse/counter/flow/01"
+    }
+  ]
+}
