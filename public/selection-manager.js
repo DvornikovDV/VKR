@@ -1,5 +1,5 @@
 // selection-manager.js
-// Управление выделением элементов
+// Управление выделением элементов (изображения, соединения, виджеты)
 
 const HANDLE_RADIUS = 6;
 
@@ -72,6 +72,43 @@ class SelectionManager {
     }
 
     /**
+     * Выбрать виджет
+     */
+    selectWidget(widget) {
+        this.ensureCanvasClickListener();
+        this.clearSelection();
+
+        if (!widget || !widget.konvaGroup) return;
+
+        const layer = this.canvasManager.getLayer();
+        const group = widget.konvaGroup;
+
+        // Синяя рамка вокруг виджета
+        const highlight = new Konva.Rect({
+            x: () => group.x(),
+            y: () => group.y(),
+            width: () => group.width(),
+            height: () => group.height(),
+            stroke: '#0d6efd',
+            strokeWidth: 2,
+            opacity: 0.9,
+            cornerRadius: 4,
+            listening: false
+        });
+
+        layer.add(highlight);
+        layer.moveToTop(group);
+        layer.batchDraw();
+
+        const cleanup = () => {
+            highlight.destroy();
+            layer.batchDraw();
+        };
+
+        this.selected = { widget, highlight, cleanup };
+    }
+
+    /**
      * Выбрать соединение
      */
     selectConnection(connection) {
@@ -141,7 +178,7 @@ class SelectionManager {
      */
     getSelectedNode() {
         if (!this.selected) return null;
-        return this.selected.node || this.selected.connection || null;
+        return this.selected.node || this.selected.connection || this.selected.widget || null;
     }
 }
 
