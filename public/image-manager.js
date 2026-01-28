@@ -148,6 +148,10 @@ class ImageManager {
         });
         handle.visible(false);
 
+        // Сохранить старую позицию для расчета дельты
+        let lastX = konvaImg.x();
+        let lastY = konvaImg.y();
+
         const updateOverlays = () => {
             frame.position({
                 x: konvaImg.x() - padding,
@@ -179,7 +183,7 @@ class ImageManager {
             const newScaleY = Math.max(0.2, (handle.y() - konvaImg.y()) / konvaImg.height());
             konvaImg.scale({ x: newScaleX, y: newScaleY });
             updateOverlays();
-            // Новое: обновляем соединения при resize
+            // Обновить соединения при resize
             if (this.updateConnectionsCallback) {
                 this.updateConnectionsCallback(konvaImg);
             }
@@ -187,14 +191,26 @@ class ImageManager {
             layer.batchDraw();
         });
 
-        // перемещение изображения (Iteration 3: координатный подход)
+        // перемещение изображения
         konvaImg.on('dragmove', () => {
+            const currentX = konvaImg.x();
+            const currentY = konvaImg.y();
+            const deltaX = currentX - lastX;
+            const deltaY = currentY - lastY;
+            
             updateOverlays();
             
-            // Новая функциональность: обновляем соединения
+            // Синхронизация виджетов с движением изображения
+            if (this.widgetManager) {
+                const imageId = konvaImg.getAttr('imageId');
+                if (imageId) {
+                    this.widgetManager.onImageMove(imageId, deltaX, deltaY);
+                }
+            }
+            
+            // Обновить соединения
             if (this.connectionManager && Array.isArray(konvaImg._cp_points)) {
                 konvaImg._cp_points.forEach(pin => {
-                    // Передаем абсолютные координаты
                     this.connectionManager.updateConnectionsForPin(
                         pin,
                         pin.x(),
@@ -205,21 +221,36 @@ class ImageManager {
             }
 
             if (this.onImageMoved) this.onImageMoved(konvaImg);
+            
+            lastX = currentX;
+            lastY = currentY;
             layer.batchDraw();
         });
 
-        // перемещение по рамке (Iteration 3: координатный подход)
+        // перемещение по рамке
         frame.on('dragmove', () => {
+            const newX = frame.x() + padding;
+            const newY = frame.y() + padding;
+            const deltaX = newX - konvaImg.x();
+            const deltaY = newY - konvaImg.y();
+            
             konvaImg.position({
-                x: frame.x() + padding,
-                y: frame.y() + padding,
+                x: newX,
+                y: newY,
             });
             updateOverlays();
 
-            // Новая функциональность: обновляем соединения
+            // Синхронизация виджетов с движением изображения
+            if (this.widgetManager) {
+                const imageId = konvaImg.getAttr('imageId');
+                if (imageId) {
+                    this.widgetManager.onImageMove(imageId, deltaX, deltaY);
+                }
+            }
+
+            // Обновить соединения
             if (this.connectionManager && Array.isArray(konvaImg._cp_points)) {
                 konvaImg._cp_points.forEach(pin => {
-                    // Передаем абсолютные координаты
                     this.connectionManager.updateConnectionsForPin(
                         pin,
                         pin.x(),
