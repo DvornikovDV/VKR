@@ -56,6 +56,9 @@ class UIController {
 
         // привязка меню и менеджера виджетов к imageManager
         this.imageManager.setContextMenu(this.contextMenu, this.widgetManager);
+        
+        // КРИТИЧНО: предоставить WidgetManager панели свойств для переприсоединения обработчиков
+        this.propertiesPanel.setWidgetManager(this.widgetManager);
 
         this.imageManager.setConnectionManager(this.connectionManager);
         this.setupManagerCallbacks();
