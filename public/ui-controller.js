@@ -60,6 +60,48 @@ class UIController {
         this.imageManager.setConnectionManager(this.connectionManager);
         this.setupManagerCallbacks();
         this.setupEventListeners();
+        this.setupGlobalWidgetCallbacks();
+    }
+
+    /**
+     * Настройка глобальных каллбэков для виджетов
+     */
+    setupGlobalWidgetCallbacks() {
+        // Выбор виджета
+        window.onWidgetSelected = (widget) => {
+            this.selectionManager.selectWidget(widget);
+            this.propertiesPanel.showPropertiesForWidget(widget);
+        };
+
+        // Изменение свойства виджета (позиция, размер)
+        window.onWidgetPropertyChange = (widget, property, value) => {
+            if (property === 'x' || property === 'y') {
+                const newX = property === 'x' ? value : widget.x;
+                const newY = property === 'y' ? value : widget.y;
+                this.widgetManager.updatePosition(widget.id, newX, newY);
+                this.propertiesPanel.refreshWidgetProperties(widget);
+            } else if (property === 'width' || property === 'height') {
+                const newW = property === 'width' ? value : widget.width;
+                const newH = property === 'height' ? value : widget.height;
+                this.widgetManager.updateSize(widget.id, newW, newH);
+                this.propertiesPanel.refreshWidgetProperties(widget);
+            }
+        };
+
+        // Удаление виджета
+        window.onDeleteWidget = (widgetId) => {
+            this.widgetManager.delete(widgetId);
+            this.selectionManager.clearSelection();
+            this.propertiesPanel.clear();
+        };
+
+        // Обновление панели при dragend
+        window.onWidgetDragEnd = (widget) => {
+            this.propertiesPanel.refreshWidgetProperties(widget);
+        };
+
+        // Предоставить доступ к layer для перерисовки виджетов
+        window.layer = this.canvasManager.getLayer();
     }
 
     /**
@@ -217,6 +259,7 @@ class UIController {
             stage.on('click', (e) => {
                 if (e.target === stage) {
                     this.setConnectionEditMode(false);
+                    this.selectionManager.clearSelection();
                     this.propertiesPanel.showDefaultMessage();
                 }
             });
@@ -230,12 +273,25 @@ class UIController {
         const selected = this.selectionManager.getSelected();
         if (!selected) return;
 
+        // Удаление виджета
+        if (selected.widget) {
+            this.widgetManager.delete(selected.widget.id);
+            this.selectionManager.clearSelection();
+            this.propertiesPanel.clear();
+            return;
+        }
+
+        // Удаление соединения
         if (selected.connection) {
             this.connectionManager.deleteConnection(selected.connection);
             this.setConnectionEditMode(false);
             this.selectionManager.clearSelection();
             this.propertiesPanel.showDefaultMessage();
-        } else if (selected.node) {
+            return;
+        }
+
+        // Удаление изображения
+        if (selected.node) {
             this.imageManager.deleteImage(selected.node);
             this.selectionManager.clearSelection();
             this.propertiesPanel.showDefaultMessage();
