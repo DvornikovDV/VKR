@@ -1,4 +1,4 @@
-// widget-manager.js - Управление виджетами (интерактивными элементами) на изображениях
+// widget-manager.js - Менеджер виджетов (интерактивных элементов) на изображениях
 
 import { createWidget } from './widget-types.js';
 
@@ -57,7 +57,7 @@ export class WidgetManager {
     this.nextWidgetId = 1;
   }
   
-  // Создание нового виджета
+  // Креание нового виджета
   create(config) {
     const image = this.imageManager.getImage(config.imageId);
     if (!image) {
@@ -313,7 +313,7 @@ export class WidgetManager {
     console.log(`Imported ${widgetsData.length} widgets`);
   }
   
-  // Привязать обработчики drag'а
+  // Привязать обработчики dragи и click
   attachDragHandlers(widget) {
     if (!widget.konvaGroup) return;
     
@@ -321,13 +321,23 @@ export class WidgetManager {
     
     let startX = 0;
     let startY = 0;
+    let isDragging = false;
+
+    // Обработчик клика - выбрать виджет
+    widget.konvaGroup.on('click', (e) => {
+      e.cancelBubble = true; // не пробивать на canvas
+      if (window.onWidgetSelected) {
+        window.onWidgetSelected(widget);
+      }
+    });
     
     widget.konvaGroup.on('dragstart', () => {
+      isDragging = true;
       startX = widget.x;
       startY = widget.y;
     });
     
-    // На dragmove енфорсим границы емедлитно, а не после
+    // На dragmove енфорсим границы немедлитно
     widget.konvaGroup.on('dragmove', () => {
       const newX = widget.konvaGroup.x();
       const newY = widget.konvaGroup.y();
@@ -354,7 +364,12 @@ export class WidgetManager {
     });
     
     widget.konvaGroup.on('dragend', () => {
+      isDragging = false;
       console.log(`Widget ${widget.id} moved from (${Math.round(startX)}, ${Math.round(startY)}) to (${Math.round(widget.x)}, ${Math.round(widget.y)})`);
+      // Обновить панель свойств, если виджет выбран
+      if (window.onWidgetDragEnd) {
+        window.onWidgetDragEnd(widget);
+      }
     });
   }
 }
