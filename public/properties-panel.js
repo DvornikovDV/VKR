@@ -7,6 +7,12 @@ class PropertiesPanel {
         this.container = document.getElementById('properties-content');
         this.selectedImage = null;
         this.selectedWidget = null;
+        this.widgetManager = null;
+    }
+    
+    // Установить ссылку на WidgetManager для переприсоединения обработчиков
+    setWidgetManager(widgetManager) {
+        this.widgetManager = widgetManager;
     }
 
     /**
@@ -58,9 +64,6 @@ class PropertiesPanel {
         const y = widget.y.toFixed(0);
         const w = widget.width.toFixed(0);
         const h = widget.height.toFixed(0);
-        const fontSize = widget.fontSize || 14;
-        const color = widget.color || '#000000';
-        const bgColor = widget.backgroundColor || '#f5f5f5';
 
         let html = `
             <div class="mb-2"><strong>Виджет</strong></div>
@@ -70,35 +73,74 @@ class PropertiesPanel {
             <div class="mb-2 mt-3"><strong>Позиция и размер</strong></div>
             <div class="mb-1">
               <label class="form-label small">X:</label>
-              <input type="number" class="form-control form-control-sm" id="widget-x" value="${x}">
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="x" value="${x}">
             </div>
             <div class="mb-1">
               <label class="form-label small">Y:</label>
-              <input type="number" class="form-control form-control-sm" id="widget-y" value="${y}">
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="y" value="${y}">
             </div>
+        `;
+
+        // Условно показываем ширину и высоту (не для LED)
+        if (type !== 'led') {
+            html += `
             <div class="mb-1">
               <label class="form-label small">Ширина:</label>
-              <input type="number" class="form-control form-control-sm" id="widget-w" value="${w}" min="10">
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="width" value="${w}" min="10">
             </div>
             <div class="mb-1">
               <label class="form-label small">Высота:</label>
-              <input type="number" class="form-control form-control-sm" id="widget-h" value="${h}" min="10">
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="height" value="${h}" min="10">
             </div>
+            `;
+        }
 
-            <div class="mb-2 mt-3"><strong>Оформление</strong></div>
+        // Свойства оформления - разные для каждого типа
+        html += '<div class="mb-2 mt-3"><strong>Оформление</strong></div>';
+        
+        if (type === 'led') {
+            // LED: радиус, цвета ON/OFF
+            const radius = widget.radius || 20;
+            const colorOn = widget.colorOn || '#4caf50';
+            const colorOff = widget.colorOff || '#cccccc';
+            
+            html += `
+            <div class="mb-1">
+              <label class="form-label small">Радиус:</label>
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="radius" value="${radius}" min="5" max="100">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Цвет (горит):</label>
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="colorOn" value="${colorOn}">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Цвет (не горит):</label>
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="colorOff" value="${colorOff}">
+            </div>
+            `;
+        } else if (type === 'number-display' || type === 'text-display') {
+            // Number и Text: размер шрифта, цвет текста, цвет фона
+            const fontSize = widget.fontSize || 14;
+            const color = widget.color || '#000000';
+            const bgColor = widget.backgroundColor || '#f5f5f5';
+            
+            html += `
             <div class="mb-1">
               <label class="form-label small">Размер шрифта:</label>
-              <input type="number" class="form-control form-control-sm" id="widget-font-size" value="${fontSize}" min="8" max="48">
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="fontSize" value="${fontSize}" min="8" max="48">
             </div>
             <div class="mb-1">
               <label class="form-label small">Цвет текста:</label>
-              <input type="color" class="form-control form-control-color" id="widget-color" value="${color}">
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="color" value="${color}">
             </div>
             <div class="mb-1">
               <label class="form-label small">Цвет фона:</label>
-              <input type="color" class="form-control form-control-color" id="widget-bg-color" value="${bgColor}">
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="backgroundColor" value="${bgColor}">
             </div>
+            `;
+        }
 
+        html += `
             <div class="mt-3">
               <button id="delete-widget-btn" class="btn btn-danger btn-sm w-100">Удалить виджет</button>
             </div>
@@ -109,56 +151,44 @@ class PropertiesPanel {
     }
 
     /**
-     * Обработчик изменений свойств виджета
+     * Обработчик изменений свойств виджета (ИСПРАВЛЕННАЯ ВЕРСИЯ)
      */
     attachWidgetPropertyListeners(widget) {
-        const inputs = {
-            'widget-x': (val) => {
-                if (window.onWidgetPropertyChange) {
-                    window.onWidgetPropertyChange(widget, 'x', parseInt(val));
+        // Получить все input'ы с классом widget-prop-input
+        const inputs = this.container.querySelectorAll('.widget-prop-input');
+        
+        inputs.forEach(input => {
+            input.addEventListener('change', (e) => {
+                const propName = input.getAttribute('data-prop');
+                let value = e.target.value;
+                
+                // Преобразовать в правильный тип
+                if (['x', 'y', 'width', 'height', 'fontSize', 'radius'].includes(propName)) {
+                    value = parseInt(value);
                 }
-            },
-            'widget-y': (val) => {
-                if (window.onWidgetPropertyChange) {
-                    window.onWidgetPropertyChange(widget, 'y', parseInt(val));
+                
+                // Применить изменение
+                widget[propName] = value;
+                
+                // Перерисовать виджет
+                if (window.layer) {
+                    widget.render(window.layer);
+                    
+                    // КРИТИЧНО: Переприсоединить обработчики после render!
+                    if (this.widgetManager) {
+                        this.widgetManager.reattachDragHandlers(widget);
+                    }
+                    
+                    window.layer.batchDraw();
                 }
-            },
-            'widget-w': (val) => {
-                if (window.onWidgetPropertyChange) {
-                    window.onWidgetPropertyChange(widget, 'width', parseInt(val));
-                }
-            },
-            'widget-h': (val) => {
-                if (window.onWidgetPropertyChange) {
-                    window.onWidgetPropertyChange(widget, 'height', parseInt(val));
-                }
-            },
-            'widget-font-size': (val) => {
-                widget.fontSize = parseInt(val);
-                widget.render(window.layer);
-                window.layer.batchDraw();
-            },
-            'widget-color': (val) => {
-                widget.color = val;
-                widget.render(window.layer);
-                window.layer.batchDraw();
-            },
-            'widget-bg-color': (val) => {
-                widget.backgroundColor = val;
-                widget.render(window.layer);
-                window.layer.batchDraw();
-            }
-        };
-
-        Object.entries(inputs).forEach(([id, handler]) => {
-            const el = document.getElementById(id);
-            if (el) {
-                el.addEventListener('change', (e) => handler(e.target.value));
-            }
+                
+                // Обновить панель свойств (просто обновляем значения input'ов)
+                // Не пересоздавать весь HTML чтобы избежать потери фокуса
+            });
         });
 
         // Кнопка удаления
-        const deleteBtn = document.getElementById('delete-widget-btn');
+        const deleteBtn = this.container.querySelector('#delete-widget-btn');
         if (deleteBtn) {
             deleteBtn.addEventListener('click', () => {
                 if (window.onDeleteWidget) {
@@ -173,7 +203,12 @@ class PropertiesPanel {
      */
     refreshWidgetProperties(widget) {
         if (this.selectedWidget && this.selectedWidget === widget) {
-            this.showPropertiesForWidget(widget);
+            // Только обновляем значения, не пересоздаем панель
+            const xInput = this.container.querySelector('[data-prop="x"]');
+            const yInput = this.container.querySelector('[data-prop="y"]');
+            
+            if (xInput) xInput.value = widget.x.toFixed(0);
+            if (yInput) yInput.value = widget.y.toFixed(0);
         }
     }
 
