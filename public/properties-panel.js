@@ -140,12 +140,6 @@ class PropertiesPanel {
             `;
         }
 
-        html += `
-            <div class="mt-3">
-              <button id="delete-widget-btn" class="btn btn-danger btn-sm w-100">Удалить виджет</button>
-            </div>
-        `;
-
         this.container.innerHTML = html;
         this.attachWidgetPropertyListeners(widget);
     }
@@ -186,16 +180,6 @@ class PropertiesPanel {
                 // Не пересоздавать весь HTML чтобы избежать потери фокуса
             });
         });
-
-        // Кнопка удаления
-        const deleteBtn = this.container.querySelector('#delete-widget-btn');
-        if (deleteBtn) {
-            deleteBtn.addEventListener('click', () => {
-                if (window.onDeleteWidget) {
-                    window.onDeleteWidget(widget.id);
-                }
-            });
-        }
     }
 
     /**
