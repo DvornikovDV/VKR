@@ -97,7 +97,7 @@ class PropertiesPanel {
             </div>
             <div class="mb-1">
               <label class="form-label small">Высота:</label>
-              <input type="number" class="form-control form-control-sm widget-pnput" data-prop="height" value="${h}" min="10">
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="height" value="${h}" min="10">
             </div>
             `;
         }
@@ -167,7 +167,7 @@ class PropertiesPanel {
             </div>
         `;
         
-        // Отобразить метаданные привязанного устройства (если есть)
+        // Отображить метаданные привязанного устройства (если есть)
         if (bindingId) {
             const device = this.devices.find(d => d.id === bindingId);
             if (device) {
@@ -234,7 +234,7 @@ class PropertiesPanel {
                 widget.bindingId = deviceId || null;
                 
                 // Пересоздать панель свойств чтобы показать/скрыть метаданные
-                this.showPropertiesForWidgeapevt);
+                this.showPropertiesForWidget(widget);
             });
         }
     }
@@ -256,7 +256,7 @@ class PropertiesPanel {
     /**
      * Показать свойства точки соединения
      */
-    showPro-premiuForPoint(point) {
+    showPropertiesForPoint(point) {
         if (!this.container) return;
 
         this.selectedImage = null;
