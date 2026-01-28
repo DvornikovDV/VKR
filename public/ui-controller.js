@@ -59,11 +59,32 @@ class UIController {
         
         // КРИТИЧНО: предоставить WidgetManager панели свойств для переприсоединения обработчиков
         this.propertiesPanel.setWidgetManager(this.widgetManager);
+        
+        // Загрузить реестр устройств из devices-registry.json
+        await this.loadDevicesRegistry();
 
         this.imageManager.setConnectionManager(this.connectionManager);
         this.setupManagerCallbacks();
         this.setupEventListeners();
         this.setupGlobalWidgetCallbacks();
+    }
+
+    /**
+     * Загрузить реестр устройств
+     */
+    async loadDevicesRegistry() {
+        try {
+            const response = await fetch('devices-registry.json');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            if (data.devices && Array.isArray(data.devices)) {
+                this.propertiesPanel.setDevices(data.devices);
+            }
+        } catch (error) {
+            console.error('Ошибка загрузки реестра устройств:', error);
+        }
     }
 
     /**
