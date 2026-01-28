@@ -67,8 +67,14 @@ export class WidgetManager {
     
     const widgetId = `widget_${config.type}_${this.nextWidgetId++}`;
     
-    const relativeX = (config.x - image.x) / image.width;
-    const relativeY = (config.y - image.y) / image.height;
+    // Важно: относительные координаты считаем с учетом текущего масштаба изображения
+    const imgX = image.x();
+    const imgY = image.y();
+    const imgWidth = image.width() * image.scaleX();
+    const imgHeight = image.height() * image.scaleY();
+    
+    const relativeX = (config.x - imgX) / imgWidth;
+    const relativeY = (config.y - imgY) / imgHeight;
     
     const widget = createWidget(config.type, {
       ...config,
@@ -210,13 +216,23 @@ export class WidgetManager {
     return true;
   }
   
-  // При движении изображения - сдвинуть виджеты
+  // При движении изображения - сдвинуть виджеты и обновить относительные координаты
   onImageMove(imageId, deltaX, deltaY) {
     const widgets = this.getWidgetsByImageId(imageId);
+    const image = this.imageManager.getImage(imageId);
     
     widgets.forEach(widget => {
       widget.x += deltaX;
       widget.y += deltaY;
+      
+      if (image) {
+        const imgX = image.x();
+        const imgY = image.y();
+        const imgWidth = image.width() * image.scaleX();
+        const imgHeight = image.height() * image.scaleY();
+        widget.relativeX = (widget.x - imgX) / imgWidth;
+        widget.relativeY = (widget.y - imgY) / imgHeight;
+      }
       
       if (widget.konvaGroup) {
         widget.konvaGroup.x(widget.x);
@@ -229,7 +245,7 @@ export class WidgetManager {
     }
   }
   
-  // При ресайзе изображения - масштабировать виджеты и применить граничные проверки
+  // При ресайзе изображения - масштабировать виджеты, обновить размер и применить граничные проверки
   onImageResize(imageId, newWidth, newHeight) {
     const image = this.imageManager.getImage(imageId);
     if (!image) return;
@@ -237,8 +253,11 @@ export class WidgetManager {
     const widgets = this.getWidgetsByImageId(imageId);
     const imgX = image.x();
     const imgY = image.y();
+    const oldWidth = image.width() * image.scaleX();
+    const oldHeight = image.height() * image.scaleY();
     
     widgets.forEach(widget => {
+      // Пересчитать позицию по относительным координатам
       let newX = imgX + widget.relativeX * newWidth;
       let newY = imgY + widget.relativeY * newHeight;
       
@@ -247,6 +266,15 @@ export class WidgetManager {
       widget.x = bounded.x;
       widget.y = bounded.y;
       
+      // Масштабирование размеров виджета пропорционально изменению размера изображения
+      if (oldWidth > 0 && oldHeight > 0) {
+        const scaleX = newWidth / oldWidth;
+        const scaleY = newHeight / oldHeight;
+        widget.width *= scaleX;
+        widget.height *= scaleY;
+      }
+      
+      // После граничной проверки пересчитываем относительные координаты относительно новых размеров изображения
       widget.relativeX = (bounded.x - imgX) / newWidth;
       widget.relativeY = (bounded.y - imgY) / newHeight;
       
