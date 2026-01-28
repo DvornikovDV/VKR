@@ -204,6 +204,7 @@ export class WidgetManager {
     widget.relativeY = (bounded.y - imgY) / imgHeight;
     
     widget.render(this.layer);
+    this.reattachDragHandlers(widget);
     this.layer.batchDraw();
     
     return true;
@@ -293,7 +294,10 @@ export class WidgetManager {
       color: w.color,
       backgroundColor: w.backgroundColor,
       bindingId: w.bindingId,
-      displayValue: w.displayValue
+      displayValue: w.displayValue,
+      radius: w.radius,
+      colorOn: w.colorOn,
+      colorOff: w.colorOff
     }));
   }
   
@@ -313,7 +317,7 @@ export class WidgetManager {
     console.log(`Imported ${widgetsData.length} widgets`);
   }
   
-  // Привязать обработчики dragи и click
+  // Привязать обработчики drag и click (НОВОЕ: отделено для переиспользования)
   attachDragHandlers(widget) {
     if (!widget.konvaGroup) return;
     
@@ -321,28 +325,25 @@ export class WidgetManager {
     
     let startX = 0;
     let startY = 0;
-    let isDragging = false;
 
     // Обработчик клика - выбрать виджет
-    widget.konvaGroup.on('click', (e) => {
-      e.cancelBubble = true; // не пробивать на canvas
+    const clickHandler = (e) => {
+      e.cancelBubble = true;
       if (window.onWidgetSelected) {
         window.onWidgetSelected(widget);
       }
-    });
+    };
     
-    widget.konvaGroup.on('dragstart', () => {
-      isDragging = true;
+    const dragstartHandler = () => {
       startX = widget.x;
       startY = widget.y;
-    });
+    };
     
     // На dragmove енфорсим границы немедлитно
-    widget.konvaGroup.on('dragmove', () => {
+    const dragmoveHandler = () => {
       const newX = widget.konvaGroup.x();
       const newY = widget.konvaGroup.y();
       
-      // Применяем границы и сразу наставляем позицию
       const bounded = this._applyBoundaryConstraints(widget, newX, newY);
       
       widget.x = bounded.x;
@@ -361,15 +362,42 @@ export class WidgetManager {
       }
       
       this.layer.batchDraw();
-    });
+    };
     
-    widget.konvaGroup.on('dragend', () => {
-      isDragging = false;
+    const dragendHandler = () => {
       console.log(`Widget ${widget.id} moved from (${Math.round(startX)}, ${Math.round(startY)}) to (${Math.round(widget.x)}, ${Math.round(widget.y)})`);
-      // Обновить панель свойств, если виджет выбран
       if (window.onWidgetDragEnd) {
         window.onWidgetDragEnd(widget);
       }
-    });
+    };
+    
+    // Сохранить ссылки для переприсоединения
+    widget._eventHandlers = {
+      click: clickHandler,
+      dragstart: dragstartHandler,
+      dragmove: dragmoveHandler,
+      dragend: dragendHandler
+    };
+    
+    widget.konvaGroup.on('click', clickHandler);
+    widget.konvaGroup.on('dragstart', dragstartHandler);
+    widget.konvaGroup.on('dragmove', dragmoveHandler);
+    widget.konvaGroup.on('dragend', dragendHandler);
+  }
+  
+  // Переприсоединить обработчики событий (используется после render())
+  reattachDragHandlers(widget) {
+    if (!widget.konvaGroup) return;
+    
+    // Удалить старые обработчики если они есть
+    if (widget._eventHandlers) {
+      widget.konvaGroup.off('click', widget._eventHandlers.click);
+      widget.konvaGroup.off('dragstart', widget._eventHandlers.dragstart);
+      widget.konvaGroup.off('dragmove', widget._eventHandlers.dragmove);
+      widget.konvaGroup.off('dragend', widget._eventHandlers.dragend);
+    }
+    
+    // Переприсоединить как новые
+    this.attachDragHandlers(widget);
   }
 }
