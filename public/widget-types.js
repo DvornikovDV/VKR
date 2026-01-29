@@ -304,7 +304,7 @@ export const WIDGET_DEFAULTS = {
     height: 30,
     fontSize: 12,
     color: '#000000',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: '#e8e8e8',
     borderColor: '#999999',
     min: 0,
     max: 100,
@@ -582,7 +582,7 @@ export class SliderWidget extends ControlWidget {
       y: trackY - 3,
       width: this.width,
       height: 6,
-      fill: '#dddddd',
+      fill: this.backgroundColor,
       cornerRadius: 3,
       stroke: this.borderColor,
       strokeWidth: 1
@@ -599,12 +599,26 @@ export class SliderWidget extends ControlWidget {
       strokeWidth: 1
     });
     
+    const textValue = String(this._clampValue(this.value));
+    const textMetrics = { width: textValue.length * 8 + 4, height: 16 };
+    
+    // Белый фон-подложка под текстом значения для лучшей видимости
+    const valueBg = new Konva.Rect({
+      x: (this.width - textMetrics.width) / 2,
+      y: 2,
+      width: textMetrics.width,
+      height: textMetrics.height,
+      fill: '#ffffff',
+      cornerRadius: 2,
+      opacity: 0.9
+    });
+    
     const valueText = new Konva.Text({
       x: 0,
       y: 0,
       width: this.width,
       height: this.height / 2,
-      text: String(this._clampValue(this.value)),
+      text: textValue,
       fontSize: this.fontSize,
       fontFamily: 'Arial',
       fill: this.color,
@@ -613,8 +627,9 @@ export class SliderWidget extends ControlWidget {
     });
     
     this.konvaGroup.add(track);
-    this.konvaGroup.add(knob);
+    this.konvaGroup.add(valueBg);
     this.konvaGroup.add(valueText);
+    this.konvaGroup.add(knob);
     layer.add(this.konvaGroup);
   }
 }
