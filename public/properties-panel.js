@@ -13,7 +13,8 @@ const VALIDATION_RULES = {
   max: { min: -Infinity, max: Infinity, type: 'number' },
   step: { min: 0.1, max: Infinity, type: 'float' },
   maxLength: { min: 1, max: 1000, type: 'integer' },
-  borderWidth: { min: 1, max: 10, type: 'integer' }
+  borderWidth: { min: 1, max: 10, type: 'integer' },
+  value: { min: -Infinity, max: Infinity, type: 'number' }
 };
 
 // Вспомогательные функции для избежания дублирования HTML кода
@@ -59,18 +60,22 @@ function createSizeAndColorProperties(widget) {
 }
 
 function createInputParametersSection(widget) {
-    let html = '<div class="mb-2 mt-3"><strong>Параметры ввода</strong></div>';
+    let html = '';
+    
+    if (widget.type === 'number-input' || widget.type === 'text-input') {
+        html += '<div class="mb-2 mt-3"><strong>Параметры ввода</strong></div>';
+    }
     
     if (widget.type === 'number-input') {
-        const min = widget.min || 0;
-        const max = widget.max || 100;
-        const step = widget.step || 1;
+        const min = widget.min ?? 0;
+        const max = widget.max ?? 100;
+        const step = widget.step ?? 1;
         html += `
     ${createNumberProperty('Min', 'min', min)}
     ${createNumberProperty('Max', 'max', max)}
     ${createNumberProperty('Step', 'step', step, '', '', '0.1')}`;
     } else if (widget.type === 'text-input') {
-        const maxLength = widget.maxLength || 50;
+        const maxLength = widget.maxLength ?? 50;
         const pattern = widget.pattern || '.*';
         const placeholder = widget.placeholder || 'Ввод текста';
         html += `
@@ -79,11 +84,45 @@ function createInputParametersSection(widget) {
     ${createTextProperty('Placeholder', 'placeholder', placeholder)}`;
     } else if (widget.type === 'led') {
         const radius = widget.radius || 20;
-        html = '<div class="mb-2 mt-3"><strong>Дополнительные свойства</strong></div>';
+        html += '<div class="mb-2 mt-3"><strong>Дополнительные свойства</strong></div>';
         html += `
     ${createNumberProperty('Радиус', 'radius', radius, 5, 100)}`;
     }
     
+    return html;
+}
+
+function createControlParametersSection(widget) {
+    let html = '<div class="mb-2 mt-3"><strong>Параметры управления</strong></div>';
+
+    if (widget.type === 'toggle') {
+        const labelOn = widget.labelOn || 'ON';
+        const labelOff = widget.labelOff || 'OFF';
+        const colorOn = widget.backgroundColorOn || '#4caf50';
+        const colorOff = widget.backgroundColorOff || '#cccccc';
+        html += `
+    ${createTextProperty('Метка ON', 'labelOn', labelOn)}
+    ${createTextProperty('Метка OFF', 'labelOff', labelOff)}
+    ${createColorProperty('Цвет ON', 'backgroundColorOn', colorOn)}
+    ${createColorProperty('Цвет OFF', 'backgroundColorOff', colorOff)}`;
+    } else if (widget.type === 'button') {
+        const text = widget.text || 'Button';
+        const bgColor = widget.backgroundColor || '#007bff';
+        html += `
+    ${createTextProperty('Текст кнопки', 'text', text)}
+    ${createColorProperty('Цвет фона', 'backgroundColor', bgColor)}`;
+    } else if (widget.type === 'slider') {
+        const min = widget.min ?? 0;
+        const max = widget.max ?? 100;
+        const step = widget.step ?? 1;
+        const value = widget.value ?? (min + max) / 2;
+        html += `
+    ${createNumberProperty('Min', 'min', min)}
+    ${createNumberProperty('Max', 'max', max)}
+    ${createNumberProperty('Step', 'step', step, '', '', '1')}
+    ${createNumberProperty('Текущее значение', 'value', value)}`;
+    }
+
     return html;
 }
 
@@ -216,14 +255,30 @@ class PropertiesPanel {
             ${createColorProperty('Цвет (горит)', 'colorOn', colorOn)}
             ${createColorProperty('Цвет (не горит)', 'colorOff', colorOff)}
             ${createColorProperty('Цвет границы', 'borderColor', widget.borderColor || '#999999')}`;
-        } else if (type === 'number-display' || type === 'text-display') {
+        } else if (type === 'number-display' || type === 'text-display' || type === 'number-input' || type === 'text-input' || type === 'button') {
             html += createSizeAndColorProperties(widget);
-        } else if (type === 'number-input' || type === 'text-input') {
-            html += createSizeAndColorProperties(widget);
+        } else if (type === 'toggle') {
+            const colorOn = widget.backgroundColorOn || '#4caf50';
+            const colorOff = widget.backgroundColorOff || '#cccccc';
+            html += `
+            ${createColorProperty('Цвет ON', 'backgroundColorOn', colorOn)}
+            ${createColorProperty('Цвет OFF', 'backgroundColorOff', colorOff)}`;
+        } else if (type === 'slider') {
+            const bgColor = widget.backgroundColor || '#f5f5f5';
+            html += `
+            ${createNumberProperty('Размер шрифта', 'fontSize', widget.fontSize || 12, 8, 48)}
+            ${createColorProperty('Цвет текста', 'color', widget.color || '#000000')}
+            ${createColorProperty('Цвет фона', 'backgroundColor', bgColor)}
+            ${createColorProperty('Цвет границы', 'borderColor', widget.borderColor || '#999999')}`;
         }
 
-        // Раздел параметров (если есть)
+        // Раздел параметров ввода для Input
         html += createInputParametersSection(widget);
+
+        // Раздел параметров управления для Control
+        if (type === 'toggle' || type === 'button' || type === 'slider') {
+            html += createControlParametersSection(widget);
+        }
 
         // Раздел привязки устройства
         html += `
@@ -286,10 +341,30 @@ class PropertiesPanel {
                     input.value = widget[propName];
                     return;
                 }
-                
+
                 // Применить скорректированное значение
-                widget[propName] = correctedValue;
-                input.value = correctedValue; // Обновить поле, если было автокорректировано
+                if (propName === 'backgroundColorOn' || propName === 'backgroundColorOff') {
+                    widget[propName] = rawValue;
+                    input.value = rawValue;
+                } else if (propName === 'text' || propName === 'labelOn' || propName === 'labelOff' || propName === 'pattern' || propName === 'placeholder') {
+                    widget[propName] = rawValue;
+                    input.value = rawValue;
+                } else {
+                    widget[propName] = correctedValue;
+                    input.value = correctedValue; // Обновить поле, если было автокорректировано
+                }
+                
+                // Дополнительная логика для slider: следим, чтобы value оставалось в диапазоне
+                if (widget.type === 'slider') {
+                    if (propName === 'min' || propName === 'max' || propName === 'step') {
+                        const min = typeof widget.min === 'number' ? widget.min : 0;
+                        const max = typeof widget.max === 'number' ? widget.max : min + 100;
+                        let value = typeof widget.value === 'number' ? widget.value : (min + max) / 2;
+                        if (value < min) value = min;
+                        if (value > max) value = max;
+                        widget.value = value;
+                    }
+                }
                 
                 // Перерисовать виджет
                 if (window.layer) {
