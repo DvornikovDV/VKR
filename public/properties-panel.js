@@ -126,10 +126,11 @@ class PropertiesPanel {
             </div>
             `;
         } else if (type === 'number-display' || type === 'text-display') {
-            // Number и Text Display: размер шрифта, цвет текста, цвет фона
+            // Number и Text Display: размер шрифта, цвета текста и фона, цвет границы
             const fontSize = widget.fontSize || 14;
             const color = widget.color || '#000000';
             const bgColor = widget.backgroundColor || '#f5f5f5';
+            const borderColor = widget.borderColor || '#cccccc';
             
             html += `
             <div class="mb-1">
@@ -143,6 +144,10 @@ class PropertiesPanel {
             <div class="mb-1">
               <label class="form-label small">Цвет фона:</label>
               <input type="color" class="form-control form-control-color widget-prop-input" data-prop="backgroundColor" value="${bgColor}">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Цвет границы:</label>
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="borderColor" value="${borderColor}">
             </div>
             `;
         } else if (type === 'number-input') {
@@ -250,7 +255,7 @@ class PropertiesPanel {
             </div>
         `;
         
-        // Отображить метаданные привязанного устройства (если есть)
+        // Отобразить метаданные привязанного устройства (если есть)
         if (bindingId) {
             const device = this.devices.find(d => d.id === bindingId);
             if (device) {
@@ -308,7 +313,7 @@ class PropertiesPanel {
             });
         });
         
-        // Обработчик выпадающего списка привязки устройств
+        // Обработчик выпадающего списка привязки устройства
         const deviceSelect = this.container.querySelector('#device-binding-select');
         if (deviceSelect) {
             deviceSelect.addEventListener('change', (e) => {
@@ -377,10 +382,10 @@ class PropertiesPanel {
             '<div class="small" style="font-weight: 600; margin-bottom: 8px;">Управление разрывами</div>';
 
         const hints = [
-            { icon: '⊞', text: 'DBL-CLICK на ручку → добавить разрыв' },
-            { icon: '⊗', text: 'CTRL+DBL-CLICK на ручку → удалить разрыв' },
-            { icon: '●', text: 'Синяя ручка → редактируемая' },
-            { icon: '●', text: 'Серая ручка → концевая' }
+            { icon: '\u229e', text: 'DBL-CLICK на ручку \u2192 добавить разрыв' },
+            { icon: '\u2297', text: 'CTRL+DBL-CLICK на ручку \u2192 удалить разрыв' },
+            { icon: '\u25cf', text: 'Синяя ручка \u2192 редактируемая' },
+            { icon: '\u25cf', text: 'Серая ручка \u2192 концевая' }
         ];
 
         hints.forEach(hint => {

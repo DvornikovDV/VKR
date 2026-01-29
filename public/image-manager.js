@@ -1,7 +1,7 @@
 // image-manager.js
 // Управление изображениями
 
-const HANDLE_RADIUS = 6; // радиус точки/ручки
+const HANDLE_RADIUS = 6; // радиус точки/рубки
 const FRAME_PADDING = 10; // отступ рамки от изображения
 
 class ImageManager {
@@ -88,7 +88,7 @@ class ImageManager {
             this.widgetManager.onImageDelete(imageId);
         }
         
-        // Удалить рамку и ручку
+        // Удалить рамку и рубку
         if (konvaImg._frame) {
             konvaImg._frame.destroy();
         }
@@ -138,7 +138,7 @@ class ImageManager {
         frame.fillEnabled(false);
         frame.hitStrokeWidth(20);
 
-        // ручка ресайза
+        // рубка ресайза
         const handle = new Konva.Circle({
             radius: HANDLE_RADIUS,
             fill: '#007bff',
@@ -284,7 +284,7 @@ class ImageManager {
             }
         });
 
-        // сторим рсылки и рамку
+        // сторим рссылки и рамку
         konvaImg._frame = frame;
         konvaImg._handle = handle;
 
@@ -303,8 +303,15 @@ class ImageManager {
             const imageId = konvaImg.getAttr('imageId');
             if (!imageId) return;
 
-            const pointer = this.canvasManager.getStage().getPointerPosition();
-            if (!pointer) return;
+            const stagePos = this.canvasManager.getStage().getPointerPosition();
+            if (!stagePos) return;
+
+            // Преобразуем позицию курсора в координаты stage
+            const stage = this.canvasManager.getStage();
+            const pos = {
+                x: (stagePos.x - stage.x()) / stage.scaleX(),
+                y: (stagePos.y - stage.y()) / stage.scaleY()
+            };
 
             const menuItems = [
                 {
@@ -317,19 +324,46 @@ class ImageManager {
                         { label: '✏️ Текстовый ввод', type: 'text-input' }
                     ],
                     onSelect: (type) => {
-                        const stagePos = this.canvasManager.getStage().getPointerPosition();
-                        if (!stagePos) return;
-                        const pos = {
-                            x: (stagePos.x - this.canvasManager.getStage().x()) / this.canvasManager.getStage().scaleX(),
-                            y: (stagePos.y - this.canvasManager.getStage().y()) / this.canvasManager.getStage().scaleY()
+                        const defaults = {
+                            'number-display': { width: 100, height: 30 },
+                            'text-display': { width: 120, height: 25 },
+                            'led': { width: 40, height: 40 },
+                            'number-input': { width: 100, height: 30 },
+                            'text-input': { width: 150, height: 30 }
                         };
+                        
+                        const defaultSize = defaults[type] || { width: 100, height: 30 };
+                        const image = this.widgetManager.imageManager.getImage(imageId);
+                        
+                        if (!image) return;
+                        
+                        // Центрируем позицию виджета, относительно его размера
+                        let widgetX = pos.x - defaultSize.width / 2;
+                        let widgetY = pos.y - defaultSize.height / 2;
+                        
+                        // Применяем граничные проверки для изображения
+                        const imgX = image.x();
+                        const imgY = image.y();
+                        const imgWidth = image.width() * image.scaleX();
+                        const imgHeight = image.height() * image.scaleY();
+                        
+                        // Убеждаемся, что виджет полностью в пределах изображения
+                        if (widgetX < imgX) widgetX = imgX;
+                        if (widgetX + defaultSize.width > imgX + imgWidth) {
+                            widgetX = imgX + imgWidth - defaultSize.width;
+                        }
+                        if (widgetY < imgY) widgetY = imgY;
+                        if (widgetY + defaultSize.height > imgY + imgHeight) {
+                            widgetY = imgY + imgHeight - defaultSize.height;
+                        }
+                        
                         this.widgetManager.create({
                             type,
                             imageId,
-                            x: pos.x,
-                            y: pos.y,
-                            width: 100,
-                            height: 30
+                            x: widgetX,
+                            y: widgetY,
+                            width: defaultSize.width,
+                            height: defaultSize.height
                         });
                     }
                 }
@@ -340,7 +374,7 @@ class ImageManager {
     }
 
     /**
-     * Преобразование стороны и месмещения в координаты
+     * Преобразование стороны и местмещения в координаты
      */
     sideAndOffsetToXY(imageNode, side, offset) {
         const left = imageNode.x() - FRAME_PADDING;

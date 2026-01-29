@@ -33,6 +33,7 @@ export class DisplayWidget {
     this.fontSize = config.fontSize || 14;
     this.color = config.color || '#000000';
     this.backgroundColor = config.backgroundColor || '#f5f5f5';
+    this.borderColor = config.borderColor || '#cccccc';
     
     this.konvaGroup = null;
     
@@ -131,6 +132,7 @@ export const WIDGET_DEFAULTS = {
     fontSize: 16,
     color: '#000000',
     backgroundColor: '#f5f5f5',
+    borderColor: '#cccccc',
     decimals: 1,
     unit: '',
     readonly: true
@@ -141,6 +143,7 @@ export const WIDGET_DEFAULTS = {
     fontSize: 14,
     color: '#000000',
     backgroundColor: '#f5f5f5',
+    borderColor: '#cccccc',
     text: 'Label',
     readonly: true
   },
@@ -212,7 +215,7 @@ export class NumberDisplayWidget extends DisplayWidget {
       width: this.width,
       height: this.height,
       fill: this.backgroundColor,
-      stroke: '#cccccc',
+      stroke: this.borderColor,
       strokeWidth: 1,
       cornerRadius: 3
     });
@@ -265,7 +268,7 @@ export class TextDisplayWidget extends DisplayWidget {
       width: this.width,
       height: this.height,
       fill: this.backgroundColor,
-      stroke: '#cccccc',
+      stroke: this.borderColor,
       strokeWidth: 1,
       cornerRadius: 3
     });
