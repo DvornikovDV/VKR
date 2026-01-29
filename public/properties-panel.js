@@ -100,17 +100,17 @@ function createControlParametersSection(widget) {
         const labelOff = widget.labelOff || 'OFF';
         const colorOn = widget.backgroundColorOn || '#4caf50';
         const colorOff = widget.backgroundColorOff || '#cccccc';
+        const borderColor = widget.borderColor || '#999999';
         html += `
     ${createTextProperty('Метка ON', 'labelOn', labelOn)}
     ${createTextProperty('Метка OFF', 'labelOff', labelOff)}
     ${createColorProperty('Цвет ON', 'backgroundColorOn', colorOn)}
-    ${createColorProperty('Цвет OFF', 'backgroundColorOff', colorOff)}`;
+    ${createColorProperty('Цвет OFF', 'backgroundColorOff', colorOff)}
+    ${createColorProperty('Цвет границы', 'borderColor', borderColor)}`;
     } else if (widget.type === 'button') {
         const text = widget.text || 'Button';
-        const bgColor = widget.backgroundColor || '#007bff';
         html += `
-    ${createTextProperty('Текст кнопки', 'text', text)}
-    ${createColorProperty('Цвет фона', 'backgroundColor', bgColor)}`;
+    ${createTextProperty('Текст кнопки', 'text', text)}`;
     } else if (widget.type === 'slider') {
         const min = widget.min ?? 0;
         const max = widget.max ?? 100;
@@ -255,21 +255,16 @@ class PropertiesPanel {
             ${createColorProperty('Цвет (горит)', 'colorOn', colorOn)}
             ${createColorProperty('Цвет (не горит)', 'colorOff', colorOff)}
             ${createColorProperty('Цвет границы', 'borderColor', widget.borderColor || '#999999')}`;
-        } else if (type === 'number-display' || type === 'text-display' || type === 'number-input' || type === 'text-input' || type === 'button') {
+        } else if (type === 'number-display' || type === 'text-display' || type === 'number-input' || type === 'text-input' || type === 'button' || type === 'slider') {
             html += createSizeAndColorProperties(widget);
         } else if (type === 'toggle') {
             const colorOn = widget.backgroundColorOn || '#4caf50';
             const colorOff = widget.backgroundColorOff || '#cccccc';
+            const borderColor = widget.borderColor || '#999999';
             html += `
             ${createColorProperty('Цвет ON', 'backgroundColorOn', colorOn)}
-            ${createColorProperty('Цвет OFF', 'backgroundColorOff', colorOff)}`;
-        } else if (type === 'slider') {
-            const bgColor = widget.backgroundColor || '#f5f5f5';
-            html += `
-            ${createNumberProperty('Размер шрифта', 'fontSize', widget.fontSize || 12, 8, 48)}
-            ${createColorProperty('Цвет текста', 'color', widget.color || '#000000')}
-            ${createColorProperty('Цвет фона', 'backgroundColor', bgColor)}
-            ${createColorProperty('Цвет границы', 'borderColor', widget.borderColor || '#999999')}`;
+            ${createColorProperty('Цвет OFF', 'backgroundColorOff', colorOff)}
+            ${createColorProperty('Цвет границы', 'borderColor', borderColor)}`;
         }
 
         // Раздел параметров ввода для Input
@@ -299,7 +294,7 @@ class PropertiesPanel {
             </div>
         `;
         
-        // Отобразить метаданные привязанного устройства (если есть)
+        // Отображить метаданные привязанного устройства (если есть)
         if (bindingId) {
             const device = this.devices.find(d => d.id === bindingId);
             if (device) {
