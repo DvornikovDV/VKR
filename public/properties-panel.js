@@ -98,15 +98,9 @@ function createControlParametersSection(widget) {
     if (widget.type === 'toggle') {
         const labelOn = widget.labelOn || 'ON';
         const labelOff = widget.labelOff || 'OFF';
-        const colorOn = widget.backgroundColorOn || '#4caf50';
-        const colorOff = widget.backgroundColorOff || '#cccccc';
-        const borderColor = widget.borderColor || '#999999';
         html += `
     ${createTextProperty('Метка ON', 'labelOn', labelOn)}
-    ${createTextProperty('Метка OFF', 'labelOff', labelOff)}
-    ${createColorProperty('Цвет ON', 'backgroundColorOn', colorOn)}
-    ${createColorProperty('Цвет OFF', 'backgroundColorOff', colorOff)}
-    ${createColorProperty('Цвет границы', 'borderColor', borderColor)}`;
+    ${createTextProperty('Метка OFF', 'labelOff', labelOff)}`;
     } else if (widget.type === 'button') {
         const text = widget.text || 'Button';
         html += `
