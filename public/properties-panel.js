@@ -1,6 +1,76 @@
 // properties-panel.js
 // Управление панелью свойств для изображений, точек, соединений и виджетов
-// TODO: Рефакторинг - вынести повторяющийся код создания свойств в вспомогательные функции
+
+// Вспомогательные функции для избежания дублирования HTML кода
+function createColorProperty(label, propName, value) {
+    return `
+    <div class="mb-1">
+      <label class="form-label small">${label}</label>
+      <input type="color" class="form-control form-control-color widget-prop-input" data-prop="${propName}" value="${value}">
+    </div>`;
+}
+
+function createNumberProperty(label, propName, value, min = '', max = '', step = '') {
+    const minAttr = min ? `min="${min}"` : '';
+    const maxAttr = max ? `max="${max}"` : '';
+    const stepAttr = step ? `step="${step}"` : '';
+    return `
+    <div class="mb-1">
+      <label class="form-label small">${label}</label>
+      <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="${propName}" value="${value}" ${minAttr} ${maxAttr} ${stepAttr}>
+    </div>`;
+}
+
+function createTextProperty(label, propName, value, placeholder = '') {
+    const placeholderAttr = placeholder ? `placeholder="${placeholder}"` : '';
+    return `
+    <div class="mb-1">
+      <label class="form-label small">${label}</label>
+      <input type="text" class="form-control form-control-sm widget-prop-input" data-prop="${propName}" value="${value}" ${placeholderAttr}>
+    </div>`;
+}
+
+function createSizeAndColorProperties(widget) {
+    const fontSize = widget.fontSize || 14;
+    const color = widget.color || '#000000';
+    const bgColor = widget.backgroundColor || (widget.type?.includes('input') ? '#ffffff' : '#f5f5f5');
+    const borderColor = widget.borderColor || '#cccccc';
+    
+    return `
+    ${createNumberProperty('Размер шрифта', 'fontSize', fontSize, 8, 48)}
+    ${createColorProperty('Цвет текста', 'color', color)}
+    ${createColorProperty('Цвет фона', 'backgroundColor', bgColor)}
+    ${createColorProperty('Цвет границы', 'borderColor', borderColor)}`;
+}
+
+function createInputParametersSection(widget) {
+    let html = '<div class="mb-2 mt-3"><strong>Параметры ввода</strong></div>';
+    
+    if (widget.type === 'number-input') {
+        const min = widget.min || 0;
+        const max = widget.max || 100;
+        const step = widget.step || 1;
+        html += `
+    ${createNumberProperty('Min', 'min', min)}
+    ${createNumberProperty('Max', 'max', max)}
+    ${createNumberProperty('Step', 'step', step, '', '', '0.1')}`;
+    } else if (widget.type === 'text-input') {
+        const maxLength = widget.maxLength || 50;
+        const pattern = widget.pattern || '.*';
+        const placeholder = widget.placeholder || 'Ввод текста';
+        html += `
+    ${createNumberProperty('Max длина', 'maxLength', maxLength, 1)}
+    ${createTextProperty('Паттерн (regex)', 'pattern', pattern, '.*')}
+    ${createTextProperty('Placeholder', 'placeholder', placeholder)}`;
+    } else if (widget.type === 'led') {
+        const radius = widget.radius || 20;
+        html = '<div class="mb-2 mt-3"><strong>Дополнительные свойства</strong></div>';
+        html += `
+    ${createNumberProperty('Радиус', 'radius', radius, 5, 100)}`;
+    }
+    
+    return html;
+}
 
 class PropertiesPanel {
     constructor(canvasManager) {
@@ -79,168 +149,34 @@ class PropertiesPanel {
             <div class="small">Тип: ${type}</div>
             
             <div class="mb-2 mt-3"><strong>Позиция и размер</strong></div>
-            <div class="mb-1">
-              <label class="form-label small">X:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="x" value="${x}">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Y:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="y" value="${y}">
-            </div>
-        `;
+            ${createNumberProperty('X', 'x', x)}
+            ${createNumberProperty('Y', 'y', y)}`;
 
         // Условно показываем ширину и высоту (не для LED)
         if (type !== 'led') {
             html += `
-            <div class="mb-1">
-              <label class="form-label small">Ширина:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="width" value="${w}" min="10">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Высота:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="height" value="${h}" min="10">
-            </div>
-            `;
+            ${createNumberProperty('Ширина', 'width', w, 10)}
+            ${createNumberProperty('Высота', 'height', h, 10)}`;
         }
 
-        // Свойства оформления - разные для каждого типа
+        // Свойства оформления
         html += '<div class="mb-2 mt-3"><strong>Оформление</strong></div>';
         
         if (type === 'led') {
-            // LED: радиус, цвета ON/OFF, цвет границы
-            const radius = widget.radius || 20;
             const colorOn = widget.colorOn || '#4caf50';
             const colorOff = widget.colorOff || '#cccccc';
-            const borderColor = widget.borderColor || '#999999';
-            
             html += `
-            <div class="mb-1">
-              <label class="form-label small">Радиус:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="radius" value="${radius}" min="5" max="100">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет (горит):</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="colorOn" value="${colorOn}">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет (не горит):</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="colorOff" value="${colorOff}">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет границы:</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="borderColor" value="${borderColor}">
-            </div>
-            `;
+            ${createColorProperty('Цвет (горит)', 'colorOn', colorOn)}
+            ${createColorProperty('Цвет (не горит)', 'colorOff', colorOff)}
+            ${createColorProperty('Цвет границы', 'borderColor', widget.borderColor || '#999999')}`;
         } else if (type === 'number-display' || type === 'text-display') {
-            // Number и Text Display: размер шрифта, цвета текста и фона, цвет границы
-            const fontSize = widget.fontSize || 14;
-            const color = widget.color || '#000000';
-            const bgColor = widget.backgroundColor || '#f5f5f5';
-            const borderColor = widget.borderColor || '#cccccc';
-            
-            html += `
-            <div class="mb-1">
-              <label class="form-label small">Размер шрифта:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="fontSize" value="${fontSize}" min="8" max="48">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет текста:</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="color" value="${color}">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет фона:</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="backgroundColor" value="${bgColor}">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет границы:</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="borderColor" value="${borderColor}">
-            </div>
-            `;
-        } else if (type === 'number-input') {
-            // Number Input: размер шрифта, цвета, min, max, step
-            const fontSize = widget.fontSize || 14;
-            const color = widget.color || '#000000';
-            const bgColor = widget.backgroundColor || '#ffffff';
-            const borderColor = widget.borderColor || '#999999';
-            const min = widget.min || 0;
-            const max = widget.max || 100;
-            const step = widget.step || 1;
-            
-            html += `
-            <div class="mb-1">
-              <label class="form-label small">Размер шрифта:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="fontSize" value="${fontSize}" min="8" max="48">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет текста:</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="color" value="${color}">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет фона:</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="backgroundColor" value="${bgColor}">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет границы:</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="borderColor" value="${borderColor}">
-            </div>
-            
-            <div class="mb-2 mt-3"><strong>Параметры ввода</strong></div>
-            <div class="mb-1">
-              <label class="form-label small">Min:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="min" value="${min}">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Max:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="max" value="${max}">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Step:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="step" value="${step}" step="0.1">
-            </div>
-            `;
-        } else if (type === 'text-input') {
-            // Text Input: размер шрифта, цвета, maxLength, pattern, placeholder
-            const fontSize = widget.fontSize || 14;
-            const color = widget.color || '#000000';
-            const bgColor = widget.backgroundColor || '#ffffff';
-            const borderColor = widget.borderColor || '#999999';
-            const maxLength = widget.maxLength || 50;
-            const pattern = widget.pattern || '.*';
-            const placeholder = widget.placeholder || 'Ввод текста';
-            
-            html += `
-            <div class="mb-1">
-              <label class="form-label small">Размер шрифта:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="fontSize" value="${fontSize}" min="8" max="48">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет текста:</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="color" value="${color}">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет фона:</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="backgroundColor" value="${bgColor}">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Цвет границы:</label>
-              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="borderColor" value="${borderColor}">
-            </div>
-            
-            <div class="mb-2 mt-3"><strong>Параметры ввода</strong></div>
-            <div class="mb-1">
-              <label class="form-label small">Max длина:</label>
-              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="maxLength" value="${maxLength}" min="1">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Паттерн (regex):</label>
-              <input type="text" class="form-control form-control-sm widget-prop-input" data-prop="pattern" value="${pattern}" placeholder=".*">
-            </div>
-            <div class="mb-1">
-              <label class="form-label small">Placeholder:</label>
-              <input type="text" class="form-control form-control-sm widget-prop-input" data-prop="placeholder" value="${placeholder}">
-            </div>
-            `;
+            html += createSizeAndColorProperties(widget);
+        } else if (type === 'number-input' || type === 'text-input') {
+            html += createSizeAndColorProperties(widget);
         }
+
+        // Раздел параметров (если есть)
+        html += createInputParametersSection(widget);
 
         // Раздел привязки устройства
         html += `
@@ -388,10 +324,10 @@ class PropertiesPanel {
             '<div class="small" style="font-weight: 600; margin-bottom: 8px;">Управление разрывами</div>';
 
         const hints = [
-            { icon: '\u229e', text: 'DBL-CLICK на ручку \u2192 добавить разрыв' },
-            { icon: '\u2297', text: 'CTRL+DBL-CLICK на ручку \u2192 удалить разрыв' },
-            { icon: '\u25cf', text: 'Синяя ручка \u2192 редактируемая' },
-            { icon: '\u25cf', text: 'Серая ручка \u2192 концевая' }
+            { icon: '⊞', text: 'DBL-CLICK на ручку → добавить разрыв' },
+            { icon: '⊗', text: 'CTRL+DBL-CLICK на ручку → удалить разрыв' },
+            { icon: '●', text: 'Синяя ручка → редактируемая' },
+            { icon: '●', text: 'Серая ручка → концевая' }
         ];
 
         hints.forEach(hint => {

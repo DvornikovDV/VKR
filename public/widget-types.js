@@ -43,7 +43,6 @@ export class DisplayWidget {
   }
   
   getCategory() {
-    const displayTypes = ['number-display', 'text-display', 'led'];
     return 'display';
   }
   
@@ -65,6 +64,46 @@ export class DisplayWidget {
   
   formatValue(value) {
     return value;
+  }
+  
+  // Вспомогательный метод для рендеринга прямоугольного виджета с текстом
+  renderRectWithText(layer, displayText, textConfig = {}) {
+    if (this.konvaGroup) this.konvaGroup.destroy();
+    
+    this.konvaGroup = new Konva.Group({
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: this.height
+    });
+    
+    const background = new Konva.Rect({
+      x: 0,
+      y: 0,
+      width: this.width,
+      height: this.height,
+      fill: this.backgroundColor,
+      stroke: this.borderColor,
+      strokeWidth: textConfig.strokeWidth || 1,
+      cornerRadius: 3
+    });
+    
+    const text = new Konva.Text({
+      x: textConfig.x || 0,
+      y: 0,
+      width: (textConfig.width !== undefined) ? textConfig.width : this.width,
+      height: this.height,
+      text: displayText,
+      fontSize: this.fontSize,
+      fontFamily: 'Arial',
+      fill: textConfig.fill || this.color,
+      align: textConfig.align || 'center',
+      verticalAlign: 'middle'
+    });
+    
+    this.konvaGroup.add(background);
+    this.konvaGroup.add(text);
+    layer.add(this.konvaGroup);
   }
 }
 
@@ -121,6 +160,46 @@ export class InputWidget {
       return true;
     }
     return false;
+  }
+  
+  // Вспомогательный метод для Input виджетов
+  renderRectWithText(layer, displayText, textFill) {
+    if (this.konvaGroup) this.konvaGroup.destroy();
+    
+    this.konvaGroup = new Konva.Group({
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: this.height
+    });
+    
+    const background = new Konva.Rect({
+      x: 0,
+      y: 0,
+      width: this.width,
+      height: this.height,
+      fill: this.backgroundColor,
+      stroke: this.borderColor,
+      strokeWidth: 2,
+      cornerRadius: 3
+    });
+    
+    const text = new Konva.Text({
+      x: 5,
+      y: 0,
+      width: this.width - 10,
+      height: this.height,
+      text: displayText,
+      fontSize: this.fontSize,
+      fontFamily: 'Arial',
+      fill: textFill,
+      align: 'right',
+      verticalAlign: 'middle'
+    });
+    
+    this.konvaGroup.add(background);
+    this.konvaGroup.add(text);
+    layer.add(this.konvaGroup);
   }
 }
 
@@ -201,47 +280,10 @@ export class NumberDisplayWidget extends DisplayWidget {
   }
   
   render(layer) {
-    if (this.konvaGroup) this.konvaGroup.destroy();
-    
-    this.konvaGroup = new Konva.Group({
-      x: this.x,
-      y: this.y,
-      width: this.width,
-      height: this.height
-    });
-    
-    const background = new Konva.Rect({
-      x: 0,
-      y: 0,
-      width: this.width,
-      height: this.height,
-      fill: this.backgroundColor,
-      stroke: this.borderColor,
-      strokeWidth: 1,
-      cornerRadius: 3
-    });
-    
-    // Валидируем значение перед toFixed
     const value = validateNumber(this.displayValue, 0);
     const formattedValue = value.toFixed(this.decimals);
     const displayText = this.unit ? `${formattedValue} ${this.unit}` : formattedValue;
-    
-    const text = new Konva.Text({
-      x: 0,
-      y: 0,
-      width: this.width,
-      height: this.height,
-      text: displayText,
-      fontSize: this.fontSize,
-      fontFamily: 'Arial',
-      fill: this.color,
-      align: 'center',
-      verticalAlign: 'middle'
-    });
-    
-    this.konvaGroup.add(background);
-    this.konvaGroup.add(text);
-    layer.add(this.konvaGroup);
+    this.renderRectWithText(layer, displayText);
   }
 }
 
@@ -254,42 +296,11 @@ export class TextDisplayWidget extends DisplayWidget {
   }
   
   render(layer) {
-    if (this.konvaGroup) this.konvaGroup.destroy();
-    
-    this.konvaGroup = new Konva.Group({
-      x: this.x,
-      y: this.y,
-      width: this.width,
-      height: this.height
-    });
-    
-    const background = new Konva.Rect({
-      x: 0,
-      y: 0,
-      width: this.width,
-      height: this.height,
-      fill: this.backgroundColor,
-      stroke: this.borderColor,
-      strokeWidth: 1,
-      cornerRadius: 3
-    });
-    
-    const text = new Konva.Text({
+    this.renderRectWithText(layer, this.displayText, {
       x: 5,
-      y: 0,
       width: this.width - 10,
-      height: this.height,
-      text: this.displayText,
-      fontSize: this.fontSize,
-      fontFamily: 'Arial',
-      fill: this.color,
-      align: 'left',
-      verticalAlign: 'middle'
+      align: 'left'
     });
-    
-    this.konvaGroup.add(background);
-    this.konvaGroup.add(text);
-    layer.add(this.konvaGroup);
   }
   
   onValueUpdate(newValue, layer) {
@@ -305,7 +316,7 @@ export class LedWidget extends DisplayWidget {
     this.radius = config.radius || 20;
     this.colorOn = config.colorOn || '#4caf50';
     this.colorOff = config.colorOff || '#cccccc';
-    // Используем borderColor из DisplayWidget базовый класс
+    this.isOn = Boolean(config.isOn ?? false);
   }
   
   render(layer) {
@@ -364,44 +375,9 @@ export class NumberInputWidget extends InputWidget {
   }
   
   render(layer) {
-    if (this.konvaGroup) this.konvaGroup.destroy();
-    
-    this.konvaGroup = new Konva.Group({
-      x: this.x,
-      y: this.y,
-      width: this.width,
-      height: this.height
-    });
-    
-    const background = new Konva.Rect({
-      x: 0,
-      y: 0,
-      width: this.width,
-      height: this.height,
-      fill: this.backgroundColor,
-      stroke: this.borderColor,
-      strokeWidth: 2,
-      cornerRadius: 3
-    });
-    
     const displayText = this.currentValue !== null ? String(this.currentValue) : this.placeholder;
-    
-    const text = new Konva.Text({
-      x: 5,
-      y: 0,
-      width: this.width - 10,
-      height: this.height,
-      text: displayText,
-      fontSize: this.fontSize,
-      fontFamily: 'Arial',
-      fill: this.currentValue !== null ? this.color : '#999999',
-      align: 'right',
-      verticalAlign: 'middle'
-    });
-    
-    this.konvaGroup.add(background);
-    this.konvaGroup.add(text);
-    layer.add(this.konvaGroup);
+    const textFill = this.currentValue !== null ? this.color : '#999999';
+    this.renderRectWithText(layer, displayText, textFill);
   }
 }
 
@@ -424,44 +400,9 @@ export class TextInputWidget extends InputWidget {
   }
   
   render(layer) {
-    if (this.konvaGroup) this.konvaGroup.destroy();
-    
-    this.konvaGroup = new Konva.Group({
-      x: this.x,
-      y: this.y,
-      width: this.width,
-      height: this.height
-    });
-    
-    const background = new Konva.Rect({
-      x: 0,
-      y: 0,
-      width: this.width,
-      height: this.height,
-      fill: this.backgroundColor,
-      stroke: this.borderColor,
-      strokeWidth: 2,
-      cornerRadius: 3
-    });
-    
     const displayText = this.currentValue ? String(this.currentValue) : this.placeholder;
-    
-    const text = new Konva.Text({
-      x: 5,
-      y: 0,
-      width: this.width - 10,
-      height: this.height,
-      text: displayText,
-      fontSize: this.fontSize,
-      fontFamily: 'Arial',
-      fill: this.currentValue ? this.color : '#999999',
-      align: 'left',
-      verticalAlign: 'middle'
-    });
-    
-    this.konvaGroup.add(background);
-    this.konvaGroup.add(text);
-    layer.add(this.konvaGroup);
+    const textFill = this.currentValue ? this.color : '#999999';
+    this.renderRectWithText(layer, displayText, textFill);
   }
 }
 
