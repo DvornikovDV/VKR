@@ -1,6 +1,21 @@
 // properties-panel.js
 // Управление панелью свойств для изображений, точек, соединений и виджетов
 
+// Константы валидации для каждого типа свойства
+const VALIDATION_RULES = {
+  x: { min: -Infinity, max: Infinity, type: 'integer' },
+  y: { min: -Infinity, max: Infinity, type: 'integer' },
+  width: { min: 10, max: 5000, type: 'integer' },
+  height: { min: 10, max: 5000, type: 'integer' },
+  fontSize: { min: 8, max: 48, type: 'integer' },
+  radius: { min: 5, max: 100, type: 'integer' },
+  min: { min: -Infinity, max: Infinity, type: 'number' },
+  max: { min: -Infinity, max: Infinity, type: 'number' },
+  step: { min: 0.1, max: Infinity, type: 'float' },
+  maxLength: { min: 1, max: 1000, type: 'integer' },
+  borderWidth: { min: 1, max: 10, type: 'integer' }
+};
+
 // Вспомогательные функции для избежания дублирования HTML кода
 function createColorProperty(label, propName, value) {
     return `
@@ -18,6 +33,7 @@ function createNumberProperty(label, propName, value, min = '', max = '', step =
     <div class="mb-1">
       <label class="form-label small">${label}</label>
       <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="${propName}" value="${value}" ${minAttr} ${maxAttr} ${stepAttr}>
+      <small class="form-text text-muted d-none" data-error-${propName}></small>
     </div>`;
 }
 
@@ -70,6 +86,64 @@ function createInputParametersSection(widget) {
     }
     
     return html;
+}
+
+// Функция валидации и сантизации значения
+function validateAndSanitizeValue(propName, value) {
+    const rules = VALIDATION_RULES[propName];
+    if (!rules) return value; // Если правил нет, возвращаем как есть (для цветов, текста)
+    
+    let numValue;
+    if (rules.type === 'integer') {
+        numValue = parseInt(value);
+    } else if (rules.type === 'float') {
+        numValue = parseFloat(value);
+    } else if (rules.type === 'number') {
+        numValue = Number(value);
+    } else {
+        return value;
+    }
+    
+    // Проверка на NaN
+    if (isNaN(numValue)) {
+        return null; // Ошибка валидации
+    }
+    
+    // Проверка диапазона
+    if (numValue < rules.min || numValue > rules.max) {
+        return null; // Ошибка валидации
+    }
+    
+    return numValue;
+}
+
+// Функция получения сообщения об ошибке
+function getValidationErrorMessage(propName, value) {
+    const rules = VALIDATION_RULES[propName];
+    if (!rules) return '';
+    
+    let numValue;
+    if (rules.type === 'integer') {
+        numValue = parseInt(value);
+    } else if (rules.type === 'float') {
+        numValue = parseFloat(value);
+    } else if (rules.type === 'number') {
+        numValue = Number(value);
+    }
+    
+    if (isNaN(numValue)) {
+        return `Ошибка: введите корректное число`;
+    }
+    
+    if (numValue < rules.min) {
+        return `Ошибка: минимальное значение ${rules.min}`;
+    }
+    
+    if (numValue > rules.max) {
+        return `Ошибка: максимальное значение ${rules.max}`;
+    }
+    
+    return '';
 }
 
 class PropertiesPanel {
@@ -229,17 +303,38 @@ class PropertiesPanel {
         inputs.forEach(input => {
             input.addEventListener('change', (e) => {
                 const propName = input.getAttribute('data-prop');
-                let value = e.target.value;
+                const rawValue = e.target.value;
                 
-                // Преобразовать в правильный тип для числовых свойств
-                if (['x', 'y', 'width', 'height', 'fontSize', 'radius', 'min', 'max', 'maxLength'].includes(propName)) {
-                    value = parseInt(value);
-                } else if (['step'].includes(propName)) {
-                    value = parseFloat(value);
+                // Валидировать значение
+                const validatedValue = validateAndSanitizeValue(propName, rawValue);
+                
+                if (validatedValue === null) {
+                    // Ошибка валидации - показать сообщение и вернуть старое значение
+                    const errorMessage = getValidationErrorMessage(propName, rawValue);
+                    const errorElement = this.container.querySelector(`[data-error-${propName}]`);
+                    
+                    if (errorElement) {
+                        errorElement.textContent = errorMessage;
+                        errorElement.classList.remove('d-none');
+                        input.classList.add('is-invalid');
+                    }
+                    
+                    // Вернуть старое значение в input
+                    input.value = widget[propName];
+                    
+                    // Убрать ошибку через 3 секунды
+                    setTimeout(() => {
+                        if (errorElement) {
+                            errorElement.classList.add('d-none');
+                        }
+                        input.classList.remove('is-invalid');
+                    }, 3000);
+                    
+                    return;
                 }
                 
                 // Применить изменение
-                widget[propName] = value;
+                widget[propName] = validatedValue;
                 
                 // Перерисовать виджет
                 if (window.layer) {
@@ -251,6 +346,32 @@ class PropertiesPanel {
                     }
                     
                     window.layer.batchDraw();
+                }
+                
+                // Очистить поле ошибки если оно было
+                const errorElement = this.container.querySelector(`[data-error-${propName}]`);
+                if (errorElement) {
+                    errorElement.classList.add('d-none');
+                    input.classList.remove('is-invalid');
+                }
+            });
+            
+            // Обработчик input (для отображения подсказок в реальном времени)
+            input.addEventListener('input', (e) => {
+                const propName = input.getAttribute('data-prop');
+                const rules = VALIDATION_RULES[propName];
+                const errorElement = this.container.querySelector(`[data-error-${propName}]`);
+                
+                if (rules && errorElement) {
+                    const errorMsg = getValidationErrorMessage(propName, e.target.value);
+                    if (errorMsg) {
+                        errorElement.textContent = errorMsg;
+                        errorElement.classList.remove('d-none');
+                        input.classList.add('is-invalid');
+                    } else {
+                        errorElement.classList.add('d-none');
+                        input.classList.remove('is-invalid');
+                    }
                 }
             });
         });
