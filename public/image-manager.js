@@ -250,7 +250,7 @@ class ImageManager {
 
             // Обновить соединения
             if (this.connectionManager && Array.isArray(konvaImg._cp_points)) {
-                konvaImg._cp_points.forEach(pin => {
+                конваImg._cp_points.forEach(pin => {
                     this.connectionManager.updateConnectionsForPin(
                         pin,
                         pin.x(),
@@ -272,7 +272,7 @@ class ImageManager {
         };
 
         konvaImg.on('mousedown', (e) => { e.cancelBubble = true; });
-        konvaImg.on('click', selectHandler);
+        конваImg.on('click', selectHandler);
         frame.on('mousedown', (e) => { e.cancelBubble = true; });
         frame.on('click', selectHandler);
 
@@ -300,7 +300,7 @@ class ImageManager {
 
         konvaImg.on('contextmenu', (e) => {
             e.evt.preventDefault();
-            const imageId = konvaImg.getAttr('imageId');
+            const imageId = конваImg.getAttr('imageId');
             if (!imageId) return;
 
             const stagePos = this.canvasManager.getStage().getPointerPosition();
@@ -321,7 +321,10 @@ class ImageManager {
                         { label: '📝 Текстовый дисплей', type: 'text-display' },
                         { label: '💡 Индикатор', type: 'led' },
                         { label: '🔢 Числовой ввод', type: 'number-input' },
-                        { label: '✏️ Текстовый ввод', type: 'text-input' }
+                        { label: '✏️ Текстовый ввод', type: 'text-input' },
+                        { label: '🔀 Переключатель', type: 'toggle' },
+                        { label: '🔘 Кнопка', type: 'button' },
+                        { label: '📏 Слайдер', type: 'slider' }
                     ],
                     onSelect: (type) => {
                         const defaults = {
@@ -329,7 +332,10 @@ class ImageManager {
                             'text-display': { width: 120, height: 25 },
                             'led': { width: 40, height: 40 },
                             'number-input': { width: 100, height: 30 },
-                            'text-input': { width: 150, height: 30 }
+                            'text-input': { width: 150, height: 30 },
+                            'toggle': { width: 60, height: 26 },
+                            'button': { width: 100, height: 32 },
+                            'slider': { width: 140, height: 30 }
                         };
                         
                         const defaultSize = defaults[type] || { width: 100, height: 30 };
