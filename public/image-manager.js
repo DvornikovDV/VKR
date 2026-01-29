@@ -312,7 +312,9 @@ class ImageManager {
                     submenu: [
                         { label: '📊 Числовой дисплей', type: 'number-display' },
                         { label: '📝 Текстовый дисплей', type: 'text-display' },
-                        { label: '💡 Индикатор', type: 'led' }
+                        { label: '💡 Индикатор', type: 'led' },
+                        { label: '🔢 Числовой ввод', type: 'number-input' },
+                        { label: '✏️ Текстовый ввод', type: 'text-input' }
                     ],
                     onSelect: (type) => {
                         const stagePos = this.canvasManager.getStage().getPointerPosition();
@@ -326,7 +328,7 @@ class ImageManager {
                             imageId,
                             x: pos.x,
                             y: pos.y,
-                            width: 80,
+                            width: 100,
                             height: 30
                         });
                     }

@@ -7,14 +7,13 @@
 //   - led (текущий) - индикатор on/off
 //   - gauge (ОТЛОЖЕН) - стрелочный манометр (требует рефакторинга)
 //   - chart-display (будущее) - простой график
-// Input типы (Iteration 2):
-//   - number-input - число с валидацией
-//   - text-input - текстовое поле
-//   - slider - ползунок
-// Control типы (Iteration 3):
+// Input типы (Iteration 3):
+//   - number-input - число с валидацией min/max/step
+//   - text-input - текстовое поле с валидацией pattern/maxLength
+// Control типы (Iteration 4):
 //   - toggle - переключатель
 //   - button - кнопка управления
-//   - switch - переключатель режимов
+//   - slider - ползунок
 
 // Базовый класс для Display виджетов (read-only)
 export class DisplayWidget {
@@ -68,6 +67,62 @@ export class DisplayWidget {
   }
 }
 
+// Базовый класс для Input виджетов (для ввода данных)
+export class InputWidget {
+  constructor(config) {
+    this.id = config.id;
+    this.type = config.type;
+    this.imageId = config.imageId;
+    
+    this.x = config.x;
+    this.y = config.y;
+    this.width = config.width;
+    this.height = config.height;
+    
+    this.relativeX = config.relativeX || 0;
+    this.relativeY = config.relativeY || 0;
+    
+    this.fontSize = config.fontSize || 14;
+    this.color = config.color || '#000000';
+    this.backgroundColor = config.backgroundColor || '#ffffff';
+    this.borderColor = config.borderColor || '#cccccc';
+    
+    this.konvaGroup = null;
+    
+    this.bindingId = config.bindingId || null;
+    this.isReadOnly = false;
+    this.currentValue = config.currentValue || null;
+    this.placeholder = config.placeholder || '';
+  }
+  
+  getCategory() {
+    return 'input';
+  }
+  
+  render(layer) {
+    throw new Error('render() must be implemented in subclass');
+  }
+  
+  destroy() {
+    if (this.konvaGroup) {
+      this.konvaGroup.destroy();
+      this.konvaGroup = null;
+    }
+  }
+  
+  validate(value) {
+    throw new Error('validate() must be implemented in subclass');
+  }
+  
+  setValue(value) {
+    if (this.validate(value)) {
+      this.currentValue = value;
+      return true;
+    }
+    return false;
+  }
+}
+
 // Константы по умолчанию для каждого типа
 export const WIDGET_DEFAULTS = {
   'number-display': {
@@ -98,6 +153,30 @@ export const WIDGET_DEFAULTS = {
     colorBorder: '#999999',
     borderWidth: 2,
     readonly: true
+  },
+  'number-input': {
+    width: 100,
+    height: 30,
+    fontSize: 14,
+    color: '#000000',
+    backgroundColor: '#ffffff',
+    borderColor: '#999999',
+    min: 0,
+    max: 100,
+    step: 1,
+    readonly: false
+  },
+  'text-input': {
+    width: 150,
+    height: 30,
+    fontSize: 14,
+    color: '#000000',
+    backgroundColor: '#ffffff',
+    borderColor: '#999999',
+    maxLength: 50,
+    pattern: '.*',
+    placeholder: 'Ввод текста',
+    readonly: false
   }
 };
 
@@ -267,6 +346,123 @@ export class LedWidget extends DisplayWidget {
   }
 }
 
+// Числовое поле ввода - с валидацией min/max/step
+export class NumberInputWidget extends InputWidget {
+  constructor(config) {
+    super(config);
+    this.min = validateNumber(config.min, 0);
+    this.max = validateNumber(config.max, 100);
+    this.step = validateNumber(config.step, 1);
+    this.currentValue = validateNumber(config.currentValue, this.min);
+  }
+  
+  validate(value) {
+    const num = validateNumber(value);
+    return num >= this.min && num <= this.max;
+  }
+  
+  render(layer) {
+    if (this.konvaGroup) this.konvaGroup.destroy();
+    
+    this.konvaGroup = new Konva.Group({
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: this.height
+    });
+    
+    const background = new Konva.Rect({
+      x: 0,
+      y: 0,
+      width: this.width,
+      height: this.height,
+      fill: this.backgroundColor,
+      stroke: this.borderColor,
+      strokeWidth: 2,
+      cornerRadius: 3
+    });
+    
+    const displayText = this.currentValue !== null ? String(this.currentValue) : this.placeholder;
+    
+    const text = new Konva.Text({
+      x: 5,
+      y: 0,
+      width: this.width - 10,
+      height: this.height,
+      text: displayText,
+      fontSize: this.fontSize,
+      fontFamily: 'Arial',
+      fill: this.currentValue !== null ? this.color : '#999999',
+      align: 'right',
+      verticalAlign: 'middle'
+    });
+    
+    this.konvaGroup.add(background);
+    this.konvaGroup.add(text);
+    layer.add(this.konvaGroup);
+  }
+}
+
+// Текстовое поле ввода - с валидацией pattern и maxLength
+export class TextInputWidget extends InputWidget {
+  constructor(config) {
+    super(config);
+    this.maxLength = config.maxLength || 50;
+    this.pattern = config.pattern || '.*';
+    this.currentValue = config.currentValue || '';
+    this.placeholder = config.placeholder || 'Ввод текста';
+  }
+  
+  validate(value) {
+    if (!value) return true;
+    const str = String(value);
+    if (str.length > this.maxLength) return false;
+    const regex = new RegExp(`^${this.pattern}$`);
+    return regex.test(str);
+  }
+  
+  render(layer) {
+    if (this.konvaGroup) this.konvaGroup.destroy();
+    
+    this.konvaGroup = new Konva.Group({
+      x: this.x,
+      y: this.y,
+      width: this.width,
+      height: this.height
+    });
+    
+    const background = new Konva.Rect({
+      x: 0,
+      y: 0,
+      width: this.width,
+      height: this.height,
+      fill: this.backgroundColor,
+      stroke: this.borderColor,
+      strokeWidth: 2,
+      cornerRadius: 3
+    });
+    
+    const displayText = this.currentValue ? String(this.currentValue) : this.placeholder;
+    
+    const text = new Konva.Text({
+      x: 5,
+      y: 0,
+      width: this.width - 10,
+      height: this.height,
+      text: displayText,
+      fontSize: this.fontSize,
+      fontFamily: 'Arial',
+      fill: this.currentValue ? this.color : '#999999',
+      align: 'left',
+      verticalAlign: 'middle'
+    });
+    
+    this.konvaGroup.add(background);
+    this.konvaGroup.add(text);
+    layer.add(this.konvaGroup);
+  }
+}
+
 // Фабрика для создания виджетов по типу
 export function createWidget(type, config) {
   const defaults = WIDGET_DEFAULTS[type];
@@ -284,6 +480,10 @@ export function createWidget(type, config) {
       return new TextDisplayWidget(finalConfig);
     case 'led':
       return new LedWidget(finalConfig);
+    case 'number-input':
+      return new NumberInputWidget(finalConfig);
+    case 'text-input':
+      return new TextInputWidget(finalConfig);
     default:
       console.error(`Unsupported widget type: ${type}`);
       return null;

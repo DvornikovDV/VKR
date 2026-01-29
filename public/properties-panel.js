@@ -126,7 +126,7 @@ class PropertiesPanel {
             </div>
             `;
         } else if (type === 'number-display' || type === 'text-display') {
-            // Number и Text: размер шрифта, цвет текста, цвет фона
+            // Number и Text Display: размер шрифта, цвет текста, цвет фона
             const fontSize = widget.fontSize || 14;
             const color = widget.color || '#000000';
             const bgColor = widget.backgroundColor || '#f5f5f5';
@@ -145,6 +145,90 @@ class PropertiesPanel {
               <input type="color" class="form-control form-control-color widget-prop-input" data-prop="backgroundColor" value="${bgColor}">
             </div>
             `;
+        } else if (type === 'number-input') {
+            // Number Input: размер шрифта, цвета, min, max, step
+            const fontSize = widget.fontSize || 14;
+            const color = widget.color || '#000000';
+            const bgColor = widget.backgroundColor || '#ffffff';
+            const borderColor = widget.borderColor || '#999999';
+            const min = widget.min || 0;
+            const max = widget.max || 100;
+            const step = widget.step || 1;
+            
+            html += `
+            <div class="mb-1">
+              <label class="form-label small">Размер шрифта:</label>
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="fontSize" value="${fontSize}" min="8" max="48">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Цвет текста:</label>
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="color" value="${color}">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Цвет фона:</label>
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="backgroundColor" value="${bgColor}">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Цвет границы:</label>
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="borderColor" value="${borderColor}">
+            </div>
+            
+            <div class="mb-2 mt-3"><strong>Параметры ввода</strong></div>
+            <div class="mb-1">
+              <label class="form-label small">Min:</label>
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="min" value="${min}">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Max:</label>
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="max" value="${max}">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Step:</label>
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="step" value="${step}" step="0.1">
+            </div>
+            `;
+        } else if (type === 'text-input') {
+            // Text Input: размер шрифта, цвета, maxLength, pattern, placeholder
+            const fontSize = widget.fontSize || 14;
+            const color = widget.color || '#000000';
+            const bgColor = widget.backgroundColor || '#ffffff';
+            const borderColor = widget.borderColor || '#999999';
+            const maxLength = widget.maxLength || 50;
+            const pattern = widget.pattern || '.*';
+            const placeholder = widget.placeholder || 'Ввод текста';
+            
+            html += `
+            <div class="mb-1">
+              <label class="form-label small">Размер шрифта:</label>
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="fontSize" value="${fontSize}" min="8" max="48">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Цвет текста:</label>
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="color" value="${color}">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Цвет фона:</label>
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="backgroundColor" value="${bgColor}">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Цвет границы:</label>
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="borderColor" value="${borderColor}">
+            </div>
+            
+            <div class="mb-2 mt-3"><strong>Параметры ввода</strong></div>
+            <div class="mb-1">
+              <label class="form-label small">Max длина:</label>
+              <input type="number" class="form-control form-control-sm widget-prop-input" data-prop="maxLength" value="${maxLength}" min="1">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Паттерн (regex):</label>
+              <input type="text" class="form-control form-control-sm widget-prop-input" data-prop="pattern" value="${pattern}" placeholder=".*">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Placeholder:</label>
+              <input type="text" class="form-control form-control-sm widget-prop-input" data-prop="placeholder" value="${placeholder}">
+            </div>
+            `;
         }
 
         // Раздел привязки устройства
@@ -156,7 +240,6 @@ class PropertiesPanel {
                 <option value="">-- не привязано --</option>
         `;
         
-        // На windows/linux scrollbar работает только на select - в любом случае
         this.devices.forEach(device => {
             const selected = bindingId === device.id ? 'selected' : '';
             html += `<option value="${device.id}" ${selected}>${device.name} (${device.type})</option>`;
@@ -190,7 +273,7 @@ class PropertiesPanel {
     }
 
     /**
-     * Обработчик изменений свойств виджета (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+     * Обработчик изменений свойств виджета
      */
     attachWidgetPropertyListeners(widget) {
         // Получить все input'ы с классом widget-prop-input
@@ -201,9 +284,11 @@ class PropertiesPanel {
                 const propName = input.getAttribute('data-prop');
                 let value = e.target.value;
                 
-                // Преобразовать в правильный тип
-                if (['x', 'y', 'width', 'height', 'fontSize', 'radius'].includes(propName)) {
+                // Преобразовать в правильный тип для числовых свойств
+                if (['x', 'y', 'width', 'height', 'fontSize', 'radius', 'min', 'max', 'maxLength'].includes(propName)) {
                     value = parseInt(value);
+                } else if (['step'].includes(propName)) {
+                    value = parseFloat(value);
                 }
                 
                 // Применить изменение
@@ -213,16 +298,13 @@ class PropertiesPanel {
                 if (window.layer) {
                     widget.render(window.layer);
                     
-                    // КРИТИЧНО: Переприсоединить обработчики после render!
+                    // Переприсоединить обработчики после render
                     if (this.widgetManager) {
                         this.widgetManager.reattachDragHandlers(widget);
                     }
                     
                     window.layer.batchDraw();
                 }
-                
-                // Обновить панель свойств (просто обновляем значения input'ов)
-                // Не пересоздавать всь НТМЛ чтобы избежать потери фокуса
             });
         });
         
@@ -244,7 +326,6 @@ class PropertiesPanel {
      */
     refreshWidgetProperties(widget) {
         if (this.selectedWidget && this.selectedWidget === widget) {
-            // Только обновляем значения, не пересоздаем панель
             const xInput = this.container.querySelector('[data-prop="x"]');
             const yInput = this.container.querySelector('[data-prop="y"]');
             
