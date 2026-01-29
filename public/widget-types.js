@@ -154,6 +154,7 @@ export const WIDGET_DEFAULTS = {
     colorOff: '#cccccc',
     colorOn: '#4caf50',
     colorBorder: '#999999',
+    borderColor: '#999999',
     borderWidth: 2,
     readonly: true
   },
@@ -304,9 +305,7 @@ export class LedWidget extends DisplayWidget {
     this.radius = config.radius || 20;
     this.colorOn = config.colorOn || '#4caf50';
     this.colorOff = config.colorOff || '#cccccc';
-    this.colorBorder = config.colorBorder || '#999999';
-    this.borderWidth = config.borderWidth || 2;
-    this.isOn = Boolean(config.isOn ?? false);
+    // Используем borderColor из DisplayWidget базовый класс
   }
   
   render(layer) {
@@ -324,8 +323,8 @@ export class LedWidget extends DisplayWidget {
       y: this.height / 2,
       radius: this.radius,
       fill: this.isOn ? this.colorOn : this.colorOff,
-      stroke: this.colorBorder,
-      strokeWidth: this.borderWidth
+      stroke: this.borderColor,
+      strokeWidth: 2
     });
     
     if (this.isOn) {

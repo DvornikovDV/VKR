@@ -1,5 +1,6 @@
 // properties-panel.js
 // Управление панелью свойств для изображений, точек, соединений и виджетов
+// TODO: Рефакторинг - вынести повторяющийся код создания свойств в вспомогательные функции
 
 class PropertiesPanel {
     constructor(canvasManager) {
@@ -106,10 +107,11 @@ class PropertiesPanel {
         html += '<div class="mb-2 mt-3"><strong>Оформление</strong></div>';
         
         if (type === 'led') {
-            // LED: радиус, цвета ON/OFF
+            // LED: радиус, цвета ON/OFF, цвет границы
             const radius = widget.radius || 20;
             const colorOn = widget.colorOn || '#4caf50';
             const colorOff = widget.colorOff || '#cccccc';
+            const borderColor = widget.borderColor || '#999999';
             
             html += `
             <div class="mb-1">
@@ -123,6 +125,10 @@ class PropertiesPanel {
             <div class="mb-1">
               <label class="form-label small">Цвет (не горит):</label>
               <input type="color" class="form-control form-control-color widget-prop-input" data-prop="colorOff" value="${colorOff}">
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Цвет границы:</label>
+              <input type="color" class="form-control form-control-color widget-prop-input" data-prop="borderColor" value="${borderColor}">
             </div>
             `;
         } else if (type === 'number-display' || type === 'text-display') {
