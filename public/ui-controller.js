@@ -8,6 +8,8 @@ import { ConnectionManager } from './connection-manager.js';
 import { SelectionManager } from './selection-manager.js';
 import { PropertiesPanel } from './properties-panel.js';
 import { FileManager } from './file-manager.js';
+import { WidgetManager } from './widget-manager.js';
+import { ContextMenu } from './context-menu.js';
 
 class UIController {
     constructor() {
@@ -18,6 +20,8 @@ class UIController {
         this.selectionManager = null;
         this.propertiesPanel = null;
         this.fileManager = null;
+        this.widgetManager = null;
+        this.contextMenu = null;
 
         this.isCreateLineMode = false;
         this.isConnectionEditMode = false;
@@ -27,24 +31,101 @@ class UIController {
         this.init();
     }
 
-    init() {
+    async init() {
         this.canvasManager = new CanvasManager();
+        await this.canvasManager.ready();
+
         this.imageManager = new ImageManager(this.canvasManager);
         this.connectionPointManager = new ConnectionPointManager(this.canvasManager);
         this.connectionManager = new ConnectionManager(this.canvasManager);
         this.selectionManager = new SelectionManager(this.canvasManager, this.connectionManager);
         this.propertiesPanel = new PropertiesPanel(this.canvasManager);
+        this.widgetManager = new WidgetManager(
+            this.canvasManager.getLayer(),
+            this.imageManager,
+            this.canvasManager
+        );
         this.fileManager = new FileManager(
             this.canvasManager,
             this.imageManager,
             this.connectionPointManager,
-            this.connectionManager
+            this.connectionManager,
+            this.widgetManager
         );
+        this.contextMenu = new ContextMenu();
+
+        // привязка меню и менеджера виджетов к imageManager
+        this.imageManager.setContextMenu(this.contextMenu, this.widgetManager);
+        
+        // КРИТИЧНО: предоставить WidgetManager панели свойств для переприсоединения обработчиков
+        this.propertiesPanel.setWidgetManager(this.widgetManager);
+        
+        // Загрузить реестр устройств из devices-registry.json
+        await this.loadDevicesRegistry();
 
         this.imageManager.setConnectionManager(this.connectionManager);
-
         this.setupManagerCallbacks();
         this.setupEventListeners();
+        this.setupGlobalWidgetCallbacks();
+    }
+
+    /**
+     * Загрузить реестр устройств
+     */
+    async loadDevicesRegistry() {
+        try {
+            const response = await fetch('devices-registry.json');
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            if (data.devices && Array.isArray(data.devices)) {
+                this.propertiesPanel.setDevices(data.devices);
+            }
+        } catch (error) {
+            console.error('Ошибка загрузки реестра устройств:', error);
+        }
+    }
+
+    /**
+     * Настройка глобальных каллбэков для виджетов
+     */
+    setupGlobalWidgetCallbacks() {
+        // Выбор виджета
+        window.onWidgetSelected = (widget) => {
+            this.selectionManager.selectWidget(widget);
+            this.propertiesPanel.showPropertiesForWidget(widget);
+        };
+
+        // Изменение свойства виджета (позиция, размер)
+        window.onWidgetPropertyChange = (widget, property, value) => {
+            if (property === 'x' || property === 'y') {
+                const newX = property === 'x' ? value : widget.x;
+                const newY = property === 'y' ? value : widget.y;
+                this.widgetManager.updatePosition(widget.id, newX, newY);
+                this.propertiesPanel.refreshWidgetProperties(widget);
+            } else if (property === 'width' || property === 'height') {
+                const newW = property === 'width' ? value : widget.width;
+                const newH = property === 'height' ? value : widget.height;
+                this.widgetManager.updateSize(widget.id, newW, newH);
+                this.propertiesPanel.refreshWidgetProperties(widget);
+            }
+        };
+
+        // Удаление виджета
+        window.onDeleteWidget = (widgetId) => {
+            this.widgetManager.delete(widgetId);
+            this.selectionManager.clearSelection();
+            this.propertiesPanel.clear();
+        };
+
+        // Обновление панели при dragend
+        window.onWidgetDragEnd = (widget) => {
+            this.propertiesPanel.refreshWidgetProperties(widget);
+        };
+
+        // Предоставить доступ к layer для перерисовки виджетов
+        window.layer = this.canvasManager.getLayer();
     }
 
     /**
@@ -68,12 +149,21 @@ class UIController {
             this.connectionPointManager.createConnectionPointOnSide(konvaImg, sideMeta.side, sideMeta.offset);
         };
 
-        // НОВОЕ: установить callback для обновления соединений при resize изображения
+        // Обновить виджеты при ресайзе изображения
         this.imageManager.setUpdateConnectionsCallback((imageNode) => {
             if (Array.isArray(imageNode._cp_points)) {
                 imageNode._cp_points.forEach(pin => {
                     this.connectionManager.updateConnectionsForPin(pin, pin.x(), pin.y(), true);
                 });
+            }
+            if (this.widgetManager) {
+                const imageId = imageNode.getAttr('imageId');
+                if (imageId) {
+                    const image = this.imageManager.getImage(imageId);
+                    if (image) {
+                        this.widgetManager.onImageResize(imageId, image.width() * image.scaleX(), image.height() * image.scaleY());
+                    }
+                }
             }
         });
 
@@ -146,21 +236,33 @@ class UIController {
             });
         } catch (_) {}
 
-        document.getElementById('add-image-btn').addEventListener('click', () => {
-            this.addImage();
-        });
+        const addImageBtn = document.getElementById('add-image-btn');
+        if (addImageBtn) {
+            addImageBtn.addEventListener('click', () => {
+                this.addImage();
+            });
+        }
 
-        document.getElementById('save-btn').addEventListener('click', () => {
-            this.fileManager.saveScheme();
-        });
+        const saveBtn = document.getElementById('save-btn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => {
+                this.fileManager.saveScheme();
+            });
+        }
 
-        document.getElementById('load-btn').addEventListener('click', () => {
-            this.fileManager.loadScheme();
-        });
+        const loadBtn = document.getElementById('load-btn');
+        if (loadBtn) {
+            loadBtn.addEventListener('click', () => {
+                this.fileManager.loadScheme();
+            });
+        }
 
-        document.getElementById('clear-btn').addEventListener('click', () => {
-            this.fileManager.clearCanvas();
-        });
+        const clearBtn = document.getElementById('clear-btn');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', () => {
+                this.fileManager.clearCanvas();
+            });
+        }
 
         const createLineBtn = document.getElementById('create-line-btn');
         if (createLineBtn) {
@@ -177,12 +279,15 @@ class UIController {
         }
 
         const stage = this.canvasManager.getStage();
-        stage.on('click', (e) => {
-            if (e.target === stage) {
-                this.setConnectionEditMode(false);
-                this.propertiesPanel.showDefaultMessage();
-            }
-        });
+        if (stage) {
+            stage.on('click', (e) => {
+                if (e.target === stage) {
+                    this.setConnectionEditMode(false);
+                    this.selectionManager.clearSelection();
+                    this.propertiesPanel.showDefaultMessage();
+                }
+            });
+        }
     }
 
     /**
@@ -192,12 +297,25 @@ class UIController {
         const selected = this.selectionManager.getSelected();
         if (!selected) return;
 
+        // Удаление виджета
+        if (selected.widget) {
+            this.widgetManager.delete(selected.widget.id);
+            this.selectionManager.clearSelection();
+            this.propertiesPanel.clear();
+            return;
+        }
+
+        // Удаление соединения
         if (selected.connection) {
             this.connectionManager.deleteConnection(selected.connection);
             this.setConnectionEditMode(false);
             this.selectionManager.clearSelection();
             this.propertiesPanel.showDefaultMessage();
-        } else if (selected.node) {
+            return;
+        }
+
+        // Удаление изображения
+        if (selected.node) {
             this.imageManager.deleteImage(selected.node);
             this.selectionManager.clearSelection();
             this.propertiesPanel.showDefaultMessage();
@@ -209,6 +327,7 @@ class UIController {
      */
     addImage() {
         const fileInput = document.getElementById('file-input');
+        if (!fileInput) return;
         fileInput.onchange = (e) => {
             const file = e.target.files && e.target.files[0];
             if (!file) return;
@@ -321,7 +440,7 @@ class UIController {
     }
 
     /**
-     * Обновление рисунка предварительного линии
+     * Обновление рисунка преварительного линии
      */
     updatePreviewLine(startPos, endPos) {
         if (this.previewLine) {

@@ -1,7 +1,7 @@
 // image-manager.js
 // Управление изображениями
 
-const HANDLE_RADIUS = 6; // радиус точки/ручки
+const HANDLE_RADIUS = 6; // радиус точки/рубки
 const FRAME_PADDING = 10; // отступ рамки от изображения
 
 class ImageManager {
@@ -14,6 +14,16 @@ class ImageManager {
         this.onImageScaled = null;
         this.connectionManager = null; // будет продан из UIController
         this.updateConnectionsCallback = null; // callback для обновления соединений при resize
+        this.contextMenu = null; // будет установлен из UIController
+        this.widgetManager = null; // опционально, для создания виджетов
+    }
+
+    /**
+     * Установить контекстное меню и менеджер виджетов
+     */
+    setContextMenu(contextMenu, widgetManager) {
+        this.contextMenu = contextMenu;
+        this.widgetManager = widgetManager;
     }
 
     /**
@@ -51,8 +61,12 @@ class ImageManager {
             konvaImg._id = 'img_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
             konvaImg._cp_points = []; // точки соединения
 
+            // сохраняем imageId как атрибут для поиска
+            konvaImg.setAttr('imageId', konvaImg._id);
+
             layer.add(konvaImg);
             this.attachSelectionFrame(konvaImg);
+            this.attachContextMenu(konvaImg);
             layer.draw();
             this.images.push(konvaImg);
         };
@@ -67,31 +81,27 @@ class ImageManager {
         if (!konvaImg) return;
         
         const layer = this.canvasManager.getLayer();
+        const imageId = konvaImg.getAttr('imageId');
         
-        // Удалить рамку и ручку
-        if (konvaImg._frame) {
-            konvaImg._frame.destroy();
+        // Удалить виджеты, привязанные к этому изображению
+        if (this.widgetManager && imageId) {
+            this.widgetManager.onImageDelete(imageId);
         }
-        if (konvaImg._handle) {
-            konvaImg._handle.destroy();
-        }
+        
+        // Удалить рамку и рубку
+        if (konvaImg._frame) { konvaImg._frame.destroy(); }
+        if (konvaImg._handle) { konvaImg._handle.destroy(); }
         
         // Удалить все точки соединения этого изображения
         if (Array.isArray(konvaImg._cp_points)) {
-            konvaImg._cp_points.forEach(point => {
-                point.destroy();
-            });
+            konvaImg._cp_points.forEach(point => { point.destroy(); });
             konvaImg._cp_points = [];
         }
         
-        // Удалить само изображение
         konvaImg.destroy();
         
-        // Удалить из массива
         const index = this.images.indexOf(konvaImg);
-        if (index > -1) {
-            this.images.splice(index, 1);
-        }
+        if (index > -1) { this.images.splice(index, 1); }
         
         layer.batchDraw();
     }
@@ -118,7 +128,7 @@ class ImageManager {
         frame.fillEnabled(false);
         frame.hitStrokeWidth(20);
 
-        // ручка ресайза
+        // рубка ресайза
         const handle = new Konva.Circle({
             radius: HANDLE_RADIUS,
             fill: '#007bff',
@@ -127,6 +137,10 @@ class ImageManager {
             draggable: true,
         });
         handle.visible(false);
+
+        // Сохранить старую позицию для расчета дельты
+        let lastX = konvaImg.x();
+        let lastY = konvaImg.y();
 
         const updateOverlays = () => {
             frame.position({
@@ -142,7 +156,6 @@ class ImageManager {
                 y: konvaImg.y() + konvaImg.height() * konvaImg.scaleY(),
             });
 
-            // обновляем точки соединения
             if (Array.isArray(konvaImg._cp_points)) {
                 konvaImg._cp_points.forEach((pt) => {
                     const meta = pt.getAttr('cp-meta');
@@ -153,59 +166,60 @@ class ImageManager {
         };
         updateOverlays();
 
-        // редактирование по нажатию handle
         handle.on('dragmove', () => {
             const newScaleX = Math.max(0.2, (handle.x() - konvaImg.x()) / konvaImg.width());
             const newScaleY = Math.max(0.2, (handle.y() - konvaImg.y()) / konvaImg.height());
             konvaImg.scale({ x: newScaleX, y: newScaleY });
             updateOverlays();
-            // Новое: обновляем соединения при resize
-            if (this.updateConnectionsCallback) {
-                this.updateConnectionsCallback(konvaImg);
-            }
+            if (this.updateConnectionsCallback) { this.updateConnectionsCallback(konvaImg); }
             if (this.onImageScaled) this.onImageScaled(konvaImg);
             layer.batchDraw();
         });
 
-        // перемещение изображения (Iteration 3: координатный подход)
+        // перемещение изображения
         konvaImg.on('dragmove', () => {
+            const currentX = konvaImg.x();
+            const currentY = konvaImg.y();
+            const deltaX = currentX - lastX;
+            const deltaY = currentY - lastY;
+            
             updateOverlays();
             
-            // Новая функциональность: обновляем соединения
+            if (this.widgetManager) {
+                const imageId = konvaImg.getAttr('imageId');
+                if (imageId) { this.widgetManager.onImageMove(imageId, deltaX, deltaY); }
+            }
+            
             if (this.connectionManager && Array.isArray(konvaImg._cp_points)) {
                 konvaImg._cp_points.forEach(pin => {
-                    // Передаем абсолютные координаты
-                    this.connectionManager.updateConnectionsForPin(
-                        pin,
-                        pin.x(),
-                        pin.y(),
-                        true  // isImageDrag = true
-                    );
+                    this.connectionManager.updateConnectionsForPin(pin, pin.x(), pin.y(), true);
                 });
             }
 
             if (this.onImageMoved) this.onImageMoved(konvaImg);
+            lastX = currentX;
+            lastY = currentY;
             layer.batchDraw();
         });
 
-        // перемещение по рамке (Iteration 3: координатный подход)
+        // перемещение по рамке
         frame.on('dragmove', () => {
-            konvaImg.position({
-                x: frame.x() + padding,
-                y: frame.y() + padding,
-            });
+            const newX = frame.x() + padding;
+            const newY = frame.y() + padding;
+            const deltaX = newX - konvaImg.x();
+            const deltaY = newY - konvaImg.y();
+            
+            konvaImg.position({ x: newX, y: newY });
             updateOverlays();
 
-            // Новая функциональность: обновляем соединения
+            if (this.widgetManager) {
+                const imageId = konvaImg.getAttr('imageId');
+                if (imageId) { this.widgetManager.onImageMove(imageId, deltaX, deltaY); }
+            }
+
             if (this.connectionManager && Array.isArray(konvaImg._cp_points)) {
                 konvaImg._cp_points.forEach(pin => {
-                    // Передаем абсолютные координаты
-                    this.connectionManager.updateConnectionsForPin(
-                        pin,
-                        pin.x(),
-                        pin.y(),
-                        true  // isImageDrag = true
-                    );
+                    this.connectionManager.updateConnectionsForPin(pin, pin.x(), pin.y(), true);
                 });
             }
 
@@ -215,9 +229,7 @@ class ImageManager {
 
         // выбор по клику
         const selectHandler = () => {
-            if (this.onImageSelected) {
-                this.onImageSelected(konvaImg, frame, handle);
-            }
+            if (this.onImageSelected) { this.onImageSelected(konvaImg, frame, handle); }
         };
 
         konvaImg.on('mousedown', (e) => { e.cancelBubble = true; });
@@ -225,15 +237,11 @@ class ImageManager {
         frame.on('mousedown', (e) => { e.cancelBubble = true; });
         frame.on('click', selectHandler);
 
-        // двойной клик — событие для UIController
         frame.on('dblclick', (e) => {
             e.cancelBubble = true;
-            if (this.onFrameDoubleClick) {
-                this.onFrameDoubleClick(konvaImg, frame);
-            }
+            if (this.onFrameDoubleClick) { this.onFrameDoubleClick(konvaImg, frame); }
         });
 
-        // сторим рсылки и рамку
         konvaImg._frame = frame;
         konvaImg._handle = handle;
 
@@ -242,7 +250,89 @@ class ImageManager {
     }
 
     /**
-     * Преобразование стороны и месмещения в координаты
+     * Привязать контекстное меню к изображению (ПКМ)
+     */
+    attachContextMenu(konvaImg) {
+        if (!this.contextMenu || !this.widgetManager) return;
+
+        konvaImg.on('contextmenu', (e) => {
+            e.evt.preventDefault();
+            const imageId = konvaImg.getAttr('imageId');
+            if (!imageId) return;
+
+            const stagePos = this.canvasManager.getStage().getPointerPosition();
+            if (!stagePos) return;
+
+            const stage = this.canvasManager.getStage();
+            const pos = {
+                x: (stagePos.x - stage.x()) / stage.scaleX(),
+                y: (stagePos.y - stage.y()) / stage.scaleY()
+            };
+
+            const menuItems = [
+                {
+                    label: 'Добавить виджет',
+                    submenu: [
+                        { label: '📊 Числовой дисплей', type: 'number-display' },
+                        { label: '📝 Текстовый дисплей', type: 'text-display' },
+                        { label: '💡 Индикатор', type: 'led' },
+                        { label: '🔢 Числовой ввод', type: 'number-input' },
+                        { label: '✏️ Текстовый ввод', type: 'text-input' },
+                        { label: '🔀 Переключатель', type: 'toggle' },
+                        { label: '🔘 Кнопка', type: 'button' },
+                        { label: '📏 Слайдер', type: 'slider' }
+                    ],
+                    onSelect: (type) => {
+                        const defaults = {
+                            'number-display': { width: 100, height: 30 },
+                            'text-display': { width: 120, height: 25 },
+                            'led': { width: 40, height: 40 },
+                            'number-input': { width: 100, height: 30 },
+                            'text-input': { width: 150, height: 30 },
+                            'toggle': { width: 60, height: 26 },
+                            'button': { width: 100, height: 32 },
+                            'slider': { width: 140, height: 30 }
+                        };
+                        
+                        const defaultSize = defaults[type] || { width: 100, height: 30 };
+                        const image = this.widgetManager.imageManager.getImage(imageId);
+                        if (!image) return;
+                        
+                        let widgetX = pos.x - defaultSize.width / 2;
+                        let widgetY = pos.y - defaultSize.height / 2;
+                        
+                        const imgX = image.x();
+                        const imgY = image.y();
+                        const imgWidth = image.width() * image.scaleX();
+                        const imgHeight = image.height() * image.scaleY();
+                        
+                        if (widgetX < imgX) widgetX = imgX;
+                        if (widgetX + defaultSize.width > imgX + imgWidth) {
+                            widgetX = imgX + imgWidth - defaultSize.width;
+                        }
+                        if (widgetY < imgY) widgetY = imgY;
+                        if (widgetY + defaultSize.height > imgY + imgHeight) {
+                            widgetY = imgY + imgHeight - defaultSize.height;
+                        }
+                        
+                        this.widgetManager.create({
+                            type,
+                            imageId,
+                            x: widgetX,
+                            y: widgetY,
+                            width: defaultSize.width,
+                            height: defaultSize.height
+                        });
+                    }
+                }
+            ];
+
+            this.contextMenu.show(menuItems, e.evt.clientX, e.evt.clientY);
+        });
+    }
+
+    /**
+     * Преобразование стороны и местмещения в координаты
      */
     sideAndOffsetToXY(imageNode, side, offset) {
         const left = imageNode.x() - FRAME_PADDING;
@@ -264,6 +354,13 @@ class ImageManager {
      */
     getImages() {
         return this.images;
+    }
+
+    /**
+     * Получить изображение по imageId
+     */
+    getImage(imageId) {
+        return this.images.find(img => img.getAttr('imageId') === imageId) || null;
     }
 
     /**
