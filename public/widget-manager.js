@@ -188,6 +188,11 @@ export class WidgetManager {
     if (!widget) return false;
     
     const image = this.imageManager.getImage(widget.imageId);
+    if (!image) {
+      console.error(`Image ${widget.imageId} not found in updateSize`);
+      return false;
+    }
+    
     const imgWidth = image.width() * image.scaleX();
     const imgHeight = image.height() * image.scaleY();
     
@@ -331,8 +336,16 @@ export class WidgetManager {
   
   // Импорт виджетов из сохраненных данных
   importWidgets(widgetsData) {
+    if (!widgetsData || !Array.isArray(widgetsData)) {
+      console.warn('importWidgets: invalid data provided');
+      return;
+    }
+    
     widgetsData.forEach(data => {
-      if (!this.imageManager.getImage(data.imageId)) return;
+      if (!this.imageManager.getImage(data.imageId)) {
+        console.warn(`importWidgets: image ${data.imageId} not found, skipping widget`);
+        return;
+      }
       
       const widget = createWidget(data.type, data);
       
