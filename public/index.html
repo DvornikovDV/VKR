@@ -27,10 +27,10 @@
                         <li><a class="dropdown-item" href="#" id="add-image-btn">Добавить изображение</a></li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="#" id="save-schema-btn">Сохранить структуру</a></li>
-                        <li><a class="dropdown-item" href="#" id="load-schema-btn">Загрузить структуру</a></li>
+                        <li><a class="dropdown-item" href="#" id="load-schema-btn">Загружить структуру</a></li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="#" id="save-bindings-btn">Сохранить привязки</a></li>
-                        <li><a class="dropdown-item" href="#" id="load-bindings-btn">Загрузить привязки</a></li>
+                        <li><a class="dropdown-item" href="#" id="load-bindings-btn">Загружить привязки</a></li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="#" id="clear-btn">Очистить</a></li>
                     </ul>
@@ -48,28 +48,27 @@
                         <li><a class="dropdown-item" href="#" id="unlock-btn">Разблокировать элемент</a></li>
                     </ul>
                 </div>
-
-                <!-- Машина - выбор -->
-                <div class="d-flex align-items-center gap-2">
-                    <label for="machine-select" class="form-label mb-0">Машина:</label>
-                    <select id="machine-select" class="form-select form-select-sm" style="width: auto; min-width: 150px;">
-                        <option value="">Выберите машину...</option>
-                        <option value="machine-A">Котел A</option>
-                        <option value="machine-B">Котел B</option>
-                    </select>
-                    <button id="confirm-machine-btn" class="btn btn-sm btn-info">Подтвердить</button>
-                </div>
             </div>
 
             <!-- Центр панели: иконки действий -->
             <div class="toolbar-icons" role="group" aria-label="tools">
-                <button id="undo-btn" type="button" class="btn btn-warning text-dark btn-square" title="Отменить (Undo)" data-bs-toggle="tooltip">↶</button>
+                <button id="undo-btn" type="button" class="btn btn-warning text-dark btn-square" title="Отменить (Undo)" data-bs-toggle="tooltip">⭶</button>
                 <button id="create-line-btn" type="button" class="btn btn-primary btn-square" title="Создать линию (переключение)" data-bs-toggle="tooltip">／</button>
                 <button id="delete-selected-btn" type="button" class="btn btn-danger btn-square" title="Удалить выбранное" data-bs-toggle="tooltip">🗑</button>
             </div>
 
-            <!-- Масштаб -->
+            <!-- Машина - выбор по правому краю -->
             <div class="toolbar-right">
+                <div class="d-flex align-items-center gap-2" style="margin-right: 1rem;">
+                    <label for="machine-select" class="form-label mb-0" style="white-space: nowrap;">Машина:</label>
+                    <select id="machine-select" class="form-select form-select-sm" style="width: auto; min-width: 150px;">
+                        <option value="">без подписки</option>
+                        <option value="machine-A">Котел A</option>
+                        <option value="machine-B">Котел B</option>
+                    </select>
+                </div>
+
+                <!-- Масштаб -->
                 <label for="zoom-slider" class="zoom-label">Масштаб:</label>
                 <input type="range" class="zoom-slider" id="zoom-slider" min="0.1" max="10" step="0.1" value="1">
                 <span id="zoom-value" class="zoom-value">1.0x</span>
@@ -87,16 +86,8 @@
                 </div>
             </div>
 
-            <!-- Боковая панель: свойства + панель устройств -->
+            <!-- Боковая панель: свойства -->
             <aside class="properties-panel">
-                <!-- Панель выбранной машины и её устройств -->
-                <div id="devices-panel" style="display: none; border-bottom: 1px solid #ddd; padding-bottom: 1rem; margin-bottom: 1rem;">
-                    <h5 class="mb-2">
-                        Устройства: <span id="current-machine" style="color: #0284c7; font-weight: bold;"></span>
-                    </h5>
-                    <ul id="devices-list" class="list-group list-group-sm"></ul>
-                </div>
-
                 <!-- Стандартная панель свойств -->
                 <div class="properties-header">
                     <h5>Свойства</h5>
