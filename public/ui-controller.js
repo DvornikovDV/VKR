@@ -27,6 +27,9 @@ class UIController {
         this.isConnectionEditMode = false;
         this.firstPinSelected = null;
         this.previewLine = null;
+        
+        this.selectedMachineId = null;
+        this.availableDevices = [];
 
         this.init();
     }
@@ -54,19 +57,16 @@ class UIController {
         );
         this.contextMenu = new ContextMenu();
 
-        // привязка меню и менеджера виджетов к imageManager
         this.imageManager.setContextMenu(this.contextMenu, this.widgetManager);
-        
-        // КРИТИЧНО: предоставить WidgetManager панели свойств для переприсоединения обработчиков
         this.propertiesPanel.setWidgetManager(this.widgetManager);
         
-        // Загрузить реестр устройств из devices-registry.json
         await this.loadDevicesRegistry();
 
         this.imageManager.setConnectionManager(this.connectionManager);
         this.setupManagerCallbacks();
         this.setupEventListeners();
         this.setupGlobalWidgetCallbacks();
+        this.setupMachineSelection();
     }
 
     /**
@@ -88,16 +88,85 @@ class UIController {
     }
 
     /**
+     * Настройка UI для выбора машины (Фаза A)
+     */
+    setupMachineSelection() {
+        const confirmBtn = document.getElementById('confirm-machine-btn');
+        const machineSelect = document.getElementById('machine-select');
+        const devicesPanel = document.getElementById('devices-panel');
+        const devicesList = document.getElementById('devices-list');
+        const currentMachineSpan = document.getElementById('current-machine');
+        
+        if (!confirmBtn || !machineSelect) return;
+        
+        confirmBtn.addEventListener('click', () => {
+            const machineId = machineSelect.value;
+            if (!machineId) {
+                alert('Выберите машину!');
+                return;
+            }
+            
+            this.selectedMachineId = machineId;
+            this.fileManager.currentMachineId = machineId;
+            this.updateAvailableDevices(machineId);
+            
+            currentMachineSpan.textContent = machineId;
+            devicesPanel.style.display = 'block';
+            
+            this.populateDevicesList(devicesList, machineId);
+            console.log(`Выбрана машина: ${machineId}`);
+        });
+    }
+
+    /**
+     * Обновить доступные устройства для выбранной машины
+     */
+    updateAvailableDevices(machineId) {
+        this.availableDevices = [];
+        const allDevices = this.propertiesPanel.devices || [];
+        
+        for (const device of allDevices) {
+            if (device.machineId === machineId) {
+                this.availableDevices.push(device.id);
+            }
+        }
+    }
+
+    /**
+     * Заполнить список устройств для выбранной машины
+     */
+    populateDevicesList(listElement, machineId) {
+        if (!listElement) return;
+        
+        listElement.innerHTML = '';
+        const allDevices = this.propertiesPanel.devices || [];
+        const machineDevices = allDevices.filter(d => d.machineId === machineId);
+        
+        if (machineDevices.length === 0) {
+            const li = document.createElement('li');
+            li.className = 'list-group-item';
+            li.textContent = 'Нет доступных устройств';
+            listElement.appendChild(li);
+            return;
+        }
+        
+        machineDevices.forEach(device => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item';
+            li.textContent = `${device.name} (${device.id}) - ${device.type}`;
+            listElement.appendChild(li);
+        });
+    }
+
+    /**
      * Настройка глобальных каллбэков для виджетов
      */
     setupGlobalWidgetCallbacks() {
-        // Выбор виджета
         window.onWidgetSelected = (widget) => {
             this.selectionManager.selectWidget(widget);
             this.propertiesPanel.showPropertiesForWidget(widget);
         };
 
-        // Изменение свойства виджета (позиция, размер)
         window.onWidgetPropertyChange = (widget, property, value) => {
             if (property === 'x' || property === 'y') {
                 const newX = property === 'x' ? value : widget.x;
@@ -112,19 +181,16 @@ class UIController {
             }
         };
 
-        // Удаление виджета
         window.onDeleteWidget = (widgetId) => {
             this.widgetManager.delete(widgetId);
             this.selectionManager.clearSelection();
             this.propertiesPanel.clear();
         };
 
-        // Обновление панели при dragend
         window.onWidgetDragEnd = (widget) => {
             this.propertiesPanel.refreshWidgetProperties(widget);
         };
 
-        // Предоставить доступ к layer для перерисовки виджетов
         window.layer = this.canvasManager.getLayer();
     }
 
@@ -133,13 +199,11 @@ class UIController {
      */
     setupManagerCallbacks() {
         this.imageManager.onImageSelected = (konvaImg, frame, handle) => {
-            // гарантируем выключение режимов
             if (this.isCreateLineMode) {
                 this.toggleLineCreationMode();
             }
             this.setConnectionEditMode(false);
             this.selectionManager.selectElement(konvaImg, frame, handle);
-            // обновить панель свойств
             this.propertiesPanel.showPropertiesForImage(konvaImg);
         };
 
@@ -149,7 +213,6 @@ class UIController {
             this.connectionPointManager.createConnectionPointOnSide(konvaImg, sideMeta.side, sideMeta.offset);
         };
 
-        // Обновить виджеты при ресайзе изображения
         this.imageManager.setUpdateConnectionsCallback((imageNode) => {
             if (Array.isArray(imageNode._cp_points)) {
                 imageNode._cp_points.forEach(pin => {
@@ -196,7 +259,6 @@ class UIController {
         };
 
         this.connectionManager.onConnectionSelected = (connection) => {
-            // гарантируем выключение режима создания линий
             if (this.isCreateLineMode) {
                 this.toggleLineCreationMode();
             }
@@ -243,17 +305,31 @@ class UIController {
             });
         }
 
-        const saveBtn = document.getElementById('save-btn');
-        if (saveBtn) {
-            saveBtn.addEventListener('click', () => {
+        const saveSchemaBtn = document.getElementById('save-schema-btn');
+        if (saveSchemaBtn) {
+            saveSchemaBtn.addEventListener('click', () => {
                 this.fileManager.saveScheme();
             });
         }
 
-        const loadBtn = document.getElementById('load-btn');
-        if (loadBtn) {
-            loadBtn.addEventListener('click', () => {
+        const loadSchemaBtn = document.getElementById('load-schema-btn');
+        if (loadSchemaBtn) {
+            loadSchemaBtn.addEventListener('click', () => {
                 this.fileManager.loadScheme();
+            });
+        }
+
+        const saveBindingsBtn = document.getElementById('save-bindings-btn');
+        if (saveBindingsBtn) {
+            saveBindingsBtn.addEventListener('click', () => {
+                this.fileManager.saveBindings();
+            });
+        }
+
+        const loadBindingsBtn = document.getElementById('load-bindings-btn');
+        if (loadBindingsBtn) {
+            loadBindingsBtn.addEventListener('click', () => {
+                this.fileManager.loadBindings();
             });
         }
 
@@ -297,7 +373,6 @@ class UIController {
         const selected = this.selectionManager.getSelected();
         if (!selected) return;
 
-        // Удаление виджета
         if (selected.widget) {
             this.widgetManager.delete(selected.widget.id);
             this.selectionManager.clearSelection();
@@ -305,7 +380,6 @@ class UIController {
             return;
         }
 
-        // Удаление соединения
         if (selected.connection) {
             this.connectionManager.deleteConnection(selected.connection);
             this.setConnectionEditMode(false);
@@ -314,7 +388,6 @@ class UIController {
             return;
         }
 
-        // Удаление изображения
         if (selected.node) {
             this.imageManager.deleteImage(selected.node);
             this.selectionManager.clearSelection();
