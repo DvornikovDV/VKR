@@ -227,6 +227,24 @@ class ConnectionManager {
         return this.connections;
     }
 
+    /**
+     * Экспорт соединений для сохранения схемы
+     */
+    exportConnections() {
+        return this.connections.map(conn => {
+            const meta = conn.getAttr('connection-meta') || {};
+            const fromMeta = meta.fromPin ? meta.fromPin.getAttr('cp-meta') || {} : {};
+            const toMeta = meta.toPin ? meta.toPin.getAttr('cp-meta') || {} : {};
+            return {
+                id: meta.id,
+                fromPinId: fromMeta.id,
+                toPinId: toMeta.id,
+                segments: meta.segments || [],
+                userModified: !!meta.userModified
+            };
+        });
+    }
+
     clear() {
         this.connections.forEach(c => c.destroy());
         this.connections = [];
