@@ -332,8 +332,8 @@ class FileManager {
                                     `а выбрана "${this.bindingsManager.selectedMachineId}". Переключить?`;
                         if (!confirm(msg)) return;
                         
-                        // Переключить машину
-                        this.bindingsManager.selectMachine(bindingsData.machineId);
+                        // Переключить машину скипая подтверждение дополнительно
+                        this.bindingsManager.selectMachine(bindingsData.machineId, true);
                         this.currentMachineId = bindingsData.machineId;
                     }
                     
