@@ -99,68 +99,76 @@ class FileManager {
     }
 
     /**
-     * Вспомогательный метод: открыть диалог сохранения файла
-     * Использует File System Access API (современные браузеры) или fallback на download
+     * Вспомогательный метод: показать диалог ввода имени схемы через prompt
      */
-    async pickSaveFileName(defaultName = 'schema.json') {
-        try {
-            // Если браузер поддерживает File System Access API
-            if (window.showSaveFilePicker) {
-                try {
-                    const handle = await window.showSaveFilePicker({
-                        suggestedName: defaultName,
-                        types: [{
-                            description: 'JSON Files',
-                            accept: { 'application/json': ['.json'] }
-                        }]
-                    });
-                    return handle.name;
-                } catch (e) {
-                    if (e.name === 'AbortError') {
-                        return null;
-                    }
-                    throw e;
-                }
-            }
-        } catch (e) {
-            console.log('File System Access API недоступен, используем fallback');
+    async pickSchemeName(defaultName = 'schema-new') {
+        const name = prompt('Введите название схемы:', defaultName);
+        if (!name || name.trim() === '') {
+            return null;
         }
-        
-        // Fallback для браузеров без File System Access API
-        // Используем prompt для получения имени файла
-        const fileName = prompt('Введите имя файла:', defaultName);
-        return fileName ? (fileName.endsWith('.json') ? fileName : `${fileName}.json`) : null;
+        return name.trim();
+    }
+
+    /**
+     * Вспомогательный метод для скачивания JSON (асинхронный)
+     * Гарантирует что файл готов перед скачиванием
+     */
+    async downloadJSON(jsonString, filename) {
+        return new Promise((resolve) => {
+            // Создаём blob с данными
+            const blob = new Blob([jsonString], { type: 'application/json' });
+            
+            // Гарантируем что blob полностью подготовлен перед скачиванием
+            const reader = new FileReader();
+            reader.onload = () => {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                
+                // Даём браузеру время обработать
+                setTimeout(() => {
+                    link.click();
+                    // Очищаем ресурсы после небольшой задержки
+                    setTimeout(() => {
+                        URL.revokeObjectURL(url);
+                        resolve();
+                    }, 100);
+                }, 0);
+            };
+            
+            // Считываем blob в памяти для гарантии готовности
+            reader.readAsArrayBuffer(blob);
+        });
     }
 
     /**
      * Сохранить структуру схемы
-     * Название схемы берем из имени файла, id генерируем только для новой схемы, версию заменяем временем сохранения
+     * Название схемы берем из prompt, id генерируем только для новой схемы, версию заменяем временем сохранения
      */
     async saveScheme() {
         try {
-            // 1. Открываем диалог сохранения файла
-            const suggestedName = this.currentSchemaId ? `${this.currentSchemaId}.json` : 'schema-new.json';
-            const fileName = await this.pickSaveFileName(suggestedName);
-            if (!fileName) return;
+            // 1. Запрашиваем имя схемы через prompt
+            const suggestedName = this.currentSchemaId ? this.currentSchemaId.split('-').slice(0, -1).join('-') : 'schema-new';
+            const schemeName = await this.pickSchemeName(suggestedName);
+            if (!schemeName) return;
 
-            // 2. Имя файла без расширения = название схемы
-            const baseName = fileName.endsWith('.json') ? fileName.slice(0, -5) : fileName;
             const now = new Date();
             const timestamp = now.toISOString();
             const timePart = now.toISOString().replace(/[:.]/g, '-');
 
-            // 3. Генерация/сохранение schemaId (только если новая)
+            // 2. Генерация/сохранение schemaId (только если новая)
             if (!this.currentSchemaId) {
-                this.currentSchemaId = `${baseName}-${timePart}`;
+                this.currentSchemaId = `${schemeName}-${timePart}`;
             }
 
-            // 4. Версия = время сохранения
+            // 3. Версия = время сохранения
             this.currentSchemaVersion = timePart;
 
             const scheme = {
                 schemaId: this.currentSchemaId,
                 version: this.currentSchemaVersion,
-                name: baseName,
+                name: schemeName,
                 timestamp: timestamp,
                 images: this.imageManager.getImages().map(konvaImg => ({
                     imageId: konvaImg.getAttr('imageId'),
@@ -178,7 +186,9 @@ class FileManager {
             };
             
             const jsonString = JSON.stringify(scheme, null, 2);
-            this.downloadJSON(jsonString, fileName);
+            // Дожидаемся когда файл будет готов к скачиванию
+            const fileName = this.currentSchemaId.endsWith('.json') ? this.currentSchemaId : `${this.currentSchemaId}.json`;
+            await this.downloadJSON(jsonString, fileName);
             console.log(`Структура схемы сохранена: ${this.currentSchemaId} v${this.currentSchemaVersion}`);
         } catch (error) {
             console.error('Ошибка при сохранении структуры:', error);
@@ -200,7 +210,15 @@ class FileManager {
             const reader = new FileReader();
             reader.onload = (event) => {
                 try {
-                    const scheme = JSON.parse(event.target.result);
+                    const fileContent = event.target.result;
+                    
+                    // Проверка что файл не пустой
+                    if (!fileContent || fileContent.trim() === '') {
+                        alert('Ошибка: файл пустой или повреждён');
+                        return;
+                    }
+                    
+                    const scheme = JSON.parse(fileContent);
                     
                     this.currentSchemaId = scheme.schemaId || null;
                     this.currentSchemaVersion = scheme.version || null;
@@ -218,7 +236,7 @@ class FileManager {
                     });
                 } catch (error) {
                     console.error('Ошибка при загужении структуры:', error);
-                    alert('Ошибка при загужении структуры схемы');
+                    alert('Ошибка при загужении структуры схемы: ' + error.message);
                 }
             };
             reader.readAsText(file);
@@ -231,7 +249,7 @@ class FileManager {
      * Файл: bindings-{schemaId}-{machineId}.json
      * machineId автоматически добавляется из BindingsManager
      */
-    saveBindings() {
+    async saveBindings() {
         try {
             // Валидация Уровень 3: режим сохранения
             if (!this.currentSchemaId) {
@@ -262,7 +280,8 @@ class FileManager {
             };
             
             const jsonString = JSON.stringify(bindings, null, 2);
-            this.downloadJSON(jsonString, `bindings-${this.currentSchemaId}-${machineId}.json`);
+            const fileName = `bindings-${this.currentSchemaId}-${machineId}.json`;
+            await this.downloadJSON(jsonString, fileName);
             console.log(`Привязки сохранены: ${this.currentSchemaId} для ${machineId}`);
         } catch (error) {
             console.error('Ошибка при сохранении привязок:', error);
@@ -286,7 +305,15 @@ class FileManager {
             const reader = new FileReader();
             reader.onload = (event) => {
                 try {
-                    const bindingsData = JSON.parse(event.target.result);
+                    const fileContent = event.target.result;
+                    
+                    // Проверка что файл не пустой
+                    if (!fileContent || fileContent.trim() === '') {
+                        alert('Ошибка: файл пустой или повреждён');
+                        return;
+                    }
+                    
+                    const bindingsData = JSON.parse(fileContent);
                     
                     // Валидация Уровень 3: schemaId совпадает?
                     if (bindingsData.schemaId !== this.currentSchemaId) {
@@ -318,7 +345,7 @@ class FileManager {
                     console.log(`Привязки загружены: ${bindingsData.schemaId} для ${bindingsData.machineId}`);
                 } catch (error) {
                     console.error('Ошибка при загужении привязок:', error);
-                    alert('Ошибка при загужении привязок');
+                    alert('Ошибка при загужении привязок: ' + error.message);
                 }
             };
             reader.readAsText(file);
@@ -346,19 +373,6 @@ class FileManager {
             this.bindingsManager.bindings = [];
         }
         console.log('Canvas очищен');
-    }
-
-    /**
-     * Вспомогательный метод для скачивания JSON
-     */
-    downloadJSON(jsonString, filename) {
-        const blob = new Blob([jsonString], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename;
-        link.click();
-        URL.revokeObjectURL(url);
     }
 }
 
