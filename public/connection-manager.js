@@ -245,6 +245,84 @@ class ConnectionManager {
         });
     }
 
+    /**
+     * Импорт соединений из сохраненной схемы
+     * Восстанавливает соединения между пинами по их ID
+     */
+    importConnections(connectionsData, connectionPointManager) {
+        this.clear();
+        if (!Array.isArray(connectionsData)) return;
+
+        const pointsMap = {};
+        connectionPointManager.getPoints().forEach(point => {
+            const meta = point.getAttr('cp-meta') || {};
+            pointsMap[meta.id] = point;
+        });
+
+        connectionsData.forEach(data => {
+            const fromPin = pointsMap[data.fromPinId];
+            const toPin = pointsMap[data.toPinId];
+            
+            if (!fromPin || !toPin) {
+                console.warn(`importConnections: pin not found (${data.fromPinId} -> ${data.toPinId})`);
+                return;
+            }
+
+            const segments = data.segments && Array.isArray(data.segments) ? data.segments : ConnectionRouter.calculateSegments(fromPin, toPin);
+            const points = ConnectionRouter.segmentsToPoints(segments);
+
+            const connection = new Konva.Line({
+                points: points,
+                stroke: '#000',
+                strokeWidth: 2,
+                listening: true,
+                hitStrokeWidth: 10
+            });
+
+            const fromPinMeta = fromPin.getAttr('cp-meta');
+            const toPinMeta = toPin.getAttr('cp-meta');
+
+            connection.setAttr('connection-meta', {
+                id: data.id,
+                fromPin: fromPin,
+                toPin: toPin,
+                segments: segments,
+                handles: [],
+                isDragging: false,
+                userModified: data.userModified || false,
+                lastModified: new Date().toISOString(),
+                highlightLine: null
+            });
+
+            connection.on('click', (e) => {
+                e.cancelBubble = true;
+                this.selectConnection(connection);
+                if (this.onConnectionSelected) {
+                    this.onConnectionSelected(connection);
+                }
+            });
+
+            connection.on('dblclick', (e) => {
+                e.cancelBubble = true;
+                this.handleBreakPoint(connection);
+            });
+
+            fromPinMeta.connectedTo = toPinMeta.id;
+            toPinMeta.connectedTo = fromPinMeta.id;
+            fromPin.setAttr('cp-meta', fromPinMeta);
+            toPin.setAttr('cp-meta', toPinMeta);
+
+            fromPin.fill('#dc3545');
+            toPin.fill('#dc3545');
+
+            this.canvasManager.getLayer().add(connection);
+            this.connections.push(connection);
+        });
+
+        this.canvasManager.getLayer().batchDraw();
+        console.log(`Загружено ${connectionsData.length} соединений`);
+    }
+
     clear() {
         this.connections.forEach(c => c.destroy());
         this.connections = [];
