@@ -1,4 +1,4 @@
-# Механика Привязки к Машине
+# Механика Привязки к Определённой Машине
 
 **Версия**: 1.0  
 **Дата**: 02.02.2026  
@@ -12,16 +12,16 @@
 
 **Одна схема = Одна машина одновременно**
 
-Каждый оператор/админ выбирает машину В НАЧАЛЕ сессии, а затем:
-- Видит НОВЫЕ элементы только этой машины
-- Назначает тэги ОНЛИ из этой машины
-- Сохраняет привязки в bindings-schema-machine-X.json
+Каждый оператор/администратор выбирает машину В НАЧАЛЕ сессии, а затем:
+- Видит ОПОЛЬКО гетами этой машины
+- Назначает МАРКЕРОВ ТОЛЬКО из этой машины
+- Хранит привязки в bindings-schema-machine-X.json
 
 ### Почему это нужно
 
-1. **Обезопасность**: Оператор A не может случайно управлять машиной B
-2. **UX**: Нет лишних тэгов других машин
-3. **Простота**: Не нужно в каждй привязке лавтия акакое устройство
+1. **Безопасность**: Оператор A не может случайно управлять машиной B
+2. **Освяй: Нет лишних маркеров других машин
+3. **Простота**: Не нужно в каждой привязке указывать навание устройства
 
 ### Файлы
 
@@ -32,62 +32,62 @@ schema-boiler-system-v1.0.json
 ├─ images: [...]
 └─ elements: [...]
 
-ЦЕН
-blank: bindings-boiler-system-machine-A.json
-├─ schemaId: "boiler-system"
-├─ machineId: "machine-A"          ← ВЫБРАНО!
-├─ bindings: [{elementId: "el1", tag: "tempSensor_A"}]
-└─ timestamp
-
-bindings-boiler-system-machine-B.json
-├─ schemaId: "boiler-system"       (та же схема!)
-├─ machineId: "machine-B"          ← ВЫБРАНО!
-├─ bindings: [{elementId: "el1", tag: "tempSensor_B"}]  ← другие теги
-└─ timestamp
+Все:
+  bindings-boiler-system-machine-A.json
+  ├─ schemaId: "boiler-system"
+  ├─ machineId: "machine-A"          ← ВЫБРАНО!
+  ├─ bindings: [{elementId: "el1", tag: "tempSensor_A"}]
+  └─ timestamp
+  
+  bindings-boiler-system-machine-B.json
+  ├─ schemaId: "boiler-system"       (та же схема!)
+  ├─ machineId: "machine-B"          ← ВЫБРАНО!
+  ├─ bindings: [{elementId: "el1", tag: "tempSensor_B"}]  ← другие маркеры
+  └─ timestamp
 ```
 
 ---
 
-## Настройка Обвязки: Запрос Элементов
+## Настройка Привязки: Запрос Устройств
 
 ```
 Цикл:
 
-1. Adminl/Operator открывает редактор
+1. Admin/Operator открывает редактор
    |
-2. Нагружена schema-boiler-system.json
+2. Загружена schema-boiler-system.json
    |
-3. Dropdown для выбора машины
+3. Кнопка для выбора машины
    |
 4. "Выберите машину: [machine-A ]"
    |
 5. API запрос: GET /api/machines/machine-A/devices
-   Вернет: ["tempSensor_A_main", "pump_A_control", "pressure_A_valve"]
+   Возвращает: ["tempSensor_A_main", "pump_A_control", "pressure_A_valve"]
    |
-6. Программа показывает авайлабль дивайсы в UI
+6. Программа показывает доступные устройства в интерфейсе
    |
-7. Admin настраивает привязки ОНЛИ для machine-A
+7. Admin настраивает привязки ТОЛЬКО для machine-A
    |
-8. Сохраняет bindings-boiler-system-machine-A.json
+8. Хранит bindings-boiler-system-machine-A.json
    |
-9. Оператор машины A загружает этот файл
-   видит свои тэги (температура, насос т.d.)
+9. Operator machine-A загружает этот файл
+   видит свои маркеры (температура, насос т.д.)
 ```
 
-### Валидация на 4 уровнях
+### Валидация на 4 Уровнях
 
 | Уровень | Основание | Код |
 |----------|-----------|------|
 | **1** | Машина выбрана? | `if (!selectedMachineId) alert(...)` |
-| **2** | Тэг из этой машины? | `if (!availableDevices.includes(tag)) alert(...)` |
+| **2** | Маркер из этой машины? | `if (!availableDevices.includes(tag)) alert(...)` |
 | **3** | Смена машины - сбросить ли? | `confirm("Привязки сбросятся")` |
-| **4** | При загрузке: bindings.machineId == selectedMachineId? | `if (mismatch) switchMachine()` |
+| **4** | При загружке: bindings.machineId == selectedMachineId? | `if (mismatch) switchMachine()` |
 
 ---
 
 ## ФАЗЫ РЕАЛИЗАЦИИ
 
-### Фаза A: UI - дропдаун выбора машины (1ч)
+### Фаза A: UI - допдаун выбора машины (1ч)
 
 **Цель**: добавить на панель инструментов выбор машины
 
@@ -110,20 +110,20 @@ bindings-boiler-system-machine-B.json
 </div>
 ```
 
-- [ ] Дропдаун в UI
-- [ ] Button "Confirm" выводит выборнное значение
-- [ ] Попанел девайсес скрыта вначале
+- [ ] Кнопка в интерфейсе
+- [ ] Button "Confirm" выводит выбранное значение
+- [ ] Панель устройств скрыта в начале
 
 ### Фаза B: BindingsManager - свойства и методы (1.5ч)
 
-**Цель**: добавить в `public/bindings-manager.js` (?новый класс)
+**Цель**: добавить в `public/bindings-manager.js` (новый класс)
 
 ```javascript
 class BindingsManager {
     constructor() {
         this.selectedMachineId = null;
-        this.availableDevices = [];  // тяги выбранной машины
-        this.bindings = [];           // контент {elementId, deviceTag}
+        this.availableDevices = [];  // маркеры выбранной машины
+        this.bindings = [];           // содержимое {elementId, deviceTag}
     }
     
     selectMachine(machineId) {
@@ -139,17 +139,17 @@ class BindingsManager {
     
     async fetchDevices(machineId) {
         // GET /api/machines/{machineId}/devices
-        // Вернет: ["tag1", "tag2", ...]
+        // Возвращает: ["tag1", "tag2", ...]
     }
     
     canAssignDevice(deviceTag) {
         if (!this.selectedMachineId) return false;  // Машина не выбрана
-        return this.availableDevices.includes(deviceTag);  // Тэг истами
+        return this.availableDevices.includes(deviceTag);  // Маркер совпадает
     }
     
     assignDeviceToElement(elementId, deviceTag) {
         if (!this.canAssignDevice(deviceTag)) {
-            alert(`"${deviceTag}" не к машине ${this.selectedMachineId}!`);
+            alert(`"${deviceTag}" не то машины ${this.selectedMachineId}!`);
             return false;
         }
         this.bindings.push({elementId, deviceTag});
@@ -159,20 +159,20 @@ class BindingsManager {
 ```
 
 - [ ] Объявлены свойства
-- [ ] Реализован `selectMachine()`
-- [ ] Реализован `canAssignDevice()`
-- [ ] Реализован `assignDeviceToElement()` с валидацией
+- [ ] Написан `selectMachine()`
+- [ ] Написан `canAssignDevice()`
+- [ ] Написан `assignDeviceToElement()` с валидацией
 
 ### Фаза C: Обработчики UI (1ч)
 
-**Цель**: связать dropdown и девайс панель с BindingsManager
+**Цель**: связать кнопка и панель с BindingsManager
 
 ```javascript
 // При выборе машины
 document.getElementById('confirm-machine-btn').addEventListener('click', async () => {
     const machineId = document.getElementById('machine-select').value;
     if (bindingsManager.selectMachine(machineId)) {
-        // Показать девайсы
+        // Показать устройства
         updateDevicesList(bindingsManager.availableDevices);
         document.getElementById('devices-panel').style.display = 'block';
         document.getElementById('current-machine').textContent = machineId;
@@ -180,16 +180,16 @@ document.getElementById('confirm-machine-btn').addEventListener('click', async (
 });
 ```
 
-- [ ] Обработчик dropdown
+- [ ] Обработчик на кнопку
 - [ ] При нажатии Confirm: вызвать `selectMachine()`
-- [ ] Показать/скрыть панель девайсес
+- [ ] Показывать/скрывать панель устройств
 
 ### Фаза D: Привязка элементов - валидация (1.5ч)
 
-**Цель**: когда админ назначает тэг элементу - проверять
+**Цель**: когда админ назначает маркер элементу - проверять
 
 ```javascript
-// При попытке назначить тэг элементу
+// При попытке назначить маркер элементу
 function assignTag(elementId, deviceTag) {
     // Валидация Уровень 1: машина выбрана?
     if (!bindingsManager.selectedMachineId) {
@@ -197,9 +197,9 @@ function assignTag(elementId, deviceTag) {
         return;
     }
     
-    // Валидация Уровень 2: тэг для этой машины?
+    // Валидация Уровень 2: маркер для этой машины?
     if (!bindingsManager.canAssignDevice(deviceTag)) {
-        alert(`Острѕвка: "${deviceTag}" не для ${bindingsManager.selectedMachineId}`);
+        alert(`Предупреждение: "${deviceTag}" не для ${bindingsManager.selectedMachineId}`);
         return;
     }
     
@@ -208,12 +208,12 @@ function assignTag(elementId, deviceTag) {
 ```
 
 - [ ] Проверить выбор машины (Уровень 1)
-- [ ] Проверить раличность тэга (Уровень 2)
-- [ ] Останавливать ассайнмент если не прщла валидация
+- [ ] Проверить принадлежность маркера (Уровень 2)
+- [ ] Останавливать присвоение если валидация не пройдена
 
-### Фаза E: Сохранение - машина авто (0.5ч)
+### Фаза E: Хранение - машина авто (0.5ч)
 
-**Цель**: machineId автоматически добавлятся в bindings.json
+**Цель**: machineId автоматически добавляется в bindings.json
 
 ```javascript
 // В FileManager.saveBindings()
@@ -230,12 +230,12 @@ const bindings = {
 };
 ```
 
-- [ ] machineId параметр берётся из BindingsManager
-- [ ] Не нужно попытся вводить оператором
+- [ ] machineId берется из BindingsManager
+- [ ] Не нужно пытаться вводить оператором
 
 ### Фаза F: Загружка - проверка машины (1ч)
 
-**Цель**: Когда загружаем bindings - убедиться что машина соответствует
+**Цель**: Когда загружаем bindings - убедиться что машина совпадает
 
 ```javascript
 // В FileManager.loadBindings()
@@ -248,43 +248,43 @@ if (bindings.machineId !== bindingsManager.selectedMachineId) {
     bindingsManager.selectMachine(bindings.machineId);
 }
 
-// Применять
+// Показать
 bindingsManager.bindings = bindings.bindings;
 ```
 
-- [ ] Проверять machineId ис файла vs выбранная
+- [ ] Проверить machineId из файла vs выбранная
 - [ ] Если разные - спросить
 - [ ] Переключить машину если оператор согласен
 
 ---
 
-## Тестирование всех фаз (1.5ч)
+## ТЕСТИРОВАНИЕ всех фаз (1.5ч)
 
 ### Сценарий 1: Основной
 
-- [ ] Нагружена schema-boiler-system.json
-- [ ] Dropdown: выбрать "machine-A"
-- [ ] Confirm - показалась панель девайсес для machine-A
+- [ ] Загружена schema-boiler-system.json
+- [ ] Кнопка: выбрать "machine-A"
+- [ ] Confirm - показалась панель для machine-A
 - [ ] Настроить привязки только для A
-- [ ] Сохранить - машина = machine-A в файле
+- [ ] Хранить - машина = machine-A в файле
 - [ ] Очистить панель
-- [ ] Dropdown: выбрать "machine-B"
+- [ ] Кнопка: выбрать "machine-B"
 - [ ] Настроить привязки для B в той же схеме
-- [ ] Сохранить - машина = machine-B
+- [ ] Хранить - машина = machine-B
 
 ### Сценарий 2: Валидация
 
 - [ ] Настройка machine-A
-- [ ] Попытка назначить тэг от machine-B - ошибка?
+- [ ] Попытка назначить маркер от machine-B - ошибка?
 - [ ] Попытка сменить машину с несохранёнными привязками - confirm?
-- [ ] Попытка загружить bindings несовместимой машины - confirm и переключение?
+- [ ] Попытка загрузить bindings несовместимой машины - confirm и переключение?
 
 ---
 
-## КОНТЭКСТ
+## КОНТЕКСТ
 
 **Связь с другими доками**:
-- Фазы A-B-C-D-E-F работают ПАРАЛЛЕЛНО с Фазами 1-5 из ITERATION_SAVE_LOAD_PLAN.md
-- Основные валидации остаемотся те же (Фаза 2 з ITERATION_SAVE_LOAD_PLAN)
+- Фазы A-B-C-D-E-F работают ПАРАЛЛЕЛЬНО с Фазами 1-5 из ITERATION_SAVE_LOAD_PLAN.md
+- Основные валидации остаются те же (Фаза 2 из ITERATION_SAVE_LOAD_PLAN)
 
-**Точка выполнения**: Работая над Фазой 2 документа ITERATION_SAVE_LOAD_PLAN.md, одновременно реализовать Фазы A-E.
+**Точка выполнения**: При работе над Фазой 2 документа ITERATION_SAVE_LOAD_PLAN.md одновременно реализовать Фазы A-E.
