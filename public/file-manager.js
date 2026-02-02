@@ -99,24 +99,58 @@ class FileManager {
     }
 
     /**
-     * Сохранить структуру схемы (schema-{schemaId}-v{version}.json)
-     * Включает: изображения (Base64), точки соединения, соединения, виджеты
+     * Вспомогательный метод: открыть системный диалог сохранения и вернуть выбранное имя файла
+     * Для совместимости с UX загрузки изображений/схем используем скрытый input[type="file"]
      */
-    saveScheme() {
+    async pickSaveFileName(defaultName = 'schema.json') {
+        return new Promise((resolve) => {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            // trick: allow user to type имя файла; фактическое сохранение всё равно через downloadJSON
+            input.nwsaveas = defaultName;
+            input.onchange = (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) {
+                    resolve(null);
+                    return;
+                }
+                resolve(file.name);
+            };
+            input.click();
+        });
+    }
+
+    /**
+     * Сохранить структуру схемы
+     * Название схемы берем из имени файла, id генерируем только для новой схемы, версию заменяем временем сохранения
+     */
+    async saveScheme() {
         try {
-            const schemaId = prompt('Введите ID схемы:', 'boiler-system');
-            if (!schemaId) return;
-            
-            const version = prompt('Введите версию схемы:', '1.0');
-            if (!version) return;
-            
-            this.currentSchemaId = schemaId;
-            this.currentSchemaVersion = version;
-            
+            // 1. Открываем файловый диалог, как для загрузки схемы/изображения
+            const suggestedName = this.currentSchemaId ? `${this.currentSchemaId}.json` : 'schema-new.json';
+            const fileName = await this.pickSaveFileName(suggestedName);
+            if (!fileName) return;
+
+            // 2. Имя файла без расширения = название схемы
+            const baseName = fileName.endsWith('.json') ? fileName.slice(0, -5) : fileName;
+            const now = new Date();
+            const timestamp = now.toISOString();
+            const timePart = now.toISOString().replace(/[:.]/g, '-');
+
+            // 3. Генерация/сохранение schemaId
+            if (!this.currentSchemaId) {
+                this.currentSchemaId = `${baseName}-${timePart}`;
+            }
+
+            // 4. Версия = время сохранения
+            this.currentSchemaVersion = timePart;
+
             const scheme = {
-                schemaId: schemaId,
-                version: version,
-                timestamp: new Date().toISOString(),
+                schemaId: this.currentSchemaId,
+                version: this.currentSchemaVersion,
+                name: baseName,
+                timestamp: timestamp,
                 images: this.imageManager.getImages().map(konvaImg => ({
                     imageId: konvaImg.getAttr('imageId'),
                     base64: this.imageToBase64(konvaImg),
@@ -128,19 +162,13 @@ class FileManager {
                     scaleY: konvaImg.scaleY()
                 })),
                 connectionPoints: this.connectionPointManager.exportPoints(),
-                connections: this.connectionManager.getConnections().map(conn => ({
-                    id: conn.getAttr('connection-meta')?.id,
-                    fromPinId: conn.getAttr('connection-meta')?.fromPin?.getAttr('cp-id'),
-                    toPinId: conn.getAttr('connection-meta')?.toPin?.getAttr('cp-id'),
-                    segments: conn.getAttr('connection-meta')?.segments,
-                    userModified: conn.getAttr('connection-meta')?.userModified
-                })),
+                connections: this.connectionManager.exportConnections(),
                 widgets: this.widgetManager ? this.widgetManager.exportWidgets() : []
             };
             
             const jsonString = JSON.stringify(scheme, null, 2);
-            this.downloadJSON(jsonString, `schema-${schemaId}-v${version}.json`);
-            console.log(`Структура схемы сохранена: ${schemaId} v${version}`);
+            this.downloadJSON(jsonString, fileName);
+            console.log(`Структура схемы сохранена: ${this.currentSchemaId} v${this.currentSchemaVersion}`);
         } catch (error) {
             console.error('Ошибка при сохранении структуры:', error);
             alert('Ошибка при сохранении структуры схемы');
@@ -196,7 +224,7 @@ class FileManager {
         try {
             // Валидация Уровень 3: режим сохранения
             if (!this.currentSchemaId) {
-                alert('Сначала сохраните или загружените структуру схемы!');
+                alert('Сначала сохраните или загрузите структуру схемы!');
                 return;
             }
             
@@ -208,12 +236,17 @@ class FileManager {
             
             const machineId = this.bindingsManager.selectedMachineId;
             
-            // Фаза E: machineId автоматически добавляется из BindingsManager
+            // Собираем привязки от виджетов через WidgetManager, если он есть
+            let widgetBindings = [];
+            if (this.widgetManager) {
+                widgetBindings = this.widgetManager.exportBindings();
+            }
+            
             const bindings = {
                 schemaId: this.currentSchemaId,
                 schemaVersion: this.currentSchemaVersion,
                 machineId: machineId,
-                bindings: this.bindingsManager.bindings || [],
+                bindings: widgetBindings,
                 timestamp: new Date().toISOString()
             };
             
@@ -266,8 +299,10 @@ class FileManager {
                         this.currentMachineId = bindingsData.machineId;
                     }
                     
-                    // Загрузить привязки
-                    this.bindingsManager.bindings = bindingsData.bindings || [];
+                    // Загрузить привязки в WidgetManager
+                    if (this.widgetManager && Array.isArray(bindingsData.bindings)) {
+                        this.widgetManager.importBindings(bindingsData.bindings);
+                    }
                     this.currentMachineId = bindingsData.machineId;
                     console.log(`Привязки загружены: ${bindingsData.schemaId} для ${bindingsData.machineId}`);
                 } catch (error) {
