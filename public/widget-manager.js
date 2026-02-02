@@ -311,30 +311,65 @@ export class WidgetManager {
     console.log('All widgets cleared');
   }
   
-  // Экспорт виджетов для сохранения
+  /**
+   * Экспорт виджетов для сохранения - все свойства каждого типа
+   */
   exportWidgets() {
-    return this.widgets.map(w => ({
-      id: w.id,
-      type: w.type,
-      imageId: w.imageId,
-      x: w.x,
-      y: w.y,
-      width: w.width,
-      height: w.height,
-      relativeX: w.relativeX,
-      relativeY: w.relativeY,
-      fontSize: w.fontSize,
-      color: w.color,
-      backgroundColor: w.backgroundColor,
-      bindingId: w.bindingId,
-      displayValue: w.displayValue,
-      radius: w.radius,
-      colorOn: w.colorOn,
-      colorOff: w.colorOff
-    }));
+    return this.widgets.map(w => {
+      const base = {
+        id: w.id,
+        type: w.type,
+        imageId: w.imageId,
+        x: w.x,
+        y: w.y,
+        width: w.width,
+        height: w.height,
+        relativeX: w.relativeX,
+        relativeY: w.relativeY,
+        fontSize: w.fontSize,
+        color: w.color,
+        backgroundColor: w.backgroundColor,
+        borderColor: w.borderColor || '#cccccc',
+        bindingId: w.bindingId || null
+      };
+      
+      // Display виджеты
+      if (w.type === 'number-display') {
+        return { ...base, decimals: w.decimals, unit: w.unit, displayValue: w.displayValue };
+      }
+      if (w.type === 'text-display') {
+        return { ...base, displayText: w.displayText, text: w.displayText };
+      }
+      if (w.type === 'led') {
+        return { ...base, radius: w.radius, colorOn: w.colorOn, colorOff: w.colorOff, isOn: w.isOn };
+      }
+      
+      // Input виджеты
+      if (w.type === 'number-input') {
+        return { ...base, min: w.min, max: w.max, step: w.step, currentValue: w.currentValue, placeholder: w.placeholder };
+      }
+      if (w.type === 'text-input') {
+        return { ...base, maxLength: w.maxLength, pattern: w.pattern, currentValue: w.currentValue, placeholder: w.placeholder };
+      }
+      
+      // Control виджеты
+      if (w.type === 'toggle') {
+        return { ...base, isOn: w.isOn, labelOn: w.labelOn, labelOff: w.labelOff, backgroundColorOn: w.backgroundColorOn, backgroundColorOff: w.backgroundColorOff };
+      }
+      if (w.type === 'button') {
+        return { ...base, text: w.text };
+      }
+      if (w.type === 'slider') {
+        return { ...base, min: w.min, max: w.max, step: w.step, value: w.value };
+      }
+      
+      return base;
+    });
   }
   
-  // Экспорт только привязок виджетов
+  /**
+   * Экспорт только привязок виджетов
+   */
   exportBindings() {
     return this.widgets
       .filter(w => !!w.bindingId)
@@ -344,7 +379,9 @@ export class WidgetManager {
       }));
   }
 
-  // Импорт привязок: применить deviceId к уже существующим виджетам
+  /**
+   * Импорт привязок: применить deviceId к уже существующим виджетам
+   */
   importBindings(bindings) {
     if (!Array.isArray(bindings)) return;
     bindings.forEach(b => {
@@ -356,15 +393,17 @@ export class WidgetManager {
     console.log(`Bindings imported for ${bindings.length} elements`);
   }
 
-  // Импорт виджетов из сохраненных данных
-  importWidgets(widgetsData) {
+  /**
+   * Импорт виджетов из сохраненных данных - все свойства
+   */
+  importWidgets(widgetsData, imageManager) {
     if (!widgetsData || !Array.isArray(widgetsData)) {
       console.warn('importWidgets: invalid data provided');
       return;
     }
     
     widgetsData.forEach(data => {
-      if (!this.imageManager.getImage(data.imageId)) {
+      if (!imageManager.getImage(data.imageId)) {
         console.warn(`importWidgets: image ${data.imageId} not found, skipping widget`);
         return;
       }
@@ -380,7 +419,9 @@ export class WidgetManager {
     console.log(`Imported ${widgetsData.length} widgets`);
   }
   
-  // Привязать обработчики drag и click (НОВОЕ: отделено для переиспользования)
+  /**
+   * Привязать обработчики drag и click (отделено для переиспользования)
+   */
   attachDragHandlers(widget) {
     if (!widget.konvaGroup) return;
     
@@ -448,7 +489,9 @@ export class WidgetManager {
     widget.konvaGroup.on('dragend', dragendHandler);
   }
   
-  // Переприсоединить обработчики событий (используется после render())
+  /**
+   * Переприсоединить обработчики событий (используется после render())
+   */
   reattachDragHandlers(widget) {
     if (!widget.konvaGroup) return;
     
