@@ -48,6 +48,7 @@ class UIController {
             this.canvasManager
         );
         this.bindingsManager = new BindingsManager([]);
+        this.propertiesPanel.setBindingsManager(this.bindingsManager);
         this.fileManager = new FileManager(
             this.canvasManager,
             this.imageManager,
@@ -81,7 +82,6 @@ class UIController {
             }
             const data = await response.json();
             if (data.devices && Array.isArray(data.devices)) {
-                this.propertiesPanel.setDevices(data.devices);
                 this.bindingsManager.allDevices = data.devices;
             }
         } catch (error) {
@@ -127,7 +127,7 @@ class UIController {
     setupGlobalWidgetCallbacks() {
         window.onWidgetSelected = (widget) => {
             this.selectionManager.selectWidget(widget);
-            this.propertiesPanel.showPropertiesForWidget(widget, this.bindingsManager);
+            this.propertiesPanel.showPropertiesForWidget(widget);
         };
 
         window.onWidgetPropertyChange = (widget, property, value) => {
@@ -135,12 +135,12 @@ class UIController {
                 const newX = property === 'x' ? value : widget.x;
                 const newY = property === 'y' ? value : widget.y;
                 this.widgetManager.updatePosition(widget.id, newX, newY);
-                this.propertiesPanel.refreshWidgetProperties(widget, this.bindingsManager);
+                this.propertiesPanel.refreshWidgetProperties(widget);
             } else if (property === 'width' || property === 'height') {
                 const newW = property === 'width' ? value : widget.width;
                 const newH = property === 'height' ? value : widget.height;
                 this.widgetManager.updateSize(widget.id, newW, newH);
-                this.propertiesPanel.refreshWidgetProperties(widget, this.bindingsManager);
+                this.propertiesPanel.refreshWidgetProperties(widget);
             } else if (property === 'deviceId') {
                 // Валидация Уровень 2 + Уровень 4: маркер для этой машины?
                 if (!this.bindingsManager.assignDeviceToElement(widget.id, value)) {
@@ -158,7 +158,7 @@ class UIController {
         };
 
         window.onWidgetDragEnd = (widget) => {
-            this.propertiesPanel.refreshWidgetProperties(widget, this.bindingsManager);
+            this.propertiesPanel.refreshWidgetProperties(widget);
         };
 
         window.layer = this.canvasManager.getLayer();
