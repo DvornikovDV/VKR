@@ -10,6 +10,7 @@ import { PropertiesPanel } from './properties-panel.js';
 import { FileManager } from './file-manager.js';
 import { WidgetManager } from './widget-manager.js';
 import { ContextMenu } from './context-menu.js';
+import { BindingsManager } from './bindings-manager.js';
 
 class UIController {
     constructor() {
@@ -22,14 +23,12 @@ class UIController {
         this.fileManager = null;
         this.widgetManager = null;
         this.contextMenu = null;
+        this.bindingsManager = null;
 
         this.isCreateLineMode = false;
         this.isConnectionEditMode = false;
         this.firstPinSelected = null;
         this.previewLine = null;
-        
-        this.selectedMachineId = null;
-        this.availableDevices = [];
 
         this.init();
     }
@@ -48,12 +47,14 @@ class UIController {
             this.imageManager,
             this.canvasManager
         );
+        this.bindingsManager = new BindingsManager([]);
         this.fileManager = new FileManager(
             this.canvasManager,
             this.imageManager,
             this.connectionPointManager,
             this.connectionManager,
-            this.widgetManager
+            this.widgetManager,
+            this.bindingsManager
         );
         this.contextMenu = new ContextMenu();
 
@@ -81,6 +82,7 @@ class UIController {
             const data = await response.json();
             if (data.devices && Array.isArray(data.devices)) {
                 this.propertiesPanel.setDevices(data.devices);
+                this.bindingsManager.allDevices = data.devices;
             }
         } catch (error) {
             console.error('Ошибка загрузки реестра устройств:', error);
@@ -88,7 +90,7 @@ class UIController {
     }
 
     /**
-     * Настройка UI для выбора машины (Фаза A)
+     * Настройка UI для выбора машины (Фаза A + C)
      */
     setupMachineSelection() {
         const confirmBtn = document.getElementById('confirm-machine-btn');
@@ -106,10 +108,12 @@ class UIController {
                 return;
             }
             
-            this.selectedMachineId = machineId;
-            this.fileManager.currentMachineId = machineId;
-            this.updateAvailableDevices(machineId);
+            // Валидация Уровень 1: машина выбрана?
+            if (!this.bindingsManager.selectMachine(machineId)) {
+                return;
+            }
             
+            this.fileManager.currentMachineId = machineId;
             currentMachineSpan.textContent = machineId;
             devicesPanel.style.display = 'block';
             
@@ -119,28 +123,15 @@ class UIController {
     }
 
     /**
-     * Обновить доступные устройства для выбранной машины
-     */
-    updateAvailableDevices(machineId) {
-        this.availableDevices = [];
-        const allDevices = this.propertiesPanel.devices || [];
-        
-        for (const device of allDevices) {
-            if (device.machineId === machineId) {
-                this.availableDevices.push(device.id);
-            }
-        }
-    }
-
-    /**
      * Заполнить список устройств для выбранной машины
      */
     populateDevicesList(listElement, machineId) {
         if (!listElement) return;
         
         listElement.innerHTML = '';
-        const allDevices = this.propertiesPanel.devices || [];
-        const machineDevices = allDevices.filter(d => d.machineId === machineId);
+        const machineDevices = this.bindingsManager.availableDevices.map(deviceId => {
+            return this.bindingsManager.allDevices.find(d => d.id === deviceId);
+        }).filter(d => d);
         
         if (machineDevices.length === 0) {
             const li = document.createElement('li');
@@ -164,7 +155,7 @@ class UIController {
     setupGlobalWidgetCallbacks() {
         window.onWidgetSelected = (widget) => {
             this.selectionManager.selectWidget(widget);
-            this.propertiesPanel.showPropertiesForWidget(widget);
+            this.propertiesPanel.showPropertiesForWidget(widget, this.bindingsManager);
         };
 
         window.onWidgetPropertyChange = (widget, property, value) => {
@@ -172,12 +163,19 @@ class UIController {
                 const newX = property === 'x' ? value : widget.x;
                 const newY = property === 'y' ? value : widget.y;
                 this.widgetManager.updatePosition(widget.id, newX, newY);
-                this.propertiesPanel.refreshWidgetProperties(widget);
+                this.propertiesPanel.refreshWidgetProperties(widget, this.bindingsManager);
             } else if (property === 'width' || property === 'height') {
                 const newW = property === 'width' ? value : widget.width;
                 const newH = property === 'height' ? value : widget.height;
                 this.widgetManager.updateSize(widget.id, newW, newH);
-                this.propertiesPanel.refreshWidgetProperties(widget);
+                this.propertiesPanel.refreshWidgetProperties(widget, this.bindingsManager);
+            } else if (property === 'deviceId') {
+                // Валидация Уровень 2 + Уровень 4: маркер для этой машины?
+                if (!this.bindingsManager.assignDeviceToElement(widget.id, value)) {
+                    return;
+                }
+                widget.deviceId = value;
+                console.log(`Привязка: ${widget.id} -> ${value}`);
             }
         };
 
@@ -188,7 +186,7 @@ class UIController {
         };
 
         window.onWidgetDragEnd = (widget) => {
-            this.propertiesPanel.refreshWidgetProperties(widget);
+            this.propertiesPanel.refreshWidgetProperties(widget, this.bindingsManager);
         };
 
         window.layer = this.canvasManager.getLayer();
