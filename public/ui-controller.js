@@ -48,6 +48,7 @@ class UIController {
             this.canvasManager
         );
         this.bindingsManager = new BindingsManager([]);
+        this.bindingsManager.setWidgetManager(this.widgetManager); // передача ссылки для очистки привязок
         this.propertiesPanel.setBindingsManager(this.bindingsManager);
         this.fileManager = new FileManager(
             this.canvasManager,
