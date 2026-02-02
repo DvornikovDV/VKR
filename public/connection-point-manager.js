@@ -195,6 +195,94 @@ class ConnectionPointManager {
     }
 
     /**
+     * Экспорт точек соединения для сохранения схемы
+     */
+    exportPoints() {
+        return this.points.map(point => {
+            const meta = point.getAttr('cp-meta') || {};
+            return {
+                id: meta.id,
+                side: meta.side,
+                offset: meta.offset,
+                imageId: meta.imageId || ''
+            };
+        });
+    }
+
+    /**
+     * Импорт точек соединения из сохраненной схемы
+     */
+    importPoints(pointsData, imageManager) {
+        this.clear();
+        if (!Array.isArray(pointsData)) return;
+
+        const layer = this.canvasManager.getLayer();
+
+        pointsData.forEach(data => {
+            const imageNode = imageManager.getImage(data.imageId);
+            if (!imageNode) return;
+
+            const xy = this.sideAndOffsetToXY(imageNode, data.side, data.offset);
+
+            const point = new Konva.Circle({
+                x: xy.x,
+                y: xy.y,
+                radius: HANDLE_RADIUS,
+                fill: '#198754',
+                stroke: '#fff',
+                strokeWidth: 1,
+                draggable: true,
+                hitStrokeWidth: 20,
+                listening: true
+            });
+
+            point.setAttr('cp-meta', {
+                id: data.id,
+                side: data.side,
+                offset: data.offset,
+                connectedTo: null,
+                imageId: data.imageId || ''
+            });
+
+            point.on('dragmove', () => {
+                const current = point.getAttr('cp-meta');
+                const proj = this.projectAlongSide(imageNode, current.side, point.position());
+                point.position(proj.xy);
+                current.offset = proj.offset;
+                point.setAttr('cp-meta', current);
+
+                if (this.onPointMoved) {
+                    this.onPointMoved(point);
+                }
+                this.canvasManager.getLayer().batchDraw();
+            });
+
+            point.on('click', (e) => {
+                e.evt.stopPropagation();
+                if (this.onPointSelected) {
+                    this.onPointSelected(point);
+                }
+            });
+
+            point.on('dblclick', (e) => {
+                e.evt.stopPropagation();
+                if (this.onPointDoubleClick) {
+                    this.onPointDoubleClick(point);
+                }
+            });
+
+            if (!Array.isArray(imageNode._cp_points)) imageNode._cp_points = [];
+            imageNode._cp_points.push(point);
+
+            layer.add(point);
+            this.points.push(point);
+        });
+
+        this.canvasManager.getLayer().batchDraw();
+        this.canvasManager.getStage().batchDraw();
+    }
+
+    /**
      * Очистить все точки
      */
     clear() {
