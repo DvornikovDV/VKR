@@ -1,282 +1,127 @@
-# Лист задач: Разделение схемы на структуру и привязки + Base64
+# Лист задач: Просмотр гиа схемы и привязок + валидация
 
-**Версия**: 2.0  
-**Дата**: 02.02.2026  
-**Статус**: Не начато
-
----
-
-## ФАЗА 1: Проверка текущей реализации
-
-### Время: 1 час
-
-#### ЗАДАЧА 1.1: Анализ `public/file-manager.js`
-
-- [ ] **Открыть файл**
-  - [ ] Найти метод `saveScheme()`
-  - [ ] Найти метод `loadScheme()`
-  - [ ] Понять текущую структуру JSON экспорта
-
-- [ ] **Найти методы экспорта изображений**
-  - [ ] Есть ли `imageManager.exportImages()`?
-  - [ ] Что он возвращает? (только URL или Base64?)
-  - [ ] Есть ли `imageManager.importImages()`?
-
-- [ ] **Проверить привязки (ВАЖНО!)**
-  - [ ] Есть ли в JSON теги, bindings, machineId?
-  - [ ] Если  да - перенести отдельно (они должны быть отдельно!)
-
-#### ЗАДАЧА 1.2: Проверка UI кнопок в `public/index.html`
-
-- [ ] **Найти кнопки сохранения/загружки**
-  - [ ] Кнопка "Сохранить" - на каких элементах?
-  - [ ] Кнопка "Загрузить" - какой id/class?
-  - [ ] Работают ли на панели инструментов?
-
-- [ ] **Клик на кнопки**
-  - [ ] "Сохранить" → вызывает `saveScheme()`?
-  - [ ] "Загрузить" → вызывает `loadScheme()`?
-  - [ ] Диалогы выбора файлов работают?
-
-#### ЗАДАЧА 1.3: Тестирование текущей функциональности
-
-- [ ] **Току и набоскав**
-  - [ ] Нарисовать схему с 2-3 изображениями
-  - [ ] Нажать "Сохранить" → скачивается JSON?
-  - [ ] Очистить canvas
-  - [ ] Нажать "Загрузить" → выбрать JSON
-  - [ ] Восстановились ли все изображения?
-  - [ ] На верных позициях?
-  - [ ] Без знака о ниятии?
-
-- [ ] **Проверка console**
-  - [ ] Нет ошибок при сохранении?
-  - [ ] Нет ошибок при загружке?
+**Версия**: 2.2  
+**Дата**: 02.02.2026
 
 ---
 
-## ФАЗА 2: Обновление UI - две отдельные кнопки
+## ФАЗА 1: Проверка (1ч)
 
-### Время: 1 час
+### 1.1 Анализ `file-manager.js`
 
-#### ЗАДАЧА 2.1: Добавить кнопки в `public/index.html`
+- [ ] Найти `saveScheme()` и `loadScheme()`
+- [ ] Понять текущую JSON структуру
+- [ ] Проверить export/import изображений
+- [ ] Есть ли теги в одном файле? (должны быть отдельно!)
 
-- [ ] **Заменить одну кнопку "Сохранить" на две**
+### 1.2 Проверка UI
+
+- [ ] Кнопки "Сохранить" и "Загрузить" работают
+- [ ] Работают на панели инструментов
+
+### 1.3 Тестирование
+
+- [ ] Нарисовать схему с изображениями
+- [ ] Сохранить → скачивается JSON
+- [ ] Очистить canvas
+- [ ] Загружить → восстановились все
+
+---
+
+## ФАЗА 2: UI + Автозапоминание (1.5ч)
+
+### 2.1 Обновить UI в `index.html`
 
 ```html
-<!-- ВМЕСТО этого: -->
-<button id="save-btn">Сохранить</button>
-
-<!-- ДОЛЖНО быть: -->
+<!-- Новые 4 кнопки -->
 <button id="save-schema-btn">Сохранить структуру</button>
 <button id="save-bindings-btn">Сохранить привязки</button>
-<button id="load-btn">Загрузить</button>
+<button id="load-schema-btn">Загрузить структуру</button>
+<button id="load-bindings-btn">Загрузить привязки</button>
 ```
 
-- [ ] **Обновить CSS** (если нужно)
-  - [ ] Кнопки на панели выполнены
-  - [ ] интервал между кнопками нормальный
-  - [ ] Кнопки легко нажимаются
+- [ ] Заменить одну есть одну кнопку гна 2
+- [ ] Обе кнопки load таж юповнят юровые input
 
-#### ЗАДАЧА 2.2: Обновить повесим обработчиков (в `public/script.js` или другом)
+### 2.2 Обновить FileManager - свойства
 
-- [ ] **Новые обработчики**
+- [ ] Конструктор: добавить
+  ```javascript
+  this.currentSchemaId = null;
+  this.currentSchemaVersion = null;
+  this.currentMachineId = null;
+  ```
 
-```javascript
-// ВМЕСТО этого:
-document.getElementById('save-btn').addEventListener('click', () => {
-    fileManager.saveScheme();
-});
+### 2.3 Обновить `saveScheme()` - запоминание
 
-// ДОЛЖНо быть:
-document.getElementById('save-schema-btn').addEventListener('click', () => {
-    fileManager.saveScheme();
-});
+- [ ] После сохранения:
+  ```javascript
+  this.currentSchemaId = schema.schemaId;
+  this.currentSchemaVersion = schema.version;
+  ```
+- [ ] Проверить в консоли: отображаются значения
 
-document.getElementById('save-bindings-btn').addEventListener('click', () => {
-    const machineId = prompt('Введите ID машины (напр. machine-A):');
-    if (machineId) {
-        fileManager.saveBindings(machineId);
-    }
-});
+### 2.4 Обновить `loadScheme()` - запоминание
 
-document.getElementById('load-btn').addEventListener('click', () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file.name.includes('bindings')) {
-            fileManager.loadBindings(file);
-        } else {
-            fileManager.loadScheme(file);
-        }
-    });
-    input.click();
-});
-```
+- [ ] После загрузки:
+  ```javascript
+  this.currentSchemaId = schema.schemaId;
+  this.currentSchemaVersion = schema.version;
+  ```
 
-- [ ] **Проверить вызывы**
-  - [ ] все кнопки работают?
-  - [ ] Промпт появляется при нажатии "Сохранить привязки"?
-  - [ ] Нет ошибок в console?
-
----
-
-## ФАЗА 3: Обновление FileManager
-
-### Время: 1.5 часа
-
-#### ЗАДАЧА 3.1: Обновить `saveScheme()` только структура
-
-- [ ] **Метод `saveScheme()`**
+### 2.5 Обновить `saveBindings()` - валидация 1 уровень
 
 ```javascript
-async saveScheme() {
-    try {
-        const schema = {
-            schemaId: "my-schema",          // Пользователь может редактировать
-            version: "1.0",
-            timestamp: new Date().toISOString(),
-            images: await this.imageManager.exportImages(),  // ← Base64!
-            elements: this.exportElements(),
-            connectionPoints: this.connectionPointManager.exportPoints(),
-            connections: this.connectionManager.exportConnections()
-        };
-        
-        this.downloadJSON(schema, `schema-${schema.schemaId}-v${schema.version}.json`);
-        alert('Структура сохранена!');
-    } catch(e) {
-        console.error('Ошибка:', e);
-        alert('Ошибка при сохранении структуры');
-    }
+if (!this.currentSchemaId) {
+    alert("Сначала сохраните или загрузите структуру!");
+    return;
 }
 ```
 
-- [ ] **Тестирование**
-  - [ ] Нарисуём схему с изображениями
-  - [ ] Нажимаем "Сохранить структуру"
-  - [ ] Скачался JSON
-  - [ ] Открываем в редакторе
-  - [ ] Видны Base64 строки в `images[].data`?
-  - [ ] НЕТ привязок/bindings/machineId?
+- [ ] Код использует запомненные реквизиты:
+  ```javascript
+  const bindings = {
+      schemaId: this.currentSchemaId,         // ← ИЗ ПАМЯТИ!
+      schemaVersion: this.currentSchemaVersion,
+      machineId: machineId,
+      bindings: this.exportBindings()
+  };
+  ```
 
-#### ЗАДАЧА 3.2: Новый метод `saveBindings(machineId)`
-
-- [ ] **Метод экспорта привязок**
-
-```javascript
-saveBindings(machineId) {
-    try {
-        const bindings = {
-            schemaId: this.currentSchemaId,          // Поняли из loadScheme()
-            schemaVersion: this.currentSchemaVersion, // Поняли из loadScheme()
-            machineId: machineId || "default",
-            timestamp: new Date().toISOString(),
-            bindings: this.exportBindings()  // Из виджетов
-        };
-        
-        this.downloadJSON(bindings, `bindings-${bindings.schemaId}-${machineId}.json`);
-        alert(`Привязки для ${machineId} сохранены!`);
-    } catch(e) {
-        console.error('Ошибка:', e);
-        alert('Ошибка при сохранении привязок');
-    }
-}
-```
-
-- [ ] **Тестирование**
-  - [ ] Загружена структура
-  - [ ] Нажимаем "Сохранить привязки"
-  - [ ] Выскакивает диалог промпта повторения ID машины
-  - [ ] Вводим "machine-A"
-  - [ ] Скачался JSON
-  - [ ] В JSON есть schemaId, schemaVersion, machineId, bindings?
-
-#### ЗАДАЧА 3.3: Обновить `loadScheme()` – только структура
-
-- [ ] **Метод**
-
-```javascript
-loadScheme(file) {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        try {
-            const schema = JSON.parse(e.target.result);
-            
-            // Запомнить ID и версию для привязок
-            this.currentSchemaId = schema.schemaId;
-            this.currentSchemaVersion = schema.version;
-            
-            this.clearAll();
-            this.imageManager.importImages(schema.images);  // ← Base64!
-            // Элементы, соединения БЕЗ тегов!
-            
-            alert('Структура загружена!');
-        } catch(e) {
-            console.error('Ошибка:', e);
-            alert('Ошибка при загружке структуры: ' + e.message);
-        }
-    };
-    reader.readAsText(file);
-}
-```
-
-- [ ] **Тестирование**
-  - [ ] Очистим canvas
-  - [ ] Загружаем сохраненный schema.json
-  - [ ] Восстановились изображения?
-  - [ ] На тех же позициях?
-  - [ ] НЕ требуется редактирование bindings
-
-#### ЗАДАЧА 3.4: Новый метод `loadBindings()`
-
-- [ ] **Метод**
+### 2.6 Новый метод `loadBindings()` - валидация 2 уровень
 
 ```javascript
 loadBindings(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
-        try {
-            const bindings = JSON.parse(e.target.result);
-            
-            // Проверка совместимости!
-            if (bindings.schemaId !== this.currentSchemaId ||
-                bindings.schemaVersion !== this.currentSchemaVersion) {
-                alert('Привязки не совместимы с текущей структурой!');
-                return;
-            }
-            
-            this.applyBindings(bindings.bindings);
-            alert(`Привязки для ${bindings.machineId} загружены!`);
-        } catch(e) {
-            console.error('Ошибка:', e);
-            alert('Ошибка при загружке привязок: ' + e.message);
+        const bindings = JSON.parse(e.target.result);
+        
+        // ✅ Проверка совместимости
+        if (bindings.schemaId !== this.currentSchemaId ||
+            bindings.schemaVersion !== this.currentSchemaVersion) {
+            alert("Привязки не совместимы с текущей схемой!");
+            return;
         }
+        
+        this.currentMachineId = bindings.machineId;  // ← Запомнить
+        this.applyBindings(bindings.bindings);
     };
     reader.readAsText(file);
 }
 ```
 
-- [ ] **Тестирование**
-  - [ ] Сначала загружаем schema
-  - [ ] Потом загружаем bindings-machine-A.json
-  - [ ] Отображаются поле bindings?
-  - [ ] Попытаемся загружить bindings несовместимого schema → ошибка?
+- [ ] Нанстроить добавление метода в FileManager
 
 ---
 
-## ФАЗА 4: Обновление ImageManager для Base64
+## ФАЗА 3: ImageManager Base64 (1.5ч)
 
-### Время: 1.5 часа
-
-#### ЗАДАЧА 4.1: Новый метод `imageToBase64()`
-
-- [ ] **Новый метод конвертации**
+### 3.1 Новый метод `imageToBase64()`
 
 ```javascript
 imageToBase64(konvaImage) {
     try {
-        return konvaImage.toDataURL();  // PNG по умолчанию
+        return konvaImage.toDataURL();
     } catch(e) {
         console.error('Ошибка Base64:', e);
         return null;
@@ -284,14 +129,9 @@ imageToBase64(konvaImage) {
 }
 ```
 
-- [ ] **Тестирование**
-  - [ ] Открыть console
-  - [ ] Вызвать `imageManager.imageToBase64(img)`
-  - [ ] Наличествуются Base64 строки?
+- [ ] Добавить в ImageManager
 
-#### ЗАДАЧА 4.2: Обновить `exportImages()`
-
-- [ ] **Асинхронный метод**
+### 3.2 Обновить `exportImages()` - асинхронный
 
 ```javascript
 async exportImages() {
@@ -309,14 +149,10 @@ async exportImages() {
 }
 ```
 
-- [ ] **Тестирование**
-  - [ ] Удалить 2-3 изображения
-  - [ ] `await imageManager.exportImages()`
-  - [ ] Каждый объект имеет `data` с Base64?
+- [ ] Обновить в ImageManager
+- [ ] Тест: при сохранении в JSON есть data: "data:image/png..."
 
-#### ЗАДАЧА 4.3: Обновить `importImages()`
-
-- [ ] **Декодируем Base64**
+### 3.3 Обновить `importImages()` - использует Base64
 
 ```javascript
 importImages(imagesData) {
@@ -325,90 +161,99 @@ importImages(imagesData) {
         img.onload = () => {
             this.addImage(img, data.x, data.y, data.id);
         };
-        img.onerror = () => {
-            console.error(`Ошибка загрузки Base64 для ${data.id}`);
-        };
+        img.onerror = () => console.error(`Ошибка загружки ${data.id}`);
         img.src = data.data;  // ← Base64!
     });
 }
 ```
 
-- [ ] **Тестирование**
-  - [ ] Сохранить схему с изображениями
-  - [ ] Очистим canvas
-  - [ ] Загружаем JSON
-  - [ ] Восстановились все изображения?
-  - [ ] На тех же координатах?
-  - [ ] С тем же масштабом?
+- [ ] Обновить в ImageManager
+- [ ] Тест: сохранить → загружить → восстановились
 
 ---
 
-## ФАЗА 5: Общее тестирование
+## ФАЗА 4: Обработчики (1ч)
 
-### Время: 2 часа
+### 4.1 Навюать обработчики кнопок
 
-#### ЗАДАЧА 5.1: Функциональные тесты
+```javascript
+// Сохранение
+document.getElementById('save-schema-btn').addEventListener('click', () => {
+    fileManager.saveScheme();
+});
 
-- [ ] **Сценарий 1: Одна схема + несколько привязок**
-  - [ ] Нрисовать схему с 3 элементами
-  - [ ] Сохранить структуру (schema-X.json)
-  - [ ] Сохранить привязки для machine-A (bindings-X-machine-A.json)
-  - [ ] Сохранить привязки для machine-B (bindings-X-machine-B.json)
-  - [ ] Очистить canvas
-  - [ ] Загружить schema-X.json
-  - [ ] Файлы bindings имеют те же schemaId и version?
-  - [ ] Можно работать с любыми bindings для этой схемы?
+document.getElementById('save-bindings-btn').addEventListener('click', () => {
+    fileManager.saveBindings();
+});
 
-- [ ] **Сценарий 2: Несовместимые привязки**
-  - [ ] Загружить schema-A.json
-  - [ ] Попытаться загрузить bindings-B-machine-1.json
-  - [ ] Отображается ошибка?
+// Загружка
+document.getElementById('load-schema-btn').addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.addEventListener('change', (e) => fileManager.loadScheme(e.target.files[0]));
+    input.click();
+});
 
-- [ ] **Сценарий 3: Много изображений**
-  - [ ] Добавить 10+ изображений
-  - [ ] Сохранить - выполняются < 2 сек?
-  - [ ] На панели данные алерт?
-  - [ ] При загружке - выполняются < 2 сек?
+document.getElementById('load-bindings-btn').addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.addEventListener('change', (e) => fileManager.loadBindings(e.target.files[0]));
+    input.click();
+});
+```
 
-#### ЗАДАЧА 5.2: Граничные случаи
-
-- [ ] **Пустая схема**
-  - [ ] Не добавлять изображения
-  - [ ] Сохранить структуру - нормально?
-  - [ ] Загружить - нормально?
-
-- [ ] **Поврежденный JSON**
-  - [ ] Открыть JSON в редакторе
-  - [ ] Удалить строки
-  - [ ] Гружить - ошибка?
-
-#### ЗАДАЧА 5.3: Консоль очистка
-
-- [ ] **DevTools > Console**
-  - [ ] Нет ошибок при сохранении?
-  - [ ] Нет ошибок при загружке?
-  - [ ] Нет Warning'ов?
+- [ ] Все 4 обработчика работают
+- [ ] Нет console errors
 
 ---
 
-## ПОЛНАЯ ПОЛВЕРКА ОКОНЧАНИЯ
+## ФАЗА 5: Тестирование (2ч)
 
-### Обязательные критерии
+### 5.1 Сценарий: Одна схема + несколько машин
 
-- [ ] `fileManager.saveScheme()` экспортирует только структуру без привязок
-- [ ] `fileManager.saveBindings()` экспортирует привязки с ссылкой на schema
-- [ ] Бази совместимости (schemaId + версия) работают
-- [ ] ImageManager полностью поддерживает Base64
-- [ ] Кнопки делиться на две группы
-- [ ] Три дискетки не смешаны в однем JSON
-- [ ] Нет ошибок в console
+- [ ] Нарисовать схему с 2-3 элементами
+- [ ] Сохранить структура (принять schemaId)
+- [ ] Сохранить привязки machine-A
+- [ ] Файл bindings содержит тот же schemaId
+- [ ] Сохранить привязки machine-B для ТОЙ ЖЕ схемы
+- [ ] Очистить canvas
+- [ ] Загрузить структура → восстановились
+- [ ] Загрузить machine-A bindings → работают
+- [ ] Загрузить machine-B bindings → другие теги → работают
 
-### Оптимальные критерии
+### 5.2 Валидация уровня 1: Блокировка
 
-- [ ] Алерты при выполнении операций
-- [ ] Нормальные названия файлов (с schemaId и machineId)
-- [ ] Валидация совместимости при загружке
+- [ ] Новый редактор (currentSchemaId = null)
+- [ ] Нажать "Сохранить привязки" → alert: "Сначала сохраните..."
+- [ ] Ничего не скачивается
+
+### 5.3 Валидация уровня 2: Несовместимые bindings
+
+- [ ] Загружить schema-X.json
+- [ ] Попытаться загрузить bindings-Y-machine.json (другой schemaId)
+- [ ] alert: "Привязки не совместимы"
+- [ ] Ничего не загружается
+
+### 5.4 Консоль чистота
+
+- [ ] DevTools > Console: нет errors
+- [ ] Нет warnings
 
 ---
 
-**НОТА**: Отмечай ✅ каждую завершенную таску!
+## ПОЛНАЯ ПОЛВЕРКА
+
+### Обязательно
+
+- [ ] currentSchemaId запоминается
+- [ ] Нельзя сохранить bindings без схемы
+- [ ] Нельзя загружить несовместимые bindings
+- [ ] 4 кнопки работают
+- [ ] ImageManager сохраняет Base64
+- [ ] Одна схема + несколько bindings
+- [ ] Нет console errors
+
+### Желательно
+
+- [ ] Показывать текущие schemaId и machineId в UI
+- [ ] Нажим, инфо messages
