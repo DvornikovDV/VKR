@@ -91,61 +91,33 @@ class UIController {
 
     /**
      * Настройка UI для выбора машины (Фаза A + C)
+     * Выбор по изменению в dropdown без кнопки Подтвердить
      */
     setupMachineSelection() {
-        const confirmBtn = document.getElementById('confirm-machine-btn');
         const machineSelect = document.getElementById('machine-select');
-        const devicesPanel = document.getElementById('devices-panel');
-        const devicesList = document.getElementById('devices-list');
-        const currentMachineSpan = document.getElementById('current-machine');
         
-        if (!confirmBtn || !machineSelect) return;
+        if (!machineSelect) return;
         
-        confirmBtn.addEventListener('click', () => {
+        machineSelect.addEventListener('change', () => {
             const machineId = machineSelect.value;
+            
             if (!machineId) {
-                alert('Выберите машину!');
+                // без подписки - очищаем
+                this.bindingsManager.selectedMachineId = null;
+                this.fileManager.currentMachineId = null;
+                console.log('Машина не выбрана');
                 return;
             }
             
             // Валидация Уровень 1: машина выбрана?
             if (!this.bindingsManager.selectMachine(machineId)) {
+                // Сбросить dropdown если отклонено
+                machineSelect.value = '';
                 return;
             }
             
             this.fileManager.currentMachineId = machineId;
-            currentMachineSpan.textContent = machineId;
-            devicesPanel.style.display = 'block';
-            
-            this.populateDevicesList(devicesList, machineId);
             console.log(`Выбрана машина: ${machineId}`);
-        });
-    }
-
-    /**
-     * Заполнить список устройств для выбранной машины
-     */
-    populateDevicesList(listElement, machineId) {
-        if (!listElement) return;
-        
-        listElement.innerHTML = '';
-        const machineDevices = this.bindingsManager.availableDevices.map(deviceId => {
-            return this.bindingsManager.allDevices.find(d => d.id === deviceId);
-        }).filter(d => d);
-        
-        if (machineDevices.length === 0) {
-            const li = document.createElement('li');
-            li.className = 'list-group-item';
-            li.textContent = 'Нет доступных устройств';
-            listElement.appendChild(li);
-            return;
-        }
-        
-        machineDevices.forEach(device => {
-            const li = document.createElement('li');
-            li.className = 'list-group-item';
-            li.textContent = `${device.name} (${device.id}) - ${device.type}`;
-            listElement.appendChild(li);
         });
     }
 
