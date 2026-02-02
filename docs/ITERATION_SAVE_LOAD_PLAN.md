@@ -1,4 +1,4 @@
-# Итерация: Сохранение и загружка схем с разделением структуры и привязок
+# Итерация: Сохранение и загрузка схем с разделением структуры и привязок
 
 **Версия**: 2.2  
 **Дата обновления**: 02.02.2026  
@@ -15,7 +15,7 @@
 **Ключевые улучшения**: 
 - Автозапоминание загруженной схемы (schemaId + версия)
 - 3-уровневая валидация при сохранении/загружке привязок
-- 2 опции загрузки привязок (отдельная кнопка vs выпадающий список)
+- 2 опции загружки привязок (отдельная кнопка vs выпадающий список)
 
 ---
 
@@ -50,7 +50,7 @@ class FileManager {
 }
 ```
 
-### 2. Валидация на 3 уровнях
+### 2. Валидация на 3 Уровнях
 
 **Уровень 1: Сохранение привязок** - есть ли загруженная схема
 ```javascript
@@ -60,7 +60,7 @@ if (!this.currentSchemaId) {
 }
 ```
 
-**Уровень 2: Загружка привязок** - совместима ли schemaId + версия
+**Уровень 2: Загрузка привязок** - совместима ли schemaId + версия
 ```javascript
 if (bindings.schemaId !== this.currentSchemaId || 
     bindings.schemaVersion !== this.currentSchemaVersion) {
@@ -76,74 +76,29 @@ if (this.currentSchemaId && schema.schemaId !== this.currentSchemaId) {
 }
 ```
 
-### 3. Использование запомненного ID для bindings
+### 3. Основные ОПЕРАЦИИ: Bindings МЕНЕОМ
 
-```javascript
-saveBindings() {
-    if (!this.currentSchemaId) return;  // ✅ Блокировка
-    
-    const machineId = prompt("ID машины:", "machine-A");
-    const bindings = {
-        schemaId: this.currentSchemaId,         // ← БЕРЕМ ИЗ ПАМЯТИ!
-        schemaVersion: this.currentSchemaVersion,
-        machineId: machineId,
-        bindings: this.exportBindings()
-    };
-}
-```
-
-### 4. Загружка привязок - 2 опции
-
-#### ✅ Опция 1: Отдельная кнопка (ТЕКУЩАЯ ИТЕРАЦИЯ)
+**Опция 1: Отдельная кнопка (текущая итерация)**
 
 ```html
-<!-- UI -->
 <button id="load-schema-btn">Загрузить структуру</button>
-<button id="load-bindings-btn">Загрузить привязки</button>  <!-- ← отдельно -->
+<button id="load-bindings-btn">Загрузить привязки</button>
 ```
-
-**Workflow**: 
-1. Нажать "Загрузить структуру" → выбрать schema-X.json → FileManager запомнит ID
-2. Нажать "Загрузить привязки" → выбрать bindings-X-machine-A.json → валидация + работают
-
-**Плюсы**: Простая реализация  
-**Минусы**: В текущей итерации выбрана
 
 ---
 
-#### ⚠️ Опция 2: Выпадающий список (будущая версия)
-
-```html
-<!-- На панели инструментов -->
-<select id="bindings-selector">
-    <option>Загрузить привязки...</option>
-    <option value="machine-A">machine-A</option>
-    <option value="machine-B">machine-B</option>
-</select>
-```
-
-**Workflow**:
-1. Загружается schema-X.json
-2. Приложение сканирует bindings-X-*.json для этого schemaId
-3. Пользователь выбирает из списка → загружаются авто
-
-**Плюсы**: Удобнее  
-**Минусы**: Требует сканирования
-
----
-
-## Основные фазы
+## ОСНОВНЫЕ ФАЗЫ
 
 ### Фаза 1: Проверка текущей реализации (1ч)
 
 1. **Анализ `file-manager.js`**: методы save/load, структура JSON, экспорт изображений
 2. **Проверка UI**: есть ли кнопки, работают ли
-3. **Тестирование**: сохранить → загрузить → восстановлилось
+3. **Тестирование**: сохранить → загрузить → восстановилось
 
 ### Фаза 2: UI + Автозапоминание + Валидация (1.5ч)
 
 1. **UI**: 4 кнопки (save-schema, save-bindings, load-schema, load-bindings)
-2. **FileManager**: свойства currentSchemaId, currentSchemaVersion, currentMachineId
+2. **FileManager**: свойства currentSchemaId, currentSchemaVersion
 3. **saveScheme()**: запомнить ID и версию
 4. **loadScheme()**: запомнить ID и версию
 5. **saveBindings()**: проверить currentSchemaId, использовать запомненные реквизиты
@@ -152,8 +107,8 @@ saveBindings() {
 ### Фаза 3: ImageManager Base64 (1.5ч)
 
 1. **imageToBase64()**: `konvaImage.toDataURL()`
-2. **exportImages()**: асинхронный, ретурнют Base64 данные
-3. **importImages()**: используют `data.data` (Base64)
+2. **exportImages()**: асинхронный, ретурняет Base64 данные
+3. **importImages()**: использует `data.data` (Base64)
 
 ### Фаза 4: Обработчики кнопок (1ч)
 
@@ -162,7 +117,7 @@ saveBindings() {
 - load-schema → file input → fileManager.loadScheme(file)
 - load-bindings → file input → fileManager.loadBindings(file) с валидацией
 
-### Фаза 5: Тестирование (2ч)
+### Фаза 5: ТЕСТИРОВАНИЕ (2ч)
 
 - Сценарий 1: Одна схема + несколько машин → отдельные bindings работают
 - Сценарий 2: Несовместимые bindings → ошибка валидации
@@ -170,37 +125,30 @@ saveBindings() {
 
 ---
 
-## Структура JSON
+## КОНТЕКСТ
 
-**schema-boiler-system-v1.0.json**:
-```json
-{"schemaId": "boiler-system", "version": "1.0", "images": [{"id": "img1", "data": "data:image/png;base64,...", "x": 100, "y": 50}], "elements": [...], "connections": [...]}
-```
-
-**bindings-boiler-system-machine-A.json**:
-```json
-{"schemaId": "boiler-system", "schemaVersion": "1.0", "machineId": "machine-A", "bindings": [{"elementId": "el1", "tag": "tempSensor_A_main"}]}
-```
+- **BINDINGS_MACHINE_SELECTION.md**: Механика привязок, 6 вспомогательных фаз
+- **PARALLEL_DEVELOPMENT_MAP.md**: План работы
 
 ---
 
-## Критерии завершения
+## КРИТЕРИИ ЗАВЕРШЕНИЯ
 
-### ✅ Обязательно
+### ✅ ОБЯЗАТЕЛЬНО
 
 - [ ] currentSchemaId запоминается при save/load структуры
 - [ ] Нельзя сохранить bindings без схемы (блокировка уровня 1)
 - [ ] Нельзя загрузить несовместимые bindings (блокировка уровня 2)
 - [ ] 4 кнопки работают
-- [ ] ImageManager поддерживает Base64 для ВСЕХ изображений
+- [ ] ImageManager поддерживает Base64 для всех изображений
 - [ ] Одна схема работает с разными наборами bindings
 - [ ] Нет ошибок в console
 
-### ⚠️ Желательно
+### ⚠️ ЖЕЛАТЕЛЬНО
 
 - [ ] Показывать текущие schemaId и machineId в UI
-- [ ] Полезные error messages
+- [ ] Полезные ошибки messages
 
 ---
 
-**История**: v2.2 (автозапоминание + валидация) • v2.0 (разделение) • v1.0 (начальный)
+**ОВОРДОВО**: v2.2 (автозапоминание + валидация) • v2.0 (разделение) • v1.0 (начальный)
