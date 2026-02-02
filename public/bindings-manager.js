@@ -7,6 +7,12 @@ class BindingsManager {
         this.selectedMachineId = null;
         this.availableDevices = []; // id устройств выбранной машины
         this.bindings = []; // [{ elementId, deviceId }]
+        this.widgetManager = null; // ссылка для очистки привязок при смене машины
+    }
+
+    // Установить ссылку на WidgetManager
+    setWidgetManager(widgetManager) {
+        this.widgetManager = widgetManager;
     }
 
     // Выбор машины с возможным сбросом уже настроенных привязок
@@ -18,6 +24,12 @@ class BindingsManager {
                 return false;
             }
             this.bindings = [];
+            // Очистить bindingId у всех виджетов
+            if (this.widgetManager && Array.isArray(this.widgetManager.widgets)) {
+                this.widgetManager.widgets.forEach(w => {
+                    w.bindingId = null;
+                });
+            }
         }
 
         this.selectedMachineId = machineId;
