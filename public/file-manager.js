@@ -1,13 +1,14 @@
 // file-manager.js
-// Управление файлами (сохранение и загрузка структур и привязок)
+// Управление файлами (сохранение и загружение структур и привязок)
 
 class FileManager {
-    constructor(canvasManager, imageManager, connectionPointManager, connectionManager, widgetManager = null) {
+    constructor(canvasManager, imageManager, connectionPointManager, connectionManager, widgetManager = null, bindingsManager = null) {
         this.canvasManager = canvasManager;
         this.imageManager = imageManager;
         this.connectionPointManager = connectionPointManager;
         this.connectionManager = connectionManager;
         this.widgetManager = widgetManager;
+        this.bindingsManager = bindingsManager;
         
         this.currentSchemaId = null;
         this.currentSchemaVersion = null;
@@ -58,7 +59,7 @@ class FileManager {
     }
 
     /**
-     * Декодирование Base64 в Konva.Image и загрузка на сцену
+     * Декодирование Base64 в Konva.Image и загружение на сцену
      */
     async importImages(imagesData) {
         if (!Array.isArray(imagesData)) return;
@@ -177,8 +178,8 @@ class FileManager {
                         console.log(`Структура загружена: ${this.currentSchemaId} v${this.currentSchemaVersion}`);
                     });
                 } catch (error) {
-                    console.error('Ошибка при загрузке структуры:', error);
-                    alert('Ошибка при загрузке структуры схемы');
+                    console.error('Ошибка при загружении структуры:', error);
+                    alert('Ошибка при загружении структуры схемы');
                 }
             };
             reader.readAsText(file);
@@ -187,26 +188,32 @@ class FileManager {
     }
 
     /**
-     * Сохранить привязки (bindings-{schemaId}-{machineId}.json)
-     * Включает только: schemaId, version, machineId, bindings
+     * Сохранить привязки (Фаза E)
+     * Файл: bindings-{schemaId}-{machineId}.json
+     * machineId автоматически добавляется из BindingsManager
      */
     saveBindings() {
         try {
+            // Валидация Уровень 3: режим сохранения
             if (!this.currentSchemaId) {
-                alert('Сначала загрузите или сохраните структуру схемы!');
+                alert('Сначала сохраните или загружените структуру схемы!');
                 return;
             }
             
-            const machineId = prompt('Введите ID машины:', 'machine-A');
-            if (!machineId) return;
+            // Валидация Уровень 1: машина выбрана?
+            if (!this.bindingsManager || !this.bindingsManager.selectedMachineId) {
+                alert('Выберите машину в экране!');
+                return;
+            }
             
-            this.currentMachineId = machineId;
+            const machineId = this.bindingsManager.selectedMachineId;
             
+            // Фаза E: machineId автоматически добавляется из BindingsManager
             const bindings = {
                 schemaId: this.currentSchemaId,
                 schemaVersion: this.currentSchemaVersion,
                 machineId: machineId,
-                bindings: [],
+                bindings: this.bindingsManager.bindings || [],
                 timestamp: new Date().toISOString()
             };
             
@@ -220,8 +227,9 @@ class FileManager {
     }
 
     /**
-     * Загрузить привязки с валидацией совместимости
-     * Уровень 2 валидации: schemaId + version совпадают?
+     * Загрузить привязки (Фаза F)
+     * Валидация Уровень 3+4: schemaId, version совпадают?
+     * Если машина не совпадает - переключить
      */
     loadBindings() {
         const input = document.createElement('input');
@@ -236,6 +244,7 @@ class FileManager {
                 try {
                     const bindingsData = JSON.parse(event.target.result);
                     
+                    // Валидация Уровень 3: schemaId совпадает?
                     if (bindingsData.schemaId !== this.currentSchemaId) {
                         alert(`Ошибка: привязки для "${bindingsData.schemaId}", а загружена "${this.currentSchemaId}"`);
                         return;
@@ -246,11 +255,24 @@ class FileManager {
                         return;
                     }
                     
+                    // Валидация Уровень 4: machineId совпадает?
+                    if (bindingsData.machineId !== this.bindingsManager.selectedMachineId) {
+                        const msg = `привязки для "${bindingsData.machineId}", ` +
+                                    `а выбрана "${this.bindingsManager.selectedMachineId}". Переключить?`;
+                        if (!confirm(msg)) return;
+                        
+                        // Переключить машину
+                        this.bindingsManager.selectMachine(bindingsData.machineId);
+                        this.currentMachineId = bindingsData.machineId;
+                    }
+                    
+                    // Загрузить привязки
+                    this.bindingsManager.bindings = bindingsData.bindings || [];
                     this.currentMachineId = bindingsData.machineId;
                     console.log(`Привязки загружены: ${bindingsData.schemaId} для ${bindingsData.machineId}`);
                 } catch (error) {
-                    console.error('Ошибка при загрузке привязок:', error);
-                    alert('Ошибка при загрузке привязок');
+                    console.error('Ошибка при загружении привязок:', error);
+                    alert('Ошибка при загружении привязок');
                 }
             };
             reader.readAsText(file);
@@ -273,6 +295,9 @@ class FileManager {
         this.connectionManager.clear();
         if (this.widgetManager) {
             this.widgetManager.clear();
+        }
+        if (this.bindingsManager) {
+            this.bindingsManager.bindings = [];
         }
         console.log('Canvas очищен');
     }
