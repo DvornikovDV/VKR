@@ -8,6 +8,7 @@ class BindingsManager {
         this.availableDevices = []; // id устройств выбранной машины
         this.bindings = []; // [{ elementId, deviceId }]
         this.widgetManager = null; // ссылка для очистки привязок при смене машины
+        this.onMachineChanged = null; // каллбэк для уведомления UI о смене машины
     }
 
     // Установить ссылку на WidgetManager
@@ -16,10 +17,10 @@ class BindingsManager {
     }
 
     // Выбор машины с возможным сбросом уже настроенных привязок
-    selectMachine(machineId) {
+    selectMachine(machineId, skipConfirm = false) {
         if (!machineId) return false;
 
-        if (this.bindings.length > 0 && machineId !== this.selectedMachineId) {
+        if (this.bindings.length > 0 && machineId !== this.selectedMachineId && !skipConfirm) {
             if (!confirm('Привязки сбросятся при смене машины. Продолжить?')) {
                 return false;
             }
@@ -32,10 +33,16 @@ class BindingsManager {
             }
         }
 
+        const oldMachineId = this.selectedMachineId;
         this.selectedMachineId = machineId;
         this.availableDevices = this.allDevices
             .filter(d => d.machineId === machineId)
             .map(d => d.id);
+
+        // Отдом о UI если машина истинно изменилась
+        if (oldMachineId !== machineId && this.onMachineChanged) {
+            this.onMachineChanged(machineId);
+        }
 
         return true;
     }
