@@ -1,5 +1,5 @@
 // file-manager.js
-// Управление файлами (сохранение и загружение структур и привязок)
+// Управление файлами (сохранение и загужение структур и привязок)
 
 class FileManager {
     constructor(canvasManager, imageManager, connectionPointManager, connectionManager, widgetManager = null, bindingsManager = null) {
@@ -59,7 +59,7 @@ class FileManager {
     }
 
     /**
-     * Декодирование Base64 в Konva.Image и загружение на сцену
+     * Декодирование Base64 в Konva.Image и загужение на сцену
      */
     async importImages(imagesData) {
         if (!Array.isArray(imagesData)) return;
@@ -99,26 +99,37 @@ class FileManager {
     }
 
     /**
-     * Вспомогательный метод: открыть системный диалог сохранения и вернуть выбранное имя файла
-     * Для совместимости с UX загрузки изображений/схем используем скрытый input[type="file"]
+     * Вспомогательный метод: открыть диалог сохранения файла
+     * Использует File System Access API (современные браузеры) или fallback на download
      */
     async pickSaveFileName(defaultName = 'schema.json') {
-        return new Promise((resolve) => {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = '.json';
-            // trick: allow user to type имя файла; фактическое сохранение всё равно через downloadJSON
-            input.nwsaveas = defaultName;
-            input.onchange = (e) => {
-                const file = e.target.files && e.target.files[0];
-                if (!file) {
-                    resolve(null);
-                    return;
+        try {
+            // Если браузер поддерживает File System Access API
+            if (window.showSaveFilePicker) {
+                try {
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: defaultName,
+                        types: [{
+                            description: 'JSON Files',
+                            accept: { 'application/json': ['.json'] }
+                        }]
+                    });
+                    return handle.name;
+                } catch (e) {
+                    if (e.name === 'AbortError') {
+                        return null;
+                    }
+                    throw e;
                 }
-                resolve(file.name);
-            };
-            input.click();
-        });
+            }
+        } catch (e) {
+            console.log('File System Access API недоступен, используем fallback');
+        }
+        
+        // Fallback для браузеров без File System Access API
+        // Используем prompt для получения имени файла
+        const fileName = prompt('Введите имя файла:', defaultName);
+        return fileName ? (fileName.endsWith('.json') ? fileName : `${fileName}.json`) : null;
     }
 
     /**
@@ -127,7 +138,7 @@ class FileManager {
      */
     async saveScheme() {
         try {
-            // 1. Открываем файловый диалог, как для загрузки схемы/изображения
+            // 1. Открываем диалог сохранения файла
             const suggestedName = this.currentSchemaId ? `${this.currentSchemaId}.json` : 'schema-new.json';
             const fileName = await this.pickSaveFileName(suggestedName);
             if (!fileName) return;
@@ -138,7 +149,7 @@ class FileManager {
             const timestamp = now.toISOString();
             const timePart = now.toISOString().replace(/[:.]/g, '-');
 
-            // 3. Генерация/сохранение schemaId
+            // 3. Генерация/сохранение schemaId (только если новая)
             if (!this.currentSchemaId) {
                 this.currentSchemaId = `${baseName}-${timePart}`;
             }
@@ -206,8 +217,8 @@ class FileManager {
                         console.log(`Структура загружена: ${this.currentSchemaId} v${this.currentSchemaVersion}`);
                     });
                 } catch (error) {
-                    console.error('Ошибка при загружении структуры:', error);
-                    alert('Ошибка при загружении структуры схемы');
+                    console.error('Ошибка при загужении структуры:', error);
+                    alert('Ошибка при загужении структуры схемы');
                 }
             };
             reader.readAsText(file);
@@ -306,8 +317,8 @@ class FileManager {
                     this.currentMachineId = bindingsData.machineId;
                     console.log(`Привязки загружены: ${bindingsData.schemaId} для ${bindingsData.machineId}`);
                 } catch (error) {
-                    console.error('Ошибка при загружении привязок:', error);
-                    alert('Ошибка при загружении привязок');
+                    console.error('Ошибка при загужении привязок:', error);
+                    alert('Ошибка при загужении привязок');
                 }
             };
             reader.readAsText(file);
