@@ -25,8 +25,12 @@
                     </button>
                     <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="#" id="add-image-btn">Добавить изображение</a></li>
-                        <li><a class="dropdown-item" href="#" id="save-btn">Сохранить</a></li>
-                        <li><a class="dropdown-item" href="#" id="load-btn">Загрузить</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="#" id="save-schema-btn">Сохранить структуру</a></li>
+                        <li><a class="dropdown-item" href="#" id="load-schema-btn">Загрузить структуру</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="#" id="save-bindings-btn">Сохранить привязки</a></li>
+                        <li><a class="dropdown-item" href="#" id="load-bindings-btn">Загрузить привязки</a></li>
                         <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="#" id="clear-btn">Очистить</a></li>
                     </ul>
@@ -43,6 +47,17 @@
                         <li><a class="dropdown-item" href="#" id="lock-btn">Заблокировать элемент</a></li>
                         <li><a class="dropdown-item" href="#" id="unlock-btn">Разблокировать элемент</a></li>
                     </ul>
+                </div>
+
+                <!-- Машина - выбор -->
+                <div class="d-flex align-items-center gap-2">
+                    <label for="machine-select" class="form-label mb-0">Машина:</label>
+                    <select id="machine-select" class="form-select form-select-sm" style="width: auto; min-width: 150px;">
+                        <option value="">Выберите машину...</option>
+                        <option value="machine-A">Котел A</option>
+                        <option value="machine-B">Котел B</option>
+                    </select>
+                    <button id="confirm-machine-btn" class="btn btn-sm btn-info">Подтвердить</button>
                 </div>
             </div>
 
@@ -72,8 +87,17 @@
                 </div>
             </div>
 
-            <!-- Панель свойств -->
+            <!-- Боковая панель: свойства + панель устройств -->
             <aside class="properties-panel">
+                <!-- Панель выбранной машины и её устройств -->
+                <div id="devices-panel" style="display: none; border-bottom: 1px solid #ddd; padding-bottom: 1rem; margin-bottom: 1rem;">
+                    <h5 class="mb-2">
+                        Устройства: <span id="current-machine" style="color: #0284c7; font-weight: bold;"></span>
+                    </h5>
+                    <ul id="devices-list" class="list-group list-group-sm"></ul>
+                </div>
+
+                <!-- Стандартная панель свойств -->
                 <div class="properties-header">
                     <h5>Свойства</h5>
                 </div>
