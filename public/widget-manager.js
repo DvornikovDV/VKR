@@ -334,6 +334,28 @@ export class WidgetManager {
     }));
   }
   
+  // Экспорт только привязок виджетов
+  exportBindings() {
+    return this.widgets
+      .filter(w => !!w.bindingId)
+      .map(w => ({
+        elementId: w.id,
+        deviceId: w.bindingId
+      }));
+  }
+
+  // Импорт привязок: применить deviceId к уже существующим виджетам
+  importBindings(bindings) {
+    if (!Array.isArray(bindings)) return;
+    bindings.forEach(b => {
+      const widget = this.getWidget(b.elementId);
+      if (widget) {
+        widget.bindingId = b.deviceId;
+      }
+    });
+    console.log(`Bindings imported for ${bindings.length} elements`);
+  }
+
   // Импорт виджетов из сохраненных данных
   importWidgets(widgetsData) {
     if (!widgetsData || !Array.isArray(widgetsData)) {
