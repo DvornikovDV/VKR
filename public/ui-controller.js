@@ -70,6 +70,7 @@ class UIController {
         this.setupEventListeners();
         this.setupGlobalWidgetCallbacks();
         this.setupMachineSelection();
+        this.setupBindingsManagerCallback();
     }
 
     /**
@@ -88,6 +89,20 @@ class UIController {
         } catch (error) {
             console.error('Ошибка загрузки реестра устройств:', error);
         }
+    }
+
+    /**
+     * Установка callback для обновления dropdown при смене машины
+     * (срабатывает при загрузке привязок с другой машиной)
+     */
+    setupBindingsManagerCallback() {
+        this.bindingsManager.onMachineChanged = (newMachineId) => {
+            const machineSelect = document.getElementById('machine-select');
+            if (machineSelect) {
+                machineSelect.value = newMachineId;
+                console.log(`UI обновлен: машина изменена на ${newMachineId}`);
+            }
+        };
     }
 
     /**
