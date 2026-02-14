@@ -159,7 +159,7 @@ class PropertiesPanel {
         this.selectedImage = null;
         this.selectedWidget = null;
         this.widgetManager = null;
-        this.devices = []; // Реестр устройств
+        this.bindingsManager = null;
     }
     
     // Установить ссылку на WidgetManager для переприсоединения обработчиков
@@ -167,9 +167,9 @@ class PropertiesPanel {
         this.widgetManager = widgetManager;
     }
     
-    // Установить список устройств (из backend или config)
-    setDevices(devices) {
-        this.devices = devices || [];
+    // Установить ссылку на BindingsManager для фильтрации устройств
+    setBindingsManager(bindingsManager) {
+        this.bindingsManager = bindingsManager;
     }
 
     /**
@@ -188,7 +188,7 @@ class PropertiesPanel {
         const pointCount = Array.isArray(konvaImg._cp_points) ? konvaImg._cp_points.length : 0;
         
         this.container.innerHTML = '' +
-            '<div class="mb-2"><strong>Изображение</strong></div>' +
+            '<div class="mb-2"><strong>Машина</strong></div>' +
             `<div class="small text-muted">ID: ${id}</div>` +
             `<div class="small">X: ${x} px</div>` +
             `<div class="small">Y: ${y} px</div>` +
@@ -269,7 +269,7 @@ class PropertiesPanel {
             html += createControlParametersSection(widget);
         }
 
-        // Раздел привязки устройства
+        // Раздел привязки устройства с фильтрацией по выбранной машине
         html += `
             <div class="mb-2 mt-3"><strong>Привязка устройства</strong></div>
             <div class="mb-1">
@@ -278,7 +278,13 @@ class PropertiesPanel {
                 <option value="">-- не привязано --</option>
         `;
         
-        this.devices.forEach(device => {
+        // Фильтруем устройства по текущей машине из BindingsManager
+        let availableDevices = [];
+        if (this.bindingsManager && this.bindingsManager.selectedMachineId) {
+            availableDevices = this.bindingsManager.allDevices.filter(d => d.machineId === this.bindingsManager.selectedMachineId);
+        }
+        
+        availableDevices.forEach(device => {
             const selected = bindingId === device.id ? 'selected' : '';
             html += `<option value="${device.id}" ${selected}>${device.name} (${device.type})</option>`;
         });
@@ -290,7 +296,7 @@ class PropertiesPanel {
         
         // Отображить метаданные привязанного устройства (если есть)
         if (bindingId) {
-            const device = this.devices.find(d => d.id === bindingId);
+            const device = availableDevices.find(d => d.id === bindingId);
             if (device) {
                 html += `
             <div class="mt-2 p-2" style="background-color: #f8f9fa; border-radius: 4px; border-left: 3px solid #0d6efd;">

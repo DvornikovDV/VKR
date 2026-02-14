@@ -10,6 +10,7 @@ import { PropertiesPanel } from './properties-panel.js';
 import { FileManager } from './file-manager.js';
 import { WidgetManager } from './widget-manager.js';
 import { ContextMenu } from './context-menu.js';
+import { BindingsManager } from './bindings-manager.js';
 
 class UIController {
     constructor() {
@@ -22,6 +23,7 @@ class UIController {
         this.fileManager = null;
         this.widgetManager = null;
         this.contextMenu = null;
+        this.bindingsManager = null;
 
         this.isCreateLineMode = false;
         this.isConnectionEditMode = false;
@@ -45,28 +47,30 @@ class UIController {
             this.imageManager,
             this.canvasManager
         );
+        this.bindingsManager = new BindingsManager([]);
+        this.bindingsManager.setWidgetManager(this.widgetManager); // передача ссылки для очистки привязок
+        this.propertiesPanel.setBindingsManager(this.bindingsManager);
         this.fileManager = new FileManager(
             this.canvasManager,
             this.imageManager,
             this.connectionPointManager,
             this.connectionManager,
-            this.widgetManager
+            this.widgetManager,
+            this.bindingsManager
         );
         this.contextMenu = new ContextMenu();
 
-        // привязка меню и менеджера виджетов к imageManager
         this.imageManager.setContextMenu(this.contextMenu, this.widgetManager);
-        
-        // КРИТИЧНО: предоставить WidgetManager панели свойств для переприсоединения обработчиков
         this.propertiesPanel.setWidgetManager(this.widgetManager);
         
-        // Загрузить реестр устройств из devices-registry.json
         await this.loadDevicesRegistry();
 
         this.imageManager.setConnectionManager(this.connectionManager);
         this.setupManagerCallbacks();
         this.setupEventListeners();
         this.setupGlobalWidgetCallbacks();
+        this.setupMachineSelection();
+        this.setupBindingsManagerCallback();
     }
 
     /**
@@ -80,7 +84,7 @@ class UIController {
             }
             const data = await response.json();
             if (data.devices && Array.isArray(data.devices)) {
-                this.propertiesPanel.setDevices(data.devices);
+                this.bindingsManager.allDevices = data.devices;
             }
         } catch (error) {
             console.error('Ошибка загрузки реестра устройств:', error);
@@ -88,16 +92,60 @@ class UIController {
     }
 
     /**
+     * Установка callback для обновления dropdown при смене машины
+     * (срабатывает при загрузке привязок с другой машиной)
+     */
+    setupBindingsManagerCallback() {
+        this.bindingsManager.onMachineChanged = (newMachineId) => {
+            const machineSelect = document.getElementById('machine-select');
+            if (machineSelect) {
+                machineSelect.value = newMachineId;
+                console.log(`UI обновлен: машина изменена на ${newMachineId}`);
+            }
+        };
+    }
+
+    /**
+     * Настройка UI для выбора машины (Фаза A + C)
+     * Выбор по изменению в dropdown без кнопки Подтвердить
+     */
+    setupMachineSelection() {
+        const machineSelect = document.getElementById('machine-select');
+        
+        if (!machineSelect) return;
+        
+        machineSelect.addEventListener('change', () => {
+            const machineId = machineSelect.value;
+            
+            if (!machineId) {
+                // без подписки - очищаем
+                this.bindingsManager.selectedMachineId = null;
+                this.fileManager.currentMachineId = null;
+                console.log('Машина не выбрана');
+                return;
+            }
+            
+            // Валидация Уровень 1: машина выбрана?
+            if (!this.bindingsManager.selectMachine(machineId)) {
+                // Сбросить dropdown если отклонено
+                machineSelect.value = '';
+                return;
+            }
+            
+            this.fileManager.currentMachineId = machineId;
+            console.log(`Выбрана машина: ${machineId}`);
+        });
+    }
+
+    /**
      * Настройка глобальных каллбэков для виджетов
      */
     setupGlobalWidgetCallbacks() {
-        // Выбор виджета
         window.onWidgetSelected = (widget) => {
             this.selectionManager.selectWidget(widget);
             this.propertiesPanel.showPropertiesForWidget(widget);
         };
 
-        // Изменение свойства виджета (позиция, размер)
         window.onWidgetPropertyChange = (widget, property, value) => {
             if (property === 'x' || property === 'y') {
                 const newX = property === 'x' ? value : widget.x;
@@ -109,22 +157,26 @@ class UIController {
                 const newH = property === 'height' ? value : widget.height;
                 this.widgetManager.updateSize(widget.id, newW, newH);
                 this.propertiesPanel.refreshWidgetProperties(widget);
+            } else if (property === 'deviceId') {
+                // Валидация Уровень 2 + Уровень 4: маркер для этой машины?
+                if (!this.bindingsManager.assignDeviceToElement(widget.id, value)) {
+                    return;
+                }
+                widget.deviceId = value;
+                console.log(`Привязка: ${widget.id} -> ${value}`);
             }
         };
 
-        // Удаление виджета
         window.onDeleteWidget = (widgetId) => {
             this.widgetManager.delete(widgetId);
             this.selectionManager.clearSelection();
             this.propertiesPanel.clear();
         };
 
-        // Обновление панели при dragend
         window.onWidgetDragEnd = (widget) => {
             this.propertiesPanel.refreshWidgetProperties(widget);
         };
 
-        // Предоставить доступ к layer для перерисовки виджетов
         window.layer = this.canvasManager.getLayer();
     }
 
@@ -133,13 +185,11 @@ class UIController {
      */
     setupManagerCallbacks() {
         this.imageManager.onImageSelected = (konvaImg, frame, handle) => {
-            // гарантируем выключение режимов
             if (this.isCreateLineMode) {
                 this.toggleLineCreationMode();
             }
             this.setConnectionEditMode(false);
             this.selectionManager.selectElement(konvaImg, frame, handle);
-            // обновить панель свойств
             this.propertiesPanel.showPropertiesForImage(konvaImg);
         };
 
@@ -149,7 +199,6 @@ class UIController {
             this.connectionPointManager.createConnectionPointOnSide(konvaImg, sideMeta.side, sideMeta.offset);
         };
 
-        // Обновить виджеты при ресайзе изображения
         this.imageManager.setUpdateConnectionsCallback((imageNode) => {
             if (Array.isArray(imageNode._cp_points)) {
                 imageNode._cp_points.forEach(pin => {
@@ -196,7 +245,6 @@ class UIController {
         };
 
         this.connectionManager.onConnectionSelected = (connection) => {
-            // гарантируем выключение режима создания линий
             if (this.isCreateLineMode) {
                 this.toggleLineCreationMode();
             }
@@ -243,17 +291,31 @@ class UIController {
             });
         }
 
-        const saveBtn = document.getElementById('save-btn');
-        if (saveBtn) {
-            saveBtn.addEventListener('click', () => {
+        const saveSchemaBtn = document.getElementById('save-schema-btn');
+        if (saveSchemaBtn) {
+            saveSchemaBtn.addEventListener('click', () => {
                 this.fileManager.saveScheme();
             });
         }
 
-        const loadBtn = document.getElementById('load-btn');
-        if (loadBtn) {
-            loadBtn.addEventListener('click', () => {
+        const loadSchemaBtn = document.getElementById('load-schema-btn');
+        if (loadSchemaBtn) {
+            loadSchemaBtn.addEventListener('click', () => {
                 this.fileManager.loadScheme();
+            });
+        }
+
+        const saveBindingsBtn = document.getElementById('save-bindings-btn');
+        if (saveBindingsBtn) {
+            saveBindingsBtn.addEventListener('click', () => {
+                this.fileManager.saveBindings();
+            });
+        }
+
+        const loadBindingsBtn = document.getElementById('load-bindings-btn');
+        if (loadBindingsBtn) {
+            loadBindingsBtn.addEventListener('click', () => {
+                this.fileManager.loadBindings();
             });
         }
 
@@ -297,7 +359,6 @@ class UIController {
         const selected = this.selectionManager.getSelected();
         if (!selected) return;
 
-        // Удаление виджета
         if (selected.widget) {
             this.widgetManager.delete(selected.widget.id);
             this.selectionManager.clearSelection();
@@ -305,7 +366,6 @@ class UIController {
             return;
         }
 
-        // Удаление соединения
         if (selected.connection) {
             this.connectionManager.deleteConnection(selected.connection);
             this.setConnectionEditMode(false);
@@ -314,7 +374,6 @@ class UIController {
             return;
         }
 
-        // Удаление изображения
         if (selected.node) {
             this.imageManager.deleteImage(selected.node);
             this.selectionManager.clearSelection();

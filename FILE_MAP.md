@@ -14,6 +14,7 @@ VKR/
 ├── public/                           ОСНОВНОЙ КОД
 │   ├── index.html                    точка входа браузера (5.0 KB)
 │   ├── main.js                       инициализация UIController (320 B)
+│   ├── bindings-manager.js           управление привязки схемы к машине ( настройка привязок виджетов к устройствам только одной машины ) (5.0 KB)
 │   ├── canvas-manager.js             управление Konva.js (5.8 KB)
 │   ├── ui-controller.js              КООРДИНАТОР менеджеров (18.6 KB)
 │   ├── diagram-element.js            базовый класс элементов (1.4 KB)
