@@ -40,7 +40,7 @@ class UIController {
         this.imageManager = new ImageManager(this.canvasManager);
         this.connectionPointManager = new ConnectionPointManager(this.canvasManager);
         this.connectionManager = new ConnectionManager(this.canvasManager);
-        this.selectionManager = new SelectionManager(this.canvasManager, this.connectionManager);
+        this.selectionManager = new SelectionManager(this.canvasManager);
         this.propertiesPanel = new PropertiesPanel(this.canvasManager);
         this.widgetManager = new WidgetManager(
             this.canvasManager.getLayer(),
@@ -48,7 +48,6 @@ class UIController {
             this.canvasManager
         );
         this.bindingsManager = new BindingsManager([]);
-        this.bindingsManager.setWidgetManager(this.widgetManager); // передача ссылки для очистки привязок
         this.propertiesPanel.setBindingsManager(this.bindingsManager);
         this.fileManager = new FileManager(
             this.canvasManager,
@@ -60,15 +59,10 @@ class UIController {
         );
         this.contextMenu = new ContextMenu();
 
-        this.imageManager.setContextMenu(this.contextMenu, this.widgetManager);
-        this.propertiesPanel.setWidgetManager(this.widgetManager);
-        
         await this.loadDevicesRegistry();
 
-        this.imageManager.setConnectionManager(this.connectionManager);
         this.setupManagerCallbacks();
         this.setupEventListeners();
-        this.setupGlobalWidgetCallbacks();
         this.setupMachineSelection();
         this.setupBindingsManagerCallback();
     }
@@ -111,12 +105,12 @@ class UIController {
      */
     setupMachineSelection() {
         const machineSelect = document.getElementById('machine-select');
-        
+
         if (!machineSelect) return;
-        
+
         machineSelect.addEventListener('change', () => {
             const machineId = machineSelect.value;
-            
+
             if (!machineId) {
                 // без подписки - очищаем
                 this.bindingsManager.selectedMachineId = null;
@@ -124,66 +118,27 @@ class UIController {
                 console.log('Машина не выбрана');
                 return;
             }
-            
+
             // Валидация Уровень 1: машина выбрана?
             if (!this.bindingsManager.selectMachine(machineId)) {
                 // Сбросить dropdown если отклонено
                 machineSelect.value = '';
                 return;
             }
-            
+
             this.fileManager.currentMachineId = machineId;
             console.log(`Выбрана машина: ${machineId}`);
         });
     }
 
-    /**
-     * Настройка глобальных каллбэков для виджетов
-     */
-    setupGlobalWidgetCallbacks() {
-        window.onWidgetSelected = (widget) => {
-            this.selectionManager.selectWidget(widget);
-            this.propertiesPanel.showPropertiesForWidget(widget);
-        };
+    // Global widget callbacks removed in favor of explicit listeners
 
-        window.onWidgetPropertyChange = (widget, property, value) => {
-            if (property === 'x' || property === 'y') {
-                const newX = property === 'x' ? value : widget.x;
-                const newY = property === 'y' ? value : widget.y;
-                this.widgetManager.updatePosition(widget.id, newX, newY);
-                this.propertiesPanel.refreshWidgetProperties(widget);
-            } else if (property === 'width' || property === 'height') {
-                const newW = property === 'width' ? value : widget.width;
-                const newH = property === 'height' ? value : widget.height;
-                this.widgetManager.updateSize(widget.id, newW, newH);
-                this.propertiesPanel.refreshWidgetProperties(widget);
-            } else if (property === 'deviceId') {
-                // Валидация Уровень 2 + Уровень 4: маркер для этой машины?
-                if (!this.bindingsManager.assignDeviceToElement(widget.id, value)) {
-                    return;
-                }
-                widget.deviceId = value;
-                console.log(`Привязка: ${widget.id} -> ${value}`);
-            }
-        };
-
-        window.onDeleteWidget = (widgetId) => {
-            this.widgetManager.delete(widgetId);
-            this.selectionManager.clearSelection();
-            this.propertiesPanel.clear();
-        };
-
-        window.onWidgetDragEnd = (widget) => {
-            this.propertiesPanel.refreshWidgetProperties(widget);
-        };
-
-        window.layer = this.canvasManager.getLayer();
-    }
 
     /**
      * Настройка каллбэков менеджеров
      */
     setupManagerCallbacks() {
+        // ImageManager ->  UIController
         this.imageManager.onImageSelected = (konvaImg, frame, handle) => {
             if (this.isCreateLineMode) {
                 this.toggleLineCreationMode();
@@ -199,23 +154,117 @@ class UIController {
             this.connectionPointManager.createConnectionPointOnSide(konvaImg, sideMeta.side, sideMeta.offset);
         };
 
-        this.imageManager.setUpdateConnectionsCallback((imageNode) => {
-            if (Array.isArray(imageNode._cp_points)) {
-                imageNode._cp_points.forEach(pin => {
+        // ImageManager: при движении изображения -> обновить соединения и виджеты
+        this.imageManager.onImageMoved = (konvaImg, deltaX, deltaY) => {
+            // 1. Обновляем соединения
+            if (Array.isArray(konvaImg._cp_points)) {
+                konvaImg._cp_points.forEach(pin => {
                     this.connectionManager.updateConnectionsForPin(pin, pin.x(), pin.y(), true);
                 });
             }
-            if (this.widgetManager) {
-                const imageId = imageNode.getAttr('imageId');
-                if (imageId) {
-                    const image = this.imageManager.getImage(imageId);
-                    if (image) {
-                        this.widgetManager.onImageResize(imageId, image.width() * image.scaleX(), image.height() * image.scaleY());
-                    }
+
+            // 2. Обновляем виджеты
+            const imageId = konvaImg.getAttr('imageId');
+            if (imageId) {
+                this.widgetManager.onImageMove(imageId, deltaX, deltaY);
+            }
+        };
+
+        // ImageManager: при масштабировании -> обновить соединения и виджеты
+        this.imageManager.onImageScaled = (konvaImg) => {
+            // 1. Обновляем соединения
+            if (Array.isArray(konvaImg._cp_points)) {
+                konvaImg._cp_points.forEach(pin => {
+                    this.connectionManager.updateConnectionsForPin(pin, pin.x(), pin.y(), true);
+                });
+            }
+
+            // 2. Обновляем виджеты
+            const imageId = konvaImg.getAttr('imageId');
+            if (imageId) {
+                const image = this.imageManager.getImage(imageId);
+                if (image) {
+                    this.widgetManager.onImageResize(imageId, image.width() * image.scaleX(), image.height() * image.scaleY());
                 }
             }
-        });
+        };
 
+        // ImageManager: при удалении -> удалить виджеты
+        this.imageManager.onImageDeleted = (imageId) => {
+            if (this.widgetManager) {
+                this.widgetManager.onImageDelete(imageId);
+            }
+        };
+
+        // ImageManager: удалить пины при удалении картинки
+        this.imageManager.onPointDeleteRequest = (point) => {
+            this.connectionPointManager.deletePoint(point);
+        };
+
+        // ImageManager: показ контекстного меню
+        this.imageManager.onContextMenuRequested = (imageId, konvaImg, pos, clientX, clientY) => {
+            const menuItems = [
+                {
+                    label: 'Добавить виджет',
+                    submenu: [
+                        { label: '📊 Числовой дисплей', type: 'number-display' },
+                        { label: '📝 Текстовый дисплей', type: 'text-display' },
+                        { label: '💡 Индикатор', type: 'led' },
+                        { label: '🔢 Числовой ввод', type: 'number-input' },
+                        { label: '✏️ Текстовый ввод', type: 'text-input' },
+                        { label: '🔀 Переключатель', type: 'toggle' },
+                        { label: '🔘 Кнопка', type: 'button' },
+                        { label: '📏 Слайдер', type: 'slider' }
+                    ],
+                    onSelect: (type) => {
+                        const defaults = {
+                            'number-display': { width: 100, height: 30 },
+                            'text-display': { width: 120, height: 25 },
+                            'led': { width: 40, height: 40 },
+                            'number-input': { width: 100, height: 30 },
+                            'text-input': { width: 150, height: 30 },
+                            'toggle': { width: 60, height: 26 },
+                            'button': { width: 100, height: 32 },
+                            'slider': { width: 140, height: 30 }
+                        };
+
+                        const defaultSize = defaults[type] || { width: 100, height: 30 };
+                        const image = this.imageManager.getImage(imageId);
+                        if (!image) return;
+
+                        let widgetX = pos.x - defaultSize.width / 2;
+                        let widgetY = pos.y - defaultSize.height / 2;
+
+                        const imgX = image.x();
+                        const imgY = image.y();
+                        const imgWidth = image.width() * image.scaleX();
+                        const imgHeight = image.height() * image.scaleY();
+
+                        if (widgetX < imgX) widgetX = imgX;
+                        if (widgetX + defaultSize.width > imgX + imgWidth) {
+                            widgetX = imgX + imgWidth - defaultSize.width;
+                        }
+                        if (widgetY < imgY) widgetY = imgY;
+                        if (widgetY + defaultSize.height > imgY + imgHeight) {
+                            widgetY = imgY + imgHeight - defaultSize.height;
+                        }
+
+                        this.widgetManager.create({
+                            type,
+                            imageId,
+                            x: widgetX,
+                            y: widgetY,
+                            width: defaultSize.width,
+                            height: defaultSize.height
+                        });
+                    }
+                }
+            ];
+
+            this.contextMenu.show(menuItems, clientX, clientY);
+        };
+
+        // ConnectionPointManager -> UIController
         this.connectionPointManager.onPointSelected = (point) => {
             if (!this.isCreateLineMode) {
                 this.setConnectionEditMode(false);
@@ -244,6 +293,19 @@ class UIController {
             );
         };
 
+        // Каскадное удаление соединений при удалении точки
+        this.connectionPointManager.onPointDeleted = (point) => {
+            const connections = this.connectionManager.getConnections();
+            // делаем копию массива, чтобы безопасно удалять элементы при итерации
+            [...connections].forEach(conn => {
+                const meta = conn.getAttr('connection-meta');
+                if (meta && (meta.fromPin === point || meta.toPin === point)) {
+                    this.connectionManager.deleteConnection(conn);
+                }
+            });
+        };
+
+        // ConnectionManager -> UIController
         this.connectionManager.onConnectionSelected = (connection) => {
             if (this.isCreateLineMode) {
                 this.toggleLineCreationMode();
@@ -251,6 +313,55 @@ class UIController {
             this.setConnectionEditMode(true);
             this.selectionManager.selectConnection(connection);
             this.propertiesPanel.showPropertiesForConnection(connection);
+        };
+
+        // SelectionManager -> UIController
+        this.selectionManager.onConnectionSelectRequest = (connection) => {
+            this.connectionManager.selectConnection(connection);
+        };
+
+        this.selectionManager.onConnectionDeselectRequest = (connection) => {
+            this.connectionManager.deselectConnection(connection);
+        };
+
+        // BindingsManager -> UIController
+        this.bindingsManager.onBindingsClearRequest = () => {
+            if (this.widgetManager && Array.isArray(this.widgetManager.widgets)) {
+                this.widgetManager.widgets.forEach(w => {
+                    w.bindingId = null;
+                });
+            }
+        };
+
+        // PropertiesPanel -> UIController
+        this.propertiesPanel.onWidgetUpdated = (widget) => {
+            if (this.widgetManager) {
+                this.widgetManager.reattachDragHandlers(widget);
+            }
+        };
+
+        this.propertiesPanel.onWidgetPositionOrSizeChange = (widget, propName, value) => {
+            if (this.widgetManager) {
+                if (propName === 'x') {
+                    this.widgetManager.updatePosition(widget.id, value, widget.y);
+                } else if (propName === 'y') {
+                    this.widgetManager.updatePosition(widget.id, widget.x, value);
+                } else if (propName === 'width') {
+                    this.widgetManager.updateSize(widget.id, value, widget.height);
+                } else if (propName === 'height') {
+                    this.widgetManager.updateSize(widget.id, widget.width, value);
+                }
+            }
+        };
+
+        // WidgetManager -> UIController
+        this.widgetManager.onWidgetSelected = (widget) => {
+            this.selectionManager.selectWidget(widget);
+            this.propertiesPanel.showPropertiesForWidget(widget, this.bindingsManager.allDevices);
+        };
+
+        this.widgetManager.onWidgetDragEnd = (widget) => {
+            this.propertiesPanel.refreshWidgetProperties(widget);
         };
     }
 
@@ -282,7 +393,7 @@ class UIController {
             tooltipTriggerList.forEach(function (tooltipTriggerEl) {
                 if (window.bootstrap && bootstrap.Tooltip) new bootstrap.Tooltip(tooltipTriggerEl);
             });
-        } catch (_) {}
+        } catch (_) { }
 
         const addImageBtn = document.getElementById('add-image-btn');
         if (addImageBtn) {
@@ -454,7 +565,8 @@ class UIController {
         points.forEach(point => {
             point.draggable(true);
             point.listening(true);
-            point.off('pointerdown');
+            // Восстанавливаем стандартные обработчики (click, dblclick)
+            this.connectionPointManager.restoreDefaultEvents(point);
         });
 
         this.clearPreviewLine();

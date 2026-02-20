@@ -4,11 +4,12 @@
 const HANDLE_RADIUS = 6;
 
 class SelectionManager {
-    constructor(canvasManager, connectionManager) {
+    constructor(canvasManager) {
         this.canvasManager = canvasManager;
-        this.connectionManager = connectionManager;
         this.selected = null;
         this.canvasClickListenerSetup = false;
+        this.onConnectionSelectRequest = null; // callback для UIController
+        this.onConnectionDeselectRequest = null; // callback для UIController
     }
 
     /**
@@ -16,17 +17,17 @@ class SelectionManager {
      */
     ensureCanvasClickListener() {
         if (this.canvasClickListenerSetup) return;
-        
+
         try {
             const stage = this.canvasManager.getStage();
             if (!stage) return;
-            
+
             stage.on('click', (e) => {
                 if (e.target === stage) {
                     this.clearSelection();
                 }
             });
-            
+
             this.canvasClickListenerSetup = true;
         } catch (err) {
             // Stage еще не инициализирован
@@ -129,16 +130,16 @@ class SelectionManager {
 
         layer.add(highlight);
         layer.moveToTop(connection);
-        
+
         // Сохранить ссылку на подсветку для обновления
         connMeta.highlightLine = highlight;
         connection.setAttr('connection-meta', connMeta);
-        
-        // Отметить в connectionManager как текущее выделеное
-        if (this.connectionManager) {
-            this.connectionManager.selectConnection(connection);
+
+        // Уведомить контроллер о выборе соединения
+        if (this.onConnectionSelectRequest) {
+            this.onConnectionSelectRequest(connection);
         }
-        
+
         layer.batchDraw();
 
         const cleanup = () => {
@@ -146,9 +147,9 @@ class SelectionManager {
             // Очистить ссылку на подсветку
             connMeta.highlightLine = null;
             connection.setAttr('connection-meta', connMeta);
-            // Снять выделение в connectionManager
-            if (this.connectionManager) {
-                this.connectionManager.deselectConnection(connection);
+            // Уведомить контроллер о снятии выделения
+            if (this.onConnectionDeselectRequest) {
+                this.onConnectionDeselectRequest(connection);
             }
             layer.batchDraw();
         };

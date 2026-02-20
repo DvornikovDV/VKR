@@ -3,18 +3,18 @@
 
 // Константы валидации для каждого типа свойства
 const VALIDATION_RULES = {
-  x: { min: -Infinity, max: Infinity, type: 'integer' },
-  y: { min: -Infinity, max: Infinity, type: 'integer' },
-  width: { min: 10, max: 5000, type: 'integer' },
-  height: { min: 10, max: 5000, type: 'integer' },
-  fontSize: { min: 8, max: 48, type: 'integer' },
-  radius: { min: 5, max: 100, type: 'integer' },
-  min: { min: -Infinity, max: Infinity, type: 'number' },
-  max: { min: -Infinity, max: Infinity, type: 'number' },
-  step: { min: 0.1, max: Infinity, type: 'float' },
-  maxLength: { min: 1, max: 1000, type: 'integer' },
-  borderWidth: { min: 1, max: 10, type: 'integer' },
-  value: { min: -Infinity, max: Infinity, type: 'number' }
+    x: { min: -Infinity, max: Infinity, type: 'integer' },
+    y: { min: -Infinity, max: Infinity, type: 'integer' },
+    width: { min: 10, max: 5000, type: 'integer' },
+    height: { min: 10, max: 5000, type: 'integer' },
+    fontSize: { min: 8, max: 48, type: 'integer' },
+    radius: { min: 5, max: 100, type: 'integer' },
+    min: { min: -Infinity, max: Infinity, type: 'number' },
+    max: { min: -Infinity, max: Infinity, type: 'number' },
+    step: { min: 0.1, max: Infinity, type: 'float' },
+    maxLength: { min: 1, max: 1000, type: 'integer' },
+    borderWidth: { min: 1, max: 10, type: 'integer' },
+    value: { min: -Infinity, max: Infinity, type: 'number' }
 };
 
 // Вспомогательные функции для избежания дублирования HTML кода
@@ -51,7 +51,7 @@ function createSizeAndColorProperties(widget) {
     const color = widget.color || '#000000';
     const bgColor = widget.backgroundColor || (widget.type?.includes('input') ? '#ffffff' : '#f5f5f5');
     const borderColor = widget.borderColor || '#cccccc';
-    
+
     return `
     ${createNumberProperty('Размер шрифта', 'fontSize', fontSize, 8, 48)}
     ${createColorProperty('Цвет текста', 'color', color)}
@@ -61,11 +61,11 @@ function createSizeAndColorProperties(widget) {
 
 function createInputParametersSection(widget) {
     let html = '';
-    
+
     if (widget.type === 'number-input' || widget.type === 'text-input') {
         html += '<div class="mb-2 mt-3"><strong>Параметры ввода</strong></div>';
     }
-    
+
     if (widget.type === 'number-input') {
         const min = widget.min ?? 0;
         const max = widget.max ?? 100;
@@ -88,7 +88,7 @@ function createInputParametersSection(widget) {
         html += `
     ${createNumberProperty('Радиус', 'radius', radius, 5, 100)}`;
     }
-    
+
     return html;
 }
 
@@ -121,10 +121,24 @@ function createControlParametersSection(widget) {
 }
 
 // Функция валидации и автокоррекции значения
-function validateAndAutoCorrectValue(propName, value) {
-    const rules = VALIDATION_RULES[propName];
+function validateAndAutoCorrectValue(widget, propName, value) {
+    let rules = VALIDATION_RULES[propName];
     if (!rules) return value; // Если правил нет, возвращаем как есть (для цветов, текста)
-    
+
+    // Клонируем правила для динамической подмены
+    rules = { ...rules };
+
+    // Динамические минимальные размеры в зависимости от типа виджета
+    if (propName === 'width' || propName === 'height') {
+        if (widget.type === 'button') {
+            rules.min = 20;
+        } else if (widget.type === 'toggle') {
+            rules.min = propName === 'width' ? 40 : 20;
+        } else if (widget.type === 'slider') {
+            rules.min = propName === 'width' ? 50 : 30;
+        }
+    }
+
     let numValue;
     if (rules.type === 'integer') {
         numValue = parseInt(value);
@@ -135,12 +149,12 @@ function validateAndAutoCorrectValue(propName, value) {
     } else {
         return value;
     }
-    
+
     // Проверка на NaN
     if (isNaN(numValue)) {
         return null; // Ошибка
     }
-    
+
     // Автокоррекция: зажать значение в диапазон [min, max]
     if (numValue < rules.min) {
         return rules.min;
@@ -148,7 +162,7 @@ function validateAndAutoCorrectValue(propName, value) {
     if (numValue > rules.max) {
         return rules.max;
     }
-    
+
     return numValue;
 }
 
@@ -158,15 +172,13 @@ class PropertiesPanel {
         this.container = document.getElementById('properties-content');
         this.selectedImage = null;
         this.selectedWidget = null;
-        this.widgetManager = null;
         this.bindingsManager = null;
+        this.onWidgetUpdated = null; // callback для UIController (после изменения свойств)
+        this.onWidgetPositionOrSizeChange = null; // callback для UIController (изменение размеров/позиций)
     }
-    
-    // Установить ссылку на WidgetManager для переприсоединения обработчиков
-    setWidgetManager(widgetManager) {
-        this.widgetManager = widgetManager;
-    }
-    
+
+
+
     // Установить ссылку на BindingsManager для фильтрации устройств
     setBindingsManager(bindingsManager) {
         this.bindingsManager = bindingsManager;
@@ -186,7 +198,7 @@ class PropertiesPanel {
         const x = konvaImg.x().toFixed(0);
         const y = konvaImg.y().toFixed(0);
         const pointCount = Array.isArray(konvaImg._cp_points) ? konvaImg._cp_points.length : 0;
-        
+
         this.container.innerHTML = '' +
             '<div class="mb-2"><strong>Машина</strong></div>' +
             `<div class="small text-muted">ID: ${id}</div>` +
@@ -241,7 +253,7 @@ class PropertiesPanel {
 
         // Свойства оформления
         html += '<div class="mb-2 mt-3"><strong>Оформление</strong></div>';
-        
+
         if (type === 'led') {
             const colorOn = widget.colorOn || '#4caf50';
             const colorOff = widget.colorOff || '#cccccc';
@@ -277,23 +289,23 @@ class PropertiesPanel {
               <select id="device-binding-select" class="form-control form-control-sm" style="max-height: 150px; overflow-y: auto;">
                 <option value="">-- не привязано --</option>
         `;
-        
+
         // Фильтруем устройства по текущей машине из BindingsManager
         let availableDevices = [];
         if (this.bindingsManager && this.bindingsManager.selectedMachineId) {
             availableDevices = this.bindingsManager.allDevices.filter(d => d.machineId === this.bindingsManager.selectedMachineId);
         }
-        
+
         availableDevices.forEach(device => {
             const selected = bindingId === device.id ? 'selected' : '';
             html += `<option value="${device.id}" ${selected}>${device.name} (${device.type})</option>`;
         });
-        
+
         html += `
               </select>
             </div>
         `;
-        
+
         // Отображить метаданные привязанного устройства (если есть)
         if (bindingId) {
             const device = availableDevices.find(d => d.id === bindingId);
@@ -320,68 +332,78 @@ class PropertiesPanel {
      * Обработчик изменений свойств виджета
      */
     attachWidgetPropertyListeners(widget) {
-        // Получить все input'ы с классом widget-prop-input
         const inputs = this.container.querySelectorAll('.widget-prop-input');
-        
-        inputs.forEach(input => {
-            input.addEventListener('change', (e) => {
-                const propName = input.getAttribute('data-prop');
-                const rawValue = e.target.value;
-                
-                // Валидировать и автокорректировать значение
-                const correctedValue = validateAndAutoCorrectValue(propName, rawValue);
-                
+
+        // Общая функция применения и перерисовки
+        const applyProp = (input, rawValue) => {
+            const propName = input.getAttribute('data-prop');
+            const inputType = input.getAttribute('type');
+
+            // Для цветов и текста — без валидации чисел
+            if (inputType === 'color' || inputType === 'text') {
+                widget[propName] = rawValue;
+            } else {
+                // number input — валидация и автокоррекция
+                const correctedValue = validateAndAutoCorrectValue(widget, propName, rawValue);
                 if (correctedValue === null) {
-                    // Некорректное значение (например, не число) - откатить
+                    // Некорректное значение — откатить
                     input.value = widget[propName];
                     return;
                 }
 
-                // Применить скорректированное значение
-                if (propName === 'backgroundColorOn' || propName === 'backgroundColorOff') {
-                    widget[propName] = rawValue;
-                    input.value = rawValue;
-                } else if (propName === 'text' || propName === 'labelOn' || propName === 'labelOff' || propName === 'pattern' || propName === 'placeholder') {
-                    widget[propName] = rawValue;
-                    input.value = rawValue;
+                if (propName === 'x' || propName === 'y' || propName === 'width' || propName === 'height') {
+                    if (this.onWidgetPositionOrSizeChange) {
+                        this.onWidgetPositionOrSizeChange(widget, propName, correctedValue);
+                    }
+                    input.value = widget[propName]; // Значение может быть скорректировано контроллером
                 } else {
                     widget[propName] = correctedValue;
-                    input.value = correctedValue; // Обновить поле, если было автокорректировано
+                    input.value = correctedValue; // обновить поле если было скорректировано
                 }
-                
-                // Дополнительная логика для slider: следим, чтобы value оставалось в диапазоне
-                if (widget.type === 'slider') {
-                    if (propName === 'min' || propName === 'max' || propName === 'step') {
-                        const min = typeof widget.min === 'number' ? widget.min : 0;
-                        const max = typeof widget.max === 'number' ? widget.max : min + 100;
-                        let value = typeof widget.value === 'number' ? widget.value : (min + max) / 2;
-                        if (value < min) value = min;
-                        if (value > max) value = max;
-                        widget.value = value;
-                    }
+
+                // Для slider: зажать value в диапазон при изменении min/max/step
+                if (widget.type === 'slider' && (propName === 'min' || propName === 'max' || propName === 'step')) {
+                    const min = typeof widget.min === 'number' ? widget.min : 0;
+                    const max = typeof widget.max === 'number' ? widget.max : min + 100;
+                    let value = typeof widget.value === 'number' ? widget.value : (min + max) / 2;
+                    if (value < min) value = min;
+                    if (value > max) value = max;
+                    widget.value = value;
                 }
-                
-                // Перерисовать виджет
-                if (window.layer) {
-                    widget.render(window.layer);
-                    
-                    // Переприсоединить обработчики после render
-                    if (this.widgetManager) {
-                        this.widgetManager.reattachDragHandlers(widget);
-                    }
-                    
-                    window.layer.batchDraw();
-                }
-            });
+            }
+
+            // Перерисовать виджет
+            const layer = this.canvasManager ? this.canvasManager.getLayer() : null;
+            if (layer) {
+                widget.render(layer);
+                if (this.onWidgetUpdated) this.onWidgetUpdated(widget);
+                layer.batchDraw();
+            }
+        };
+
+        inputs.forEach(input => {
+            const inputType = input.getAttribute('type');
+
+            if (inputType === 'color') {
+                // 'input' — мгновенное обновление при движении в пикере
+                input.addEventListener('input', (e) => applyProp(input, e.target.value));
+                // 'change' — финальное значение после закрытия пикера
+                input.addEventListener('change', (e) => applyProp(input, e.target.value));
+            } else if (inputType === 'text') {
+                // 'input' — обновление при наборе текста
+                input.addEventListener('input', (e) => applyProp(input, e.target.value));
+                input.addEventListener('change', (e) => applyProp(input, e.target.value));
+            } else {
+                // number — только 'change' (при потере фокуса / Enter)
+                input.addEventListener('change', (e) => applyProp(input, e.target.value));
+            }
         });
-        
+
         // Обработчик выпадающего списка привязки устройства
         const deviceSelect = this.container.querySelector('#device-binding-select');
         if (deviceSelect) {
             deviceSelect.addEventListener('change', (e) => {
-                const deviceId = e.target.value;
-                widget.bindingId = deviceId || null;
-                
+                widget.bindingId = e.target.value || null;
                 // Пересоздать панель свойств чтобы показать/скрыть метаданные
                 this.showPropertiesForWidget(widget);
             });
@@ -395,9 +417,13 @@ class PropertiesPanel {
         if (this.selectedWidget && this.selectedWidget === widget) {
             const xInput = this.container.querySelector('[data-prop="x"]');
             const yInput = this.container.querySelector('[data-prop="y"]');
-            
+            const wInput = this.container.querySelector('[data-prop="width"]');
+            const hInput = this.container.querySelector('[data-prop="height"]');
+
             if (xInput) xInput.value = widget.x.toFixed(0);
             if (yInput) yInput.value = widget.y.toFixed(0);
+            if (wInput) wInput.value = widget.width.toFixed(0);
+            if (hInput) hInput.value = widget.height.toFixed(0);
         }
     }
 

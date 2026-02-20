@@ -44,7 +44,7 @@ class ConnectionPointManager {
             point.position(proj.xy);
             current.offset = proj.offset;
             point.setAttr('cp-meta', current);
-            
+
             // Передаем абсолютные координаты
             if (this.onPointMoved) {
                 this.onPointMoved(point);
@@ -280,6 +280,33 @@ class ConnectionPointManager {
 
         this.canvasManager.getLayer().batchDraw();
         this.canvasManager.getStage().batchDraw();
+    }
+
+    /**
+     * Восстановить стандартные обработчики событий (click, dblclick)
+     * Используется после выхода из режима создания линий
+     */
+    restoreDefaultEvents(point) {
+        // Сначала удаляем, чтобы не дублировать
+        point.off('click');
+        point.off('dblclick');
+        point.off('pointerdown'); // удаляем обработчик создания линий если он был
+
+        // клик — показать свойства
+        point.on('click', (e) => {
+            e.evt.stopPropagation();
+            if (this.onPointSelected) {
+                this.onPointSelected(point);
+            }
+        });
+
+        // двойной клик — удалить
+        point.on('dblclick', (e) => {
+            e.evt.stopPropagation();
+            if (this.onPointDoubleClick) {
+                this.onPointDoubleClick(point);
+            }
+        });
     }
 
     /**

@@ -9,7 +9,7 @@ class FileManager {
         this.connectionManager = connectionManager;
         this.widgetManager = widgetManager;
         this.bindingsManager = bindingsManager;
-        
+
         this.currentSchemaId = null;
         this.currentSchemaVersion = null;
         this.currentMachineId = null;
@@ -17,6 +17,16 @@ class FileManager {
 
     setWidgetManager(widgetManager) {
         this.widgetManager = widgetManager;
+    }
+
+    /**
+     * Safe JSON parse reviver to prevent prototype pollution
+     */
+    _safeReviver(key, value) {
+        if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+            throw new Error('Unsafe JSON key detected: ' + key);
+        }
+        return value;
     }
 
     /**
@@ -40,7 +50,7 @@ class FileManager {
     async exportImages() {
         const images = this.imageManager.getImages();
         const exported = [];
-        
+
         for (const konvaImg of images) {
             const base64 = this.imageToBase64(konvaImg);
             exported.push({
@@ -54,7 +64,7 @@ class FileManager {
                 scaleY: konvaImg.scaleY()
             });
         }
-        
+
         return exported;
     }
 
@@ -63,12 +73,26 @@ class FileManager {
      */
     async importImages(imagesData) {
         if (!Array.isArray(imagesData)) return;
-        
+
         for (const imgData of imagesData) {
             if (!imgData.base64) continue;
-            
+            // Security: Validate Base64 format
+            if (!imgData.base64.startsWith('data:image/')) {
+                console.warn('Skipping suspicious image data:', imgData.imageId);
+                continue;
+            }
+
             await new Promise((resolve) => {
                 const imgObj = new Image();
+                let isResolved = false;
+
+                const finish = () => {
+                    if (!isResolved) {
+                        isResolved = true;
+                        resolve();
+                    }
+                };
+
                 imgObj.onload = () => {
                     const layer = this.canvasManager.getLayer();
                     const konvaImg = new Konva.Image({
@@ -79,22 +103,36 @@ class FileManager {
                         scaleY: imgData.scaleY || 1,
                         draggable: true
                     });
-                    
+
                     konvaImg._id = imgData.imageId;
                     konvaImg._cp_points = [];
                     konvaImg.setAttr('imageId', imgData.imageId);
-                    
+
                     layer.add(konvaImg);
                     this.imageManager.attachSelectionFrame(konvaImg);
                     this.imageManager.attachContextMenu(konvaImg);
                     this.imageManager.images.push(konvaImg);
-                    
-                    resolve();
+
+                    finish();
                 };
+
+                imgObj.onerror = () => {
+                    console.error('Failed to load image:', imgData.imageId);
+                    finish(); // Resolve anyway to continue loading other images
+                };
+
                 imgObj.src = imgData.base64;
+
+                // Timeout safe-guard
+                setTimeout(() => {
+                    if (!isResolved) {
+                        console.warn('Image load timed out:', imgData.imageId);
+                        finish();
+                    }
+                }, 5000);
             });
         }
-        
+
         this.canvasManager.getLayer().batchDraw();
     }
 
@@ -106,7 +144,8 @@ class FileManager {
         if (!name || name.trim() === '') {
             return null;
         }
-        return name.trim();
+        // Sanitize: allow only alphanumeric, dashes, underscores
+        return name.trim().replace(/[^a-zA-Z0-9\-_]/g, '_');
     }
 
     /**
@@ -117,7 +156,7 @@ class FileManager {
         return new Promise((resolve) => {
             // Создаём blob с данными
             const blob = new Blob([jsonString], { type: 'application/json' });
-            
+
             // Гарантируем что blob полностью подготовлен перед скачиванием
             const reader = new FileReader();
             reader.onload = () => {
@@ -125,7 +164,7 @@ class FileManager {
                 const link = document.createElement('a');
                 link.href = url;
                 link.download = filename;
-                
+
                 // Даём браузеру время обработать
                 setTimeout(() => {
                     link.click();
@@ -136,7 +175,7 @@ class FileManager {
                     }, 100);
                 }, 0);
             };
-            
+
             // Считываем blob в памяти для гарантии готовности
             reader.readAsArrayBuffer(blob);
         });
@@ -184,7 +223,7 @@ class FileManager {
                 connections: this.connectionManager.exportConnections(),
                 widgets: this.widgetManager ? this.widgetManager.exportWidgets() : []
             };
-            
+
             const jsonString = JSON.stringify(scheme, null, 2);
             // Дожидаемся когда файл будет готов к скачиванию
             const fileName = this.currentSchemaId.endsWith('.json') ? this.currentSchemaId : `${this.currentSchemaId}.json`;
@@ -206,25 +245,25 @@ class FileManager {
         input.onchange = (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            
+
             const reader = new FileReader();
             reader.onload = (event) => {
                 try {
                     const fileContent = event.target.result;
-                    
+
                     // Проверка что файл не пустой
                     if (!fileContent || fileContent.trim() === '') {
                         alert('Ошибка: файл пустой или повреждён');
                         return;
                     }
-                    
-                    const scheme = JSON.parse(fileContent);
-                    
+
+                    const scheme = JSON.parse(fileContent, this._safeReviver);
+
                     this.currentSchemaId = scheme.schemaId || null;
                     this.currentSchemaVersion = scheme.version || null;
-                    
+
                     this.clearCanvas(false);
-                    
+
                     this.importImages(scheme.images || []).then(() => {
                         this.connectionPointManager.importPoints(scheme.connectionPoints || [], this.imageManager);
                         this.connectionManager.importConnections(scheme.connections || [], this.connectionPointManager);
@@ -256,21 +295,21 @@ class FileManager {
                 alert('Сначала сохраните или загрузите структуру схемы!');
                 return;
             }
-            
+
             // Валидация Уровень 1: машина выбрана?
             if (!this.bindingsManager || !this.bindingsManager.selectedMachineId) {
                 alert('Выберите машину в экране!');
                 return;
             }
-            
+
             const machineId = this.bindingsManager.selectedMachineId;
-            
+
             // Собираем привязки от виджетов через WidgetManager, если он есть
             let widgetBindings = [];
             if (this.widgetManager) {
                 widgetBindings = this.widgetManager.exportBindings();
             }
-            
+
             const bindings = {
                 schemaId: this.currentSchemaId,
                 schemaVersion: this.currentSchemaVersion,
@@ -278,7 +317,7 @@ class FileManager {
                 bindings: widgetBindings,
                 timestamp: new Date().toISOString()
             };
-            
+
             const jsonString = JSON.stringify(bindings, null, 2);
             const fileName = `bindings-${this.currentSchemaId}-${machineId}.json`;
             await this.downloadJSON(jsonString, fileName);
@@ -301,42 +340,42 @@ class FileManager {
         input.onchange = (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            
+
             const reader = new FileReader();
             reader.onload = (event) => {
                 try {
                     const fileContent = event.target.result;
-                    
+
                     // Проверка что файл не пустой
                     if (!fileContent || fileContent.trim() === '') {
                         alert('Ошибка: файл пустой или повреждён');
                         return;
                     }
-                    
-                    const bindingsData = JSON.parse(fileContent);
-                    
+
+                    const bindingsData = JSON.parse(fileContent, this._safeReviver);
+
                     // Валидация Уровень 3: schemaId совпадает?
                     if (bindingsData.schemaId !== this.currentSchemaId) {
                         alert(`Ошибка: привязки для "${bindingsData.schemaId}", а загружена "${this.currentSchemaId}"`);
                         return;
                     }
-                    
+
                     if (bindingsData.schemaVersion !== this.currentSchemaVersion) {
                         alert(`Ошибка: версии не совпадают (привязки: ${bindingsData.schemaVersion}, схема: ${this.currentSchemaVersion})`);
                         return;
                     }
-                    
+
                     // Валидация Уровень 4: machineId совпадает?
                     if (bindingsData.machineId !== this.bindingsManager.selectedMachineId) {
                         const msg = `привязки для "${bindingsData.machineId}", ` +
-                                    `а выбрана "${this.bindingsManager.selectedMachineId}". Переключить?`;
+                            `а выбрана "${this.bindingsManager.selectedMachineId}". Переключить?`;
                         if (!confirm(msg)) return;
-                        
+
                         // Переключить машину скипая подтверждение дополнительно
                         this.bindingsManager.selectMachine(bindingsData.machineId, true);
                         this.currentMachineId = bindingsData.machineId;
                     }
-                    
+
                     // Загрузить привязки в WidgetManager
                     if (this.widgetManager && Array.isArray(bindingsData.bindings)) {
                         this.widgetManager.importBindings(bindingsData.bindings);
@@ -360,7 +399,7 @@ class FileManager {
         if (confirm_flag && !confirm('Очистить canvas? Все элементы будут удалены.')) {
             return;
         }
-        
+
         this.canvasManager.getLayer().destroyChildren();
         this.canvasManager.addGrid();
         this.imageManager.clear();

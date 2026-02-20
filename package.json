@@ -1,0 +1,22 @@
+{
+    "name": "vkr-scada",
+    "version": "1.0.0",
+    "description": "Mnemonic diagram constructor",
+    "main": "server/server.js",
+    "type": "module",
+    "scripts": {
+        "start": "node server/server.js",
+        "dev": "node --watch server/server.js"
+    },
+    "keywords": [
+        "scada",
+        "diagrams",
+        "konva"
+    ],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "express": "^4.18.2"
+    },
+    "devDependencies": {}
+}

@@ -21,54 +21,54 @@ export class DisplayWidget {
     this.id = config.id;
     this.type = config.type;
     this.imageId = config.imageId;
-    
+
     this.x = config.x;
     this.y = config.y;
     this.width = config.width;
     this.height = config.height;
-    
+
     this.relativeX = config.relativeX || 0;
     this.relativeY = config.relativeY || 0;
-    
+
     this.fontSize = config.fontSize || 14;
     this.color = config.color || '#000000';
     this.backgroundColor = config.backgroundColor || '#f5f5f5';
     this.borderColor = config.borderColor || '#cccccc';
-    
+
     this.konvaGroup = null;
-    
+
     this.bindingId = config.bindingId || null;
     this.isReadOnly = true;
     this.displayValue = config.displayValue || null;
   }
-  
+
   getCategory() {
     return 'display';
   }
-  
+
   render(layer) {
     throw new Error('render() must be implemented in subclass');
   }
-  
+
   destroy() {
     if (this.konvaGroup) { this.konvaGroup.destroy(); this.konvaGroup = null; }
   }
-  
+
   onValueUpdate(newValue, layer) {
     this.displayValue = newValue;
     this.render(layer);
   }
-  
+
   formatValue(value) {
     return value;
   }
-  
+
   // Вспомогательный метод для рендеринга прямоугольного виджета с текстом
   renderRectWithText(layer, displayText, textConfig = {}) {
     if (this.konvaGroup) this.konvaGroup.destroy();
-    
+
     this.konvaGroup = new Konva.Group({ x: this.x, y: this.y, width: this.width, height: this.height });
-    
+
     const background = new Konva.Rect({
       x: 0,
       y: 0,
@@ -79,7 +79,7 @@ export class DisplayWidget {
       strokeWidth: textConfig.strokeWidth || 1,
       cornerRadius: 3
     });
-    
+
     const text = new Konva.Text({
       x: textConfig.x || 0,
       y: 0,
@@ -92,7 +92,7 @@ export class DisplayWidget {
       align: textConfig.align || 'center',
       verticalAlign: 'middle'
     });
-    
+
     this.konvaGroup.add(background);
     this.konvaGroup.add(text);
     layer.add(this.konvaGroup);
@@ -105,55 +105,55 @@ export class InputWidget {
     this.id = config.id;
     this.type = config.type;
     this.imageId = config.imageId;
-    
+
     this.x = config.x;
     this.y = config.y;
     this.width = config.width;
     this.height = config.height;
-    
+
     this.relativeX = config.relativeX || 0;
     this.relativeY = config.relativeY || 0;
-    
+
     this.fontSize = config.fontSize || 14;
     this.color = config.color || '#000000';
     this.backgroundColor = config.backgroundColor || '#ffffff';
     this.borderColor = config.borderColor || '#cccccc';
-    
+
     this.konvaGroup = null;
-    
+
     this.bindingId = config.bindingId || null;
     this.isReadOnly = false;
     this.currentValue = config.currentValue || null;
     this.placeholder = config.placeholder || '';
   }
-  
+
   getCategory() {
     return 'input';
   }
-  
+
   render(layer) {
     throw new Error('render() must be implemented in subclass');
   }
-  
+
   destroy() {
     if (this.konvaGroup) { this.konvaGroup.destroy(); this.konvaGroup = null; }
   }
-  
+
   validate(value) {
     throw new Error('validate() must be implemented in subclass');
   }
-  
+
   setValue(value) {
     if (this.validate(value)) { this.currentValue = value; return true; }
     return false;
   }
-  
+
   // Вспомогательный метод для Input виджетов
   renderRectWithText(layer, displayText, textFill) {
     if (this.konvaGroup) this.konvaGroup.destroy();
-    
+
     this.konvaGroup = new Konva.Group({ x: this.x, y: this.y, width: this.width, height: this.height });
-    
+
     const background = new Konva.Rect({
       x: 0,
       y: 0,
@@ -164,7 +164,7 @@ export class InputWidget {
       strokeWidth: 2,
       cornerRadius: 3
     });
-    
+
     const text = new Konva.Text({
       x: 5,
       y: 0,
@@ -177,7 +177,7 @@ export class InputWidget {
       align: 'right',
       verticalAlign: 'middle'
     });
-    
+
     this.konvaGroup.add(background);
     this.konvaGroup.add(text);
     layer.add(this.konvaGroup);
@@ -190,31 +190,31 @@ export class ControlWidget {
     this.id = config.id;
     this.type = config.type;
     this.imageId = config.imageId;
-    
+
     this.x = config.x;
     this.y = config.y;
     this.width = config.width;
     this.height = config.height;
-    
+
     this.relativeX = config.relativeX || 0;
     this.relativeY = config.relativeY || 0;
-    
+
     this.fontSize = config.fontSize || 14;
     this.color = config.color || '#000000';
     this.backgroundColor = config.backgroundColor || '#f5f5f5';
     this.borderColor = config.borderColor || '#999999';
-    
+
     this.konvaGroup = null;
     this.bindingId = config.bindingId || null;
     this.isReadOnly = false;
   }
-  
+
   getCategory() {
     return 'control';
   }
-  
+
   render(layer) { throw new Error('render() must be implemented in subclass'); }
-  
+
   destroy() { if (this.konvaGroup) { this.konvaGroup.destroy(); this.konvaGroup = null; } }
 }
 
@@ -329,7 +329,7 @@ export class NumberDisplayWidget extends DisplayWidget {
     this.unit = config.unit || '';
     this.displayValue = validateNumber(config.displayValue, 0);
   }
-  
+
   render(layer) {
     const value = validateNumber(this.displayValue, 0);
     const formattedValue = value.toFixed(this.decimals);
@@ -342,14 +342,16 @@ export class NumberDisplayWidget extends DisplayWidget {
 export class TextDisplayWidget extends DisplayWidget {
   constructor(config) {
     super(config);
-    const raw = config.text ?? config.displayValue ?? 'Label';
-    this.displayText = String(raw);
+    this.text = String(config.text ?? config.displayValue ?? 'Label');
+    this.displayText = null; // overrides text when set by onValueUpdate (live data)
   }
-  
+
   render(layer) {
-    this.renderRectWithText(layer, this.displayText, { x: 5, width: this.width - 10, align: 'left' });
+    // displayText (live device data) takes priority over static this.text
+    const shown = this.displayText !== null ? this.displayText : this.text;
+    this.renderRectWithText(layer, shown, { x: 5, width: this.width - 10, align: 'left' });
   }
-  
+
   onValueUpdate(newValue, layer) {
     this.displayText = String(newValue ?? '');
     this.render(layer);
@@ -365,12 +367,12 @@ export class LedWidget extends DisplayWidget {
     this.colorOff = config.colorOff || '#cccccc';
     this.isOn = Boolean(config.isOn ?? false);
   }
-  
+
   render(layer) {
     if (this.konvaGroup) this.konvaGroup.destroy();
-    
+
     this.konvaGroup = new Konva.Group({ x: this.x, y: this.y, width: this.width, height: this.height });
-    
+
     const led = new Konva.Circle({
       x: this.width / 2,
       y: this.height / 2,
@@ -379,7 +381,7 @@ export class LedWidget extends DisplayWidget {
       stroke: this.borderColor,
       strokeWidth: 2
     });
-    
+
     if (this.isOn) {
       const glow = new Konva.Circle({
         x: this.width / 2,
@@ -390,11 +392,11 @@ export class LedWidget extends DisplayWidget {
       });
       this.konvaGroup.add(glow);
     }
-    
+
     this.konvaGroup.add(led);
     layer.add(this.konvaGroup);
   }
-  
+
   onValueUpdate(newValue, layer) {
     this.isOn = Boolean(newValue);
     this.render(layer);
@@ -410,12 +412,12 @@ export class NumberInputWidget extends InputWidget {
     this.step = validateNumber(config.step, 1);
     this.currentValue = validateNumber(config.currentValue, this.min);
   }
-  
+
   validate(value) {
     const num = validateNumber(value);
     return num >= this.min && num <= this.max;
   }
-  
+
   render(layer) {
     const displayText = this.currentValue !== null ? String(this.currentValue) : this.placeholder;
     const textFill = this.currentValue !== null ? this.color : '#999999';
@@ -432,7 +434,7 @@ export class TextInputWidget extends InputWidget {
     this.currentValue = config.currentValue || '';
     this.placeholder = config.placeholder || 'Ввод текста';
   }
-  
+
   validate(value) {
     if (!value) return true;
     const str = String(value);
@@ -440,7 +442,7 @@ export class TextInputWidget extends InputWidget {
     const regex = new RegExp(`^${this.pattern}$`);
     return regex.test(str);
   }
-  
+
   render(layer) {
     const displayText = this.currentValue ? String(this.currentValue) : this.placeholder;
     const textFill = this.currentValue ? this.color : '#999999';
@@ -458,12 +460,12 @@ export class ToggleWidget extends ControlWidget {
     this.backgroundColorOn = config.backgroundColorOn || '#4caf50';
     this.backgroundColorOff = config.backgroundColorOff || '#cccccc';
   }
-  
+
   render(layer) {
     if (this.konvaGroup) this.konvaGroup.destroy();
-    
+
     this.konvaGroup = new Konva.Group({ x: this.x, y: this.y, width: this.width, height: this.height });
-    
+
     const track = new Konva.Rect({
       x: 0,
       y: 0,
@@ -474,7 +476,7 @@ export class ToggleWidget extends ControlWidget {
       stroke: this.borderColor,
       strokeWidth: 1
     });
-    
+
     const knobRadius = (this.height / 2) - 2;
     const knob = new Konva.Circle({
       x: this.isOn ? this.width - knobRadius - 2 : knobRadius + 2,
@@ -484,7 +486,7 @@ export class ToggleWidget extends ControlWidget {
       stroke: this.borderColor,
       strokeWidth: 1
     });
-    
+
     const label = new Konva.Text({
       x: 4,
       y: 0,
@@ -497,7 +499,7 @@ export class ToggleWidget extends ControlWidget {
       align: 'center',
       verticalAlign: 'middle'
     });
-    
+
     this.konvaGroup.add(track);
     this.konvaGroup.add(knob);
     this.konvaGroup.add(label);
@@ -511,12 +513,12 @@ export class ButtonWidget extends ControlWidget {
     super(config);
     this.text = config.text || 'Button';
   }
-  
+
   render(layer) {
     if (this.konvaGroup) this.konvaGroup.destroy();
-    
+
     this.konvaGroup = new Konva.Group({ x: this.x, y: this.y, width: this.width, height: this.height });
-    
+
     const background = new Konva.Rect({
       x: 0,
       y: 0,
@@ -527,7 +529,7 @@ export class ButtonWidget extends ControlWidget {
       strokeWidth: 1,
       cornerRadius: 4
     });
-    
+
     const label = new Konva.Text({
       x: 0,
       y: 0,
@@ -540,7 +542,7 @@ export class ButtonWidget extends ControlWidget {
       align: 'center',
       verticalAlign: 'middle'
     });
-    
+
     this.konvaGroup.add(background);
     this.konvaGroup.add(label);
     layer.add(this.konvaGroup);
@@ -556,7 +558,7 @@ export class SliderWidget extends ControlWidget {
     this.step = validateNumber(config.step, 1);
     this.value = validateNumber(config.value, (this.min + this.max) / 2);
   }
-  
+
   _clampValue(value) {
     let v = validateNumber(value, this.min);
     if (v < this.min) v = this.min;
@@ -566,16 +568,16 @@ export class SliderWidget extends ControlWidget {
     }
     return v;
   }
-  
+
   setValue(value) {
     this.value = this._clampValue(value);
   }
-  
+
   render(layer) {
     if (this.konvaGroup) this.konvaGroup.destroy();
-    
+
     this.konvaGroup = new Konva.Group({ x: this.x, y: this.y, width: this.width, height: this.height });
-    
+
     const trackY = this.height / 2;
     const track = new Konva.Rect({
       x: 0,
@@ -587,7 +589,7 @@ export class SliderWidget extends ControlWidget {
       stroke: this.borderColor,
       strokeWidth: 1
     });
-    
+
     const ratio = (this._clampValue(this.value) - this.min) / (this.max - this.min || 1);
     const knobX = 4 + ratio * (this.width - 8);
     const knob = new Konva.Circle({
@@ -598,10 +600,10 @@ export class SliderWidget extends ControlWidget {
       stroke: this.borderColor,
       strokeWidth: 1
     });
-    
+
     const textValue = String(this._clampValue(this.value));
     const textMetrics = { width: textValue.length * 8 + 4, height: 20 };
-    
+
     // Белый фон-подложка под текстом значения (увеличена высота, поднято выше)
     const valueBg = new Konva.Rect({
       x: (this.width - textMetrics.width) / 2,
@@ -612,7 +614,7 @@ export class SliderWidget extends ControlWidget {
       cornerRadius: 2,
       opacity: 0.9
     });
-    
+
     const valueText = new Konva.Text({
       x: 0,
       y: -3,
@@ -625,7 +627,7 @@ export class SliderWidget extends ControlWidget {
       align: 'center',
       verticalAlign: 'top'
     });
-    
+
     this.konvaGroup.add(track);
     this.konvaGroup.add(valueBg);
     this.konvaGroup.add(valueText);
@@ -638,10 +640,10 @@ export class SliderWidget extends ControlWidget {
 export function createWidget(type, config) {
   const defaults = WIDGET_DEFAULTS[type];
   if (!defaults) { console.error(`Unknown widget type: ${type}`); return null; }
-  
+
   const finalConfig = { ...defaults, ...config };
-  
-  switch(type) {
+
+  switch (type) {
     case 'number-display': return new NumberDisplayWidget(finalConfig);
     case 'text-display': return new TextDisplayWidget(finalConfig);
     case 'led': return new LedWidget(finalConfig);
