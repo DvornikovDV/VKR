@@ -2,11 +2,11 @@
     "name": "vkr-scada",
     "version": "1.0.0",
     "description": "VKR SCADA System: Monorepo for Constructor, Dashboard, Cloud and Edge servers",
-    "main": "server/server.js",
+    "main": "constructor/server/server.js",
     "type": "module",
     "scripts": {
-        "start": "node server/server.js",
-        "dev": "node --watch server/server.js"
+        "start": "node constructor/server/server.js",
+        "dev": "node --watch constructor/server/server.js"
     },
     "keywords": [
         "scada",
