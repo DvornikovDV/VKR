@@ -1,7 +1,7 @@
 {
     "name": "vkr-scada",
     "version": "1.0.0",
-    "description": "Mnemonic diagram constructor",
+    "description": "VKR SCADA System: Monorepo for Constructor, Dashboard, Cloud and Edge servers",
     "main": "server/server.js",
     "type": "module",
     "scripts": {
