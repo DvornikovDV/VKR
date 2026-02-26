@@ -1,4 +1,5 @@
-// widget-manager.js - Менеджер виджетов (интерактивных элементов) на изображениях
+// widget-manager.js
+// Расчеты и управление интерактивными виджетами наслоенными на изображения.
 
 import { createWidget } from './widget-types.js';
 
@@ -25,6 +26,8 @@ export class Widget {
     this.bindingId = config.bindingId || null;
   }
 
+  /** Определение категории виджета.
+   * Выход: Категория (String: 'display'|'input'|'control'|'unknown'). */
   getCategory() {
     const displayTypes = ['number-display', 'text-display', 'led', 'gauge'];
     const inputTypes = ['number-input', 'text-input'];
@@ -36,10 +39,13 @@ export class Widget {
     return 'unknown';
   }
 
+  /** Отрисовка графических примитивов виджета.
+   * Вход: layer (Konva.Layer). */
   render(layer) {
     throw new Error('render() must be implemented in subclass');
   }
 
+  /** Удаление визуальной группы элементов из памяти. */
   destroy() {
     if (this.konvaGroup) {
       this.konvaGroup.destroy();
@@ -55,11 +61,13 @@ export class WidgetManager {
     this.canvasManager = canvasManager;
     this.widgets = [];
     this.nextWidgetId = 1;
-    this.onWidgetSelected = null; // callback для UIController
-    this.onWidgetDragEnd = null;  // callback для UIController
+    this.onWidgetSelected = null; // Callback выбора виджета
+    this.onWidgetDragEnd = null; // Callback окончания перемещения
   }
 
-  // Креание нового виджета
+  /** Инициализация нового экземпляра виджета.
+   * Вход: config (Object).
+   * Выход: Экземпляр (Widget) или null. */
   create(config) {
     const image = this.imageManager.getImage(config.imageId);
     if (!image) {
@@ -69,7 +77,7 @@ export class WidgetManager {
 
     const widgetId = `widget_${config.type}_${this.nextWidgetId++}`;
 
-    // Важно: относительные координаты считаем с учетом текущего масштаба изображения
+    // Расчет относительных координат с учетом текущего масштаба изображения
     const imgX = image.x();
     const imgY = image.y();
     const imgWidth = image.width() * image.scaleX();
@@ -98,7 +106,9 @@ export class WidgetManager {
     return widget;
   }
 
-  // Удаление виджета
+  /** Удаление экземпляра виджета из памяти и состояния.
+   * Вход: widgetId (String).
+   * Выход: Статус выполнения (Boolean). */
   delete(widgetId) {
     const index = this.widgets.findIndex(w => w.id === widgetId);
     if (index === -1) {
@@ -114,17 +124,23 @@ export class WidgetManager {
     return true;
   }
 
-  // Получить виджет по ID
+  /** Поиск экземпляра виджета по идентификатору.
+   * Вход: widgetId (String).
+   * Выход: Экземпляр (Widget) или null. */
   getWidget(widgetId) {
     return this.widgets.find(w => w.id === widgetId) || null;
   }
 
-  // Все виджеты на конкретном изображении
+  /** Фильтрация виджетов по идентификатору родительского изображения.
+   * Вход: imageId (String).
+   * Выход: Массив экземпляров (Array). */
   getWidgetsByImageId(imageId) {
     return this.widgets.filter(w => w.imageId === imageId);
   }
 
-  // Применить граничные проверки к координатам
+  /** Расчет координат в пределах границ родительского изображения.
+   * Вход: widget (Widget), x (Number), y (Number).
+   * Выход: Скорректированные координаты (Object {x, y}). */
   _applyBoundaryConstraints(widget, x, y) {
     const image = this.imageManager.getImage(widget.imageId);
     if (!image) return { x, y };
@@ -154,7 +170,9 @@ export class WidgetManager {
     return { x: boundedX, y: boundedY };
   }
 
-  // Обновление позиции с граничными проверками
+  /** Обновление координат виджета с учетом границ.
+   * Вход: widgetId (String), newX (Number), newY (Number).
+   * Выход: Статус обновления (Boolean). */
   updatePosition(widgetId, newX, newY) {
     const widget = this.getWidget(widgetId);
     if (!widget) return false;
@@ -184,7 +202,9 @@ export class WidgetManager {
     return true;
   }
 
-  // Обновление размера
+  /** Обновление габаритов виджета с учетом границ.
+   * Вход: widgetId (String), newWidth (Number), newHeight (Number).
+   * Выход: Статус обновления (Boolean). */
   updateSize(widgetId, newWidth, newHeight) {
     const widget = this.getWidget(widgetId);
     if (!widget) return false;
@@ -223,7 +243,8 @@ export class WidgetManager {
     return true;
   }
 
-  // При движении изображения - сдвинуть виджеты и обновить относительные координаты
+  /** Обработка смещения родительского изображения.
+   * Вход: imageId (String), deltaX (Number), deltaY (Number). */
   onImageMove(imageId, deltaX, deltaY) {
     const widgets = this.getWidgetsByImageId(imageId);
     const image = this.imageManager.getImage(imageId);
@@ -252,7 +273,8 @@ export class WidgetManager {
     }
   }
 
-  // При ресайзе изображения - масштабировать виджеты, обновить размер и применить граничные проверки
+  /** Обработка изменения габаритов родительского изображения.
+   * Вход: imageId (String), newWidth (Number), newHeight (Number). */
   onImageResize(imageId, newWidth, newHeight) {
     const image = this.imageManager.getImage(imageId);
     if (!image) return;
@@ -264,7 +286,7 @@ export class WidgetManager {
     const oldHeight = image.height() * image.scaleY();
 
     widgets.forEach(widget => {
-      // Пересчитать позицию по относительным координатам
+      // Пересчет позиции по относительным координатам
       let newX = imgX + widget.relativeX * newWidth;
       let newY = imgY + widget.relativeY * newHeight;
 
@@ -273,7 +295,7 @@ export class WidgetManager {
       widget.x = bounded.x;
       widget.y = bounded.y;
 
-      // Масштабирование размеров виджета пропорционально изменению размера изображения
+      // Пропорциональное масштабирование габаритов виджета
       if (oldWidth > 0 && oldHeight > 0) {
         const scaleX = newWidth / oldWidth;
         const scaleY = newHeight / oldHeight;
@@ -281,7 +303,7 @@ export class WidgetManager {
         widget.height *= scaleY;
       }
 
-      // После граничной проверки пересчитываем относительные координаты относительно новых размеров изображения
+      // Актуализация относительных координат относительно новых размеров изображения
       widget.relativeX = (bounded.x - imgX) / newWidth;
       widget.relativeY = (bounded.y - imgY) / newHeight;
 
@@ -296,7 +318,8 @@ export class WidgetManager {
     }
   }
 
-  // При удалении изображения - удалить виджеты
+  /** Каскадное удаление всех виджетов родительского изображения.
+   * Вход: imageId (String). */
   onImageDelete(imageId) {
     const widgets = this.getWidgetsByImageId(imageId);
     const widgetIds = widgets.map(w => w.id);
@@ -306,16 +329,15 @@ export class WidgetManager {
     console.log(`Deleted ${widgetIds.length} widgets from image ${imageId}`);
   }
 
-  // Очистить все виджеты
+  /** Очистка массива всех виджетов приложения. */
   clear() {
     const ids = this.widgets.map(w => w.id);
     ids.forEach(id => this.delete(id));
     console.log('All widgets cleared');
   }
 
-  /**
-   * Экспорт виджетов для сохранения - все свойства каждого типа
-   */
+  /** Экспорт конфигураций всех виджетов для сериализации мнемосхемы.
+   * Выход: Массив конфигураций (Array). */
   exportWidgets() {
     return this.widgets.map(w => {
       const base = {
@@ -369,9 +391,8 @@ export class WidgetManager {
     });
   }
 
-  /**
-   * Экспорт только привязок виджетов
-   */
+  /** Экспорт матрицы связей элементов с устройствами.
+   * Выход: Массив связей (Array). */
   exportBindings() {
     return this.widgets
       .filter(w => !!w.bindingId)
@@ -381,9 +402,8 @@ export class WidgetManager {
       }));
   }
 
-  /**
-   * Импорт привязок: применить deviceId к уже существующим виджетам
-   */
+  /** Десериализация связей и установка их к созданным виджетам.
+   * Вход: bindings (Array). */
   importBindings(bindings) {
     if (!Array.isArray(bindings)) return;
     bindings.forEach(b => {
@@ -395,9 +415,8 @@ export class WidgetManager {
     console.log(`Bindings imported for ${bindings.length} elements`);
   }
 
-  /**
-   * Импорт виджетов из сохраненных данных - все свойства
-   */
+  /** Десериализация и инициализация виджетов из сохраненных данных.
+   * Вход: widgetsData (Array), imageManager (Object). */
   importWidgets(widgetsData, imageManager) {
     if (!widgetsData || !Array.isArray(widgetsData)) {
       console.warn('importWidgets: invalid data provided');
@@ -421,9 +440,8 @@ export class WidgetManager {
     console.log(`Imported ${widgetsData.length} widgets`);
   }
 
-  /**
-   * Привязать обработчики drag и click (отделено для переиспользования)
-   */
+  /** Привязка обработчиков перемещения и выделения к графическому узлу.
+   * Вход: widget (Widget). */
   attachDragHandlers(widget) {
     if (!widget.konvaGroup) return;
 
@@ -432,7 +450,7 @@ export class WidgetManager {
     let startX = 0;
     let startY = 0;
 
-    // Обработчик клика - выбрать виджет
+    // Выделение виджета
     const clickHandler = (e) => {
       e.cancelBubble = true;
       if (this.onWidgetSelected) {
@@ -445,7 +463,7 @@ export class WidgetManager {
       startY = widget.y;
     };
 
-    // На dragmove енфорсим границы немедлитно
+    // Применение ограничений границ при ручном перемещении
     const dragmoveHandler = () => {
       const newX = widget.konvaGroup.x();
       const newY = widget.konvaGroup.y();
@@ -477,7 +495,7 @@ export class WidgetManager {
       }
     };
 
-    // Сохранить ссылки для переприсоединения
+    // Хранение ссылок для переподключения событий
     widget._eventHandlers = {
       click: clickHandler,
       dragstart: dragstartHandler,
@@ -491,13 +509,12 @@ export class WidgetManager {
     widget.konvaGroup.on('dragend', dragendHandler);
   }
 
-  /**
-   * Переприсоединить обработчики событий (используется после render())
-   */
+  /** Переподключение обработчиков событий (применяется после render).
+   * Вход: widget (Widget). */
   reattachDragHandlers(widget) {
     if (!widget.konvaGroup) return;
 
-    // Удалить старые обработчики если они есть
+    // Удаление предыдущих подписок
     if (widget._eventHandlers) {
       widget.konvaGroup.off('click', widget._eventHandlers.click);
       widget.konvaGroup.off('dragstart', widget._eventHandlers.dragstart);
@@ -505,7 +522,7 @@ export class WidgetManager {
       widget.konvaGroup.off('dragend', widget._eventHandlers.dragend);
     }
 
-    // Переприсоединить как новые
+    // Подключение новых подписок
     this.attachDragHandlers(widget);
   }
 }

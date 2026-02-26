@@ -15,7 +15,8 @@
 //   - button - кнопка управления
 //   - slider - ползунок
 
-// Базовый класс для Display виджетов (read-only)
+// Базовый класс виджетов отображения данных (read-only).
+// Вход: config (Object).
 export class DisplayWidget {
   constructor(config) {
     this.id = config.id;
@@ -63,7 +64,8 @@ export class DisplayWidget {
     return value;
   }
 
-  // Вспомогательный метод для рендеринга прямоугольного виджета с текстом
+  // Вспомогательный метод рендеринга прямоугольного контейнера с текстом.
+  // Вход: layer (Konva.Layer), displayText (String), textConfig (Object).
   renderRectWithText(layer, displayText, textConfig = {}) {
     if (this.konvaGroup) this.konvaGroup.destroy();
 
@@ -99,7 +101,8 @@ export class DisplayWidget {
   }
 }
 
-// Базовый класс для Input виджетов (для ввода данных)
+// Базовый класс виджетов ввода данных (дочерний).
+// Вход: config (Object).
 export class InputWidget {
   constructor(config) {
     this.id = config.id;
@@ -148,7 +151,8 @@ export class InputWidget {
     return false;
   }
 
-  // Вспомогательный метод для Input виджетов
+  // Вспомогательный метод рендеринга прямоугольного контейнера ввода с текстом.
+  // Вход: layer (Konva.Layer), displayText (String), textFill (String).
   renderRectWithText(layer, displayText, textFill) {
     if (this.konvaGroup) this.konvaGroup.destroy();
 
@@ -184,7 +188,8 @@ export class InputWidget {
   }
 }
 
-// Новый базовый класс для Control виджетов (toggle, button, slider)
+// Базовый класс виджетов управления состоянием (toggle, button, slider).
+// Вход: config (Object).
 export class ControlWidget {
   constructor(config) {
     this.id = config.id;
@@ -218,7 +223,7 @@ export class ControlWidget {
   destroy() { if (this.konvaGroup) { this.konvaGroup.destroy(); this.konvaGroup = null; } }
 }
 
-// Константы по умолчанию для каждого типа
+// Значения параметров конфигурации по умолчанию для каждого типа виджета.
 export const WIDGET_DEFAULTS = {
   'number-display': {
     width: 100,
@@ -314,14 +319,16 @@ export const WIDGET_DEFAULTS = {
   }
 };
 
-// Общая функция валидации и санитизации числовых значений
+// Валидация и санитизация числового значения конфигурации.
+// Вход: value (String|Number|null), defaultValue (Number).
+// Выход: Санитизированное число (Number).
 function validateNumber(value, defaultValue = 0) {
   if (value === null || value === undefined) return defaultValue;
   const num = Number(value);
   return Number.isFinite(num) ? num : defaultValue;
 }
 
-// Числовой дисплей - показывает число с единицей измерения
+// Виджет цифрового индикатора. Вывод значения с единицей измерения.
 export class NumberDisplayWidget extends DisplayWidget {
   constructor(config) {
     super(config);
@@ -338,16 +345,16 @@ export class NumberDisplayWidget extends DisplayWidget {
   }
 }
 
-// Текстовый дисплей - показывает текст (статус, название)
+// Виджет статического или динамического текста (названия, статусы).
 export class TextDisplayWidget extends DisplayWidget {
   constructor(config) {
     super(config);
     this.text = String(config.text ?? config.displayValue ?? 'Label');
-    this.displayText = null; // overrides text when set by onValueUpdate (live data)
+    this.displayText = null; // Приоритетный текст, устанавливаемый в runtime через onValueUpdate.
   }
 
   render(layer) {
-    // displayText (live device data) takes priority over static this.text
+    // Отображение актуальных данных при наличии устройства, либо статического текста конфигурации.
     const shown = this.displayText !== null ? this.displayText : this.text;
     this.renderRectWithText(layer, shown, { x: 5, width: this.width - 10, align: 'left' });
   }
@@ -358,7 +365,7 @@ export class TextDisplayWidget extends DisplayWidget {
   }
 }
 
-// Светодиод (LED) - индикатор on/off
+// Виджет бинарного индикатора состояния.
 export class LedWidget extends DisplayWidget {
   constructor(config) {
     super(config);
@@ -403,7 +410,7 @@ export class LedWidget extends DisplayWidget {
   }
 }
 
-// Числовое поле ввода - с валидацией min/max/step
+// Виджет цифрового ввода. Задает диапазон ввода и шаг инкрементации.
 export class NumberInputWidget extends InputWidget {
   constructor(config) {
     super(config);
@@ -425,7 +432,7 @@ export class NumberInputWidget extends InputWidget {
   }
 }
 
-// Текстовое поле ввода - с валидацией pattern и maxLength
+// Виджет текстового ввода. Фильтрация длины строки по RegExp паттерну.
 export class TextInputWidget extends InputWidget {
   constructor(config) {
     super(config);
@@ -450,7 +457,7 @@ export class TextInputWidget extends InputWidget {
   }
 }
 
-// Toggle - переключатель ON/OFF
+// Виджет бинарного переключателя.
 export class ToggleWidget extends ControlWidget {
   constructor(config) {
     super(config);
@@ -507,7 +514,7 @@ export class ToggleWidget extends ControlWidget {
   }
 }
 
-// Button - простая кнопка с текстом
+// Виджет нажимной кнопки интерфейса.
 export class ButtonWidget extends ControlWidget {
   constructor(config) {
     super(config);
@@ -549,7 +556,7 @@ export class ButtonWidget extends ControlWidget {
   }
 }
 
-// Slider - ползунок с диапазоном
+// Виджет линейного ползунка. Задает диапазон управления по границам.
 export class SliderWidget extends ControlWidget {
   constructor(config) {
     super(config);
@@ -604,7 +611,7 @@ export class SliderWidget extends ControlWidget {
     const textValue = String(this._clampValue(this.value));
     const textMetrics = { width: textValue.length * 8 + 4, height: 20 };
 
-    // Белый фон-подложка под текстом значения (увеличена высота, поднято выше)
+    // Подложка значения (препятствует слиянию с фоном интерфейса).
     const valueBg = new Konva.Rect({
       x: (this.width - textMetrics.width) / 2,
       y: -4,
@@ -636,7 +643,9 @@ export class SliderWidget extends ControlWidget {
   }
 }
 
-// Фабрика для создания виджетов по типу
+// Фабрика инициализации экземпляров виджетов согласно дефолтному конфигу.
+// Вход: type (String), config (Object).
+// Выход: Экземпляр виджета (Object) или null.
 export function createWidget(type, config) {
   const defaults = WIDGET_DEFAULTS[type];
   if (!defaults) { console.error(`Unknown widget type: ${type}`); return null; }

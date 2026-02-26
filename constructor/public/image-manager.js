@@ -1,27 +1,26 @@
 // image-manager.js
-// Управление изображениями
+// Менеджер графических ресурсов мнемосхемы (изображения фонов/установок).
 
-const HANDLE_RADIUS = 6; // радиус точки/рубки
-const FRAME_PADDING = 10; // отступ рамки от изображения
+const HANDLE_RADIUS = 6; // Радиус точки управления габаритами
+const FRAME_PADDING = 10; // Отступ рамки выделения от границ изображения
 
 class ImageManager {
     constructor(canvasManager) {
         this.canvasManager = canvasManager;
         this.images = [];
         this.selectedImage = null;
-        this.onImageSelected = null; // callback для UIController
-        this.onImageMoved = null;    // callback вызывается при драге изображения
-        this.onImageScaled = null;
-        this.onImageDeleted = null;  // callback при удалении изображения
-        this.onContextMenuRequested = null; // callback для показа контекстного меню
-        this.onFrameDoubleClick = null; // callback при двойном клике на рамку
+        this.onImageSelected = null; // Callback выбора изображения для UIController
+        this.onImageMoved = null; // Callback перемещения изображения
+        this.onImageScaled = null; // Callback масштабирования изображения
+        this.onImageDeleted = null; // Callback удаления изображения
+        this.onContextMenuRequested = null; // Callback вызова контекстного меню
+        this.onFrameDoubleClick = null; // Callback двойного клика по рамке выделения
     }
 
 
 
-    /**
-     * Добавить изображение из base64
-     */
+    /** Загрузка и отрисовка изображения на холсте из строки Base64.
+     * Вход: dataUrl (String). */
     addImageFromBase64(dataUrl) {
         const stage = this.canvasManager.getStage();
         const layer = this.canvasManager.getLayer();
@@ -35,11 +34,11 @@ class ImageManager {
                 draggable: true
             });
 
-            // Новые идентификаторы
+            // Инициализация идентификаторов узла
             konvaImg._id = 'img_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-            konvaImg._cp_points = []; // точки соединения
+            konvaImg._cp_points = []; // Хранилище точек соединения узла
 
-            // сохраняем imageId как атрибут для поиска
+            // Сохранение идентификатора в атрибутах узла для поиска
             konvaImg.setAttr('imageId', konvaImg._id);
 
             layer.add(konvaImg);
@@ -52,31 +51,30 @@ class ImageManager {
         imgObj.src = dataUrl;
     }
 
-    /**
-     * Удалить изображение со сцены
-     */
+    /** Удаление графического узла изображения с холста.
+     * Вход: konvaImg (Konva.Image). */
     deleteImage(konvaImg) {
         if (!konvaImg) return;
 
         const layer = this.canvasManager.getLayer();
         const imageId = konvaImg.getAttr('imageId');
 
-        // Уведомить контроллер об удалении изображения
+        // Оповещение контроллеров об удалении узла
         if (this.onImageDeleted && imageId) {
             this.onImageDeleted(imageId);
         }
 
-        // Удалить рамку и рубку
+        // Удаление элементов визуального выделения
         if (konvaImg._frame) { konvaImg._frame.destroy(); }
         if (konvaImg._handle) { konvaImg._handle.destroy(); }
 
-        // Удалить все точки соединения этого изображения
+        // Каскадное удаление зависимых точек соединения
         if (Array.isArray(konvaImg._cp_points)) {
             konvaImg._cp_points.forEach(point => {
                 if (this.onPointDeleteRequest) {
                     this.onPointDeleteRequest(point);
                 } else {
-                    point.destroy(); // Фолбэк на случай если координатор не подписан
+                    point.destroy(); // Фолбэк при отсутствии подписки координатора
                 }
             });
             konvaImg._cp_points = [];
@@ -90,14 +88,13 @@ class ImageManager {
         layer.batchDraw();
     }
 
-    /**
-     * Прикрепить рамку выделения к изображению
-     */
+    /** Инициализация рамки выделения для графического узла.
+     * Вход: konvaImg (Konva.Image). */
     attachSelectionFrame(konvaImg) {
         const layer = this.canvasManager.getLayer();
         const padding = FRAME_PADDING;
 
-        // Контур-рамка вокруг изображения
+        // Инициализация контура рамки вокруг узла
         const frame = new Konva.Rect({
             x: konvaImg.x() - padding,
             y: konvaImg.y() - padding,
@@ -112,7 +109,7 @@ class ImageManager {
         frame.fillEnabled(false);
         frame.hitStrokeWidth(20);
 
-        // рубка ресайза
+        // Инициализация элемента управления масштабом
         const handle = new Konva.Circle({
             radius: HANDLE_RADIUS,
             fill: '#007bff',
@@ -122,7 +119,7 @@ class ImageManager {
         });
         handle.visible(false);
 
-        // Сохранить старую позицию для расчета дельты
+        // Фиксация координат для расчета дельты смещения
         let lastX = konvaImg.x();
         let lastY = konvaImg.y();
 
@@ -166,7 +163,7 @@ class ImageManager {
             layer.batchDraw();
         });
 
-        // перемещение изображения
+        // Обработчик события перемещения изображения
         konvaImg.on('dragmove', () => {
             const currentX = konvaImg.x();
             const currentY = konvaImg.y();
@@ -184,7 +181,7 @@ class ImageManager {
             layer.batchDraw();
         });
 
-        // перемещение по рамке
+        // Обработчик события перемещения рамки выделения
         frame.on('dragmove', () => {
             const newX = frame.x() + padding;
             const newY = frame.y() + padding;
@@ -201,7 +198,7 @@ class ImageManager {
             layer.batchDraw();
         });
 
-        // выбор по клику
+        // Обработчик события выделения узла
         const selectHandler = () => {
             if (this.onImageSelected) { this.onImageSelected(konvaImg, frame, handle); }
         };
@@ -223,9 +220,8 @@ class ImageManager {
         layer.add(handle);
     }
 
-    /**
-     * Привязать контекстное меню к изображению (ПКМ)
-     */
+    /** Привязка вызова контекстного меню (ПКМ) к графическому узлу.
+     * Вход: konvaImg (Konva.Image). */
     attachContextMenu(konvaImg) {
         konvaImg.on('contextmenu', (e) => {
             e.evt.preventDefault();
@@ -241,16 +237,16 @@ class ImageManager {
                 y: (stagePos.y - stage.y()) / stage.scaleY()
             };
 
-            // Делегируем показ меню контроллеру
+            // Делегирование вызова контекстного меню контроллеру
             if (this.onContextMenuRequested) {
                 this.onContextMenuRequested(imageId, konvaImg, pos, e.evt.clientX, e.evt.clientY);
             }
         });
     }
 
-    /**
-     * Преобразование стороны и местмещения в координаты
-     */
+    /** Расчет абсолютных координат точки по стороне и смещению.
+     * Вход: imageNode (Konva.Image), side (String), offset (Number).
+     * Выход: Координаты (Object {x, y}). */
     sideAndOffsetToXY(imageNode, side, offset) {
         const left = imageNode.x() - FRAME_PADDING;
         const top = imageNode.y() - FRAME_PADDING;
@@ -266,23 +262,20 @@ class ImageManager {
         }
     }
 
-    /**
-     * Получить все изображения
-     */
+    /** Получение массива всех загруженных изображений.
+     * Выход: Массив изображений (Array). */
     getImages() {
         return this.images;
     }
 
-    /**
-     * Получить изображение по imageId
-     */
+    /** Поиск изображения по идентификатору.
+     * Вход: imageId (String).
+     * Выход: Изображение (Konva.Image) или null. */
     getImage(imageId) {
         return this.images.find(img => img.getAttr('imageId') === imageId) || null;
     }
 
-    /**
-     * Очистить все изображения
-     */
+    /** Очистка массива изображений менеджера. */
     clear() {
         this.images = [];
         this.selectedImage = null;

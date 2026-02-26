@@ -1,5 +1,5 @@
 // file-manager.js
-// Управление файлами (сохранение и загужение структур и привязок)
+// Менеджер файловых операций (сохранение и загрузка мнемосхем и аппаратных привязок).
 
 class FileManager {
     constructor(canvasManager, imageManager, connectionPointManager, connectionManager, widgetManager = null, bindingsManager = null) {
@@ -19,9 +19,9 @@ class FileManager {
         this.widgetManager = widgetManager;
     }
 
-    /**
-     * Safe JSON parse reviver to prevent prototype pollution
-     */
+    /** Безопасный парсер JSON для предотвращения prototype pollution.
+     * Вход: key (String), value (String|Number|Object).
+     * Выход: value (String|Number|Object). */
     _safeReviver(key, value) {
         if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
             throw new Error('Unsafe JSON key detected: ' + key);
@@ -29,9 +29,9 @@ class FileManager {
         return value;
     }
 
-    /**
-     * Кодирование Konva.Image в Base64
-     */
+    /** Кодирование графического объекта в Base64.
+     * Вход: konvaImage (Konva.Image).
+     * Выход: Base64-строка (String) или null. */
     imageToBase64(konvaImage) {
         if (!konvaImage || !konvaImage.image()) return null;
         const canvas = document.createElement('canvas');
@@ -43,10 +43,8 @@ class FileManager {
         return canvas.toDataURL('image/png');
     }
 
-    /**
-     * Экспортировать изображения в Base64
-     * Асинхронный метод
-     */
+    /** Асинхронный экспорт графических ресурсов в формат Base64.
+     * Выход: Promise, разрешающийся массивом объектов (Array). */
     async exportImages() {
         const images = this.imageManager.getImages();
         const exported = [];
@@ -68,15 +66,15 @@ class FileManager {
         return exported;
     }
 
-    /**
-     * Декодирование Base64 в Konva.Image и загужение на сцену
-     */
+    /** Асинхронное декодирование Base64 и добавление изображений на холст.
+     * Вход: imagesData (Array).
+     * Выход: Promise. */
     async importImages(imagesData) {
         if (!Array.isArray(imagesData)) return;
 
         for (const imgData of imagesData) {
             if (!imgData.base64) continue;
-            // Security: Validate Base64 format
+            // Валидация формата Base64 для безопасности
             if (!imgData.base64.startsWith('data:image/')) {
                 console.warn('Skipping suspicious image data:', imgData.imageId);
                 continue;
@@ -123,7 +121,7 @@ class FileManager {
 
                 imgObj.src = imgData.base64;
 
-                // Timeout safe-guard
+                // Защита от зависания по таймауту
                 setTimeout(() => {
                     if (!isResolved) {
                         console.warn('Image load timed out:', imgData.imageId);
@@ -136,28 +134,27 @@ class FileManager {
         this.canvasManager.getLayer().batchDraw();
     }
 
-    /**
-     * Вспомогательный метод: показать диалог ввода имени схемы через prompt
-     */
+    /** Вызов диалогового окна запроса имени схемы.
+     * Вход: defaultName (String).
+     * Выход: имя схемы (String) или null. */
     async pickSchemeName(defaultName = 'schema-new') {
         const name = prompt('Введите название схемы:', defaultName);
         if (!name || name.trim() === '') {
             return null;
         }
-        // Sanitize: allow only alphanumeric, dashes, underscores
+        // Санитизация строки: разрешение только букв, цифр, дефисов и подчеркиваний
         return name.trim().replace(/[^a-zA-Z0-9\-_]/g, '_');
     }
 
-    /**
-     * Вспомогательный метод для скачивания JSON (асинхронный)
-     * Гарантирует что файл готов перед скачиванием
-     */
+    /** Программная инициация скачивания JSON-файла с гарантиями готовности Blob.
+     * Вход: jsonString (String), filename (String).
+     * Выход: Promise. */
     async downloadJSON(jsonString, filename) {
         return new Promise((resolve) => {
-            // Создаём blob с данными
+            // Создание Blob с MIME-типом application/json
             const blob = new Blob([jsonString], { type: 'application/json' });
 
-            // Гарантируем что blob полностью подготовлен перед скачиванием
+            // Ожидание чтения Blob в память для гарантии готовности
             const reader = new FileReader();
             reader.onload = () => {
                 const url = URL.createObjectURL(blob);
@@ -165,10 +162,10 @@ class FileManager {
                 link.href = url;
                 link.download = filename;
 
-                // Даём браузеру время обработать
+                // Асинхронный вызов клика через EventLoop
                 setTimeout(() => {
                     link.click();
-                    // Очищаем ресурсы после небольшой задержки
+                    // Освобождение ресурсов URL Object
                     setTimeout(() => {
                         URL.revokeObjectURL(url);
                         resolve();
@@ -176,18 +173,16 @@ class FileManager {
                 }, 0);
             };
 
-            // Считываем blob в памяти для гарантии готовности
+            // Принудительное чтение Blob в ArrayBuffer
             reader.readAsArrayBuffer(blob);
         });
     }
 
-    /**
-     * Сохранить структуру схемы
-     * Название схемы берем из prompt, id генерируем только для новой схемы, версию заменяем временем сохранения
-     */
+    /** Сохранение текущей структуры мнемосхемы в файл.
+     * Выход: Promise. */
     async saveScheme() {
         try {
-            // 1. Запрашиваем имя схемы через prompt
+            // Запрос имени схемы
             const suggestedName = this.currentSchemaId ? this.currentSchemaId.split('-').slice(0, -1).join('-') : 'schema-new';
             const schemeName = await this.pickSchemeName(suggestedName);
             if (!schemeName) return;
@@ -196,12 +191,12 @@ class FileManager {
             const timestamp = now.toISOString();
             const timePart = now.toISOString().replace(/[:.]/g, '-');
 
-            // 2. Генерация/сохранение schemaId (только если новая)
+            // Генерация schemaId для новой схемы
             if (!this.currentSchemaId) {
                 this.currentSchemaId = `${schemeName}-${timePart}`;
             }
 
-            // 3. Версия = время сохранения
+            // Использование временной метки как версии
             this.currentSchemaVersion = timePart;
 
             const scheme = {
@@ -225,7 +220,7 @@ class FileManager {
             };
 
             const jsonString = JSON.stringify(scheme, null, 2);
-            // Дожидаемся когда файл будет готов к скачиванию
+            // Процесс финализации файла
             const fileName = this.currentSchemaId.endsWith('.json') ? this.currentSchemaId : `${this.currentSchemaId}.json`;
             await this.downloadJSON(jsonString, fileName);
             console.log(`Структура схемы сохранена: ${this.currentSchemaId} v${this.currentSchemaVersion}`);
@@ -235,9 +230,7 @@ class FileManager {
         }
     }
 
-    /**
-     * Загрузить структуру схемы (с автозапоминанием ID и версии)
-     */
+    /** Загрузка структуры мнемосхемы из файла с автовосстановлением связей. */
     loadScheme() {
         const input = document.createElement('input');
         input.type = 'file';
@@ -251,7 +244,7 @@ class FileManager {
                 try {
                     const fileContent = event.target.result;
 
-                    // Проверка что файл не пустой
+                    // Валидация содержимого файла на пустоту
                     if (!fileContent || fileContent.trim() === '') {
                         alert('Ошибка: файл пустой или повреждён');
                         return;
@@ -283,20 +276,17 @@ class FileManager {
         input.click();
     }
 
-    /**
-     * Сохранить привязки (Фаза E)
-     * Файл: bindings-{schemaId}-{machineId}.json
-     * machineId автоматически добавляется из BindingsManager
-     */
+    /** Сохранение файлов аппаратных привязок.
+     * Выход: Promise. */
     async saveBindings() {
         try {
-            // Валидация Уровень 3: режим сохранения
+            // Наличие схемы
             if (!this.currentSchemaId) {
                 alert('Сначала сохраните или загрузите структуру схемы!');
                 return;
             }
 
-            // Валидация Уровень 1: машина выбрана?
+            // Наличие контроллера
             if (!this.bindingsManager || !this.bindingsManager.selectedMachineId) {
                 alert('Выберите машину в экране!');
                 return;
@@ -304,7 +294,7 @@ class FileManager {
 
             const machineId = this.bindingsManager.selectedMachineId;
 
-            // Собираем привязки от виджетов через WidgetManager, если он есть
+            // Сбор привязок активных виджетов
             let widgetBindings = [];
             if (this.widgetManager) {
                 widgetBindings = this.widgetManager.exportBindings();
@@ -328,11 +318,7 @@ class FileManager {
         }
     }
 
-    /**
-     * Загрузить привязки (Фаза F)
-     * Валидация Уровень 3+4: schemaId, version совпадают?
-     * Если машина не совпадает - переключить
-     */
+    /** Загрузка файла аппаратных привязок с жесткой валидацией (Фаза F). */
     loadBindings() {
         const input = document.createElement('input');
         input.type = 'file';
@@ -346,7 +332,7 @@ class FileManager {
                 try {
                     const fileContent = event.target.result;
 
-                    // Проверка что файл не пустой
+                    // Валидация содержимого файла на пустоту
                     if (!fileContent || fileContent.trim() === '') {
                         alert('Ошибка: файл пустой или повреждён');
                         return;
@@ -354,7 +340,7 @@ class FileManager {
 
                     const bindingsData = JSON.parse(fileContent, this._safeReviver);
 
-                    // Валидация Уровень 3: schemaId совпадает?
+                    // Соответствие schemaId
                     if (bindingsData.schemaId !== this.currentSchemaId) {
                         alert(`Ошибка: привязки для "${bindingsData.schemaId}", а загружена "${this.currentSchemaId}"`);
                         return;
@@ -365,18 +351,18 @@ class FileManager {
                         return;
                     }
 
-                    // Валидация Уровень 4: machineId совпадает?
+                    // Соответствие machineId
                     if (bindingsData.machineId !== this.bindingsManager.selectedMachineId) {
                         const msg = `привязки для "${bindingsData.machineId}", ` +
                             `а выбрана "${this.bindingsManager.selectedMachineId}". Переключить?`;
                         if (!confirm(msg)) return;
 
-                        // Переключить машину скипая подтверждение дополнительно
+                        // Принудительное переключение контроллера при несовпадении
                         this.bindingsManager.selectMachine(bindingsData.machineId, true);
                         this.currentMachineId = bindingsData.machineId;
                     }
 
-                    // Загрузить привязки в WidgetManager
+                    // Трансляция привязок в менеджер виджетов
                     if (this.widgetManager && Array.isArray(bindingsData.bindings)) {
                         this.widgetManager.importBindings(bindingsData.bindings);
                     }
@@ -392,9 +378,8 @@ class FileManager {
         input.click();
     }
 
-    /**
-     * Очистить canvas (без подтверждения если указан flag)
-     */
+    /** Очистка холста и сброс состояния всех менеджеров.
+     * Вход: confirm_flag (Boolean). */
     clearCanvas(confirm_flag = true) {
         if (confirm_flag && !confirm('Очистить canvas? Все элементы будут удалены.')) {
             return;

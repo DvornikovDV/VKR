@@ -1,5 +1,5 @@
 // connection-editor.js
-// Редактирование сегментов и визуализация
+// Модуль редактирования сегментов графа и визуализации опорных точек.
 
 import { ConnectionRouter } from './connection-router.js';
 
@@ -9,9 +9,8 @@ class ConnectionEditor {
         this.connectionManager = connectionManager;
     }
 
-    /**
-     * Добавить ручки редактирования для выделенного соединения
-     */
+    /** Инициализация интерактивных элементов (ручек) для изменения маршрута соединения.
+     * Вход: connection (Konva.Line). */
     addLineEditHandles(connection) {
         this.removeLineEditHandles(connection);
 
@@ -60,8 +59,7 @@ class ConnectionEditor {
                 this.onHandleDragEnd(handle, connection);
             });
 
-            // dblclick: добавить разрыв
-            // Ctrl+dblclick: удалить разрыв (любой, кроме конечных)
+            // Обработчики двойного клика для создания и удаления точек излома (разрывов)
             handle.on('dblclick', (e) => {
                 e.cancelBubble = true;
                 const meta = handle.getAttr('segment-handle-meta');
@@ -85,12 +83,8 @@ class ConnectionEditor {
         layer.batchDraw();
     }
 
-    /**
-     * Добавить разрыв на ручке (двойной клик без модификаторов)
-     * Вставляет 2 новых точки посередине сегмента под ручкой
-     * @param {Konva.Line} connection
-     * @param {number} handleIndex - индекс ручки
-     */
+    /** Вставка новой точки излома в середину сегмента по двойному клику манипулятора.
+     * Вход: connection (Konva.Line), handleIndex (Number). */
     addBreakPointOnHandle(connection, handleIndex) {
         const meta = connection.getAttr('connection-meta');
         const segment = meta.segments[handleIndex];
@@ -103,23 +97,14 @@ class ConnectionEditor {
         this.addBreakPointToSegment(connection, handleIndex, midPoint);
     }
 
-    /**
-     * Удалить разрыв на ручке (Ctrl+двойной клик)
-     * Упрощённый алгоритм: удалить две точки, пересчитать направления, зафиксировать одну координату для диагоналей.
-     * Затем перерисовать и вызвать updateConnectionsForPin() для toPin для финального контроля координат.
-     * 
-     * Валидация:
-     * - Не удалять конечные сегменты (затрагивают пины)
-     * - Минимум точек: 5 для нечётного, 6 для чётного исходного количества
-     * 
-     * @param {Konva.Line} connection
-     * @param {number} handleSegmentIndex - индекс сегмента, на котором лежит ручка
-     */
+    /** Исключение точки излома и оптимизация маршрутизации через пересчет сегментов (Ctrl + двойной клик).
+     * Вход: connection (Konva.Line), handleSegmentIndex (Number).
+     * Выход: Статус выполнения (Boolean). */
     removeBreakPointAtHandle(connection, handleSegmentIndex) {
         const meta = connection.getAttr('connection-meta');
         const segments = meta.segments;
 
-        // Шаг 1: Сегменты → точки (точки — источник истины)
+        // Резолвинг точек текущих сегментов
         const flatPoints = ConnectionRouter.segmentsToPoints(segments);
         const points = [];
         for (let i = 0; i < flatPoints.length; i += 2) {
@@ -129,13 +114,13 @@ class ConnectionEditor {
         const N = points.length;
         const prevSegmentCount = segments.length;
 
-        // Валидация 1: не крайние сегменты (они затрагивают пины)
+        // Блокировка удаления терминальных (крайних) сегментов
         if (handleSegmentIndex === 0 || handleSegmentIndex === prevSegmentCount - 1) {
             console.warn(`Нельзя удалить крайний сегмент (пины): индекс ${handleSegmentIndex}`);
             return false;
         }
 
-        // Валидация 2: минимум точек
+        // Валидация минимального количества точек маршрута
         const isTypeA = (N % 2 === 1);
         const minPoints = isTypeA ? 5 : 6;
         if (N < minPoints) {
@@ -143,13 +128,11 @@ class ConnectionEditor {
             return false;
         }
 
-        // Шаг 2: индексы точек для удаления
-        // Сегмент i соединяет points[i] и points[i+1]
-        // Удаляем обе точки: points[handleSegmentIndex] и points[handleSegmentIndex+1]
+        // Определение целевых точек для удаления
         const firstPointIndex = handleSegmentIndex;
         const secondPointIndex = handleSegmentIndex + 1;
 
-        // Шаг 3: удалить две точки
+        // Удаление целевых узлов маршрута
         const newPoints = points.slice();
         newPoints.splice(firstPointIndex, 2);
 
@@ -158,8 +141,7 @@ class ConnectionEditor {
             return false;
         }
 
-        // Шаг 4: пересчитать сегменты из оставшихся точек
-        // Определяем направления по координатам
+        // Пересчет сегментов для оставшегося массива точек
         const newSegments = [];
         for (let i = 0; i < newPoints.length - 1; i++) {
             const start = newPoints[i];
@@ -171,13 +153,12 @@ class ConnectionEditor {
             } else if (start.y === end.y) {
                 direction = 'H';
             } else {
-                // Диагональный сегмент — нужно зафиксировать одну координату
-                // Сегмент до удаляемой пары (если есть) определит, какую координату менять
+                // Компенсация диагонального сдвига путем фиксации одной из плоскостей
                 if (i < firstPointIndex) {
                     // Сегмент ДО удаляемой пары
                     const prevSeg = newSegments[i - 1];
                     if (prevSeg && prevSeg.direction === 'H') {
-                        // Предыдущий был горизонтальный → этот должен быть вертикальный
+                        // Наследование вертикального направления
                         direction = 'V';
                         end.x = start.x; // фиксируем X
                     } else {
@@ -185,10 +166,9 @@ class ConnectionEditor {
                         end.y = start.y; // фиксируем Y
                     }
                 } else {
-                    // Сегмент ПОСЛЕ удаляемой пары
+                    // Обработка сегментов после области удаления
                     if (i === firstPointIndex) {
-                        // Этот сегмент мостит разрыв (соединяет соседей удаляемых)
-                        // Определяем направление чередованием: если перед ним был V, то этот H
+                        // Восстановление соединения (чередование направления)
                         const prevSeg = newSegments[i - 1];
                         if (prevSeg && prevSeg.direction === 'V') {
                             direction = 'H';
@@ -198,7 +178,7 @@ class ConnectionEditor {
                             end.x = start.x;
                         }
                     } else {
-                        // Регулярный сегмент после пересчёта
+                        // Калькуляция стандартного сегмента
                         const prevSeg = newSegments[i - 1];
                         if (prevSeg && prevSeg.direction === 'H') {
                             direction = 'V';
@@ -219,7 +199,7 @@ class ConnectionEditor {
             });
         }
 
-        // Шаг 5: валидировать результат
+        // Валидация расчетной структуры маршрута
         try {
             ConnectionRouter.validateSegments(newSegments);
         } catch (e) {
@@ -227,7 +207,7 @@ class ConnectionEditor {
             return false;
         }
 
-        // Шаг 6: применить изменения и перерисовать
+        // Применение и рендеринг обновлений
         meta.segments = newSegments;
         meta.userModified = true;
         connection.setAttr('connection-meta', meta);
@@ -238,25 +218,19 @@ class ConnectionEditor {
 
         console.log(`Удаление разрыва: ${N} → ${newPoints.length} точек, ${prevSegmentCount} → ${newSegments.length} сегментов`);
 
-        // Шаг 7: вызвать updateConnectionsForPin для toPin В КОНЦЕ
-        // Спа перерисовки и обновления ручек
+        // Синхронизация терминальной точки узла
         if (this.connectionManager) {
             const toPin = meta.toPin;
             const toPinPos = toPin.position();
-            // Это вызов пересчитает конечные координаты как при драге изображения
+            // Делегирование пересчета контуров менеджеру соединений
             this.connectionManager.updateConnectionsForPin(toPin, toPinPos.x, toPinPos.y, true);
         }
 
         return true;
     }
 
-    /**
-     * Добавить разрыв на сегмент
-     * Вставить 2 новых точки в центр сегмента
-     * @param {Konva.Line} connection - соединение
-     * @param {number} segmentIndex - индекс сегмента для разрыва
-     * @param {Object} clickPoint - точка разрыва {x, y}
-     */
+    /** Вставка точек излома (разрыва) в произвольных координатах сегмента.
+     * Вход: connection (Konva.Line), segmentIndex (Number), clickPoint (Object {x, y}). */
     addBreakPointToSegment(connection, segmentIndex, clickPoint) {
         const meta = connection.getAttr('connection-meta');
         const segments = meta.segments;
@@ -313,12 +287,9 @@ class ConnectionEditor {
         console.log(`Вставлены 2 новых точки (segments: ${prevSegmentCount} → ${segments.length})`);
     }
 
-    /**
-     * Получить проекцируемую точку на сегмент
-     * @param {Object} clickPoint - исходная точка клика
-     * @param {Object} segment - сегмент
-     * @returns {Object} - проекцируемая точка {x, y}
-     */
+    /** Проекция произвольной точки на осевую линию сегмента.
+     * Вход: clickPoint (Object {x, y}), segment (Object).
+     * Выход: Координаты (Object {x, y}). */
     getProjectedPointOnSegment(clickPoint, segment) {
         const { start, end, direction } = segment;
 
@@ -341,11 +312,8 @@ class ConnectionEditor {
         }
     }
 
-    /**
-     * Добавить разрыв (добавить 2 новых сегмента вместо 1)
-     * Сегмент H → H-V-H
-     * Сегмент V → V-H-V
-     */
+    /** Вставка нового узла маршрутизации (деление одного сегмента на три).
+     * Вход: connection (Konva.Line), handleSegmentIndex (Number). */
     addBreakPointAtHandle(connection, handleSegmentIndex) {
         const meta = connection.getAttr('connection-meta');
         const segments = meta.segments;
@@ -353,14 +321,14 @@ class ConnectionEditor {
 
         if (!segment) return;
 
-        // Вычислить середину сегмента
+        // Расчет центральной точки сегмента
         const midX = (segment.start.x + segment.end.x) / 2;
         const midY = (segment.start.y + segment.end.y) / 2;
 
-        // Создать 2 новых сегмента
+        // Реструктуризация: формирование новых сегментов маршрута
         const newSegs = [];
         if (segment.direction === 'H') {
-            // H → H-V-H
+            // Деление горизонтального: H -> H-V-H
             newSegs.push({
                 index: handleSegmentIndex,
                 direction: 'H',
@@ -380,7 +348,7 @@ class ConnectionEditor {
                 end: { x: segment.end.x, y: segment.end.y }
             });
         } else {
-            // V → V-H-V
+            // Деление вертикального: V -> V-H-V
             newSegs.push({
                 index: handleSegmentIndex,
                 direction: 'V',
@@ -401,10 +369,10 @@ class ConnectionEditor {
             });
         }
 
-        // Заменить сегмент на 3 новых
+        // Применение изменений в матрице сегментов
         segments.splice(handleSegmentIndex, 1, ...newSegs);
 
-        // Пересчитать индексы всех сегментов
+        // Актуализация индексов маршрута
         for (let i = 0; i < segments.length; i++) {
             segments[i].index = i;
         }
@@ -419,9 +387,8 @@ class ConnectionEditor {
         console.log(`Добавлен разрыв (segments: ${segments.length - 2} → ${segments.length})`);
     }
 
-    /**
-     * Обработчик движения ручки
-     */
+    /** Обработчик перемещения манипулятора сегмента.
+     * Вход: handle (Konva.Circle), connection (Konva.Line). */
     onHandleDragMove(handle, connection) {
         const meta = handle.getAttr('segment-handle-meta');
         const connectionMeta = connection.getAttr('connection-meta');
@@ -446,9 +413,8 @@ class ConnectionEditor {
         this.refreshConnectionHighlight(connection);
     }
 
-    /**
-     * Обновить позицию сегмента
-     */
+    /** Обновление координат граничных точек смещаемого сегмента.
+     * Вход: connection (Konva.Line), segmentIndex (Number), deltaX (Number), deltaY (Number). */
     updateSegmentPosition(connection, segmentIndex, deltaX, deltaY) {
         const meta = connection.getAttr('connection-meta');
         const segment = meta.segments[segmentIndex];
@@ -473,18 +439,16 @@ class ConnectionEditor {
         connection.setAttr('connection-meta', meta);
     }
 
-    /**
-     * Обработчик конца перетаскивания
-     */
+    /** Обработчик завершения перемещения манипулятора.
+     * Вход: handle (Konva.Circle), connection (Konva.Line). */
     onHandleDragEnd(handle, connection) {
         const connectionMeta = connection.getAttr('connection-meta');
         connectionMeta.isDragging = false;
         connection.setAttr('connection-meta', connectionMeta);
     }
 
-    /**
-     * Перерисовать соединение
-     */
+    /** Перерисовка контура соединения в соответствии с матрицей сегментов.
+     * Вход: connection (Konva.Line). */
     redrawConnection(connection) {
         const meta = connection.getAttr('connection-meta');
         const points = ConnectionRouter.segmentsToPoints(meta.segments);
@@ -502,9 +466,8 @@ class ConnectionEditor {
         this.canvasManager.getLayer().batchDraw();
     }
 
-    /**
-     * Обновить подсвечивание выделения
-     */
+    /** Актуализация линии подсветки выделения графа.
+     * Вход: connection (Konva.Line). */
     refreshConnectionHighlight(connection) {
         const meta = connection.getAttr('connection-meta');
         if (meta.highlightLine) {
@@ -513,9 +476,8 @@ class ConnectionEditor {
         }
     }
 
-    /**
-     * Показать ручки
-     */
+    /** Отображение манипуляторов конфигурации сегмента.
+     * Вход: connection (Konva.Line). */
     showHandles(connection) {
         const meta = connection.getAttr('connection-meta');
         if (meta.handles) {
@@ -524,9 +486,8 @@ class ConnectionEditor {
         }
     }
 
-    /**
-     * Скрыть ручки
-     */
+    /** Скрытие манипуляторов конфигурации сегмента.
+     * Вход: connection (Konva.Line). */
     hideHandles(connection) {
         const meta = connection.getAttr('connection-meta');
         if (meta.handles) {
@@ -535,9 +496,8 @@ class ConnectionEditor {
         }
     }
 
-    /**
-     * Удалить ручки
-     */
+    /** Полное удаление манипуляторов конфигурации для соединения.
+     * Вход: connection (Konva.Line). */
     removeLineEditHandles(connection) {
         const meta = connection.getAttr('connection-meta');
         if (meta.handles) {

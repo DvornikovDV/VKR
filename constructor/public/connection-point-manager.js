@@ -1,5 +1,5 @@
 // connection-point-manager.js
-// Управление точками соединения
+// Управление точками соединения узлов.
 
 const HANDLE_RADIUS = 6;
 const FRAME_PADDING = 10;
@@ -8,16 +8,16 @@ class ConnectionPointManager {
     constructor(canvasManager) {
         this.canvasManager = canvasManager;
         this.points = [];
-        this.onPointSelected = null; // callback для UIController
-        this.onPointCreated = null;
-        this.onPointMoved = null;   // callback вызывает updateConnectionsForPin
-        this.onPointDeleted = null;
-        this.onPointDoubleClick = null;
+        this.onPointSelected = null; // Callback выбора точки
+        this.onPointCreated = null; // Callback создания точки
+        this.onPointMoved = null; // Callback перемещения точки (вызывает обновление соединений)
+        this.onPointDeleted = null; // Callback удаления точки
+        this.onPointDoubleClick = null; // Callback двойного клика
     }
 
-    /**
-     * Создать точку соединения на стороне
-     */
+    /** Инициализация новой точки соединения на границе узла.
+     * Вход: imageNode (Konva.Image), side (String), offset (Number).
+     * Выход: Узел точки (Konva.Circle). */
     createConnectionPointOnSide(imageNode, side, offset) {
         const meta = { side, offset };
         const xy = this.sideAndOffsetToXY(imageNode, side, offset);
@@ -26,7 +26,7 @@ class ConnectionPointManager {
             x: xy.x,
             y: xy.y,
             radius: HANDLE_RADIUS,
-            fill: '#198754', // свободная: зеленая
+            fill: '#198754', // Цвет свободной точки (зеленый)
             stroke: '#fff',
             strokeWidth: 1,
             draggable: true,
@@ -37,7 +37,7 @@ class ConnectionPointManager {
         const id = 'cp_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
         point.setAttr('cp-meta', { id, side, offset, connectedTo: null, imageId: imageNode._id || '' });
 
-        // перемещение вдоль стороны
+        // Ограничение перемещения вдоль выбранной стороны
         point.on('dragmove', () => {
             const current = point.getAttr('cp-meta');
             const proj = this.projectAlongSide(imageNode, current.side, point.position());
@@ -45,22 +45,23 @@ class ConnectionPointManager {
             current.offset = proj.offset;
             point.setAttr('cp-meta', current);
 
-            // Передаем абсолютные координаты
+            // Трансляция абсолютных координат в callback
             if (this.onPointMoved) {
                 this.onPointMoved(point);
             }
             this.canvasManager.getLayer().batchDraw();
         });
 
-        // клик — показать свойства
+        // Обработка выделения точки для показа свойств
         point.on('click', (e) => {
             e.evt.stopPropagation();
+            point.stopDrag(); // Блокировка drag-эффекта при одиночном клике
             if (this.onPointSelected) {
                 this.onPointSelected(point);
             }
         });
 
-        // двойной клик — удалить
+        // Обработка удаления точки по двойному клику
         point.on('dblclick', (e) => {
             e.evt.stopPropagation();
             if (this.onPointDoubleClick) {
@@ -68,7 +69,7 @@ class ConnectionPointManager {
             }
         });
 
-        // регистрируем поинт у изображения
+        // Регистрация точки в родительском узле изображения
         if (!Array.isArray(imageNode._cp_points)) imageNode._cp_points = [];
         imageNode._cp_points.push(point);
 
@@ -85,9 +86,9 @@ class ConnectionPointManager {
         return point;
     }
 
-    /**
-     * Получить ближайшую сторону и офсет
-     */
+    /** Определение ближайшей стороны и нормализованного смещения для произвольных координат.
+     * Вход: imageNode (Konva.Image), pos (Object {x, y}).
+     * Выход: Объект метаданных ({side: String, offset: Number}). */
     getNearestSideAndOffset(imageNode, pos) {
         const left = imageNode.x();
         const top = imageNode.y();
@@ -108,9 +109,9 @@ class ConnectionPointManager {
         return { side: 'left', offset: Math.min(1, Math.max(0, (pos.y - top) / height)) };
     }
 
-    /**
-     * Преобразование стороны и смещения в координаты
-     */
+    /** Трансляция метаданных (сторона и смещение) в абсолютные координаты холста.
+     * Вход: imageNode (Konva.Image), side (String), offset (Number).
+     * Выход: Координаты (Object {x, y}). */
     sideAndOffsetToXY(imageNode, side, offset) {
         const left = imageNode.x() - FRAME_PADDING;
         const top = imageNode.y() - FRAME_PADDING;
@@ -126,9 +127,9 @@ class ConnectionPointManager {
         }
     }
 
-    /**
-     * Проекция одновременно на сторону
-     */
+    /** Проекция произвольной точки на заданную сторону узла.
+     * Вход: imageNode (Konva.Image), side (String), pos (Object {x, y}).
+     * Выход: Объект проекции ({xy: Object, offset: Number}). */
     projectAlongSide(imageNode, side, pos) {
         const left = imageNode.x() - FRAME_PADDING;
         const top = imageNode.y() - FRAME_PADDING;
@@ -159,9 +160,8 @@ class ConnectionPointManager {
         return { xy, offset };
     }
 
-    /**
-     * Обновить точки актуализируя их позиции
-     */
+    /** Массовое обновление координат всех точек, привязанных к узлу.
+     * Вход: imageNode (Konva.Image). */
     updatePointsForImage(imageNode) {
         if (Array.isArray(imageNode._cp_points)) {
             imageNode._cp_points.forEach((pt) => {
@@ -172,9 +172,8 @@ class ConnectionPointManager {
         }
     }
 
-    /**
-     * Удалить точку
-     */
+    /** Удаление объекта точки соединения.
+     * Вход: point (Konva.Circle). */
     deletePoint(point) {
         const index = this.points.indexOf(point);
         if (index > -1) {
@@ -187,16 +186,14 @@ class ConnectionPointManager {
         this.canvasManager.getLayer().batchDraw();
     }
 
-    /**
-     * Получить все точки
-     */
+    /** Получение массива всех инициализированных точек.
+     * Выход: Массив узлов (Array). */
     getPoints() {
         return this.points;
     }
 
-    /**
-     * Экспорт точек соединения для сохранения схемы
-     */
+    /** Экспорт метаданных точек соединения для сериализации конфигурации.
+     * Выход: Массив конфигураций (Array). */
     exportPoints() {
         return this.points.map(point => {
             const meta = point.getAttr('cp-meta') || {};
@@ -209,9 +206,8 @@ class ConnectionPointManager {
         });
     }
 
-    /**
-     * Импорт точек соединения из сохраненной схемы
-     */
+    /** Десериализация и инициализация точек соединения из данных схемы.
+     * Вход: pointsData (Array), imageManager (Object). */
     importPoints(pointsData, imageManager) {
         this.clear();
         if (!Array.isArray(pointsData)) return;
@@ -259,6 +255,7 @@ class ConnectionPointManager {
 
             point.on('click', (e) => {
                 e.evt.stopPropagation();
+                point.stopDrag(); // Блокировка drag-эффекта при одиночном клике
                 if (this.onPointSelected) {
                     this.onPointSelected(point);
                 }
@@ -282,25 +279,24 @@ class ConnectionPointManager {
         this.canvasManager.getStage().batchDraw();
     }
 
-    /**
-     * Восстановить стандартные обработчики событий (click, dblclick)
-     * Используется после выхода из режима создания линий
-     */
+    /** Восстановление стандартного пайплайна событий (click, dblclick) после режима маршрутизации.
+     * Вход: point (Konva.Circle). */
     restoreDefaultEvents(point) {
-        // Сначала удаляем, чтобы не дублировать
+        // Очистка привязок для предотвращения дублирования
         point.off('click');
         point.off('dblclick');
-        point.off('pointerdown'); // удаляем обработчик создания линий если он был
+        point.off('pointerdown'); // Сброс обработчика маршрутизации
 
-        // клик — показать свойства
+        // Обработка выделения точки для показа свойств
         point.on('click', (e) => {
             e.evt.stopPropagation();
+            point.stopDrag(); // Блокировка drag-эффекта при одиночном клике
             if (this.onPointSelected) {
                 this.onPointSelected(point);
             }
         });
 
-        // двойной клик — удалить
+        // Обработка удаления точки по двойному клику
         point.on('dblclick', (e) => {
             e.evt.stopPropagation();
             if (this.onPointDoubleClick) {
@@ -309,9 +305,7 @@ class ConnectionPointManager {
         });
     }
 
-    /**
-     * Очистить все точки
-     */
+    /** Очистка массива точек менеджера. */
     clear() {
         this.points.forEach(p => p.destroy());
         this.points = [];

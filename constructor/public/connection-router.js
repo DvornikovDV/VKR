@@ -1,10 +1,10 @@
 // connection-router.js
-// Маршрутизация соединений и вычисление сегментов
+// Модуль вычислительной геометрии для маршрутизации соединений (ортогональный роутинг).
 
 class ConnectionRouter {
-    /**
-     * Определить тип маршрутизации (2 или 3 сегмента)
-     */
+    /** Определение паттерна маршрутизации (2 или 3 сегмента).
+     * Вход: pin1 (Konva.Circle), pin2 (Konva.Circle).
+     * Выход: Тип маршрута (String). */
     static getRoutingCase(pin1, pin2) {
         const side1 = pin1.getAttr('cp-meta').side;
         const side2 = pin2.getAttr('cp-meta').side;
@@ -19,9 +19,9 @@ class ConnectionRouter {
         }
     }
 
-    /**
-     * Вычислить сегменты маршрута
-     */
+    /** Вычисление матрицы сегментов (маршрута) между двумя терминальными точками.
+     * Вход: pin1 (Konva.Circle), pin2 (Konva.Circle).
+     * Выход: Массив сегментов (Array). */
     static calculateSegments(pin1, pin2) {
         const pos1 = pin1.position();
         const pos2 = pin2.position();
@@ -62,7 +62,7 @@ class ConnectionRouter {
         } else {
             if (this.isSideHorizontal(side1)) {
                 const centerX = (pos1.x + pos2.x) / 2;
-                
+
                 segments.push({
                     index: 0,
                     direction: 'H',
@@ -83,7 +83,7 @@ class ConnectionRouter {
                 });
             } else {
                 const centerY = (pos1.y + pos2.y) / 2;
-                
+
                 segments.push({
                     index: 0,
                     direction: 'V',
@@ -108,16 +108,16 @@ class ConnectionRouter {
         return segments;
     }
 
-    /**
-     * Проверить, горизонтальная ли сторона
-     */
+    /** Определение горизонтальной оси терминальной точки.
+     * Вход: side (String).
+     * Выход: Флаг (Boolean). */
     static isSideHorizontal(side) {
         return side === 'left' || side === 'right';
     }
 
-    /**
-     * Перевести сегменты в плоский массив точек
-     */
+    /** Сериализация матрицы сегментов в одномерный массив координат для рендеринга.
+     * Вход: segments (Array).
+     * Выход: Массив координат (Array). */
     static segmentsToPoints(segments) {
         const points = [];
         for (let i = 0; i < segments.length; i++) {
@@ -129,9 +129,9 @@ class ConnectionRouter {
         return points;
     }
 
-    /**
-     * Перевести точки в сегменты
-     */
+    /** Десериализация массива координат в матрицу сегментов.
+     * Вход: points (Array).
+     * Выход: Массив сегментов (Array). */
     static pointsToSegments(points) {
         const segments = [];
         for (let i = 0; i < points.length - 2; i += 2) {
@@ -149,13 +149,9 @@ class ConnectionRouter {
         return segments;
     }
 
-    /**
-     * Найти ближайший сегмент к точке клика
-     * @param {Array} segments - массив сегментов
-     * @param {Object} clickPoint - точка клика {x, y}
-     * @param {number} radius - радиус поиска (по умолчанию 30px)
-     * @returns {Object|null} - {segmentIndex, point} или null если не найден
-     */
+    /** Поиск ближайшего к точке сегмента из матрицы.
+     * Вход: segments (Array), clickPoint (Object {x, y}), radius (Number).
+     * Выход: Объект метаданных ({segmentIndex: Number, distance: Number}) или null. */
     static findNearestSegment(segments, clickPoint, radius = 30) {
         let nearest = null;
         let minDistance = radius;
@@ -173,12 +169,9 @@ class ConnectionRouter {
         return nearest;
     }
 
-    /**
-     * Вычислить расстояние от точки до сегмента
-     * @param {Object} point - точка {x, y}
-     * @param {Object} segment - сегмент с start и end
-     * @returns {number} - минимальное расстояние
-     */
+    /** Вычисление перпендикулярного расстояния от точки до вектора сегмента.
+     * Вход: point (Object {x, y}), segment (Object).
+     * Выход: Расстояние (Number). */
     static distanceToSegment(point, segment) {
         const { x, y } = point;
         const { start, end } = segment;
@@ -204,9 +197,9 @@ class ConnectionRouter {
         }
     }
 
-    /**
-     * Валидировать сегменты
-     */
+    /** Валидация геометрической целостности маршрута.
+     * Вход: segments (Array).
+     * Выход: Статус (Boolean). */
     static validateSegments(segments) {
         for (let i = 0; i < segments.length; i++) {
             const seg = segments[i];
@@ -228,16 +221,14 @@ class ConnectionRouter {
                 }
             }
 
-            // Проверку "consecutive segments have same direction" убираем,
-            // так как соседние направления по конструкции уже корректны
-            // и не должны блокировать функционал удаления разрывов.
+            // Проверка корректности чередования не выполняется,
+            // т.к. допустимы однонаправленные смежные сегменты при удалении.
         }
         return true;
     }
 
-    /**
-     * Валидировать целостность соединения
-     */
+    /** Валидация целостности привязки маршрута к терминальным точкам.
+     * Вход: connection (Konva.Line). */
     static validateConnectionIntegrity(connection) {
         const meta = connection.getAttr('connection-meta');
         const segments = meta.segments;

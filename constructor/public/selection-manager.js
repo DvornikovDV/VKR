@@ -1,5 +1,5 @@
 // selection-manager.js
-// Управление выделением элементов (изображения, соединения, виджеты)
+// Управление выделением графических элементов (изображения, соединения, виджеты).
 
 const HANDLE_RADIUS = 6;
 
@@ -8,13 +8,11 @@ class SelectionManager {
         this.canvasManager = canvasManager;
         this.selected = null;
         this.canvasClickListenerSetup = false;
-        this.onConnectionSelectRequest = null; // callback для UIController
-        this.onConnectionDeselectRequest = null; // callback для UIController
+        this.onConnectionSelectRequest = null; // Callback выбора соединения для UIController
+        this.onConnectionDeselectRequest = null; // Callback снятия выбора соединения для UIController
     }
 
-    /**
-     * Настроить слушатель на клик по canvas
-     */
+    /** Инициализация глобального слушателя кликов по холсту. */
     ensureCanvasClickListener() {
         if (this.canvasClickListenerSetup) return;
 
@@ -34,9 +32,8 @@ class SelectionManager {
         }
     }
 
-    /**
-     * Выбрать изображение
-     */
+    /** Выделение графического узла (изображения).
+     * Вход: node (Konva.Node), frame (Konva.Rect), handle (Konva.Circle). */
     selectElement(node, frame, handle) {
         this.ensureCanvasClickListener();
         this.clearSelection();
@@ -72,9 +69,8 @@ class SelectionManager {
         this.selected = { node, frame, handle, cleanup };
     }
 
-    /**
-     * Выбрать виджет
-     */
+    /** Выделение графического виджета.
+     * Вход: widget (Object). */
     selectWidget(widget) {
         this.ensureCanvasClickListener();
         this.clearSelection();
@@ -109,9 +105,8 @@ class SelectionManager {
         this.selected = { widget, highlight, cleanup };
     }
 
-    /**
-     * Выбрать соединение
-     */
+    /** Выделение линии соединения.
+     * Вход: connection (Konva.Line). */
     selectConnection(connection) {
         this.ensureCanvasClickListener();
         this.clearSelection();
@@ -157,9 +152,7 @@ class SelectionManager {
         this.selected = { connection, cleanup };
     }
 
-    /**
-     * Очистить выделение
-     */
+    /** Снятие активного выделения и удаление элементов подсветки. */
     clearSelection() {
         if (this.selected && this.selected.cleanup) {
             this.selected.cleanup();
@@ -167,16 +160,14 @@ class SelectionManager {
         }
     }
 
-    /**
-     * Получить текущее выделение
-     */
+    /** Получение объекта текущего выделения.
+     * Выход: Обвязка выделения (Object) или null. */
     getSelected() {
         return this.selected;
     }
 
-    /**
-     * Получить нод выделения
-     */
+    /** Получение графического узла текущего выделения.
+     * Выход: Узел (Konva.Node | Object) или null. */
     getSelectedNode() {
         if (!this.selected) return null;
         return this.selected.node || this.selected.connection || this.selected.widget || null;

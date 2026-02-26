@@ -1,6 +1,5 @@
 // connection-manager.js
-// Главный менеджер соединений
-// CRUD операции и орхестрация функционала
+// Оркестратор соединений графа (CRUD, делегирование рутинга и UI).
 
 import { ConnectionRouter } from './connection-router.js';
 import { ConnectionEditor } from './connection-editor.js';
@@ -13,7 +12,7 @@ class ConnectionManager {
         this.router = new ConnectionRouter();
         this.editor = new ConnectionEditor(canvasManager, this);
         this.updater = new ConnectionUpdater(canvasManager);
-        
+
         this.onConnectionCreated = null;
         this.onConnectionSelected = null;
         this.onConnectionDeleted = null;
@@ -21,9 +20,9 @@ class ConnectionManager {
         this.selectedConnection = null;
     }
 
-    /**
-     * Создать соединение между двумя пинами
-     */
+    /** Инициализация нового соединения между двумя узлами.
+     * Вход: pin1 (Konva.Circle), pin2 (Konva.Circle).
+     * Выход: Узел линии (Konva.Line). */
     createConnection(pin1, pin2) {
         const meta1 = pin1.getAttr('cp-meta');
         const meta2 = pin2.getAttr('cp-meta');
@@ -84,10 +83,8 @@ class ConnectionManager {
         return connection;
     }
 
-    /**
-     * Обработчик добавления разрыва (double-click)
-     * Найти ближайший сегмент к клику и вставить 2 новые точки
-     */
+    /** Обработка запроса на добавление точки излома (разрыва) в маршрут.
+     * Вход: connection (Konva.Line). */
     handleBreakPoint(connection) {
         const pointerPos = this.canvasManager.getStage().getPointerPosition();
         const meta = connection.getAttr('connection-meta');
@@ -106,17 +103,16 @@ class ConnectionManager {
 
         const segmentIndex = nearestSegment.segmentIndex;
         const prevCount = segments.length;
-        
+
         this.editor.addBreakPointToSegment(connection, segmentIndex, pointerPos);
-        
+
         const newCount = meta.segments.length;
         console.log(`Added break point: ${prevCount} segments → ${newCount} segments`);
         this.selectConnection(connection);
     }
 
-    /**
-     * Удалить соединение
-     */
+    /** Удаление объекта соединения и очистка его зависимостей.
+     * Вход: connection (Konva.Line). */
     deleteConnection(connection) {
         const meta = connection.getAttr('connection-meta');
 
@@ -152,15 +148,14 @@ class ConnectionManager {
         console.log(`Удалено соединение ${meta.id}`);
     }
 
-    /**
-     * Унифицированный метод обновления соединений
-     */
+    /** Единый пайплайн обновления маршрутизации при смещении конечных узлов.
+     * Вход: pin (Konva.Circle), newX (Number), newY (Number), isImageDrag (Boolean). */
     updateConnectionsForPin(pin, newX, newY, isImageDrag = false) {
         const oldX = pin.x();
         const oldY = pin.y();
-        
+
         pin.position({ x: newX, y: newY });
-        
+
         this.updater.updateConnections(
             pin,
             newX,
@@ -227,9 +222,8 @@ class ConnectionManager {
         return this.connections;
     }
 
-    /**
-     * Экспорт соединений для сохранения схемы
-     */
+    /** Экспорт массива соединений для сохранения схемы графа.
+     * Выход: Массив конфигураций (Array). */
     exportConnections() {
         return this.connections.map(conn => {
             const meta = conn.getAttr('connection-meta') || {};
@@ -245,10 +239,8 @@ class ConnectionManager {
         });
     }
 
-    /**
-     * Импорт соединений из сохраненной схемы
-     * Восстанавливает соединения между пинами по их ID
-     */
+    /** Десериализация и восстановление связей по сохраненным данным.
+     * Вход: connectionsData (Array), connectionPointManager (Object). */
     importConnections(connectionsData, connectionPointManager) {
         this.clear();
         if (!Array.isArray(connectionsData)) return;
@@ -262,7 +254,7 @@ class ConnectionManager {
         connectionsData.forEach(data => {
             const fromPin = pointsMap[data.fromPinId];
             const toPin = pointsMap[data.toPinId];
-            
+
             if (!fromPin || !toPin) {
                 console.warn(`importConnections: pin not found (${data.fromPinId} -> ${data.toPinId})`);
                 return;

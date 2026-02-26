@@ -1,5 +1,5 @@
 // canvas-manager.js
-// Управление канвасом и базовыми событиями
+// Менеджер основного холста приложения и обработка базовых событий.
 
 const GRID_SIZE = 20;
 const GRID_EXTENT_MULTIPLIER = 20;
@@ -16,10 +16,13 @@ class CanvasManager {
         this.init();
     }
 
+    /** Получение Promise готовности холста.
+     * Выход: Promise. */
     ready() {
         return this.readyPromise;
     }
 
+    /** Асинхронная инициализация холста с задержкой для рендеринга DOM. */
     init() {
         setTimeout(() => {
             this.createStage();
@@ -28,6 +31,7 @@ class CanvasManager {
         }, 100);
     }
 
+    /** Создание и настройка экземпляра Konva.Stage и базового слоя. */
     createStage() {
         const container = document.getElementById('canvas-container');
         if (!container) {
@@ -47,6 +51,7 @@ class CanvasManager {
         this.addGrid();
     }
 
+    /** Отрисовка координатной сетки на фоне. */
     addGrid() {
         const gridSize = GRID_SIZE;
         const width = this.stage.width();
@@ -79,9 +84,10 @@ class CanvasManager {
         this.layer.draw();
     }
 
+    /** Перерисовка координатной сетки при изменении размеров или масштаба. */
     updateGrid() {
         if (!this.gridGroup) return;
-        
+
         const gridSize = GRID_SIZE;
         const width = this.stage.width();
         const height = this.stage.height();
@@ -108,7 +114,9 @@ class CanvasManager {
         }
     }
 
+    /** Инициализация глобальных обработчиков событий холста. */
     setupEventListeners() {
+        // Обработка изменения размеров окна
         window.addEventListener('resize', () => {
             if (this.stage) {
                 this.stage.width(document.getElementById('canvas-container').offsetWidth);
@@ -120,12 +128,13 @@ class CanvasManager {
 
         const zoomSlider = document.getElementById('zoom-slider');
         const zoomValue = document.getElementById('zoom-value');
-        
+
         if (zoomSlider) {
+            // Обработка ползунка масштабирования из UI
             zoomSlider.addEventListener('input', (e) => {
                 this.zoom = parseFloat(e.target.value);
                 if (zoomValue) zoomValue.textContent = this.zoom.toFixed(1) + 'x';
-                
+
                 this.zoom = Math.max(0.1, Math.min(10, this.zoom));
                 this.stage.scaleX(this.zoom);
                 this.stage.scaleY(this.zoom);
@@ -133,6 +142,7 @@ class CanvasManager {
             });
         }
 
+        // Обработка масштабирования колесом мыши с центрированием по курсору
         this.stage.on('wheel', (evt) => {
             evt.evt.preventDefault();
             const scaleBy = 1.1;
@@ -158,13 +168,15 @@ class CanvasManager {
             this.stage.batchDraw();
         });
 
+        // Обработка активации панорамирования (CTRL + ЛКМ)
         this.stage.on('mousedown', (evt) => {
             if (evt.target === this.stage && evt.evt.ctrlKey) {
                 this.isPanning = true;
                 this.stage.draggable(true);
             }
         });
-        
+
+        // Обработка завершения панорамирования
         this.stage.on('mouseup', () => {
             if (this.isPanning) {
                 this.isPanning = false;
@@ -172,16 +184,21 @@ class CanvasManager {
             }
         });
 
+        // Обработка клика по пустой области холста
         this.stage.on('click', (evt) => {
             if (evt.target === this.stage) {
             }
         });
     }
 
+    /** Получение экземпляра Konva.Stage.
+     * Выход: Узел сцены (Konva.Stage). */
     getStage() {
         return this.stage;
     }
 
+    /** Получение базового графического слоя.
+     * Выход: Слой (Konva.Layer). */
     getLayer() {
         return this.layer;
     }

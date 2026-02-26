@@ -1,7 +1,7 @@
 // properties-panel.js
-// Управление панелью свойств для изображений, точек, соединений и виджетов
+// Управление панелью свойств для изображений, точек, соединений и виджетов.
 
-// Константы валидации для каждого типа свойства
+// Константы валидации для каждого типа свойства.
 const VALIDATION_RULES = {
     x: { min: -Infinity, max: Infinity, type: 'integer' },
     y: { min: -Infinity, max: Infinity, type: 'integer' },
@@ -17,7 +17,7 @@ const VALIDATION_RULES = {
     value: { min: -Infinity, max: Infinity, type: 'number' }
 };
 
-// Вспомогательные функции для избежания дублирования HTML кода
+// Вспомогательные функции для генерации HTML-разметки.
 function createColorProperty(label, propName, value) {
     return `
     <div class="mb-1">
@@ -120,15 +120,17 @@ function createControlParametersSection(widget) {
     return html;
 }
 
-// Функция валидации и автокоррекции значения
+/** Функция валидации и автокоррекции значения. 
+ * Вход: widget (Object), propName (String), value (String|Number). 
+ * Выход: скорректированное значение (Number|String) или null. */
 function validateAndAutoCorrectValue(widget, propName, value) {
     let rules = VALIDATION_RULES[propName];
-    if (!rules) return value; // Если правил нет, возвращаем как есть (для цветов, текста)
+    if (!rules) return value; // Возврат исходного значения при отсутствии правил валидации
 
-    // Клонируем правила для динамической подмены
+    // Клонирование правил для локальной модификации
     rules = { ...rules };
 
-    // Динамические минимальные размеры в зависимости от типа виджета
+    // Динамическая адаптация минимальных размеров по типу виджета
     if (propName === 'width' || propName === 'height') {
         if (widget.type === 'button') {
             rules.min = 20;
@@ -150,12 +152,12 @@ function validateAndAutoCorrectValue(widget, propName, value) {
         return value;
     }
 
-    // Проверка на NaN
+    // Исключение нечисловых значений
     if (isNaN(numValue)) {
         return null; // Ошибка
     }
 
-    // Автокоррекция: зажать значение в диапазон [min, max]
+    // Ограничение значения диапазоном [min, max]
     if (numValue < rules.min) {
         return rules.min;
     }
@@ -173,20 +175,18 @@ class PropertiesPanel {
         this.selectedImage = null;
         this.selectedWidget = null;
         this.bindingsManager = null;
-        this.onWidgetUpdated = null; // callback для UIController (после изменения свойств)
-        this.onWidgetPositionOrSizeChange = null; // callback для UIController (изменение размеров/позиций)
+        this.onWidgetUpdated = null; // Callback изменения свойств для UIController
+        this.onWidgetPositionOrSizeChange = null; // Callback изменения геометрии для UIController
     }
 
-
-
-    // Установить ссылку на BindingsManager для фильтрации устройств
+    /** Установка ссылки на BindingsManager. 
+     * Вход: bindingsManager (Object). */
     setBindingsManager(bindingsManager) {
         this.bindingsManager = bindingsManager;
     }
 
-    /**
-     * Показать свойства изображения
-     */
+    /** Отображение свойств графического элемента. 
+     * Вход: konvaImg (Konva.Image). */
     showPropertiesForImage(konvaImg) {
         if (!this.container) return;
 
@@ -209,18 +209,16 @@ class PropertiesPanel {
             `<div class="small text-muted mt-2">Точек соединения: ${pointCount}</div>`;
     }
 
-    /**
-     * Обновить отображение свойств изображения (при перемещении/масштабировании)
-     */
+    /** Обновление панели свойств графического элемента. 
+     * Вход: konvaImg (Konva.Image). */
     refreshImageProperties(konvaImg) {
         if (this.selectedImage && this.selectedImage === konvaImg) {
             this.showPropertiesForImage(konvaImg);
         }
     }
 
-    /**
-     * Показать свойства виджета
-     */
+    /** Отображение свойств виджета. 
+     * Вход: widget (Object). */
     showPropertiesForWidget(widget) {
         if (!this.container || !widget) return;
 
@@ -244,14 +242,14 @@ class PropertiesPanel {
             ${createNumberProperty('X', 'x', x)}
             ${createNumberProperty('Y', 'y', y)}`;
 
-        // Условно показываем ширину и высоту (не для LED)
+        // Исключение размерных свойств для индикаторов (свойство radius)
         if (type !== 'led') {
             html += `
             ${createNumberProperty('Ширина', 'width', w, 10)}
             ${createNumberProperty('Высота', 'height', h, 10)}`;
         }
 
-        // Свойства оформления
+        // Базовые свойства оформления
         html += '<div class="mb-2 mt-3"><strong>Оформление</strong></div>';
 
         if (type === 'led') {
@@ -273,15 +271,15 @@ class PropertiesPanel {
             ${createColorProperty('Цвет границы', 'borderColor', borderColor)}`;
         }
 
-        // Раздел параметров ввода для Input
+        // Параметры ввода данных
         html += createInputParametersSection(widget);
 
-        // Раздел параметров управления для Control
+        // Параметры элементов управления
         if (type === 'toggle' || type === 'button' || type === 'slider') {
             html += createControlParametersSection(widget);
         }
 
-        // Раздел привязки устройства с фильтрацией по выбранной машине
+        // Параметры аппаратной привязки
         html += `
             <div class="mb-2 mt-3"><strong>Привязка устройства</strong></div>
             <div class="mb-1">
@@ -290,7 +288,7 @@ class PropertiesPanel {
                 <option value="">-- не привязано --</option>
         `;
 
-        // Фильтруем устройства по текущей машине из BindingsManager
+        // Фильтрация устройств активного контроллера
         let availableDevices = [];
         if (this.bindingsManager && this.bindingsManager.selectedMachineId) {
             availableDevices = this.bindingsManager.allDevices.filter(d => d.machineId === this.bindingsManager.selectedMachineId);
@@ -306,7 +304,7 @@ class PropertiesPanel {
             </div>
         `;
 
-        // Отображить метаданные привязанного устройства (если есть)
+        // Отрисовка метаданных привязанного устройства
         if (bindingId) {
             const device = availableDevices.find(d => d.id === bindingId);
             if (device) {
@@ -328,25 +326,24 @@ class PropertiesPanel {
         this.attachWidgetPropertyListeners(widget);
     }
 
-    /**
-     * Обработчик изменений свойств виджета
-     */
+    /** Привязка обработчиков событий к полям ввода свойств. 
+     * Вход: widget (Object). */
     attachWidgetPropertyListeners(widget) {
         const inputs = this.container.querySelectorAll('.widget-prop-input');
 
-        // Общая функция применения и перерисовки
+        // Базовая функция валидации и применения свойства
         const applyProp = (input, rawValue) => {
             const propName = input.getAttribute('data-prop');
             const inputType = input.getAttribute('type');
 
-            // Для цветов и текста — без валидации чисел
+            // Исключение валидации для текстовых и цветовых свойств
             if (inputType === 'color' || inputType === 'text') {
                 widget[propName] = rawValue;
             } else {
-                // number input — валидация и автокоррекция
+                // Валидация числовых значений
                 const correctedValue = validateAndAutoCorrectValue(widget, propName, rawValue);
                 if (correctedValue === null) {
-                    // Некорректное значение — откатить
+                    // Откат при ошибке валидации
                     input.value = widget[propName];
                     return;
                 }
@@ -358,10 +355,10 @@ class PropertiesPanel {
                     input.value = widget[propName]; // Значение может быть скорректировано контроллером
                 } else {
                     widget[propName] = correctedValue;
-                    input.value = correctedValue; // обновить поле если было скорректировано
+                    input.value = correctedValue; // Синхронизация поля со скорректированным значением
                 }
 
-                // Для slider: зажать value в диапазон при изменении min/max/step
+                // Ограничение текущего значения диапазоном ползунка
                 if (widget.type === 'slider' && (propName === 'min' || propName === 'max' || propName === 'step')) {
                     const min = typeof widget.min === 'number' ? widget.min : 0;
                     const max = typeof widget.max === 'number' ? widget.max : min + 100;
@@ -372,7 +369,7 @@ class PropertiesPanel {
                 }
             }
 
-            // Перерисовать виджет
+            // Очередь перерисовки холста
             const layer = this.canvasManager ? this.canvasManager.getLayer() : null;
             if (layer) {
                 widget.render(layer);
@@ -385,34 +382,33 @@ class PropertiesPanel {
             const inputType = input.getAttribute('type');
 
             if (inputType === 'color') {
-                // 'input' — мгновенное обновление при движении в пикере
+                // Немедленное обновление при выборе цвета
                 input.addEventListener('input', (e) => applyProp(input, e.target.value));
-                // 'change' — финальное значение после закрытия пикера
+                // Фиксация значения при закрытии пикера
                 input.addEventListener('change', (e) => applyProp(input, e.target.value));
             } else if (inputType === 'text') {
-                // 'input' — обновление при наборе текста
+                // Обновление при вводе символов
                 input.addEventListener('input', (e) => applyProp(input, e.target.value));
                 input.addEventListener('change', (e) => applyProp(input, e.target.value));
             } else {
-                // number — только 'change' (при потере фокуса / Enter)
+                // Фиксация числовых значений по завершению ввода
                 input.addEventListener('change', (e) => applyProp(input, e.target.value));
             }
         });
 
-        // Обработчик выпадающего списка привязки устройства
+        // Обработчик изменения аппаратной привязки
         const deviceSelect = this.container.querySelector('#device-binding-select');
         if (deviceSelect) {
             deviceSelect.addEventListener('change', (e) => {
                 widget.bindingId = e.target.value || null;
-                // Пересоздать панель свойств чтобы показать/скрыть метаданные
+                // Полная перерисовка панели для обновления метаданных
                 this.showPropertiesForWidget(widget);
             });
         }
     }
 
-    /**
-     * Обновить панель при перемещении/ресайзе виджета
-     */
+    /** Синхронизация полей ввода с геометрией виджета. 
+     * Вход: widget (Object). */
     refreshWidgetProperties(widget) {
         if (this.selectedWidget && this.selectedWidget === widget) {
             const xInput = this.container.querySelector('[data-prop="x"]');
@@ -427,9 +423,8 @@ class PropertiesPanel {
         }
     }
 
-    /**
-     * Показать свойства точки соединения
-     */
+    /** Отображение параметров точки соединения. 
+     * Вход: point (Konva.Circle). */
     showPropertiesForPoint(point) {
         if (!this.container) return;
 
@@ -445,9 +440,8 @@ class PropertiesPanel {
             `<div class="small">connectedTo: ${meta.connectedTo || '-'}</div>`;
     }
 
-    /**
-     * Показать свойства соединения
-     */
+    /** Отображение параметров линии соединения. 
+     * Вход: connection (Konva.Line). */
     showPropertiesForConnection(connection) {
         if (!this.container) return;
 
@@ -465,7 +459,7 @@ class PropertiesPanel {
             `<div class="small">До: ${toMeta.id}</div>` +
             `<div class="small">Сегментов: ${segmentCount}</div>`;
 
-        // Раздел управления разрывами
+        // Блок управления маршрутизацией
         html += '<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #ddd;">' +
             '<div class="small" style="font-weight: 600; margin-bottom: 8px;">Управление разрывами</div>';
 
@@ -485,9 +479,7 @@ class PropertiesPanel {
         this.container.innerHTML = html;
     }
 
-    /**
-     * Показать сообщение по умолчанию
-     */
+    /** Отображение заглушки при отсутствии активного выделения. */
     showDefaultMessage() {
         if (!this.container) return;
         this.container.innerHTML = '<p class="text-muted">Выберите элемент для редактирования свойств</p>';
@@ -495,9 +487,7 @@ class PropertiesPanel {
         this.selectedWidget = null;
     }
 
-    /**
-     * Очистить панель
-     */
+    /** Очистка панели свойств. */
     clear() {
         this.showDefaultMessage();
     }

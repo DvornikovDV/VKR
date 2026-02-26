@@ -1,19 +1,21 @@
 // bindings-manager.js
-// Управление привязками виджетов/элементов к устройствам конкретной машины
+// Управление привязками графических элементов к устройствам оборудования установки.
 
 class BindingsManager {
     constructor(devices = []) {
         this.allDevices = Array.isArray(devices) ? devices : [];
         this.selectedMachineId = null;
-        this.availableDevices = []; // id устройств выбранной машины
-        this.bindings = []; // [{ elementId, deviceId }]
-        this.onMachineChanged = null; // каллбэк для уведомления UI о смене машины
-        this.onBindingsClearRequest = null; // каллбэк для очистки привязок в UI
+        this.availableDevices = []; // Идентификаторы устройств выбранной установки
+        this.bindings = []; // Массив объектов связей [{ elementId, deviceId }]
+        this.onMachineChanged = null; // Callback смены активной установки
+        this.onBindingsClearRequest = null; // Callback запроса очистки привязок
     }
 
 
 
-    // Выбор машины с возможным сбросом уже настроенных привязок
+    /** Установка идентификатора активной установки.
+     * Вход: machineId (String), skipConfirm (Boolean).
+     * Выход: Статус (Boolean). */
     selectMachine(machineId, skipConfirm = false) {
         if (!machineId) return false;
 
@@ -22,7 +24,7 @@ class BindingsManager {
                 return false;
             }
             this.bindings = [];
-            // Уведомить контроллер о необходимости очистки привязок
+            // Запрос очистки привязок через контроллер
             if (this.onBindingsClearRequest) {
                 this.onBindingsClearRequest();
             }
@@ -34,7 +36,7 @@ class BindingsManager {
             .filter(d => d.machineId === machineId)
             .map(d => d.id);
 
-        // Отдом о UI если машина истинно изменилась
+        // Оповещение интерфейса при фактической смене установки
         if (oldMachineId !== machineId && this.onMachineChanged) {
             this.onMachineChanged(machineId);
         }
@@ -42,20 +44,26 @@ class BindingsManager {
         return true;
     }
 
-    // Заглушка под будущий API / backend (сейчас используем локальные данные)
+    /** Получение списка идентификаторов устройств для выбранной установки.
+     * Вход: machineId (String).
+     * Выход: Promise с массивом идентификаторов (Array). */
     async fetchDevices(machineId) {
         return this.allDevices
             .filter(d => d.machineId === machineId)
             .map(d => d.id);
     }
 
-    // Проверка, можно ли назначать указанный deviceId текущей машине
+    /** Проверка доступности устройства для назначения.
+     * Вход: deviceId (String).
+     * Выход: Статус доступности (Boolean). */
     canAssignDevice(deviceId) {
         if (!this.selectedMachineId) return false;
         return this.availableDevices.includes(deviceId);
     }
 
-    // Назначить устройству элемент диаграммы/виджет
+    /** Создание связи графического элемента с устройством.
+     * Вход: elementId (String), deviceId (String).
+     * Выход: Статус назначения (Boolean). */
     assignDeviceToElement(elementId, deviceId) {
         if (!this.selectedMachineId) {
             alert('Сначала выберите машину!');

@@ -1,5 +1,5 @@
 // ui-controller.js
-// координатор всеми менеджерами
+// Координатор менеджеров системы.
 
 import { CanvasManager } from './canvas-manager.js';
 import { ImageManager } from './image-manager.js';
@@ -67,9 +67,7 @@ class UIController {
         this.setupBindingsManagerCallback();
     }
 
-    /**
-     * Загрузить реестр устройств
-     */
+    /** Загрузка реестра устройств. */
     async loadDevicesRegistry() {
         try {
             const response = await fetch('devices-registry.json');
@@ -85,10 +83,7 @@ class UIController {
         }
     }
 
-    /**
-     * Установка callback для обновления dropdown при смене машины
-     * (срабатывает при загрузке привязок с другой машиной)
-     */
+    /** Callback для обновления списка при смене контроллера. */
     setupBindingsManagerCallback() {
         this.bindingsManager.onMachineChanged = (newMachineId) => {
             const machineSelect = document.getElementById('machine-select');
@@ -99,10 +94,7 @@ class UIController {
         };
     }
 
-    /**
-     * Настройка UI для выбора машины (Фаза A + C)
-     * Выбор по изменению в dropdown без кнопки Подтвердить
-     */
+    /** Настройка интерфейса выбора контроллера. */
     setupMachineSelection() {
         const machineSelect = document.getElementById('machine-select');
 
@@ -112,16 +104,16 @@ class UIController {
             const machineId = machineSelect.value;
 
             if (!machineId) {
-                // без подписки - очищаем
+                // Очистка состояния при сбросе выбора
                 this.bindingsManager.selectedMachineId = null;
                 this.fileManager.currentMachineId = null;
                 console.log('Машина не выбрана');
                 return;
             }
 
-            // Валидация Уровень 1: машина выбрана?
+            // Валидация выбора контроллера
             if (!this.bindingsManager.selectMachine(machineId)) {
-                // Сбросить dropdown если отклонено
+                // Сброс списка при отказе
                 machineSelect.value = '';
                 return;
             }
@@ -131,14 +123,9 @@ class UIController {
         });
     }
 
-    // Global widget callbacks removed in favor of explicit listeners
-
-
-    /**
-     * Настройка каллбэков менеджеров
-     */
+    /** Настройка callback-функций менеджеров. */
     setupManagerCallbacks() {
-        // ImageManager ->  UIController
+        // Обработчики ImageManager
         this.imageManager.onImageSelected = (konvaImg, frame, handle) => {
             if (this.isCreateLineMode) {
                 this.toggleLineCreationMode();
@@ -154,32 +141,32 @@ class UIController {
             this.connectionPointManager.createConnectionPointOnSide(konvaImg, sideMeta.side, sideMeta.offset);
         };
 
-        // ImageManager: при движении изображения -> обновить соединения и виджеты
+        // Обновление соединений и виджетов при перемещении изображения
         this.imageManager.onImageMoved = (konvaImg, deltaX, deltaY) => {
-            // 1. Обновляем соединения
+            // Обновление соединений
             if (Array.isArray(konvaImg._cp_points)) {
                 konvaImg._cp_points.forEach(pin => {
                     this.connectionManager.updateConnectionsForPin(pin, pin.x(), pin.y(), true);
                 });
             }
 
-            // 2. Обновляем виджеты
+            // Обновление виджетов
             const imageId = konvaImg.getAttr('imageId');
             if (imageId) {
                 this.widgetManager.onImageMove(imageId, deltaX, deltaY);
             }
         };
 
-        // ImageManager: при масштабировании -> обновить соединения и виджеты
+        // Обновление соединений и виджетов при масштабировании изображения
         this.imageManager.onImageScaled = (konvaImg) => {
-            // 1. Обновляем соединения
+            // Обновление соединений
             if (Array.isArray(konvaImg._cp_points)) {
                 konvaImg._cp_points.forEach(pin => {
                     this.connectionManager.updateConnectionsForPin(pin, pin.x(), pin.y(), true);
                 });
             }
 
-            // 2. Обновляем виджеты
+            // Обновление виджетов
             const imageId = konvaImg.getAttr('imageId');
             if (imageId) {
                 const image = this.imageManager.getImage(imageId);
@@ -189,19 +176,19 @@ class UIController {
             }
         };
 
-        // ImageManager: при удалении -> удалить виджеты
+        // Удаление виджетов при удалении изображения
         this.imageManager.onImageDeleted = (imageId) => {
             if (this.widgetManager) {
                 this.widgetManager.onImageDelete(imageId);
             }
         };
 
-        // ImageManager: удалить пины при удалении картинки
+        // Удаление точек соединения при удалении изображения
         this.imageManager.onPointDeleteRequest = (point) => {
             this.connectionPointManager.deletePoint(point);
         };
 
-        // ImageManager: показ контекстного меню
+        // Отображение контекстного меню
         this.imageManager.onContextMenuRequested = (imageId, konvaImg, pos, clientX, clientY) => {
             const menuItems = [
                 {
@@ -264,7 +251,7 @@ class UIController {
             this.contextMenu.show(menuItems, clientX, clientY);
         };
 
-        // ConnectionPointManager -> UIController
+        // Обработчики ConnectionPointManager
         this.connectionPointManager.onPointSelected = (point) => {
             if (!this.isCreateLineMode) {
                 this.setConnectionEditMode(false);
@@ -296,7 +283,7 @@ class UIController {
         // Каскадное удаление соединений при удалении точки
         this.connectionPointManager.onPointDeleted = (point) => {
             const connections = this.connectionManager.getConnections();
-            // делаем копию массива, чтобы безопасно удалять элементы при итерации
+            // Копирование массива для безопасного удаления в процессе итерации
             [...connections].forEach(conn => {
                 const meta = conn.getAttr('connection-meta');
                 if (meta && (meta.fromPin === point || meta.toPin === point)) {
@@ -305,7 +292,7 @@ class UIController {
             });
         };
 
-        // ConnectionManager -> UIController
+        // Обработчики ConnectionManager
         this.connectionManager.onConnectionSelected = (connection) => {
             if (this.isCreateLineMode) {
                 this.toggleLineCreationMode();
@@ -315,7 +302,7 @@ class UIController {
             this.propertiesPanel.showPropertiesForConnection(connection);
         };
 
-        // SelectionManager -> UIController
+        // Обработчики SelectionManager
         this.selectionManager.onConnectionSelectRequest = (connection) => {
             this.connectionManager.selectConnection(connection);
         };
@@ -324,7 +311,7 @@ class UIController {
             this.connectionManager.deselectConnection(connection);
         };
 
-        // BindingsManager -> UIController
+        // Обработчики BindingsManager
         this.bindingsManager.onBindingsClearRequest = () => {
             if (this.widgetManager && Array.isArray(this.widgetManager.widgets)) {
                 this.widgetManager.widgets.forEach(w => {
@@ -333,7 +320,7 @@ class UIController {
             }
         };
 
-        // PropertiesPanel -> UIController
+        // Обработчики PropertiesPanel
         this.propertiesPanel.onWidgetUpdated = (widget) => {
             if (this.widgetManager) {
                 this.widgetManager.reattachDragHandlers(widget);
@@ -354,7 +341,7 @@ class UIController {
             }
         };
 
-        // WidgetManager -> UIController
+        // Обработчики WidgetManager
         this.widgetManager.onWidgetSelected = (widget) => {
             this.selectionManager.selectWidget(widget);
             this.propertiesPanel.showPropertiesForWidget(widget, this.bindingsManager.allDevices);
@@ -365,9 +352,7 @@ class UIController {
         };
     }
 
-    /**
-     * Установить режим редактирования соединения
-     */
+    /** Установка режима редактирования соединения. Вход: value (boolean). */
     setConnectionEditMode(value) {
         if (this.isConnectionEditMode === value) return;
 
@@ -384,9 +369,7 @@ class UIController {
         }
     }
 
-    /**
-     * Настройка ЕвентЛистенеров
-     */
+    /** Инициализация слушателей событий интерфейса. */
     setupEventListeners() {
         try {
             const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -463,9 +446,7 @@ class UIController {
         }
     }
 
-    /**
-     * Удалить выбранный элемент
-     */
+    /** Удаление выбранного элемента. */
     deleteSelected() {
         const selected = this.selectionManager.getSelected();
         if (!selected) return;
@@ -492,9 +473,7 @@ class UIController {
         }
     }
 
-    /**
-     * Открыть диалог выбора файла
-     */
+    /** Открытие диалога выбора файла. */
     addImage() {
         const fileInput = document.getElementById('file-input');
         if (!fileInput) return;
@@ -511,9 +490,7 @@ class UIController {
         fileInput.click();
     }
 
-    /**
-     * Переключать режим создания линий
-     */
+    /** Переключение режима создания соединений. */
     toggleLineCreationMode() {
         this.isCreateLineMode = !this.isCreateLineMode;
         const createLineBtn = document.getElementById('create-line-btn');
@@ -531,9 +508,7 @@ class UIController {
         }
     }
 
-    /**
-     * Настройа режима создания
-     */
+    /** Инициализация режима создания соединений. */
     setupLineCreationMode() {
         const points = this.connectionPointManager.getPoints();
         points.forEach(point => {
@@ -554,9 +529,7 @@ class UIController {
         this.canvasManager.getStage().batchDraw();
     }
 
-    /**
-     * Отнимаем режим создания
-     */
+    /** Деинициализация режима создания соединений. */
     teardownLineCreationMode() {
         const stage = this.canvasManager.getStage();
         stage.off('mousemove');
@@ -565,7 +538,7 @@ class UIController {
         points.forEach(point => {
             point.draggable(true);
             point.listening(true);
-            // Восстанавливаем стандартные обработчики (click, dblclick)
+            // Восстановление стандартных обработчиков
             this.connectionPointManager.restoreDefaultEvents(point);
         });
 
@@ -575,9 +548,7 @@ class UIController {
         this.canvasManager.getStage().batchDraw();
     }
 
-    /**
-     * Обработка клика по пину для создания линии
-     */
+    /** Обработка выбора точки для создания соединения. Вход: point (Konva.Circle). */
     handlePinClickForLineCreation(point) {
         const meta = point.getAttr('cp-meta');
 
@@ -600,9 +571,7 @@ class UIController {
         }
     }
 
-    /**
-     * Обновления превью линии
-     */
+    /** Обновление координат предварительной линии соединения. Вход: e (событие мыши). */
     handleMouseMoveForLinePreview(e) {
         if (!this.firstPinSelected) return;
 
@@ -610,9 +579,7 @@ class UIController {
         this.updatePreviewLine(this.firstPinSelected.position(), pos);
     }
 
-    /**
-     * Обновление рисунка преварительного линии
-     */
+    /** Отрисовка предварительной линии соединения. Вход: startPos (объект координат), endPos (объект координат). */
     updatePreviewLine(startPos, endPos) {
         if (this.previewLine) {
             this.previewLine.destroy();
@@ -638,9 +605,7 @@ class UIController {
         this.canvasManager.getLayer().batchDraw();
     }
 
-    /**
-     * Очистка превью линии
-     */
+    /** Удаление предварительной линии соединения с холста. */
     clearPreviewLine() {
         if (this.previewLine) {
             this.previewLine.destroy();
@@ -649,9 +614,7 @@ class UIController {
         }
     }
 
-    /**
-     * Координаты указателя в системе стандарта
-     */
+    /** Получение координат указателя в системе координат холста. Выход: объект {x, y}. */
     getPointerStageCoords() {
         const stage = this.canvasManager.getStage();
         const p = stage.getPointerPosition();
@@ -662,9 +625,7 @@ class UIController {
         };
     }
 
-    /**
-     * Получить ближайшую сторону рамки
-     */
+    /** Расчет ближайшей стороны и смещения относительно рамки. Вход: frame (Konva.Rect), pos (объект координат). Выход: объект {side, offset}. */
     getNearestSideAndOffsetFromFrame(frame, pos) {
         const left = frame.x();
         const top = frame.y();
