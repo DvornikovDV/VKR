@@ -1,6 +1,8 @@
 node_modules/
 dist/
 build/
+doc/
+simulation/
 *.log
 coverage/
 .DS_Store
