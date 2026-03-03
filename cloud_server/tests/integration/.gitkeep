@@ -1,0 +1,3 @@
+# Tests Directory
+
+Place integration tests here following the naming convention `*.test.ts`.

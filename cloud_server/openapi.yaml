@@ -1,0 +1,347 @@
+openapi: 3.0.3
+info:
+  title: VKR SCADA Cloud Server API
+  description: Central Platform for Managing Diagrams, Telemetry Routing, and User Sessions.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:4000
+
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        '201':
+          description: User registered successfully
+
+  /auth/login:
+    post:
+      summary: Login user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    type: object
+
+  /api/diagrams:
+    get:
+      summary: Get all diagrams owned by user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Array of Mnemonic Diagrams
+    post:
+      summary: Create a new mnemonic diagram ("Save As" — always creates new _id)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - layout
+              properties:
+                name:
+                  type: string
+                layout:
+                  type: object
+                  description: Visual geometry (images, connectionPoints, connections, widgets). No binding data.
+      responses:
+        '201':
+          description: Returns the created diagram
+        '403':
+          description: FREE user diagram quota (3) exceeded
+          
+  /api/diagrams/{id}:
+    get:
+      summary: Get diagram by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current version of the diagram
+    put:
+      summary: Save diagram layout in-place ("Save", with OCC)
+      description: Replaces `layout` and `name`. Existing DiagramBindings are NOT deleted. If bindings exist, response includes `bindingsInvalidated: true`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - __v
+              properties:
+                name:
+                  type: string
+                layout:
+                  type: object
+                  description: Full visual geometry replacement
+                __v:
+                  type: number
+                  description: Expected OCC version key (Mongoose __v)
+      responses:
+        '200':
+          description: Layout replaced successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bindingsInvalidated:
+                    type: boolean
+                    description: true if DiagramBindings exist and may now reference stale widgetIds
+        '409':
+          description: Version conflict — another session already updated this diagram
+          
+    delete:
+      summary: Hard Delete a Mnemonic Diagram
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Diagram successfully removed
+
+  /api/diagrams/{id}/assign:
+    post:
+      summary: Assign own diagram to another user (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - targetUserId
+              properties:
+                targetUserId:
+                  type: string
+      responses:
+        '200':
+          description: Diagram ownership transferred
+        '403':
+          description: Admin does not own this diagram
+
+  /api/diagrams/{id}/bindings:
+    get:
+      summary: Get all DiagramBindings for a diagram
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Array of DiagramBindings documents
+    post:
+      summary: Create or replace a DiagramBindings set for a given edgeServerId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - edgeServerId
+                - widgetBindings
+              properties:
+                edgeServerId:
+                  type: string
+                widgetBindings:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      widgetId:
+                        type: string
+                      deviceId:
+                        type: string
+                      metric:
+                        type: string
+      responses:
+        '201':
+          description: Binding set created
+        '200':
+          description: Binding set replaced (same diagramId+edgeServerId pair already existed)
+        '403':
+          description: edgeServer not in user's trustedUsers (FR-8)
+
+  /api/diagrams/{id}/bindings/{edgeServerId}:
+    delete:
+      summary: Delete a specific DiagramBindings set
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: edgeServerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Binding set deleted
+
+  /api/edge-servers:
+    get:
+      summary: List Edge Servers linked to User
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of connected servers
+    post:
+      summary: Register a new Edge Server (Admin Only)
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Server configured
+
+  /api/edge-servers/{edgeId}/bind:
+    post:
+      summary: Assign User access to Edge Server (Admin Only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+      responses:
+        '200':
+          description: Appended owner reference successfully
+
+  /api/edge-servers/{edgeId}/ping:
+    get:
+      summary: Check Edge Server connectivity status (Admin only)
+      description: Returns online status based on `lastSeen` timestamp from Socket.IO in-memory state (online if lastSeen < 30s ago).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Connectivity status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  online:
+                    type: boolean
+                  lastSeen:
+                    type: string
+                    format: date-time
+        '404':
+          description: Edge Server not found
+
+  /api/users/me:
+    delete:
+      summary: Soft-delete own user account
+      description: Sets `isDeleted` flag to true. Existing edge server assignments and telemetry references are preserved for audit purposes.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Account soft-deleted successfully
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

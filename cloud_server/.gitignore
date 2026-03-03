@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+*.log
+coverage/
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+
+.env
+.env.local
+.env.development
+.env.test
+.env.production

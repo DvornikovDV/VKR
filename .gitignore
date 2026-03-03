@@ -6,3 +6,6 @@ doc/
 !*/README.md
 .agent/
 .specify/
+specs/
+cloud_server_legacy/
+eslint.config.js

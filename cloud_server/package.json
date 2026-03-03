@@ -1,0 +1,50 @@
+{
+    "name": "cloud-server",
+    "version": "1.0.0",
+    "description": "VKR SCADA Cloud Server — centralized backend for data aggregation, user management, and real-time telemetry routing",
+    "main": "dist/app.js",
+    "scripts": {
+        "dev": "ts-node src/app.ts",
+        "build": "tsc",
+        "start": "node dist/app.js",
+        "test": "vitest run",
+        "test:watch": "vitest",
+        "test:coverage": "vitest run --coverage",
+        "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\"",
+        "lint:fix": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" --fix",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "bcrypt": "^5.1.1",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.5",
+        "express": "^4.18.2",
+        "jsonwebtoken": "^9.0.2",
+        "mongoose": "^8.3.0",
+        "socket.io": "^4.7.5",
+        "socket.io-client": "^4.8.3",
+        "swagger-ui-express": "^5.0.1",
+        "yamljs": "^0.3.0"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.39.3",
+        "@types/bcrypt": "^5.0.2",
+        "@types/cors": "^2.8.17",
+        "@types/express": "^4.17.21",
+        "@types/jsonwebtoken": "^9.0.6",
+        "@types/node": "^20.12.7",
+        "@types/supertest": "^6.0.2",
+        "@types/swagger-ui-express": "^4.1.8",
+        "@types/yamljs": "^0.2.34",
+        "@vitest/coverage-v8": "^4.0.18",
+        "eslint": "^9.1.1",
+        "supertest": "^7.0.0",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.4.5",
+        "typescript-eslint": "^8.56.1",
+        "vitest": "^4.0.18"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    }
+}
