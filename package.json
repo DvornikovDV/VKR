@@ -23,7 +23,6 @@
         "mongoose": "^9.2.1",
         "socket.io": "^4.8.3"
     },
-<<<<<<< HEAD
     "repository": {
         "type": "git",
         "url": "git+https://github.com/DvornikovDV/VKR.git"
@@ -37,7 +36,4 @@
         "eslint": "^10.0.2",
         "globals": "^17.3.0"
     }
-=======
-    "devDependencies": {}
->>>>>>> b4f6451189dd89ee8af0c6a0a6e0af25deca0c7c
 }
