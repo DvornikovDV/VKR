@@ -26,8 +26,8 @@ initSocketIO(server);
 setupSwagger(app);
 
 // ── Routes ───────────────────────────────────────────────────────────────
-// Auth: /auth/register, /auth/login (no /api prefix — matches openapi.yaml)
-app.use('/', authRouter);
+// Auth: /api/auth/register, /api/auth/login
+app.use('/api', authRouter);
 // API resources: /api/diagrams, /api/edge-servers, etc.
 app.use('/api', apiRouter);
 

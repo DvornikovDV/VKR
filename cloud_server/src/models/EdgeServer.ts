@@ -9,6 +9,8 @@ export interface IEdgeServer extends Document {
     apiKeyHash: string;
     /** User IDs permitted to subscribe to telemetry from this edge. */
     trustedUsers: Types.ObjectId[];
+    /** Admin user ID who registered this edge server. */
+    createdBy: Types.ObjectId | null;
     isActive: boolean;
     /** Updated on each incoming WebSocket telemetry batch (in-memory only for ping check). */
     lastSeen: Date | null;
@@ -32,6 +34,11 @@ const EdgeServerSchema = new Schema<IEdgeServer>(
             type: [Schema.Types.ObjectId],
             ref: 'User',
             default: [],
+        },
+        createdBy: {
+            type: Schema.Types.ObjectId,
+            ref: 'User',
+            default: null,
         },
         isActive: {
             type: Boolean,

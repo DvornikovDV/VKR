@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { DiagramsController } from './diagrams.controller';
 import { EdgeServersController } from './edge-servers.controller';
 import { UsersController } from './users.controller';
+import { AdminController } from './admin.controller';
 import { authMiddleware } from './middlewares/auth.middleware';
 import { requireRole } from './middlewares/role.middleware';
 
@@ -24,7 +25,7 @@ apiRouter.delete('/diagrams/:id/bindings/:edgeServerId', authMiddleware, require
 apiRouter.post('/diagrams/:id/assign', authMiddleware, requireRole('ADMIN'), DiagramsController.assignDiagram);
 
 // ── Edge Servers ──────────────────────────────────────────────────────────
-// GET trusted list — USER only (admins use admin-specific queries, not this endpoint)
+// GET trusted list — USER only (admins use /admin/edge-servers, not this endpoint)
 apiRouter.get('/edge-servers', authMiddleware, requireRole('USER'), EdgeServersController.listEdgeServers);
 // ADMIN-only operations
 apiRouter.post('/edge-servers', authMiddleware, requireRole('ADMIN'), EdgeServersController.registerEdgeServer);
@@ -32,7 +33,17 @@ apiRouter.post('/edge-servers/:edgeId/bind', authMiddleware, requireRole('ADMIN'
 apiRouter.delete('/edge-servers/:edgeId/bind/:userId', authMiddleware, requireRole('ADMIN'), EdgeServersController.unbindUserFromEdge);
 apiRouter.get('/edge-servers/:edgeId/ping', authMiddleware, requireRole('ADMIN'), EdgeServersController.pingEdgeServer);
 
-// ── Users (self-service) ─────────────────────────────────────────────────
+// ── Users (self-service) ──────────────────────────────────────────────────
 apiRouter.delete('/users/me', authMiddleware, UsersController.deleteMe);
+apiRouter.get('/users/me/stats', authMiddleware, UsersController.getStats);
+apiRouter.post('/users/me/password', authMiddleware, UsersController.changePassword);
+
+// ── Admin: User Management ─────────────────────────────────────────────────
+apiRouter.get('/admin/users', authMiddleware, requireRole('ADMIN'), AdminController.listUsers);
+apiRouter.patch('/admin/users/:id/tier', authMiddleware, requireRole('ADMIN'), AdminController.updateUserTier);
+apiRouter.patch('/admin/users/:id/status', authMiddleware, requireRole('ADMIN'), AdminController.updateUserStatus);
+
+// ── Admin: Global Edge Fleet ─────────────────────────────────────────────
+apiRouter.get('/admin/edge-servers', authMiddleware, requireRole('ADMIN'), AdminController.listGlobalEdgeServers);
 
 export default apiRouter;

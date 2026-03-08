@@ -1,9 +1,12 @@
+node_modules/
 doc/
 *.md
+*.env
 !README.md
-node_modules/
+!*/README.md
 .agent/
 .specify/
 specs/
-.env
-.env.example
+cloud_server_legacy/
+eslint.config.js
+.jpg

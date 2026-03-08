@@ -93,6 +93,11 @@ async function login(email: string, password: string): Promise<AuthResult> {
         throw new AppError('Invalid credentials', 401);
     }
 
+    // Reject banned users — no new token issued (FR-...)
+    if (user.isBanned) {
+        throw new AppError('Account has been suspended', 401);
+    }
+
     const passwordMatches = await bcrypt.compare(password, user.passwordHash);
     if (!passwordMatches) {
         throw new AppError('Invalid credentials', 401);

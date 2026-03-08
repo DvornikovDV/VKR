@@ -17,16 +17,13 @@ function requireUser(req: AuthRequest): { userId: string; role: string } {
 
 /**
  * GET /api/edge-servers
- * ADMIN: returns all edge servers.
- * USER: returns only edge servers where the user is in trustedUsers.
+ * USER only: returns edge servers where the user is in trustedUsers.
+ * Admin fleet is served by GET /api/admin/edge-servers (AdminController).
  */
 async function listEdgeServers(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-        const { userId, role } = requireUser(req);
-        const servers =
-            role === 'ADMIN'
-                ? await EdgeServersService.listAll()
-                : await EdgeServersService.listForUser(userId);
+        const { userId } = requireUser(req);
+        const servers = await EdgeServersService.listForUser(userId);
         res.status(200).json({ status: 'success', data: servers });
     } catch (err) {
         next(err);
@@ -53,9 +50,12 @@ async function registerEdgeServer(
             throw new AppError('apiKeyHash is required', 400);
         }
 
+        const { userId: adminId } = requireUser(req);
+
         const edgeServer = await EdgeServersService.register(
             body.name.trim(),
             body.apiKeyHash.trim(),
+            adminId,
         );
         res.status(201).json({ status: 'success', data: edgeServer });
     } catch (err) {

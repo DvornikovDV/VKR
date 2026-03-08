@@ -52,7 +52,7 @@ describe('T039 — User soft-deletion (US5)', () => {
 
         // Attempt login — must return 401 (not 403)
         const res = await request(app)
-            .post('/auth/login')
+            .post('/api/auth/login')
             .send({ email: 'softdelete_test_b@test.com', password: 'password1234' });
 
         expect(res.status).toBe(401);

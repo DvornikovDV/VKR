@@ -48,11 +48,20 @@ async function countUserEdgeServers(userId: mongoose.Types.ObjectId): Promise<nu
  * Registers a new EdgeServer.
  * Admin-only operation — caller must enforce role at controller level.
  *
- * @param name     Human-readable name
+ * @param name        Human-readable name
  * @param apiKeyHash  Pre-hashed API key
+ * @param createdBy   Admin user ID who registers it
  */
-async function register(name: string, apiKeyHash: string): Promise<IEdgeServer> {
-    const edgeServer = await EdgeServer.create({ name, apiKeyHash });
+async function register(
+    name: string,
+    apiKeyHash: string,
+    createdBy?: string,
+): Promise<IEdgeServer> {
+    const edgeServer = await EdgeServer.create({
+        name,
+        apiKeyHash,
+        createdBy: createdBy ?? null,
+    });
     return edgeServer;
 }
 
@@ -66,10 +75,24 @@ async function listForUser(userIdStr: string): Promise<IEdgeServer[]> {
 }
 
 /**
- * Returns all EdgeServers (Admin view — no filter by user).
+ * Returns all EdgeServers (internal use — no population).
  */
 async function listAll(): Promise<IEdgeServer[]> {
     return EdgeServer.find().exec();
+}
+
+/**
+ * Returns all EdgeServers for Admin Fleet view, with populated
+ * trustedUsers (id, email) and createdBy (id, email).
+ * apiKeyHash is excluded from the response.
+ */
+async function listAllForAdmin(): Promise<unknown[]> {
+    return EdgeServer.find()
+        .select('-apiKeyHash')
+        .populate('trustedUsers', 'email role subscriptionTier')
+        .populate('createdBy', 'email')
+        .lean()
+        .exec();
 }
 
 /**
@@ -190,6 +213,7 @@ export const EdgeServersService = {
     register,
     listForUser,
     listAll,
+    listAllForAdmin,
     assignUserToEdge,
     removeUserFromEdge,
     pingEdgeServer,

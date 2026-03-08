@@ -50,8 +50,8 @@ export function authMiddleware(
     User.findById(payload.userId)
         .lean()
         .then((user) => {
-            if (!user || user.isDeleted) {
-                next(new AppError('Account has been deactivated', 401));
+            if (!user || user.isDeleted || user.isBanned) {
+                next(new AppError('Account has been deactivated or banned', 401));
                 return;
             }
             req.user = payload;

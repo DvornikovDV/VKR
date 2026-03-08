@@ -12,6 +12,7 @@ export interface IUser extends Document {
     role: UserRole;
     subscriptionTier: SubscriptionTier;
     isDeleted: boolean;
+    isBanned: boolean;
     createdAt: Date;
 }
 
@@ -44,6 +45,10 @@ const UserSchema = new Schema<IUser>(
             required: true,
         },
         isDeleted: {
+            type: Boolean,
+            default: false,
+        },
+        isBanned: {
             type: Boolean,
             default: false,
         },
