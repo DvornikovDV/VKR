@@ -19,6 +19,7 @@ apiRouter.delete('/diagrams/:id', authMiddleware, DiagramsController.deleteDiagr
 // ── DiagramBindings (USER only: admins don't operate equipment) ───────────
 apiRouter.get('/diagrams/:id/bindings', authMiddleware, requireRole('USER'), DiagramsController.listBindings);
 apiRouter.post('/diagrams/:id/bindings', authMiddleware, requireRole('USER'), DiagramsController.upsertBindings);
+apiRouter.delete('/diagrams/:id/bindings', authMiddleware, requireRole('USER'), DiagramsController.deleteAllBindings);
 apiRouter.delete('/diagrams/:id/bindings/:edgeServerId', authMiddleware, requireRole('USER'), DiagramsController.deleteBinding);
 
 // ── Admin: Diagram Assignment (ADMIN only) ────────────────────────────────
@@ -31,6 +32,7 @@ apiRouter.get('/edge-servers', authMiddleware, requireRole('USER'), EdgeServersC
 apiRouter.post('/edge-servers', authMiddleware, requireRole('ADMIN'), EdgeServersController.registerEdgeServer);
 apiRouter.post('/edge-servers/:edgeId/bind', authMiddleware, requireRole('ADMIN'), EdgeServersController.bindUserToEdge);
 apiRouter.delete('/edge-servers/:edgeId/bind/:userId', authMiddleware, requireRole('ADMIN'), EdgeServersController.unbindUserFromEdge);
+apiRouter.get('/edge-servers/:edgeId/catalog', authMiddleware, requireRole('USER'), EdgeServersController.getEdgeServerCatalog);
 apiRouter.get('/edge-servers/:edgeId/ping', authMiddleware, requireRole('ADMIN'), EdgeServersController.pingEdgeServer);
 
 // ── Users (self-service) ──────────────────────────────────────────────────

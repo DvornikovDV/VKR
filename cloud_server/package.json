@@ -1,12 +1,14 @@
 {
     "name": "cloud-server",
     "version": "1.0.0",
-    "description": "VKR SCADA Cloud Server — centralized backend for data aggregation, user management, and real-time telemetry routing",
+    "description": "VKR SCADA Cloud Server - centralized backend for data aggregation, user management, and real-time telemetry routing",
     "main": "dist/app.js",
     "scripts": {
         "dev": "ts-node src/app.ts",
+        "seed": "ts-node src/scripts/seed.ts",
         "build": "tsc",
         "start": "node dist/app.js",
+        "repro": "node -r ts-node/register ./src/scripts/run-repro.ts",
         "test": "vitest run",
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage",
@@ -19,6 +21,7 @@
         "cors": "^2.8.5",
         "dotenv": "^16.4.5",
         "express": "^4.18.2",
+        "express-rate-limit": "^7.5.0",
         "jsonwebtoken": "^9.0.2",
         "mongoose": "^8.3.0",
         "socket.io": "^4.7.5",

@@ -1,6 +1,6 @@
 import { type Response, type NextFunction } from 'express';
 import { type AuthRequest } from './middlewares/auth.middleware';
-import { EdgeServersService } from '../services/edge-servers.service';
+import { EdgeServersService, type EdgeCatalogEntry } from '../services/edge-servers.service';
 import { AppError } from './middlewares/error.middleware';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -12,6 +12,11 @@ function requireUser(req: AuthRequest): { userId: string; role: string } {
     }
     return { userId: req.user.userId, role: req.user.role };
 }
+
+type EdgeCatalogSuccessResponse = {
+    status: 'success';
+    data: EdgeCatalogEntry[];
+};
 
 // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -128,6 +133,26 @@ async function pingEdgeServer(
     }
 }
 
+/**
+ * GET /api/edge-servers/:edgeId/catalog
+ * USER only: returns telemetry-derived catalog for a trusted edge server.
+ */
+async function getEdgeServerCatalog(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+): Promise<void> {
+    try {
+        const { userId } = requireUser(req);
+        const edgeId = req.params['edgeId'] ?? '';
+        const catalog = await EdgeServersService.getCatalogForUser(edgeId, userId);
+        const payload: EdgeCatalogSuccessResponse = { status: 'success', data: catalog };
+        res.status(200).json(payload);
+    } catch (err) {
+        next(err);
+    }
+}
+
 // ── Export ────────────────────────────────────────────────────────────────
 
 export const EdgeServersController = {
@@ -136,4 +161,5 @@ export const EdgeServersController = {
     bindUserToEdge,
     unbindUserFromEdge,
     pingEdgeServer,
+    getEdgeServerCatalog,
 };

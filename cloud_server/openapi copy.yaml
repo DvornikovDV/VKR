@@ -494,26 +494,6 @@ paths:
           description: edgeServer not in user's trustedUsers (FR-8)
         '404':
           description: Not found
-    delete:
-      operationId: deleteAllDiagramBindings
-      summary: Delete all DiagramBindings sets for a diagram
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '204':
-          description: Idempotent delete completed; all binding sets for the diagram were removed (or already absent)
-        '401':
-          description: Unauthorized
-        '403':
-          description: Forbidden
-        '404':
-          description: Diagram not found
 
   /api/diagrams/{id}/bindings/{edgeServerId}:
     delete:
@@ -618,43 +598,6 @@ paths:
           description: Forbidden
         '404':
           description: Not found
-
-  /api/edge-servers/{edgeId}/catalog:
-    get:
-      operationId: getEdgeServerCatalog
-      summary: Get device and metric catalog for a trusted edge server
-      description: >
-        Returns a read-only machine-scoped catalog derived from telemetry already known to Cloud.
-        Intended for hosted constructor binding UI. USER must be trusted for the selected edge server.
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: edgeId
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Catalog entries for the selected edge server
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: success
-                  data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/EdgeCatalogEntry'
-        '401':
-          description: Unauthorized
-        '403':
-          description: Forbidden
-        '404':
-          description: Edge server not found
 
   /api/edge-servers/{edgeId}/ping:
     get:
@@ -792,25 +735,6 @@ components:
               type: string
             user:
               type: object
-    EdgeCatalogEntry:
-      type: object
-      required:
-        - edgeServerId
-        - deviceId
-        - metric
-        - label
-      properties:
-        edgeServerId:
-          type: string
-        sourceId:
-          type: string
-          nullable: true
-        deviceId:
-          type: string
-        metric:
-          type: string
-        label:
-          type: string
 
   securitySchemes:
     bearerAuth:

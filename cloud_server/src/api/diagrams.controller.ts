@@ -180,6 +180,20 @@ async function upsertBindings(req: AuthRequest, res: Response, next: NextFunctio
 }
 
 /**
+ * DELETE /api/diagrams/:id/bindings
+ * Deletes all binding sets for the diagram (idempotent).
+ */
+async function deleteAllBindings(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+        const { userId } = requireUser(req);
+        await DiagramBindingsService.removeAllForDiagram(req.params['id'] ?? '', userId);
+        res.status(204).send();
+    } catch (err) {
+        next(err);
+    }
+}
+
+/**
  * DELETE /api/diagrams/:id/bindings/:edgeServerId
  * Deletes a specific binding set.
  */
@@ -236,6 +250,7 @@ export const DiagramsController = {
     deleteDiagram,
     listBindings,
     upsertBindings,
+    deleteAllBindings,
     deleteBinding,
     assignDiagram,
 };

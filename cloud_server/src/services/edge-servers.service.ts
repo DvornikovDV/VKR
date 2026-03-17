@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import { EdgeServer, type IEdgeServer } from '../models/EdgeServer';
 import { User } from '../models/User';
+import { Telemetry } from '../models/Telemetry';
 import { AppError } from '../api/middlewares/error.middleware';
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -209,6 +210,83 @@ async function pingEdgeServer(
 
 // ── Export ────────────────────────────────────────────────────────────────
 
+export interface EdgeCatalogEntry {
+    edgeServerId: string;
+    sourceId: string | null;
+    deviceId: string;
+    metric: string;
+    label: string;
+}
+
+function buildCatalogLabel(sourceId: string | null, deviceId: string, metric: string): string {
+    const sourcePart = sourceId && sourceId.trim().length > 0 ? sourceId : 'unknown-source';
+    return `${sourcePart} / ${deviceId} / ${metric}`;
+}
+
+/**
+ * Returns telemetry-derived catalog entries for a trusted user on one edge server.
+ * Catalog is deduplicated by sourceId + deviceId + metric and sorted for stable UI rendering.
+ */
+async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<EdgeCatalogEntry[]> {
+    const edgeId = toObjectId(edgeIdStr, 'edgeId');
+    const userId = toObjectId(userIdStr, 'userId');
+
+    const edgeServer = await EdgeServer.findById(edgeId)
+        .select('trustedUsers')
+        .lean<{ trustedUsers: mongoose.Types.ObjectId[] }>()
+        .exec();
+
+    if (!edgeServer) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    const isTrusted = edgeServer.trustedUsers.some((uid) => uid.equals(userId));
+    if (!isTrusted) {
+        throw new AppError('Edge server is not in user trusted list (FR-8)', 403);
+    }
+
+    const deduplicated = await Telemetry.aggregate<{
+        sourceId?: string | null;
+        deviceId: string;
+        metric: string;
+    }>([
+        { $match: { 'metadata.edgeId': edgeIdStr } },
+        {
+            $group: {
+                _id: {
+                    sourceId: '$metadata.sourceId',
+                    deviceId: '$metadata.deviceId',
+                    metric: '$metric',
+                },
+            },
+        },
+        {
+            $project: {
+                _id: 0,
+                sourceId: '$_id.sourceId',
+                deviceId: '$_id.deviceId',
+                metric: '$_id.metric',
+            },
+        },
+        { $sort: { sourceId: 1, deviceId: 1, metric: 1 } },
+    ]).exec();
+
+    return deduplicated.map((entry) => {
+        const sourceId =
+            typeof entry.sourceId === 'string' && entry.sourceId.trim().length > 0
+                ? entry.sourceId
+                : null;
+
+        return {
+            edgeServerId: edgeIdStr,
+            sourceId,
+            deviceId: entry.deviceId,
+            metric: entry.metric,
+            label: buildCatalogLabel(sourceId, entry.deviceId, entry.metric),
+        };
+    });
+}
+
 export const EdgeServersService = {
     register,
     listForUser,
@@ -217,4 +295,5 @@ export const EdgeServersService = {
     assignUserToEdge,
     removeUserFromEdge,
     pingEdgeServer,
+    getCatalogForUser,
 };

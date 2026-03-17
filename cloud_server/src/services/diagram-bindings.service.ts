@@ -138,6 +138,25 @@ async function remove(
     }
 }
 
+/**
+ * Deletes all DiagramBindings sets for a diagram.
+ * Validates diagram ownership and remains idempotent for empty binding sets.
+ */
+async function removeAllForDiagram(
+    diagramIdStr: string,
+    ownerIdStr: string,
+): Promise<void> {
+    const diagramId = toObjectId(diagramIdStr, 'diagramId');
+    const ownerId = toObjectId(ownerIdStr, 'ownerId');
+
+    const diagram = await Diagram.exists({ _id: diagramId, ownerId }).exec();
+    if (!diagram) {
+        throw new AppError('Diagram not found', 404);
+    }
+
+    await DiagramBindings.deleteMany({ diagramId }).exec();
+}
+
 // ── Export ────────────────────────────────────────────────────────────────
 
-export const DiagramBindingsService = { listForDiagram, upsert, remove };
+export const DiagramBindingsService = { listForDiagram, upsert, remove, removeAllForDiagram };

@@ -20,6 +20,14 @@ function optional_int(key: string, fallback: number): number {
     return parsed;
 }
 
+/** Returns an optional trimmed string env var, or undefined when empty. */
+function optional_trimmed_string(key: string): string | undefined {
+    const raw = process.env[key];
+    if (raw === undefined) return undefined;
+    const trimmed = raw.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+}
+
 export const ENV = {
     /** Node environment */
     NODE_ENV: process.env['NODE_ENV'] ?? 'development',
@@ -41,4 +49,10 @@ export const ENV = {
 
     /** Max PRO-tier diagram bindings (0 = unlimited) */
     MAX_PRO_BINDINGS: optional_int('MAX_PRO_BINDINGS', 0),
+
+    /** Default ADMIN provisioning email (used by seed script) */
+    DEFAULT_ADMIN_EMAIL: optional_trimmed_string('DEFAULT_ADMIN_EMAIL'),
+
+    /** Default ADMIN provisioning password (used by seed script) */
+    DEFAULT_ADMIN_PASSWORD: optional_trimmed_string('DEFAULT_ADMIN_PASSWORD'),
 } as const;

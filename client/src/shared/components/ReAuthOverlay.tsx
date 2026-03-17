@@ -17,6 +17,13 @@ interface LoginResponse {
     token: string
 }
 
+const BANNED_ACCOUNT_MESSAGE = 'Your account has been suspended. Please contact support.'
+
+function isBannedAccountError(message: string): boolean {
+    const normalizedMessage = message.toLowerCase()
+    return normalizedMessage.includes('suspend') || normalizedMessage.includes('bann')
+}
+
 export function ReAuthOverlay() {
     const { clearReAuth } = useReAuthStore()
     const { setSession } = useAuthStore()
@@ -38,10 +45,14 @@ export function ReAuthOverlay() {
                 body: JSON.stringify({ email, password }),
             })
 
-            const data = (await res.json()) as LoginResponse
+            const data = (await res.json()) as LoginResponse & { message?: string }
 
             if (!res.ok) {
-                setError('Invalid credentials. Please try again.')
+                setError(
+                    isBannedAccountError(data.message ?? '')
+                        ? BANNED_ACCOUNT_MESSAGE
+                        : 'Invalid credentials. Please try again.',
+                )
                 return
             }
 

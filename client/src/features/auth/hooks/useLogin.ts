@@ -31,6 +31,13 @@ interface UseLoginReturn {
     error: string | null
 }
 
+const BANNED_ACCOUNT_MESSAGE = 'Your account has been suspended. Please contact support.'
+
+function isBannedAccountError(message: string): boolean {
+    const normalizedMessage = message.toLowerCase()
+    return normalizedMessage.includes('suspend') || normalizedMessage.includes('bann')
+}
+
 // ── Hook ──────────────────────────────────────────────────────────────────
 
 export function useLogin(): UseLoginReturn {
@@ -66,7 +73,11 @@ export function useLogin(): UseLoginReturn {
         } catch (err) {
             if (isApiError(err)) {
                 if (err.status === 401 || err.status === 403) {
-                    setError('Invalid email or password.')
+                    setError(
+                        isBannedAccountError(err.message)
+                            ? BANNED_ACCOUNT_MESSAGE
+                            : 'Invalid email or password.',
+                    )
                 } else if (err.status >= 500) {
                     setError('Server error. Please try again later.')
                 } else {
