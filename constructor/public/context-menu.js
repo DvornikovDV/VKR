@@ -1,170 +1,254 @@
-// context-menu.js
-// Управление контекстным меню для создания виджетов и вызова действий.
+function isElementNode(value) {
+  return Boolean(value && typeof value === 'object' && value.nodeType === 1)
+}
+
 export class ContextMenu {
-  constructor() {
-    this.menuElement = null;
-    this.isVisible = false;
-    this.createMenuElement();
-    this.attachGlobalListeners();
+  constructor(options = {}) {
+    this.rootElement = isElementNode(options.rootElement) ? options.rootElement : document.body
+    this.ownerDocument = this.rootElement.ownerDocument || document
+    this.menuElement = null
+    this.isVisible = false
+    this.cleanupCallbacks = []
+
+    this.createMenuElement()
+    this.attachGlobalListeners()
   }
 
   createMenuElement() {
-    this.menuElement = document.createElement('div');
-    this.menuElement.id = 'context-menu';
-    this.menuElement.className = 'context-menu';
-    this.menuElement.style.display = 'none';
-    document.body.appendChild(this.menuElement);
+    this.menuElement = this.ownerDocument.createElement('div')
+    this.menuElement.className = 'context-menu'
+    this.menuElement.style.display = 'none'
+    this.menuElement.style.position = this.rootElement === this.ownerDocument.body ? 'fixed' : 'absolute'
+
+    if (this.rootElement !== this.ownerDocument.body) {
+      const computedStyle = this.ownerDocument.defaultView?.getComputedStyle(this.rootElement)
+      if (computedStyle?.position === 'static') {
+        this.rootElement.style.position = 'relative'
+      }
+      this.rootElement.appendChild(this.menuElement)
+      return
+    }
+
+    this.ownerDocument.body.appendChild(this.menuElement)
   }
 
-  /** Отображение контекстного меню.
-   * Вход: items (Array), x (Number), y (Number). */
   show(items, x, y) {
-    this.menuElement.innerHTML = '';
+    if (!this.menuElement) {
+      return
+    }
 
-    items.forEach(item => {
+    this.menuElement.innerHTML = ''
+
+    items.forEach((item) => {
       if (item.separator) {
-        const separator = document.createElement('div');
-        separator.className = 'context-menu-separator';
-        this.menuElement.appendChild(separator);
+        const separator = this.ownerDocument.createElement('div')
+        separator.className = 'context-menu-separator'
+        this.menuElement.appendChild(separator)
       } else if (item.submenu) {
-        const submenuContainer = this.createSubmenu(item);
-        this.menuElement.appendChild(submenuContainer);
+        const submenuContainer = this.createSubmenu(item)
+        this.menuElement.appendChild(submenuContainer)
       } else {
-        const menuItem = this.createMenuItem(item);
-        this.menuElement.appendChild(menuItem);
+        const menuItem = this.createMenuItem(item)
+        this.menuElement.appendChild(menuItem)
       }
-    });
+    })
 
-    // Позиционирование меню
-    this.menuElement.style.left = `${x}px`;
-    this.menuElement.style.top = `${y}px`;
-    this.menuElement.style.display = 'block';
-    this.isVisible = true;
+    const { left, top } = this.resolveMenuCoordinates(x, y)
+    this.menuElement.style.left = `${left}px`
+    this.menuElement.style.top = `${top}px`
+    this.menuElement.style.display = 'block'
+    this.isVisible = true
 
-    // Коррекция позиции при выходе за пределы экрана
-    this.adjustPosition();
+    this.adjustPosition()
+  }
+
+  resolveMenuCoordinates(clientX, clientY) {
+    if (this.rootElement === this.ownerDocument.body) {
+      return { left: clientX, top: clientY }
+    }
+
+    const rootRect = this.rootElement.getBoundingClientRect()
+    return {
+      left: clientX - rootRect.left,
+      top: clientY - rootRect.top,
+    }
   }
 
   createMenuItem(item) {
-    const menuItem = document.createElement('div');
-    menuItem.className = 'context-menu-item';
-    menuItem.textContent = item.label;
+    const menuItem = this.ownerDocument.createElement('div')
+    menuItem.className = 'context-menu-item'
+    menuItem.textContent = item.label
 
     if (item.disabled) {
-      menuItem.classList.add('disabled');
-    } else {
-      menuItem.addEventListener('click', () => {
-        if (item.onClick) {
-          item.onClick();
-        }
-        this.hide();
-      });
-
-      menuItem.addEventListener('mouseenter', () => {
-        menuItem.classList.add('hover');
-      });
-
-      menuItem.addEventListener('mouseleave', () => {
-        menuItem.classList.remove('hover');
-      });
+      menuItem.classList.add('disabled')
+      return menuItem
     }
 
-    return menuItem;
+    const onClick = () => {
+      if (item.onClick) {
+        item.onClick()
+      }
+      this.hide()
+    }
+
+    menuItem.addEventListener('click', onClick)
+
+    menuItem.addEventListener('mouseenter', () => {
+      menuItem.classList.add('hover')
+    })
+
+    menuItem.addEventListener('mouseleave', () => {
+      menuItem.classList.remove('hover')
+    })
+
+    return menuItem
   }
 
   createSubmenu(item) {
-    const container = document.createElement('div');
-    container.className = 'context-menu-item submenu-container';
+    const container = this.ownerDocument.createElement('div')
+    container.className = 'context-menu-item submenu-container'
 
-    const label = document.createElement('span');
-    label.textContent = item.label;
-    label.className = 'submenu-label';
+    const label = this.ownerDocument.createElement('span')
+    label.textContent = item.label
+    label.className = 'submenu-label'
 
-    const arrow = document.createElement('span');
-    arrow.textContent = '▶';
-    arrow.className = 'submenu-arrow';
+    const arrow = this.ownerDocument.createElement('span')
+    arrow.textContent = '?'
+    arrow.className = 'submenu-arrow'
 
-    const submenu = document.createElement('div');
-    submenu.className = 'context-submenu';
-    submenu.style.display = 'none';
+    const submenu = this.ownerDocument.createElement('div')
+    submenu.className = 'context-submenu'
+    submenu.style.display = 'none'
 
-    item.submenu.forEach(subitem => {
-      const submenuItem = document.createElement('div');
-      submenuItem.className = 'context-menu-item';
-      submenuItem.textContent = subitem.label;
+    item.submenu.forEach((subitem) => {
+      const submenuItem = this.ownerDocument.createElement('div')
+      submenuItem.className = 'context-menu-item'
+      submenuItem.textContent = subitem.label
 
       submenuItem.addEventListener('click', () => {
         if (item.onSelect) {
-          item.onSelect(subitem.type);
+          item.onSelect(subitem.type)
         }
-        this.hide();
-      });
+        this.hide()
+      })
 
       submenuItem.addEventListener('mouseenter', () => {
-        submenuItem.classList.add('hover');
-      });
+        submenuItem.classList.add('hover')
+      })
 
       submenuItem.addEventListener('mouseleave', () => {
-        submenuItem.classList.remove('hover');
-      });
+        submenuItem.classList.remove('hover')
+      })
 
-      submenu.appendChild(submenuItem);
-    });
+      submenu.appendChild(submenuItem)
+    })
 
-    container.appendChild(label);
-    container.appendChild(arrow);
-    container.appendChild(submenu);
+    container.appendChild(label)
+    container.appendChild(arrow)
+    container.appendChild(submenu)
 
-    // Отображение подменю при наведении
     container.addEventListener('mouseenter', () => {
-      container.classList.add('hover');
-      submenu.style.display = 'block';
-    });
+      container.classList.add('hover')
+      submenu.style.display = 'block'
+    })
 
     container.addEventListener('mouseleave', () => {
-      container.classList.remove('hover');
-      submenu.style.display = 'none';
-    });
+      container.classList.remove('hover')
+      submenu.style.display = 'none'
+    })
 
-    return container;
+    return container
   }
 
   hide() {
-    if (this.menuElement) {
-      this.menuElement.style.display = 'none';
-      this.isVisible = false;
+    if (!this.menuElement) {
+      return
     }
+
+    this.menuElement.style.display = 'none'
+    this.isVisible = false
   }
 
   adjustPosition() {
-    const rect = this.menuElement.getBoundingClientRect();
-    const windowWidth = window.innerWidth;
-    const windowHeight = window.innerHeight;
-
-    // Коррекция по правой границе
-    if (rect.right > windowWidth) {
-      this.menuElement.style.left = `${windowWidth - rect.width - 5}px`;
+    if (!this.menuElement) {
+      return
     }
 
-    // Коррекция по нижней границе
-    if (rect.bottom > windowHeight) {
-      this.menuElement.style.top = `${windowHeight - rect.height - 5}px`;
+    const menuRect = this.menuElement.getBoundingClientRect()
+
+    if (this.rootElement === this.ownerDocument.body) {
+      const viewportWidth = this.ownerDocument.defaultView?.innerWidth ?? menuRect.right
+      const viewportHeight = this.ownerDocument.defaultView?.innerHeight ?? menuRect.bottom
+
+      if (menuRect.right > viewportWidth) {
+        this.menuElement.style.left = `${Math.max(5, viewportWidth - menuRect.width - 5)}px`
+      }
+
+      if (menuRect.bottom > viewportHeight) {
+        this.menuElement.style.top = `${Math.max(5, viewportHeight - menuRect.height - 5)}px`
+      }
+
+      return
+    }
+
+    const rootRect = this.rootElement.getBoundingClientRect()
+    const currentLeft = Number.parseFloat(this.menuElement.style.left || '0')
+    const currentTop = Number.parseFloat(this.menuElement.style.top || '0')
+
+    const overflowRight = menuRect.right - rootRect.right
+    const overflowBottom = menuRect.bottom - rootRect.bottom
+
+    if (overflowRight > 0) {
+      this.menuElement.style.left = `${Math.max(0, currentLeft - overflowRight - 5)}px`
+    }
+
+    if (overflowBottom > 0) {
+      this.menuElement.style.top = `${Math.max(0, currentTop - overflowBottom - 5)}px`
     }
   }
 
   attachGlobalListeners() {
-    // Скрытие меню при клике вне области
-    document.addEventListener('click', (e) => {
-      if (this.isVisible && !this.menuElement.contains(e.target)) {
-        this.hide();
+    const onDocumentClick = (event) => {
+      if (!this.isVisible || !this.menuElement) {
+        return
       }
-    });
 
-    // Скрытие меню по нажатию Escape
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.isVisible) {
-        this.hide();
+      if (!this.menuElement.contains(event.target)) {
+        this.hide()
       }
-    });
+    }
+
+    const onDocumentKeydown = (event) => {
+      if (event.key === 'Escape' && this.isVisible) {
+        this.hide()
+      }
+    }
+
+    this.ownerDocument.addEventListener('click', onDocumentClick)
+    this.ownerDocument.addEventListener('keydown', onDocumentKeydown)
+
+    this.cleanupCallbacks.push(() => {
+      this.ownerDocument.removeEventListener('click', onDocumentClick)
+      this.ownerDocument.removeEventListener('keydown', onDocumentKeydown)
+    })
+  }
+
+  destroy() {
+    this.hide()
+
+    while (this.cleanupCallbacks.length > 0) {
+      const cleanup = this.cleanupCallbacks.pop()
+      try {
+        cleanup()
+      } catch {
+        // Ignore cleanup errors.
+      }
+    }
+
+    if (this.menuElement?.parentNode) {
+      this.menuElement.parentNode.removeChild(this.menuElement)
+    }
+
+    this.menuElement = null
   }
 }

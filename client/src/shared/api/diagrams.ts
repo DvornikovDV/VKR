@@ -10,6 +10,10 @@ export interface Diagram {
   updatedAt?: string
 }
 
+export interface EditorRouteDiagram extends Omit<Diagram, '__v'> {
+  __v: number
+}
+
 export interface CreateDiagramPayload {
   name: string
   layout: Record<string, unknown>
@@ -31,6 +35,10 @@ export interface AssignDiagramPayload {
 
 export async function getDiagrams(): Promise<Diagram[]> {
   return apiClient.get<Diagram[]>('/diagrams')
+}
+
+export async function getDiagramById(diagramId: string): Promise<EditorRouteDiagram> {
+  return apiClient.get<EditorRouteDiagram>(`/diagrams/${diagramId}`)
 }
 
 export async function createDiagram(payload: CreateDiagramPayload): Promise<Diagram> {

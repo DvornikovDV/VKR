@@ -12,6 +12,9 @@ README.md
 node_modules
 dist
 dist-ssr
+# Legacy hosted-constructor staging path (generated only, never edit manually).
+# Editable source of truth is ../constructor/public.
+public/constructor
 *.local
 
 # Editor directories and files

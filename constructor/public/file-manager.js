@@ -2,7 +2,7 @@
 // Менеджер файловых операций (сохранение и загрузка мнемосхем и аппаратных привязок).
 
 class FileManager {
-    constructor(canvasManager, imageManager, connectionPointManager, connectionManager, widgetManager = null, bindingsManager = null) {
+    constructor(canvasManager, imageManager, connectionPointManager, connectionManager, widgetManager = null, bindingsManager = null, options = {}) {
         this.canvasManager = canvasManager;
         this.imageManager = imageManager;
         this.connectionPointManager = connectionPointManager;
@@ -13,10 +13,29 @@ class FileManager {
         this.currentSchemaId = null;
         this.currentSchemaVersion = null;
         this.currentMachineId = null;
+        this.isHostedRuntime = options.hostedRuntime === true;
+        this.hostedCallbacks = options.hostedCallbacks && typeof options.hostedCallbacks === 'object'
+            ? options.hostedCallbacks
+            : null;
     }
 
     setWidgetManager(widgetManager) {
         this.widgetManager = widgetManager;
+    }
+
+    _getHostedCallback(callbackName) {
+        if (!this.hostedCallbacks) {
+            return null;
+        }
+        const callback = this.hostedCallbacks[callbackName];
+        return typeof callback === 'function' ? callback : null;
+    }
+
+    _emitHostedIntent(callbackName) {
+        const callback = this._getHostedCallback(callbackName);
+        if (callback) {
+            callback();
+        }
     }
 
     /** Безопасный парсер JSON для предотвращения prototype pollution.
@@ -134,6 +153,43 @@ class FileManager {
         this.canvasManager.getLayer().batchDraw();
     }
 
+    /** Serialize current editor layout into a plain payload for host-owned persistence. */
+    async serializeLayout() {
+        return {
+            images: await this.exportImages(),
+            connectionPoints: this.connectionPointManager.exportPoints(),
+            connections: this.connectionManager.exportConnections(),
+            widgets: this.widgetManager ? this.widgetManager.exportWidgets() : []
+        };
+    }
+
+    /** Apply a serialized layout payload to the current editor session. */
+    async applySerializedLayout(layout = {}, options = {}) {
+        const payload = layout && typeof layout === 'object' ? layout : {};
+        const clearBeforeApply = options.clearBeforeApply !== false;
+
+        if (clearBeforeApply) {
+            this.clearCanvas(false);
+        }
+
+        await this.importImages(Array.isArray(payload.images) ? payload.images : []);
+        this.connectionPointManager.importPoints(
+            Array.isArray(payload.connectionPoints) ? payload.connectionPoints : [],
+            this.imageManager
+        );
+        this.connectionManager.importConnections(
+            Array.isArray(payload.connections) ? payload.connections : [],
+            this.connectionPointManager
+        );
+        if (this.widgetManager) {
+            this.widgetManager.importWidgets(
+                Array.isArray(payload.widgets) ? payload.widgets : [],
+                this.imageManager
+            );
+        }
+        this.canvasManager.getLayer().batchDraw();
+    }
+
     /** Вызов диалогового окна запроса имени схемы.
      * Вход: defaultName (String).
      * Выход: имя схемы (String) или null. */
@@ -181,6 +237,11 @@ class FileManager {
     /** Сохранение текущей структуры мнемосхемы в файл.
      * Выход: Promise. */
     async saveScheme() {
+        if (this.isHostedRuntime) {
+            this._emitHostedIntent('onSaveLayoutIntent');
+            return;
+        }
+
         try {
             // Запрос имени схемы
             const suggestedName = this.currentSchemaId ? this.currentSchemaId.split('-').slice(0, -1).join('-') : 'schema-new';
@@ -199,24 +260,17 @@ class FileManager {
             // Использование временной метки как версии
             this.currentSchemaVersion = timePart;
 
+            const layoutPayload = await this.serializeLayout();
+
             const scheme = {
                 schemaId: this.currentSchemaId,
                 version: this.currentSchemaVersion,
                 name: schemeName,
                 timestamp: timestamp,
-                images: this.imageManager.getImages().map(konvaImg => ({
-                    imageId: konvaImg.getAttr('imageId'),
-                    base64: this.imageToBase64(konvaImg),
-                    x: konvaImg.x(),
-                    y: konvaImg.y(),
-                    width: konvaImg.width(),
-                    height: konvaImg.height(),
-                    scaleX: konvaImg.scaleX(),
-                    scaleY: konvaImg.scaleY()
-                })),
-                connectionPoints: this.connectionPointManager.exportPoints(),
-                connections: this.connectionManager.exportConnections(),
-                widgets: this.widgetManager ? this.widgetManager.exportWidgets() : []
+                images: layoutPayload.images,
+                connectionPoints: layoutPayload.connectionPoints,
+                connections: layoutPayload.connections,
+                widgets: layoutPayload.widgets
             };
 
             const jsonString = JSON.stringify(scheme, null, 2);
@@ -232,6 +286,11 @@ class FileManager {
 
     /** Загрузка структуры мнемосхемы из файла с автовосстановлением связей. */
     loadScheme() {
+        if (this.isHostedRuntime) {
+            this._emitHostedIntent('onSaveAsIntent');
+            return;
+        }
+
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.json';
@@ -240,7 +299,7 @@ class FileManager {
             if (!file) return;
 
             const reader = new FileReader();
-            reader.onload = (event) => {
+            reader.onload = async (event) => {
                 try {
                     const fileContent = event.target.result;
 
@@ -255,17 +314,9 @@ class FileManager {
                     this.currentSchemaId = scheme.schemaId || null;
                     this.currentSchemaVersion = scheme.version || null;
 
-                    this.clearCanvas(false);
+                    await this.applySerializedLayout(scheme, { clearBeforeApply: true });
 
-                    this.importImages(scheme.images || []).then(() => {
-                        this.connectionPointManager.importPoints(scheme.connectionPoints || [], this.imageManager);
-                        this.connectionManager.importConnections(scheme.connections || [], this.connectionPointManager);
-                        if (this.widgetManager && scheme.widgets) {
-                            this.widgetManager.importWidgets(scheme.widgets, this.imageManager);
-                        }
-                        this.canvasManager.getLayer().batchDraw();
-                        console.log(`Структура загружена: ${this.currentSchemaId} v${this.currentSchemaVersion}`);
-                    });
+                    console.log(`Layout loaded: ${this.currentSchemaId} v${this.currentSchemaVersion}`);
                 } catch (error) {
                     console.error('Ошибка при загужении структуры:', error);
                     alert('Ошибка при загужении структуры схемы: ' + error.message);
@@ -279,6 +330,11 @@ class FileManager {
     /** Сохранение файлов аппаратных привязок.
      * Выход: Promise. */
     async saveBindings() {
+        if (this.isHostedRuntime) {
+            this._emitHostedIntent('onSaveBindingsIntent');
+            return;
+        }
+
         try {
             // Наличие схемы
             if (!this.currentSchemaId) {
@@ -320,6 +376,10 @@ class FileManager {
 
     /** Загрузка файла аппаратных привязок с жесткой валидацией (Фаза F). */
     loadBindings() {
+        if (this.isHostedRuntime) {
+            return;
+        }
+
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.json';

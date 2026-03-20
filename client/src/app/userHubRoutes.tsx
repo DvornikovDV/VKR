@@ -1,6 +1,7 @@
 import { type RouteObject } from 'react-router-dom'
 import { GalleryPage } from '@/features/user-hub/pages/GalleryPage'
 import { UserHubLayout } from '@/features/user-hub/UserHubLayout'
+import { FullConstructorPage } from '@/features/user-hub/pages/FullConstructorPage'
 
 function UserHubPlaceholder({ label }: { label: string }) {
   return (
@@ -31,6 +32,10 @@ export const userHubRouteChildren: RouteObject[] = [
       {
         index: true,
         element: <GalleryPage />,
+      },
+      {
+        path: 'editor/:id',
+        element: <FullConstructorPage />,
       },
       {
         path: '*',

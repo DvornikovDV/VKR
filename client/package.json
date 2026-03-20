@@ -10,7 +10,12 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "smoke:hosted-runtime": "node tests/smoke/hosted-constructor-runtime-hosted-mode-smoke.mjs",
+    "smoke:hosted-entry": "node tests/smoke/hosted-constructor-entry-contract-smoke.mjs",
+    "smoke:hosted-build-assets": "node tests/smoke/hosted-constructor-build-assets-smoke.mjs",
+    "smoke:hosted-pipeline": "node tests/smoke/hosted-constructor-pipeline-smoke.mjs",
+    "smoke:hosted": "npm run smoke:hosted-runtime && npm run smoke:hosted-entry && npm run smoke:hosted-build-assets && npm run smoke:hosted-pipeline"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",

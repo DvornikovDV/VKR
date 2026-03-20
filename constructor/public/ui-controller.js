@@ -12,8 +12,12 @@ import { WidgetManager } from './widget-manager.js';
 import { ContextMenu } from './context-menu.js';
 import { BindingsManager } from './bindings-manager.js';
 
+function isElementNode(value) {
+    return Boolean(value && typeof value === 'object' && value.nodeType === 1);
+}
+
 class UIController {
-    constructor() {
+    constructor(options = {}) {
         this.canvasManager = null;
         this.imageManager = null;
         this.connectionPointManager = null;
@@ -29,12 +33,106 @@ class UIController {
         this.isConnectionEditMode = false;
         this.firstPinSelected = null;
         this.previewLine = null;
+        this.hostedOptions = options && typeof options === 'object' ? options : {};
+        this.isHostedRuntime = this.hostedOptions.hostedRuntime === true;
+        this.hostedConfig = this.hostedOptions.hostedConfig && typeof this.hostedOptions.hostedConfig === 'object'
+            ? this.hostedOptions.hostedConfig
+            : null;
+        this.hostedCallbacks = this.getHostedCallbacks();
+        this.rootElement = this.resolveRootElement();
+        this.editorMode = this.resolveEditorMode();
+        this.hostedMachines = Array.isArray(this.hostedOptions.machines)
+            ? this.hostedOptions.machines
+            : Array.isArray(this.hostedConfig && this.hostedConfig.machines)
+                ? this.hostedConfig.machines
+                : [];
+        this.hostedDeviceCatalog = Array.isArray(this.hostedOptions.deviceCatalog)
+            ? this.hostedOptions.deviceCatalog
+            : Array.isArray(this.hostedConfig && this.hostedConfig.deviceCatalog)
+                ? this.hostedConfig.deviceCatalog
+                : [];
+        this._destroyed = false;
+        this._domListenerCleanup = [];
+        this.initPromise = this.init();
+    }
 
-        this.init();
+    resolveRootElement() {
+        if (isElementNode(this.hostedOptions.container)) {
+            return this.hostedOptions.container;
+        }
+        if (this.hostedConfig && isElementNode(this.hostedConfig.container)) {
+            return this.hostedConfig.container;
+        }
+        return document;
+    }
+
+    resolveEditorMode() {
+        const mode = (this.hostedConfig && this.hostedConfig.mode) || this.hostedOptions.mode;
+        return mode === 'reduced' ? 'reduced' : 'full';
+    }
+
+    getRootElement() {
+        return this.rootElement || document;
+    }
+
+    getElement(id) {
+        const root = this.getRootElement();
+        if (root !== document && typeof root.querySelector === 'function') {
+            const scopedNode = root.querySelector(`#${id}`);
+            if (scopedNode) {
+                return scopedNode;
+            }
+        }
+
+        return document.getElementById(id);
+    }
+
+    querySelector(selector) {
+        const root = this.getRootElement();
+        if (root !== document && typeof root.querySelector === 'function') {
+            const scopedNode = root.querySelector(selector);
+            if (scopedNode) {
+                return scopedNode;
+            }
+        }
+
+        return document.querySelector(selector);
+    }
+
+    registerDomListener(target, eventName, handler) {
+        if (!target || typeof target.addEventListener !== 'function') {
+            return;
+        }
+
+        target.addEventListener(eventName, handler);
+        this._domListenerCleanup.push(() => {
+            target.removeEventListener(eventName, handler);
+        });
+    }
+
+    cleanupDomListeners() {
+        while (this._domListenerCleanup.length > 0) {
+            const cleanup = this._domListenerCleanup.pop();
+            try {
+                cleanup();
+            } catch (_) {
+                // Ignore listener cleanup errors.
+            }
+        }
     }
 
     async init() {
-        this.canvasManager = new CanvasManager();
+        if (this._destroyed) {
+            return;
+        }
+
+        this.canvasManager = new CanvasManager({
+            rootElement: this.getRootElement(),
+            canvasContainerElement: this.getElement('canvas-container'),
+            canvasElement: this.getElement('canvas'),
+            zoomSliderElement: this.getElement('zoom-slider'),
+            zoomValueElement: this.getElement('zoom-value'),
+        });
         await this.canvasManager.ready();
 
         this.imageManager = new ImageManager(this.canvasManager);
@@ -55,9 +153,15 @@ class UIController {
             this.connectionPointManager,
             this.connectionManager,
             this.widgetManager,
-            this.bindingsManager
+            this.bindingsManager,
+            {
+                hostedRuntime: this.isHostedRuntime,
+                hostedCallbacks: this.getHostedCallbacks()
+            }
         );
-        this.contextMenu = new ContextMenu();
+        this.contextMenu = new ContextMenu({
+            rootElement: this.getRootElement() === document ? document.body : this.getRootElement(),
+        });
 
         await this.loadDevicesRegistry();
 
@@ -65,10 +169,137 @@ class UIController {
         this.setupEventListeners();
         this.setupMachineSelection();
         this.setupBindingsManagerCallback();
+        this.renderMachineOptions();
+        this.notifyDirtyState({
+            layoutDirty: false,
+            bindingsDirty: false,
+        });
     }
 
-    /** Загрузка реестра устройств. */
+    /** Resolve host callbacks for hosted runtime mode. */
+    getHostedCallbacks() {
+        if (this.hostedCallbacks && typeof this.hostedCallbacks === 'object') {
+            return this.hostedCallbacks;
+        }
+        if (this.hostedConfig && this.hostedConfig.callbacks && typeof this.hostedConfig.callbacks === 'object') {
+            return this.hostedConfig.callbacks;
+        }
+        if (this.hostedOptions.callbacks && typeof this.hostedOptions.callbacks === 'object') {
+            return this.hostedOptions.callbacks;
+        }
+        return null;
+    }
+
+    notifyDirtyState(state) {
+        const callbacks = this.getHostedCallbacks();
+        if (!callbacks || typeof callbacks.onDirtyStateChange !== 'function') {
+            return;
+        }
+
+        callbacks.onDirtyStateChange(state);
+    }
+
+    emitMachineChange(machineId) {
+        const callbacks = this.getHostedCallbacks();
+        if (!callbacks || typeof callbacks.onMachineChange !== 'function') {
+            return;
+        }
+
+        callbacks.onMachineChange(machineId ?? null);
+    }
+
+    ready() {
+        return this.initPromise;
+    }
+
+    mapHostedCatalogToBindingsDevices(deviceCatalog = []) {
+        const mappedDevices = [];
+        const seenDeviceKeys = new Set();
+
+        deviceCatalog.forEach((entry) => {
+            if (!entry || typeof entry !== 'object') {
+                return;
+            }
+
+            const machineId = entry.edgeServerId || null;
+            const deviceId = entry.deviceId || null;
+
+            if (!machineId || !deviceId) {
+                return;
+            }
+
+            const dedupeKey = `${machineId}::${deviceId}`;
+            if (seenDeviceKeys.has(dedupeKey)) {
+                return;
+            }
+            seenDeviceKeys.add(dedupeKey);
+
+            const metrics = Array.isArray(entry.metrics) ? entry.metrics : [];
+            const firstMetric = metrics.length > 0 ? metrics[0] : null;
+
+            mappedDevices.push({
+                machineId: machineId,
+                id: deviceId,
+                name: entry.deviceLabel || deviceId,
+                type: entry.deviceType || 'device',
+                unit: firstMetric && firstMetric.unit ? firstMetric.unit : null,
+                min: firstMetric && typeof firstMetric.min === 'number' ? firstMetric.min : null,
+                max: firstMetric && typeof firstMetric.max === 'number' ? firstMetric.max : null,
+                description: firstMetric && firstMetric.label ? firstMetric.label : null
+            });
+        });
+
+        return mappedDevices;
+    }
+
+    getHostedMachineOptions() {
+        if (!Array.isArray(this.hostedMachines)) {
+            return [];
+        }
+
+        return this.hostedMachines;
+    }
+
+    renderMachineOptions() {
+        const machineSelect = this.getElement('machine-select');
+        if (!machineSelect || !this.isHostedRuntime) {
+            return;
+        }
+
+        const previousValue = machineSelect.value;
+        machineSelect.innerHTML = '';
+
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = 'No machine';
+        machineSelect.appendChild(emptyOption);
+
+        this.getHostedMachineOptions().forEach((machine) => {
+            if (!machine || typeof machine !== 'object') {
+                return;
+            }
+
+            const option = document.createElement('option');
+            option.value = machine.edgeServerId;
+            option.textContent = machine.label || machine.edgeServerId;
+            machineSelect.appendChild(option);
+        });
+
+        machineSelect.value = previousValue || '';
+    }
+
+    /** Load constructor device registry for standalone mode. */
     async loadDevicesRegistry() {
+        if (this.isHostedRuntime) {
+            if (this.bindingsManager) {
+                this.bindingsManager.allDevices = this.mapHostedCatalogToBindingsDevices(this.hostedDeviceCatalog);
+            }
+            if (typeof this.renderMachineOptions === 'function') {
+                this.renderMachineOptions();
+            }
+            return;
+        }
+
         try {
             const response = await fetch('devices-registry.json');
             if (!response.ok) {
@@ -86,7 +317,7 @@ class UIController {
     /** Callback для обновления списка при смене контроллера. */
     setupBindingsManagerCallback() {
         this.bindingsManager.onMachineChanged = (newMachineId) => {
-            const machineSelect = document.getElementById('machine-select');
+            const machineSelect = this.getElement('machine-select');
             if (machineSelect) {
                 machineSelect.value = newMachineId;
                 console.log(`UI обновлен: машина изменена на ${newMachineId}`);
@@ -96,17 +327,18 @@ class UIController {
 
     /** Настройка интерфейса выбора контроллера. */
     setupMachineSelection() {
-        const machineSelect = document.getElementById('machine-select');
+        const machineSelect = this.getElement('machine-select');
 
         if (!machineSelect) return;
 
-        machineSelect.addEventListener('change', () => {
+        this.registerDomListener(machineSelect, 'change', () => {
             const machineId = machineSelect.value;
 
             if (!machineId) {
                 // Очистка состояния при сбросе выбора
                 this.bindingsManager.selectedMachineId = null;
                 this.fileManager.currentMachineId = null;
+                this.emitMachineChange(null);
                 console.log('Машина не выбрана');
                 return;
             }
@@ -119,6 +351,7 @@ class UIController {
             }
 
             this.fileManager.currentMachineId = machineId;
+            this.emitMachineChange(machineId);
             console.log(`Выбрана машина: ${machineId}`);
         });
     }
@@ -358,12 +591,12 @@ class UIController {
 
         this.isConnectionEditMode = value;
 
-        const editBtn = document.getElementById('edit-connection-btn');
+        const editBtn = this.getElement('edit-connection-btn');
         if (editBtn) {
             editBtn.classList.toggle('active', value);
         }
 
-        const canvasArea = document.querySelector('.canvas-area');
+        const canvasArea = this.querySelector('.canvas-area');
         if (canvasArea) {
             canvasArea.classList.toggle('edit-mode', value);
         }
@@ -372,64 +605,65 @@ class UIController {
     /** Инициализация слушателей событий интерфейса. */
     setupEventListeners() {
         try {
-            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            const queryRoot = this.getRootElement() === document ? document : this.getRootElement();
+            const tooltipTriggerList = [].slice.call(queryRoot.querySelectorAll('[data-bs-toggle="tooltip"]'));
             tooltipTriggerList.forEach(function (tooltipTriggerEl) {
                 if (window.bootstrap && bootstrap.Tooltip) new bootstrap.Tooltip(tooltipTriggerEl);
             });
         } catch (_) { }
 
-        const addImageBtn = document.getElementById('add-image-btn');
+        const addImageBtn = this.getElement('add-image-btn');
         if (addImageBtn) {
-            addImageBtn.addEventListener('click', () => {
+            this.registerDomListener(addImageBtn, 'click', () => {
                 this.addImage();
             });
         }
 
-        const saveSchemaBtn = document.getElementById('save-schema-btn');
+        const saveSchemaBtn = this.getElement('save-schema-btn');
         if (saveSchemaBtn) {
-            saveSchemaBtn.addEventListener('click', () => {
+            this.registerDomListener(saveSchemaBtn, 'click', () => {
                 this.fileManager.saveScheme();
             });
         }
 
-        const loadSchemaBtn = document.getElementById('load-schema-btn');
+        const loadSchemaBtn = this.getElement('load-schema-btn');
         if (loadSchemaBtn) {
-            loadSchemaBtn.addEventListener('click', () => {
+            this.registerDomListener(loadSchemaBtn, 'click', () => {
                 this.fileManager.loadScheme();
             });
         }
 
-        const saveBindingsBtn = document.getElementById('save-bindings-btn');
+        const saveBindingsBtn = this.getElement('save-bindings-btn');
         if (saveBindingsBtn) {
-            saveBindingsBtn.addEventListener('click', () => {
+            this.registerDomListener(saveBindingsBtn, 'click', () => {
                 this.fileManager.saveBindings();
             });
         }
 
-        const loadBindingsBtn = document.getElementById('load-bindings-btn');
+        const loadBindingsBtn = this.getElement('load-bindings-btn');
         if (loadBindingsBtn) {
-            loadBindingsBtn.addEventListener('click', () => {
+            this.registerDomListener(loadBindingsBtn, 'click', () => {
                 this.fileManager.loadBindings();
             });
         }
 
-        const clearBtn = document.getElementById('clear-btn');
+        const clearBtn = this.getElement('clear-btn');
         if (clearBtn) {
-            clearBtn.addEventListener('click', () => {
+            this.registerDomListener(clearBtn, 'click', () => {
                 this.fileManager.clearCanvas();
             });
         }
 
-        const createLineBtn = document.getElementById('create-line-btn');
+        const createLineBtn = this.getElement('create-line-btn');
         if (createLineBtn) {
-            createLineBtn.addEventListener('click', () => {
+            this.registerDomListener(createLineBtn, 'click', () => {
                 this.toggleLineCreationMode();
             });
         }
 
-        const deleteBtn = document.getElementById('delete-selected-btn');
+        const deleteBtn = this.getElement('delete-selected-btn');
         if (deleteBtn) {
-            deleteBtn.addEventListener('click', () => {
+            this.registerDomListener(deleteBtn, 'click', () => {
                 this.deleteSelected();
             });
         }
@@ -445,8 +679,6 @@ class UIController {
             });
         }
     }
-
-    /** Удаление выбранного элемента. */
     deleteSelected() {
         const selected = this.selectionManager.getSelected();
         if (!selected) return;
@@ -475,7 +707,7 @@ class UIController {
 
     /** Открытие диалога выбора файла. */
     addImage() {
-        const fileInput = document.getElementById('file-input');
+        const fileInput = this.getElement('file-input');
         if (!fileInput) return;
         fileInput.onchange = (e) => {
             const file = e.target.files && e.target.files[0];
@@ -493,7 +725,7 @@ class UIController {
     /** Переключение режима создания соединений. */
     toggleLineCreationMode() {
         this.isCreateLineMode = !this.isCreateLineMode;
-        const createLineBtn = document.getElementById('create-line-btn');
+        const createLineBtn = this.getElement('create-line-btn');
         if (createLineBtn) {
             createLineBtn.classList.toggle('active', this.isCreateLineMode);
         }
@@ -645,6 +877,129 @@ class UIController {
         if (min === dBottom) return { side: 'bottom', offset: Math.min(1, Math.max(0, (pos.x - left) / width)) };
         return { side: 'left', offset: Math.min(1, Math.max(0, (pos.y - top) / height)) };
     }
+
+    async loadLayout(layout = {}) {
+        await this.ready();
+        if (this._destroyed) {
+            return;
+        }
+
+        this.fileManager.clearCanvas(false);
+
+        await this.fileManager.importImages(layout.images || []);
+        this.connectionPointManager.importPoints(layout.connectionPoints || [], this.imageManager);
+        this.connectionManager.importConnections(layout.connections || [], this.connectionPointManager);
+        if (this.widgetManager) {
+            this.widgetManager.importWidgets(layout.widgets || [], this.imageManager);
+        }
+
+        this.notifyDirtyState({
+            layoutDirty: false,
+            bindingsDirty: false,
+        });
+    }
+
+    async getLayout() {
+        await this.ready();
+        if (this._destroyed) {
+            return {};
+        }
+
+        return {
+            images: await this.fileManager.exportImages(),
+            connectionPoints: this.connectionPointManager.exportPoints(),
+            connections: this.connectionManager.exportConnections(),
+            widgets: this.widgetManager ? this.widgetManager.exportWidgets() : [],
+        };
+    }
+
+    async loadBindings(bindings = []) {
+        await this.ready();
+        if (this._destroyed || this.editorMode === 'reduced') {
+            return;
+        }
+
+        if (this.widgetManager) {
+            this.widgetManager.importBindings(Array.isArray(bindings) ? bindings : []);
+        }
+
+        this.notifyDirtyState({
+            layoutDirty: false,
+            bindingsDirty: false,
+        });
+    }
+
+    async getBindings() {
+        await this.ready();
+        if (this._destroyed || this.editorMode === 'reduced') {
+            return [];
+        }
+
+        if (!this.widgetManager) {
+            return [];
+        }
+
+        return this.widgetManager.exportBindings();
+    }
+
+    updateCatalog(input = {}) {
+        if (this._destroyed) {
+            return;
+        }
+
+        this.hostedMachines = Array.isArray(input.machines) ? input.machines : [];
+        this.hostedDeviceCatalog = Array.isArray(input.deviceCatalog) ? input.deviceCatalog : [];
+
+        if (this.bindingsManager) {
+            this.bindingsManager.allDevices = this.mapHostedCatalogToBindingsDevices(this.hostedDeviceCatalog);
+        }
+
+        this.renderMachineOptions();
+    }
+
+    setActiveMachine(machineId) {
+        if (this._destroyed || this.editorMode === 'reduced') {
+            return;
+        }
+
+        const machineSelect = this.getElement('machine-select');
+        if (machineSelect) {
+            machineSelect.value = machineId || '';
+        }
+
+        if (!machineId) {
+            this.bindingsManager.selectedMachineId = null;
+            this.fileManager.currentMachineId = null;
+            this.emitMachineChange(null);
+            return;
+        }
+
+        this.bindingsManager.selectMachine(machineId, true);
+        this.fileManager.currentMachineId = machineId;
+        this.emitMachineChange(machineId);
+    }
+
+    async destroy() {
+        if (this._destroyed) {
+            return;
+        }
+
+        this._destroyed = true;
+
+        this.cleanupDomListeners();
+
+        if (this.contextMenu && typeof this.contextMenu.destroy === 'function') {
+            this.contextMenu.destroy();
+        }
+
+        if (this.canvasManager && typeof this.canvasManager.destroy === 'function') {
+            this.canvasManager.destroy();
+        }
+    }
 }
 
 export { UIController };
+
+
+
+

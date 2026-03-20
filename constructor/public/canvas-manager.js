@@ -1,207 +1,307 @@
-// canvas-manager.js
-// Менеджер основного холста приложения и обработка базовых событий.
+const GRID_SIZE = 20
+const GRID_EXTENT_MULTIPLIER = 20
 
-const GRID_SIZE = 20;
-const GRID_EXTENT_MULTIPLIER = 20;
-
-class CanvasManager {
-    constructor() {
-        this.stage = null;
-        this.layer = null;
-        this.zoom = 1;
-        this.isPanning = false;
-        this.readyPromise = new Promise(resolve => {
-            this.resolveReady = resolve;
-        });
-        this.init();
-    }
-
-    /** Получение Promise готовности холста.
-     * Выход: Promise. */
-    ready() {
-        return this.readyPromise;
-    }
-
-    /** Асинхронная инициализация холста с задержкой для рендеринга DOM. */
-    init() {
-        setTimeout(() => {
-            this.createStage();
-            this.setupEventListeners();
-            this.resolveReady();
-        }, 100);
-    }
-
-    /** Создание и настройка экземпляра Konva.Stage и базового слоя. */
-    createStage() {
-        const container = document.getElementById('canvas-container');
-        if (!container) {
-            console.error('Canvas container not found');
-            return;
-        }
-
-        this.stage = new Konva.Stage({
-            container: 'canvas',
-            width: container.offsetWidth,
-            height: container.offsetHeight,
-        });
-
-        this.layer = new Konva.Layer();
-        this.stage.add(this.layer);
-
-        this.addGrid();
-    }
-
-    /** Отрисовка координатной сетки на фоне. */
-    addGrid() {
-        const gridSize = GRID_SIZE;
-        const width = this.stage.width();
-        const height = this.stage.height();
-        const extent = Math.max(width, height) * GRID_EXTENT_MULTIPLIER;
-
-        this.gridGroup = new Konva.Group({
-            listening: false
-        });
-
-        for (let x = -extent; x <= width + extent; x += gridSize) {
-            this.gridGroup.add(new Konva.Line({
-                points: [x, -extent, x, height + extent],
-                stroke: '#e0e0e0',
-                strokeWidth: 1,
-                listening: false
-            }));
-        }
-
-        for (let y = -extent; y <= height + extent; y += gridSize) {
-            this.gridGroup.add(new Konva.Line({
-                points: [-extent, y, width + extent, y],
-                stroke: '#e0e0e0',
-                strokeWidth: 1,
-                listening: false
-            }));
-        }
-
-        this.layer.add(this.gridGroup);
-        this.layer.draw();
-    }
-
-    /** Перерисовка координатной сетки при изменении размеров или масштаба. */
-    updateGrid() {
-        if (!this.gridGroup) return;
-
-        const gridSize = GRID_SIZE;
-        const width = this.stage.width();
-        const height = this.stage.height();
-        const extent = Math.max(width, height) * GRID_EXTENT_MULTIPLIER;
-
-        this.gridGroup.destroyChildren();
-
-        for (let x = -extent; x <= width + extent; x += gridSize) {
-            this.gridGroup.add(new Konva.Line({
-                points: [x, -extent, x, height + extent],
-                stroke: '#e0e0e0',
-                strokeWidth: 1,
-                listening: false
-            }));
-        }
-
-        for (let y = -extent; y <= height + extent; y += gridSize) {
-            this.gridGroup.add(new Konva.Line({
-                points: [-extent, y, width + extent, y],
-                stroke: '#e0e0e0',
-                strokeWidth: 1,
-                listening: false
-            }));
-        }
-    }
-
-    /** Инициализация глобальных обработчиков событий холста. */
-    setupEventListeners() {
-        // Обработка изменения размеров окна
-        window.addEventListener('resize', () => {
-            if (this.stage) {
-                this.stage.width(document.getElementById('canvas-container').offsetWidth);
-                this.stage.height(document.getElementById('canvas-container').offsetHeight);
-                this.updateGrid();
-                this.stage.draw();
-            }
-        });
-
-        const zoomSlider = document.getElementById('zoom-slider');
-        const zoomValue = document.getElementById('zoom-value');
-
-        if (zoomSlider) {
-            // Обработка ползунка масштабирования из UI
-            zoomSlider.addEventListener('input', (e) => {
-                this.zoom = parseFloat(e.target.value);
-                if (zoomValue) zoomValue.textContent = this.zoom.toFixed(1) + 'x';
-
-                this.zoom = Math.max(0.1, Math.min(10, this.zoom));
-                this.stage.scaleX(this.zoom);
-                this.stage.scaleY(this.zoom);
-                this.stage.draw();
-            });
-        }
-
-        // Обработка масштабирования колесом мыши с центрированием по курсору
-        this.stage.on('wheel', (evt) => {
-            evt.evt.preventDefault();
-            const scaleBy = 1.1;
-            const oldScale = this.stage.scaleX();
-            const pointer = this.stage.getPointerPosition();
-            const mousePointTo = {
-                x: (pointer.x - this.stage.x()) / oldScale,
-                y: (pointer.y - this.stage.y()) / oldScale,
-            };
-            const direction = evt.evt.deltaY > 0 ? 1 : -1;
-            let newScale = direction > 0 ? oldScale / scaleBy : oldScale * scaleBy;
-            newScale = Math.max(0.1, Math.min(10, newScale));
-            this.stage.scale({ x: newScale, y: newScale });
-            this.stage.position({
-                x: pointer.x - mousePointTo.x * newScale,
-                y: pointer.y - mousePointTo.y * newScale,
-            });
-            this.zoom = newScale;
-            if (zoomSlider && zoomValue) {
-                zoomSlider.value = String(newScale);
-                zoomValue.textContent = (parseFloat(zoomSlider.value)).toFixed(1) + 'x';
-            }
-            this.stage.batchDraw();
-        });
-
-        // Обработка активации панорамирования (CTRL + ЛКМ)
-        this.stage.on('mousedown', (evt) => {
-            if (evt.target === this.stage && evt.evt.ctrlKey) {
-                this.isPanning = true;
-                this.stage.draggable(true);
-            }
-        });
-
-        // Обработка завершения панорамирования
-        this.stage.on('mouseup', () => {
-            if (this.isPanning) {
-                this.isPanning = false;
-                this.stage.draggable(false);
-            }
-        });
-
-        // Обработка клика по пустой области холста
-        this.stage.on('click', (evt) => {
-            if (evt.target === this.stage) {
-            }
-        });
-    }
-
-    /** Получение экземпляра Konva.Stage.
-     * Выход: Узел сцены (Konva.Stage). */
-    getStage() {
-        return this.stage;
-    }
-
-    /** Получение базового графического слоя.
-     * Выход: Слой (Konva.Layer). */
-    getLayer() {
-        return this.layer;
-    }
+function isElementNode(value) {
+  return Boolean(value && typeof value === 'object' && value.nodeType === 1)
 }
 
-export { CanvasManager };
+class CanvasManager {
+  constructor(options = {}) {
+    this.rootElement = isElementNode(options.rootElement) ? options.rootElement : document
+    this.canvasContainerElement = isElementNode(options.canvasContainerElement)
+      ? options.canvasContainerElement
+      : this.resolveElementById('canvas-container')
+    this.canvasElement = isElementNode(options.canvasElement)
+      ? options.canvasElement
+      : this.resolveElementById('canvas')
+    this.zoomSliderElement = isElementNode(options.zoomSliderElement)
+      ? options.zoomSliderElement
+      : this.resolveElementById('zoom-slider')
+    this.zoomValueElement = isElementNode(options.zoomValueElement)
+      ? options.zoomValueElement
+      : this.resolveElementById('zoom-value')
+
+    this.stage = null
+    this.layer = null
+    this.gridGroup = null
+    this.zoom = 1
+    this.isPanning = false
+    this.resizeObserver = null
+    this.cleanupCallbacks = []
+    this.initTimer = null
+    this.readyPromise = new Promise((resolve) => {
+      this.resolveReady = resolve
+    })
+
+    this.init()
+  }
+
+  resolveElementById(id) {
+    if (this.rootElement && this.rootElement !== document) {
+      const scopedElement = this.rootElement.querySelector(`#${id}`)
+      if (scopedElement) {
+        return scopedElement
+      }
+    }
+
+    return document.getElementById(id)
+  }
+
+  ready() {
+    return this.readyPromise
+  }
+
+  init() {
+    this.initTimer = setTimeout(() => {
+      this.createStage()
+      this.setupEventListeners()
+      this.resolveReady()
+    }, 100)
+  }
+
+  createStage() {
+    const container = this.canvasContainerElement || this.resolveElementById('canvas-container')
+    const canvas = this.canvasElement || this.resolveElementById('canvas')
+
+    if (!container || !canvas) {
+      console.error('Canvas container not found')
+      return
+    }
+
+    this.canvasContainerElement = container
+    this.canvasElement = canvas
+
+    this.stage = new Konva.Stage({
+      container: canvas,
+      width: container.offsetWidth,
+      height: container.offsetHeight,
+    })
+
+    this.layer = new Konva.Layer()
+    this.stage.add(this.layer)
+
+    this.addGrid()
+  }
+
+  addGrid() {
+    if (!this.stage || !this.layer) {
+      return
+    }
+
+    const width = this.stage.width()
+    const height = this.stage.height()
+    const extent = Math.max(width, height) * GRID_EXTENT_MULTIPLIER
+
+    this.gridGroup = new Konva.Group({ listening: false })
+
+    for (let x = -extent; x <= width + extent; x += GRID_SIZE) {
+      this.gridGroup.add(
+        new Konva.Line({
+          points: [x, -extent, x, height + extent],
+          stroke: '#e0e0e0',
+          strokeWidth: 1,
+          listening: false,
+        }),
+      )
+    }
+
+    for (let y = -extent; y <= height + extent; y += GRID_SIZE) {
+      this.gridGroup.add(
+        new Konva.Line({
+          points: [-extent, y, width + extent, y],
+          stroke: '#e0e0e0',
+          strokeWidth: 1,
+          listening: false,
+        }),
+      )
+    }
+
+    this.layer.add(this.gridGroup)
+    this.layer.draw()
+  }
+
+  updateGrid() {
+    if (!this.gridGroup || !this.stage) {
+      return
+    }
+
+    const width = this.stage.width()
+    const height = this.stage.height()
+    const extent = Math.max(width, height) * GRID_EXTENT_MULTIPLIER
+
+    this.gridGroup.destroyChildren()
+
+    for (let x = -extent; x <= width + extent; x += GRID_SIZE) {
+      this.gridGroup.add(
+        new Konva.Line({
+          points: [x, -extent, x, height + extent],
+          stroke: '#e0e0e0',
+          strokeWidth: 1,
+          listening: false,
+        }),
+      )
+    }
+
+    for (let y = -extent; y <= height + extent; y += GRID_SIZE) {
+      this.gridGroup.add(
+        new Konva.Line({
+          points: [-extent, y, width + extent, y],
+          stroke: '#e0e0e0',
+          strokeWidth: 1,
+          listening: false,
+        }),
+      )
+    }
+  }
+
+  resizeStageToContainer() {
+    if (!this.stage || !this.canvasContainerElement) {
+      return
+    }
+
+    this.stage.width(this.canvasContainerElement.offsetWidth)
+    this.stage.height(this.canvasContainerElement.offsetHeight)
+    this.updateGrid()
+    this.stage.draw()
+  }
+
+  setupEventListeners() {
+    if (!this.stage) {
+      return
+    }
+
+    const onResize = () => {
+      this.resizeStageToContainer()
+    }
+
+    window.addEventListener('resize', onResize)
+    this.cleanupCallbacks.push(() => {
+      window.removeEventListener('resize', onResize)
+    })
+
+    if (this.canvasContainerElement && typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => {
+        this.resizeStageToContainer()
+      })
+      this.resizeObserver.observe(this.canvasContainerElement)
+      this.cleanupCallbacks.push(() => {
+        if (this.resizeObserver) {
+          this.resizeObserver.disconnect()
+          this.resizeObserver = null
+        }
+      })
+    }
+
+    const zoomSlider = this.zoomSliderElement || this.resolveElementById('zoom-slider')
+    const zoomValue = this.zoomValueElement || this.resolveElementById('zoom-value')
+
+    if (zoomSlider) {
+      const onInput = (event) => {
+        const target = event.target
+        this.zoom = Number.parseFloat(target.value)
+        if (zoomValue) {
+          zoomValue.textContent = `${this.zoom.toFixed(1)}x`
+        }
+
+        this.zoom = Math.max(0.1, Math.min(10, this.zoom))
+        this.stage.scaleX(this.zoom)
+        this.stage.scaleY(this.zoom)
+        this.stage.draw()
+      }
+
+      zoomSlider.addEventListener('input', onInput)
+      this.cleanupCallbacks.push(() => {
+        zoomSlider.removeEventListener('input', onInput)
+      })
+    }
+
+    this.stage.on('wheel', (event) => {
+      event.evt.preventDefault()
+
+      const scaleBy = 1.1
+      const oldScale = this.stage.scaleX()
+      const pointer = this.stage.getPointerPosition()
+      if (!pointer) {
+        return
+      }
+
+      const mousePointTo = {
+        x: (pointer.x - this.stage.x()) / oldScale,
+        y: (pointer.y - this.stage.y()) / oldScale,
+      }
+      const direction = event.evt.deltaY > 0 ? 1 : -1
+      let newScale = direction > 0 ? oldScale / scaleBy : oldScale * scaleBy
+      newScale = Math.max(0.1, Math.min(10, newScale))
+
+      this.stage.scale({ x: newScale, y: newScale })
+      this.stage.position({
+        x: pointer.x - mousePointTo.x * newScale,
+        y: pointer.y - mousePointTo.y * newScale,
+      })
+
+      this.zoom = newScale
+      if (zoomSlider && zoomValue) {
+        zoomSlider.value = String(newScale)
+        zoomValue.textContent = `${Number.parseFloat(zoomSlider.value).toFixed(1)}x`
+      }
+
+      this.stage.batchDraw()
+    })
+
+    this.stage.on('mousedown', (event) => {
+      if (event.target === this.stage && event.evt.ctrlKey) {
+        this.isPanning = true
+        this.stage.draggable(true)
+      }
+    })
+
+    this.stage.on('mouseup', () => {
+      if (this.isPanning) {
+        this.isPanning = false
+        this.stage.draggable(false)
+      }
+    })
+
+    this.stage.on('click', (event) => {
+      if (event.target === this.stage) {
+        // Reserved for future host callbacks.
+      }
+    })
+  }
+
+  getStage() {
+    return this.stage
+  }
+
+  getLayer() {
+    return this.layer
+  }
+
+  destroy() {
+    if (this.initTimer) {
+      clearTimeout(this.initTimer)
+      this.initTimer = null
+    }
+
+    while (this.cleanupCallbacks.length > 0) {
+      const cleanup = this.cleanupCallbacks.pop()
+      try {
+        cleanup()
+      } catch {
+        // Ignore cleanup errors.
+      }
+    }
+
+    if (this.stage) {
+      this.stage.off()
+      this.stage.destroy()
+      this.stage = null
+    }
+
+    this.layer = null
+    this.gridGroup = null
+    this.isPanning = false
+  }
+}
+
+export { CanvasManager }

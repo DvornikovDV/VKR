@@ -3,6 +3,7 @@ import { AdminHubLayout } from '@/features/admin-hub/AdminHubLayout'
 import { DiagramGalleryPage } from '@/features/admin-hub/pages/DiagramGalleryPage'
 import { EdgeFleetPage } from '@/features/admin-hub/pages/EdgeFleetPage'
 import { OverviewPage } from '@/features/admin-hub/pages/OverviewPage'
+import { ReducedConstructorPage } from '@/features/admin-hub/pages/ReducedConstructorPage'
 import { UserManagementPage } from '@/features/admin-hub/pages/UserManagementPage'
 
 function AdminHubPlaceholder({ label }: { label: string }) {
@@ -46,6 +47,10 @@ export const adminHubRouteChildren: RouteObject[] = [
       {
         path: 'diagrams',
         element: <DiagramGalleryPage />,
+      },
+      {
+        path: 'editor/:id',
+        element: <ReducedConstructorPage />,
       },
       {
         path: '*',
