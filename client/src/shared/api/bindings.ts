@@ -42,3 +42,7 @@ export async function updateBinding(
 export async function deleteBinding(diagramId: string, edgeServerId: string): Promise<void> {
   await apiClient.delete<void>(`/diagrams/${diagramId}/bindings/${edgeServerId}`)
 }
+
+export async function deleteAllBindings(diagramId: string): Promise<void> {
+  await apiClient.delete<void>(`/diagrams/${diagramId}/bindings`)
+}

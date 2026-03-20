@@ -5,6 +5,11 @@ import {
   importLayoutPayload,
   isLayoutPayloadError,
 } from '@/features/constructor-host/adapters/layoutAdapter'
+import type { DirtyState } from '@/features/constructor-host/types'
+import {
+  hasUnsavedChangesFromDirtyState,
+  useUnsavedChangesGuard,
+} from '@/features/constructor-host/useUnsavedChangesGuard'
 import { useHostedLayoutSaveFlow } from '@/features/constructor-host/useHostedLayoutSaveFlow'
 import { SaveAsDialog } from '@/shared/components/SaveAsDialog'
 import { SaveConflictModal } from '@/shared/components/SaveConflictModal'
@@ -17,13 +22,17 @@ export function ReducedConstructorPage() {
   const { id } = useParams<{ id: string }>()
   const [phase, setPhase] = useState<PagePhase>('loading')
   const [diagram, setDiagram] = useState<EditorRouteDiagram | null>(null)
+  const [dirtyState, setDirtyState] = useState<DirtyState>({ layoutDirty: false, bindingsDirty: false })
   const [error, setError] = useState<string | null>(null)
+  const [canOpenWithEmptyLayout, setCanOpenWithEmptyLayout] = useState(false)
 
   const saveFlow = useHostedLayoutSaveFlow({
     diagram,
     onDiagramChange: setDiagram,
     routePrefix: '/admin/editor',
   })
+  const hasUnsavedChanges = hasUnsavedChangesFromDirtyState(dirtyState)
+  useUnsavedChangesGuard({ hasUnsavedChanges })
 
   const loadDiagram = useCallback(async () => {
     if (!id) {
@@ -34,19 +43,41 @@ export function ReducedConstructorPage() {
 
     setPhase('loading')
     setError(null)
+    setCanOpenWithEmptyLayout(false)
+    setDirtyState({ layoutDirty: false, bindingsDirty: false })
 
     try {
       const loadedDiagram = await getDiagramById(id)
-      const normalizedLayout = importLayoutPayload(loadedDiagram.layout)
+      let normalizedLayout = {}
+
+      try {
+        normalizedLayout = importLayoutPayload(loadedDiagram.layout)
+      } catch (layoutError) {
+        if (!isLayoutPayloadError(layoutError)) {
+          throw layoutError
+        }
+
+        setDiagram({
+          ...loadedDiagram,
+          layout: {},
+        })
+        setPhase('error')
+        setCanOpenWithEmptyLayout(true)
+        setError(`Invalid diagram layout payload: ${layoutError.message}`)
+        return
+      }
 
       setDiagram({
         ...loadedDiagram,
         layout: normalizedLayout,
       })
+      setDirtyState({ layoutDirty: false, bindingsDirty: false })
       setPhase('ready')
     } catch (loadError) {
       setDiagram(null)
+      setDirtyState({ layoutDirty: false, bindingsDirty: false })
       setPhase('error')
+      setCanOpenWithEmptyLayout(false)
 
       if (isLayoutPayloadError(loadError)) {
         setError(`Invalid diagram layout payload: ${loadError.message}`)
@@ -84,6 +115,19 @@ export function ReducedConstructorPage() {
             Unable to open hosted constructor page.
           </p>
           {error && <p className="text-xs text-[var(--color-danger)]/90">{error}</p>}
+          {canOpenWithEmptyLayout && diagram && (
+            <button
+              type="button"
+              className="rounded-md border border-[var(--color-surface-border)] px-3 py-1.5 text-xs text-white hover:bg-[var(--color-surface-200)]"
+              onClick={() => {
+                setCanOpenWithEmptyLayout(false)
+                setError(null)
+                setPhase('ready')
+              }}
+            >
+              Open with empty layout
+            </button>
+          )}
           <button
             type="button"
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-1.5 text-xs text-white hover:bg-[var(--color-surface-200)]"
@@ -105,6 +149,13 @@ export function ReducedConstructorPage() {
             onReady={saveFlow.registerRuntime}
             onSaveLayoutIntent={saveFlow.onSaveLayoutIntent}
             onSaveAsIntent={saveFlow.onSaveAsIntent}
+            onSaveBindingsIntent={() => undefined}
+            onDirtyStateChange={setDirtyState}
+            onFatalError={(runtimeError) => {
+              setCanOpenWithEmptyLayout(false)
+              setError(`Hosted runtime bootstrap failed: ${runtimeError.message}`)
+              setPhase('error')
+            }}
           />
         </div>
       )}

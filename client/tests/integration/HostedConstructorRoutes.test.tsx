@@ -90,6 +90,32 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
           },
         }),
       ),
+      http.get('/api/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [{ _id: 'edge-1', name: 'Machine 1', isActive: true }],
+        }),
+      ),
+      http.get('/api/edge-servers/:edgeId/catalog', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              edgeServerId: String(params.edgeId),
+              sourceId: 'boiler',
+              deviceId: 'device-1',
+              metric: 'temperature',
+              label: 'Boiler temperature',
+            },
+          ],
+        }),
+      ),
+      http.get('/api/diagrams/:id/bindings', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
     )
 
     act(() => {
@@ -154,6 +180,32 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
             layout: { widgets: [] },
             __v: 1,
           },
+        }),
+      ),
+      http.get('/api/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [{ _id: 'edge-reauth', name: 'Reauth machine', isActive: true }],
+        }),
+      ),
+      http.get('/api/edge-servers/:edgeId/catalog', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              edgeServerId: String(params.edgeId),
+              sourceId: 'line',
+              deviceId: 'device-reauth',
+              metric: 'flow',
+              label: 'Line flow',
+            },
+          ],
+        }),
+      ),
+      http.get('/api/diagrams/:id/bindings', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
         }),
       ),
     )

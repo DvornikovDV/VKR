@@ -2,6 +2,12 @@ import { useBeforeUnload, useBlocker } from 'react-router-dom'
 import { useCallback, useEffect, useRef } from 'react'
 
 export const DEFAULT_UNSAVED_CHANGES_MESSAGE = 'You have unsaved changes. Leave this page?'
+export const DEFAULT_MACHINE_SWITCH_MESSAGE = 'You have unsaved changes. Switch machine and discard them?'
+
+export interface DirtyStateLike {
+  layoutDirty: boolean
+  bindingsDirty: boolean
+}
 
 export type ConfirmNavigationHandler = (message: string) => boolean
 
@@ -10,6 +16,14 @@ export interface UseUnsavedChangesGuardOptions {
   enabled?: boolean
   message?: string
   confirmNavigation?: ConfirmNavigationHandler
+}
+
+export function hasUnsavedChangesFromDirtyState(state: DirtyStateLike | null | undefined): boolean {
+  if (!state) {
+    return false
+  }
+
+  return Boolean(state.layoutDirty || state.bindingsDirty)
 }
 
 function defaultConfirmNavigation(message: string): boolean {

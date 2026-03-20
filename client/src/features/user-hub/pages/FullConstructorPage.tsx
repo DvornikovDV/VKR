@@ -1,22 +1,67 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ConstructorHost } from '@/features/constructor-host/ConstructorHost'
 import {
+  mapCatalogRowsToDeviceMetricCatalog,
+  mapTrustedEdgeServersToMachineOptions,
+} from '@/features/constructor-host/adapters/catalogAdapter'
+import {
+  exportWidgetBindingsPayload,
+  findBindingSetForEdgeServer,
+  importBindingSetsPayload,
+  isBindingsPayloadError,
+  type DiagramBindingSetRecord,
+} from '@/features/constructor-host/adapters/bindingsAdapter'
+import {
+  exportLayoutPayload,
   importLayoutPayload,
   isLayoutPayloadError,
 } from '@/features/constructor-host/adapters/layoutAdapter'
+import type {
+  DirtyState,
+  EditorDeviceMetricCatalogEntry,
+  EditorMachineOption,
+  HostedConstructorInstance,
+} from '@/features/constructor-host/types'
+import {
+  hasUnsavedChangesFromDirtyState,
+  useUnsavedChangesGuard,
+} from '@/features/constructor-host/useUnsavedChangesGuard'
 import { useHostedLayoutSaveFlow } from '@/features/constructor-host/useHostedLayoutSaveFlow'
+import { deleteAllBindings, getBindingsByDiagram, createBinding } from '@/shared/api/bindings'
+import { BindingsInvalidatedModal } from '@/shared/components/BindingsInvalidatedModal'
 import { SaveAsDialog } from '@/shared/components/SaveAsDialog'
 import { SaveConflictModal } from '@/shared/components/SaveConflictModal'
 import type { EditorRouteDiagram } from '@/shared/api/diagrams'
-import { getDiagramById } from '@/shared/api/diagrams'
+import { getDiagramById, updateDiagram } from '@/shared/api/diagrams'
+import { getEdgeServerCatalog, getTrustedEdgeServers } from '@/shared/api/edgeServers'
 
 type PagePhase = 'loading' | 'ready' | 'error'
 
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message
+  }
+
+  return fallback
+}
+
 export function FullConstructorPage() {
   const { id } = useParams<{ id: string }>()
+  const runtimeRef = useRef<HostedConstructorInstance | null>(null)
   const [phase, setPhase] = useState<PagePhase>('loading')
   const [diagram, setDiagram] = useState<EditorRouteDiagram | null>(null)
+  const [machines, setMachines] = useState<EditorMachineOption[]>([])
+  const [initialActiveEdgeServerId, setInitialActiveEdgeServerId] = useState<string | null>(null)
+  const [activeEdgeServerId, setActiveEdgeServerId] = useState<string | null>(null)
+  const [deviceCatalog, setDeviceCatalog] = useState<EditorDeviceMetricCatalogEntry[]>([])
+  const [bindingSets, setBindingSets] = useState<DiagramBindingSetRecord[]>([])
+  const [isSavingBindings, setIsSavingBindings] = useState(false)
+  const [bindingsSaveError, setBindingsSaveError] = useState<string | null>(null)
+  const [bindingsInvalidatedModalOpen, setBindingsInvalidatedModalOpen] = useState(false)
+  const [isSubmittingDestructiveSave, setIsSubmittingDestructiveSave] = useState(false)
+  const [bindingsInvalidatedModalError, setBindingsInvalidatedModalError] = useState<string | null>(null)
+  const [dirtyState, setDirtyState] = useState<DirtyState>({ layoutDirty: false, bindingsDirty: false })
   const [error, setError] = useState<string | null>(null)
 
   const saveFlow = useHostedLayoutSaveFlow({
@@ -24,6 +69,25 @@ export function FullConstructorPage() {
     onDiagramChange: setDiagram,
     routePrefix: '/hub/editor',
   })
+
+  const loadCatalogForMachine = useCallback(
+    async (edgeServerId: string | null): Promise<EditorDeviceMetricCatalogEntry[]> => {
+      if (!edgeServerId) {
+        return []
+      }
+
+      const catalogRows = await getEdgeServerCatalog(edgeServerId)
+      return mapCatalogRowsToDeviceMetricCatalog(edgeServerId, catalogRows)
+    },
+    [],
+  )
+
+  const hasPersistedBindingSets = useMemo(
+    () => bindingSets.some((bindingSet) => bindingSet.widgetBindings.length > 0),
+    [bindingSets],
+  )
+  const hasUnsavedChanges = hasUnsavedChangesFromDirtyState(dirtyState)
+  useUnsavedChangesGuard({ hasUnsavedChanges })
 
   const loadDiagram = useCallback(async () => {
     if (!id) {
@@ -34,22 +98,51 @@ export function FullConstructorPage() {
 
     setPhase('loading')
     setError(null)
+    setBindingsSaveError(null)
+    setBindingsInvalidatedModalError(null)
+    setBindingsInvalidatedModalOpen(false)
+    setDirtyState({ layoutDirty: false, bindingsDirty: false })
 
     try {
-      const loadedDiagram = await getDiagramById(id)
+      const [loadedDiagram, trustedEdgeServers, loadedBindingSets] = await Promise.all([
+        getDiagramById(id),
+        getTrustedEdgeServers(),
+        getBindingsByDiagram(id),
+      ])
       const normalizedLayout = importLayoutPayload(loadedDiagram.layout)
+      const normalizedBindingSets = importBindingSetsPayload(loadedBindingSets)
+      const nextMachines = mapTrustedEdgeServersToMachineOptions(trustedEdgeServers)
+      const nextActiveEdgeServerId = nextMachines[0]?.edgeServerId ?? null
+      const nextCatalog = await loadCatalogForMachine(nextActiveEdgeServerId)
 
       setDiagram({
         ...loadedDiagram,
         layout: normalizedLayout,
       })
+      setMachines(nextMachines)
+      setInitialActiveEdgeServerId(nextActiveEdgeServerId)
+      setActiveEdgeServerId(nextActiveEdgeServerId)
+      setDeviceCatalog(nextCatalog)
+      setBindingSets(normalizedBindingSets)
+      setDirtyState({ layoutDirty: false, bindingsDirty: false })
       setPhase('ready')
     } catch (loadError) {
       setDiagram(null)
+      setMachines([])
+      setInitialActiveEdgeServerId(null)
+      setActiveEdgeServerId(null)
+      setDeviceCatalog([])
+      setBindingSets([])
+      setDirtyState({ layoutDirty: false, bindingsDirty: false })
       setPhase('error')
 
       if (isLayoutPayloadError(loadError)) {
         setError(`Invalid diagram layout payload: ${loadError.message}`)
+        return
+      }
+
+      if (isBindingsPayloadError(loadError)) {
+        setError(`Invalid bindings payload: ${loadError.message}`)
         return
       }
 
@@ -59,17 +152,204 @@ export function FullConstructorPage() {
           : 'Failed to load diagram for full constructor mode.',
       )
     }
-  }, [id])
+  }, [id, loadCatalogForMachine])
 
   useEffect(() => {
     void loadDiagram()
   }, [loadDiagram])
+
+  const syncRuntimeForActiveMachine = useCallback(async () => {
+    const runtime = runtimeRef.current
+    if (!runtime) {
+      return
+    }
+
+    runtime.setActiveMachine(activeEdgeServerId)
+
+    const activeBindingSet = findBindingSetForEdgeServer(bindingSets, activeEdgeServerId)
+    await runtime.loadBindings(activeBindingSet?.widgetBindings ?? [])
+  }, [activeEdgeServerId, bindingSets])
+
+  useEffect(() => {
+    void syncRuntimeForActiveMachine()
+  }, [syncRuntimeForActiveMachine])
+
+  const handleRuntimeReady = useCallback(
+    (runtime: HostedConstructorInstance) => {
+      runtimeRef.current = runtime
+      saveFlow.registerRuntime(runtime)
+
+      runtime.updateCatalog({
+        machines,
+        deviceCatalog,
+      })
+      void syncRuntimeForActiveMachine()
+    },
+    [deviceCatalog, machines, saveFlow, syncRuntimeForActiveMachine],
+  )
+
+  const handleMachineChange = useCallback(
+    (nextEdgeServerId: string | null) => {
+      setActiveEdgeServerId(nextEdgeServerId)
+
+      const runtime = runtimeRef.current
+      if (!runtime) {
+        return
+      }
+
+      void (async () => {
+        try {
+          const nextCatalog = await loadCatalogForMachine(nextEdgeServerId)
+          runtime.updateCatalog({
+            machines,
+            deviceCatalog: nextCatalog,
+          })
+        } catch (catalogError) {
+          setBindingsSaveError(
+            toErrorMessage(catalogError, 'Failed to load machine catalog for selected context.'),
+          )
+        }
+      })()
+    },
+    [loadCatalogForMachine, machines],
+  )
+
+  const handleSaveBindingsIntent = useCallback(() => {
+    if (!diagram || !activeEdgeServerId || isSavingBindings) {
+      return
+    }
+
+    const runtime = runtimeRef.current
+    if (!runtime) {
+      setBindingsSaveError('Hosted constructor runtime is not ready yet.')
+      return
+    }
+
+    setIsSavingBindings(true)
+    setBindingsSaveError(null)
+
+    void (async () => {
+      try {
+        const runtimeBindings = await runtime.getBindings()
+        const serializedBindings = exportWidgetBindingsPayload(runtimeBindings)
+        const savedBindingSet = await createBinding(diagram._id, {
+          edgeServerId: activeEdgeServerId,
+          widgetBindings: serializedBindings,
+        })
+        const normalizedSavedSet = importBindingSetsPayload([savedBindingSet])[0]
+
+        setBindingSets((previous) => [
+          ...previous.filter((bindingSet) => bindingSet.edgeServerId !== normalizedSavedSet.edgeServerId),
+          normalizedSavedSet,
+        ])
+        setDirtyState((previous) => ({ ...previous, bindingsDirty: false }))
+      } catch (saveError) {
+        if (isBindingsPayloadError(saveError)) {
+          setBindingsSaveError(`Invalid bindings payload: ${saveError.message}`)
+          return
+        }
+
+        setBindingsSaveError(toErrorMessage(saveError, 'Failed to save binding set.'))
+      } finally {
+        setIsSavingBindings(false)
+      }
+    })()
+  }, [activeEdgeServerId, diagram, isSavingBindings])
+
+  const handleSaveLayoutIntent = useCallback(() => {
+    if (isSubmittingDestructiveSave) {
+      return
+    }
+
+    if (hasPersistedBindingSets) {
+      setBindingsInvalidatedModalError(null)
+      setBindingsInvalidatedModalOpen(true)
+      return
+    }
+
+    saveFlow.onSaveLayoutIntent()
+  }, [hasPersistedBindingSets, isSubmittingDestructiveSave, saveFlow])
+
+  const handleSaveAsCopyFromModal = useCallback(() => {
+    if (isSubmittingDestructiveSave) {
+      return
+    }
+
+    setBindingsInvalidatedModalError(null)
+    setBindingsInvalidatedModalOpen(false)
+    saveFlow.onSaveAsIntent()
+  }, [isSubmittingDestructiveSave, saveFlow])
+
+  const handleContinueDestructiveSave = useCallback(() => {
+    if (!diagram || isSubmittingDestructiveSave) {
+      return
+    }
+
+    const runtime = runtimeRef.current
+    if (!runtime) {
+      setBindingsInvalidatedModalError('Hosted constructor runtime is not ready yet.')
+      return
+    }
+
+    setIsSubmittingDestructiveSave(true)
+    setBindingsInvalidatedModalError(null)
+
+    void (async () => {
+      try {
+        const runtimeLayout = await runtime.getLayout()
+        const serializedLayout = exportLayoutPayload(runtimeLayout)
+
+        await updateDiagram(diagram._id, {
+          layout: serializedLayout,
+          __v: diagram.__v,
+        })
+        await deleteAllBindings(diagram._id)
+
+        const latestDiagram = await getDiagramById(diagram._id)
+        const latestLayout = importLayoutPayload(latestDiagram.layout)
+
+        await runtime.loadLayout(latestLayout)
+        setDiagram({
+          ...latestDiagram,
+          layout: latestLayout,
+        })
+        setBindingSets([])
+        setDirtyState({ layoutDirty: false, bindingsDirty: false })
+        setBindingsInvalidatedModalOpen(false)
+      } catch (destructiveSaveError) {
+        if (isLayoutPayloadError(destructiveSaveError)) {
+          setBindingsInvalidatedModalError(
+            `Invalid diagram layout payload: ${destructiveSaveError.message}`,
+          )
+          return
+        }
+
+        if (isBindingsPayloadError(destructiveSaveError)) {
+          setBindingsInvalidatedModalError(
+            `Invalid bindings payload: ${destructiveSaveError.message}`,
+          )
+          return
+        }
+
+        setBindingsInvalidatedModalError(
+          toErrorMessage(destructiveSaveError, 'Failed to complete destructive save flow.'),
+        )
+      } finally {
+        setIsSubmittingDestructiveSave(false)
+      }
+    })()
+  }, [diagram, isSubmittingDestructiveSave])
 
   return (
     <section className="mx-auto flex h-full min-h-[calc(100svh-3.5rem)] w-full max-w-[120rem] flex-col px-4 py-4">
       <header className="mb-3">
         <h1 className="text-lg font-semibold text-white">Hosted Constructor</h1>
         <p className="text-sm text-[#94a3b8]">Full mode editor for USER routes.</p>
+        {bindingsSaveError && (
+          <p className="mt-2 rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-xs text-[var(--color-danger)]">
+            {bindingsSaveError}
+          </p>
+        )}
       </header>
 
       {phase === 'loading' && (
@@ -102,9 +382,15 @@ export function FullConstructorPage() {
             className="h-full w-full"
             mode="full"
             initialLayout={diagram.layout}
-            onReady={saveFlow.registerRuntime}
-            onSaveLayoutIntent={saveFlow.onSaveLayoutIntent}
+            machines={machines}
+            activeEdgeServerId={initialActiveEdgeServerId}
+            deviceCatalog={deviceCatalog}
+            onReady={handleRuntimeReady}
+            onSaveLayoutIntent={handleSaveLayoutIntent}
             onSaveAsIntent={saveFlow.onSaveAsIntent}
+            onSaveBindingsIntent={handleSaveBindingsIntent}
+            onMachineChange={handleMachineChange}
+            onDirtyStateChange={setDirtyState}
           />
         </div>
       )}
@@ -126,6 +412,22 @@ export function FullConstructorPage() {
         onReloadLatest={saveFlow.saveConflictModal.onReloadLatest}
         onContinueEditing={saveFlow.saveConflictModal.onContinueEditing}
         onSaveAs={saveFlow.saveConflictModal.onSaveAs}
+      />
+
+      <BindingsInvalidatedModal
+        open={bindingsInvalidatedModalOpen}
+        isSubmitting={isSubmittingDestructiveSave}
+        error={bindingsInvalidatedModalError}
+        onSaveAsCopy={handleSaveAsCopyFromModal}
+        onContinueDestructiveSave={handleContinueDestructiveSave}
+        onCancel={() => {
+          if (isSubmittingDestructiveSave) {
+            return
+          }
+
+          setBindingsInvalidatedModalError(null)
+          setBindingsInvalidatedModalOpen(false)
+        }}
       />
     </section>
   )

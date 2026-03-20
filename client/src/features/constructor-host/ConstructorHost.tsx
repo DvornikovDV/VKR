@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { loadHostedConstructor } from '@/features/constructor-host/loadHostedConstructor'
 import type {
   DirtyState,
@@ -9,12 +9,16 @@ import type {
   LayoutDocument,
   WidgetBindingRecord,
 } from '@/features/constructor-host/types'
+import { DEFAULT_MACHINE_SWITCH_MESSAGE } from '@/features/constructor-host/useUnsavedChangesGuard'
 
 type HostPhase = 'loading' | 'ready' | 'error'
 
 const EMPTY_BINDINGS: WidgetBindingRecord[] = []
 const EMPTY_MACHINES: EditorMachineOption[] = []
 const EMPTY_CATALOG: EditorDeviceMetricCatalogEntry[] = []
+const CLEAN_DIRTY_STATE: DirtyState = { layoutDirty: false, bindingsDirty: false }
+
+export const MACHINE_SWITCH_UNSAVED_CHANGES_MESSAGE = DEFAULT_MACHINE_SWITCH_MESSAGE
 
 export interface ConstructorHostProps {
   mode: EditorMode
@@ -52,6 +56,29 @@ function createNoopCallbacks() {
   }
 }
 
+function normalizeDirtyState(state: DirtyState | undefined, mode: EditorMode): DirtyState {
+  if (!state || typeof state !== 'object') {
+    return CLEAN_DIRTY_STATE
+  }
+
+  return {
+    layoutDirty: Boolean(state.layoutDirty),
+    bindingsDirty: mode === 'full' ? Boolean(state.bindingsDirty) : false,
+  }
+}
+
+function hasUnsavedChanges(state: DirtyState): boolean {
+  return state.layoutDirty || state.bindingsDirty
+}
+
+function confirmBrowserNavigation(message: string): boolean {
+  if (typeof window === 'undefined') {
+    return true
+  }
+
+  return window.confirm(message)
+}
+
 export function ConstructorHost({
   mode,
   initialLayout,
@@ -73,6 +100,10 @@ export function ConstructorHost({
   const [phase, setPhase] = useState<HostPhase>('loading')
   const [error, setError] = useState<string | null>(null)
   const [retryKey, setRetryKey] = useState(0)
+  const [, setDirtyState] = useState<DirtyState>(CLEAN_DIRTY_STATE)
+  const dirtyStateRef = useRef<DirtyState>(CLEAN_DIRTY_STATE)
+  const activeMachineRef = useRef<string | null>(activeEdgeServerId)
+  const revertTargetMachineRef = useRef<string | null>(null)
 
   const callbacksRef = useRef({
     ...createNoopCallbacks(),
@@ -123,6 +154,23 @@ export function ConstructorHost({
   )
 
   useEffect(() => {
+    activeMachineRef.current = activeEdgeServerId
+  }, [activeEdgeServerId])
+
+  const reportFatalError = useCallback((runtimeError: unknown) => {
+    const normalizedError = toError(runtimeError)
+    const currentInstance = instanceRef.current
+    instanceRef.current = null
+    if (currentInstance) {
+      void Promise.resolve(currentInstance.destroy())
+    }
+
+    callbacksRef.current.onFatalError?.(normalizedError)
+    setError(normalizedError.message)
+    setPhase('error')
+  }, [])
+
+  useEffect(() => {
     let isActive = true
 
     async function mountRuntime() {
@@ -133,6 +181,10 @@ export function ConstructorHost({
 
       setPhase('loading')
       setError(null)
+      instanceRef.current = null
+      dirtyStateRef.current = CLEAN_DIRTY_STATE
+      setDirtyState(CLEAN_DIRTY_STATE)
+      activeMachineRef.current = runtimeConfig.activeEdgeServerId
 
       try {
         const hostedModule = await loadHostedConstructor()
@@ -149,21 +201,56 @@ export function ConstructorHost({
           deviceCatalog: runtimeConfig.deviceCatalog,
           activeEdgeServerId: runtimeConfig.activeEdgeServerId,
           callbacks: {
-            onDirtyStateChange: (state) =>
-              callbacksRef.current.onDirtyStateChange?.(state),
+            onDirtyStateChange: (state) => {
+              const normalizedState = normalizeDirtyState(state, runtimeConfig.mode)
+              dirtyStateRef.current = normalizedState
+              setDirtyState(normalizedState)
+              callbacksRef.current.onDirtyStateChange?.(normalizedState)
+            },
             onSaveLayoutIntent: () =>
               callbacksRef.current.onSaveLayoutIntent?.(),
             onSaveAsIntent: () =>
               callbacksRef.current.onSaveAsIntent?.(),
             onSaveBindingsIntent: () =>
               callbacksRef.current.onSaveBindingsIntent?.(),
-            onMachineChange: (edgeServerId) =>
-              callbacksRef.current.onMachineChange?.(edgeServerId),
+            onMachineChange: (edgeServerId) => {
+              const nextMachineId = edgeServerId ?? null
+
+              if (
+                revertTargetMachineRef.current !== null &&
+                nextMachineId === revertTargetMachineRef.current
+              ) {
+                revertTargetMachineRef.current = null
+                activeMachineRef.current = nextMachineId
+                return
+              }
+              if (revertTargetMachineRef.current !== null) {
+                revertTargetMachineRef.current = null
+              }
+
+              const shouldWarnBeforeMachineSwitch =
+                runtimeConfig.mode === 'full' &&
+                nextMachineId !== activeMachineRef.current &&
+                hasUnsavedChanges(dirtyStateRef.current)
+
+              if (
+                shouldWarnBeforeMachineSwitch &&
+                !confirmBrowserNavigation(MACHINE_SWITCH_UNSAVED_CHANGES_MESSAGE)
+              ) {
+                revertTargetMachineRef.current = activeMachineRef.current
+                instanceRef.current?.setActiveMachine(activeMachineRef.current)
+                return
+              }
+
+              activeMachineRef.current = nextMachineId
+              callbacksRef.current.onMachineChange?.(nextMachineId)
+            },
             onFatalError: (runtimeError) => {
-              const normalizedError = toError(runtimeError)
-              callbacksRef.current.onFatalError?.(normalizedError)
-              setError(normalizedError.message)
-              setPhase('error')
+              if (!isActive) {
+                return
+              }
+
+              reportFatalError(runtimeError)
             },
           },
         })
@@ -181,10 +268,7 @@ export function ConstructorHost({
           return
         }
 
-        const normalizedError = toError(mountError)
-        callbacksRef.current.onFatalError?.(normalizedError)
-        setError(normalizedError.message)
-        setPhase('error')
+        reportFatalError(mountError)
       }
     }
 
@@ -195,11 +279,13 @@ export function ConstructorHost({
 
       const currentInstance = instanceRef.current
       instanceRef.current = null
+      dirtyStateRef.current = CLEAN_DIRTY_STATE
+      setDirtyState(CLEAN_DIRTY_STATE)
       if (currentInstance) {
         void Promise.resolve(currentInstance.destroy())
       }
     }
-  }, [retryKey, runtimeConfig])
+  }, [reportFatalError, retryKey, runtimeConfig])
 
   return (
     <div className={className ?? ''}>

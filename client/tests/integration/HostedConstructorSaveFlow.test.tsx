@@ -277,19 +277,22 @@ describe('Hosted constructor save flow coverage (T016)', () => {
   it('runs Save As naming flow through dialog + clone API with trimmed name (T019)', async () => {
     const user = userEvent.setup()
     const representativeLayout = createRepresentativeLayout()
-    let lastCreatePayload: { name: string; layout: unknown } | null = null
+    const lastCreatePayloadRef: { current: { name: string; layout: unknown } | null } = {
+      current: null,
+    }
 
     server.use(
       http.post('/api/diagrams', async ({ request }) => {
-        lastCreatePayload = (await request.json()) as { name: string; layout: unknown }
+        const payload = (await request.json()) as { name: string; layout: unknown }
+        lastCreatePayloadRef.current = payload
 
         return HttpResponse.json(
           {
             status: 'success',
             data: {
               _id: 'diagram-copy-1',
-              name: lastCreatePayload.name,
-              layout: lastCreatePayload.layout,
+              name: payload.name,
+              layout: payload.layout,
               __v: 0,
             },
           },
@@ -309,9 +312,13 @@ describe('Hosted constructor save flow coverage (T016)', () => {
     expect(await screen.findByTestId('save-as-result')).toHaveTextContent(
       'diagram-copy-1:Boiler Hall Copy',
     )
-    expect(lastCreatePayload).not.toBeNull()
-    expect(lastCreatePayload?.name).toBe('Boiler Hall Copy')
-    expect(lastCreatePayload?.layout).toEqual(representativeLayout)
+    expect(lastCreatePayloadRef.current).not.toBeNull()
+    const lastCreatePayload = lastCreatePayloadRef.current
+    if (!lastCreatePayload) {
+      throw new Error('Expected create-diagram payload to be captured.')
+    }
+    expect(lastCreatePayload.name).toBe('Boiler Hall Copy')
+    expect(lastCreatePayload.layout).toEqual(representativeLayout)
   })
 
   it('handles version conflict actions: continue, save-as, reload-latest (T020)', async () => {
@@ -418,4 +425,3 @@ describe('Hosted constructor save flow coverage (T016)', () => {
     expect(screen.getByTestId('action-log')).toHaveTextContent('continue,save-as,reload')
   })
 })
-
