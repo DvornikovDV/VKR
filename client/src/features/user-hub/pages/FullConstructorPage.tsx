@@ -9,6 +9,7 @@ import {
   exportWidgetBindingsPayload,
   findBindingSetForEdgeServer,
   importBindingSetsPayload,
+  importBindingSetsPayloadWithRecovery,
   isBindingsPayloadError,
   type DiagramBindingSetRecord,
 } from '@/features/constructor-host/adapters/bindingsAdapter'
@@ -49,6 +50,9 @@ function toErrorMessage(error: unknown, fallback: string): string {
 export function FullConstructorPage() {
   const { id } = useParams<{ id: string }>()
   const runtimeRef = useRef<HostedConstructorInstance | null>(null)
+  const isSyncingBindingsBaselineRef = useRef(false)
+  const isSavingBindingsRef = useRef(false)
+  const isForwardingLayoutSaveIntentRef = useRef(false)
   const [phase, setPhase] = useState<PagePhase>('loading')
   const [diagram, setDiagram] = useState<EditorRouteDiagram | null>(null)
   const [machines, setMachines] = useState<EditorMachineOption[]>([])
@@ -63,6 +67,7 @@ export function FullConstructorPage() {
   const [bindingsInvalidatedModalError, setBindingsInvalidatedModalError] = useState<string | null>(null)
   const [dirtyState, setDirtyState] = useState<DirtyState>({ layoutDirty: false, bindingsDirty: false })
   const [error, setError] = useState<string | null>(null)
+  const [canOpenWithEmptyBindings, setCanOpenWithEmptyBindings] = useState(false)
 
   const saveFlow = useHostedLayoutSaveFlow({
     diagram,
@@ -93,15 +98,19 @@ export function FullConstructorPage() {
     if (!id) {
       setPhase('error')
       setError('Missing diagram id in route.')
+      setCanOpenWithEmptyBindings(false)
       return
     }
 
     setPhase('loading')
     setError(null)
+    setCanOpenWithEmptyBindings(false)
     setBindingsSaveError(null)
     setBindingsInvalidatedModalError(null)
     setBindingsInvalidatedModalOpen(false)
     setDirtyState({ layoutDirty: false, bindingsDirty: false })
+    isSavingBindingsRef.current = false
+    isForwardingLayoutSaveIntentRef.current = false
 
     try {
       const [loadedDiagram, trustedEdgeServers, loadedBindingSets] = await Promise.all([
@@ -110,7 +119,7 @@ export function FullConstructorPage() {
         getBindingsByDiagram(id),
       ])
       const normalizedLayout = importLayoutPayload(loadedDiagram.layout)
-      const normalizedBindingSets = importBindingSetsPayload(loadedBindingSets)
+      const bindingsRecovery = importBindingSetsPayloadWithRecovery(loadedBindingSets)
       const nextMachines = mapTrustedEdgeServersToMachineOptions(trustedEdgeServers)
       const nextActiveEdgeServerId = nextMachines[0]?.edgeServerId ?? null
       const nextCatalog = await loadCatalogForMachine(nextActiveEdgeServerId)
@@ -123,8 +132,17 @@ export function FullConstructorPage() {
       setInitialActiveEdgeServerId(nextActiveEdgeServerId)
       setActiveEdgeServerId(nextActiveEdgeServerId)
       setDeviceCatalog(nextCatalog)
-      setBindingSets(normalizedBindingSets)
+      setBindingSets(bindingsRecovery.recoveryError ? [] : bindingsRecovery.bindingSets)
       setDirtyState({ layoutDirty: false, bindingsDirty: false })
+
+      if (bindingsRecovery.recoveryError) {
+        setPhase('error')
+        setCanOpenWithEmptyBindings(true)
+        setError(`Invalid bindings payload: ${bindingsRecovery.recoveryError.message}`)
+        return
+      }
+
+      setCanOpenWithEmptyBindings(false)
       setPhase('ready')
     } catch (loadError) {
       setDiagram(null)
@@ -135,6 +153,7 @@ export function FullConstructorPage() {
       setBindingSets([])
       setDirtyState({ layoutDirty: false, bindingsDirty: false })
       setPhase('error')
+      setCanOpenWithEmptyBindings(false)
 
       if (isLayoutPayloadError(loadError)) {
         setError(`Invalid diagram layout payload: ${loadError.message}`)
@@ -158,16 +177,44 @@ export function FullConstructorPage() {
     void loadDiagram()
   }, [loadDiagram])
 
+  const handleDirtyStateChange = useCallback((nextDirtyState: DirtyState) => {
+    setDirtyState((previous) => {
+      if (
+        isSyncingBindingsBaselineRef.current &&
+        nextDirtyState.layoutDirty === false &&
+        nextDirtyState.bindingsDirty === false
+      ) {
+        return {
+          layoutDirty: previous.layoutDirty,
+          bindingsDirty: false,
+        }
+      }
+
+      return nextDirtyState
+    })
+  }, [])
+
   const syncRuntimeForActiveMachine = useCallback(async () => {
     const runtime = runtimeRef.current
     if (!runtime) {
       return
     }
 
-    runtime.setActiveMachine(activeEdgeServerId)
+    isSyncingBindingsBaselineRef.current = true
 
-    const activeBindingSet = findBindingSetForEdgeServer(bindingSets, activeEdgeServerId)
-    await runtime.loadBindings(activeBindingSet?.widgetBindings ?? [])
+    try {
+      runtime.setActiveMachine(activeEdgeServerId)
+
+      const activeBindingSet = findBindingSetForEdgeServer(bindingSets, activeEdgeServerId)
+      await runtime.loadBindings(activeBindingSet?.widgetBindings ?? [])
+      setDirtyState((previous) => ({ ...previous, bindingsDirty: false }))
+    } catch (syncError) {
+      setBindingsSaveError(
+        toErrorMessage(syncError, 'Failed to apply bindings for selected machine context.'),
+      )
+    } finally {
+      isSyncingBindingsBaselineRef.current = false
+    }
   }, [activeEdgeServerId, bindingSets])
 
   useEffect(() => {
@@ -190,10 +237,12 @@ export function FullConstructorPage() {
 
   const handleMachineChange = useCallback(
     (nextEdgeServerId: string | null) => {
+      isSyncingBindingsBaselineRef.current = true
       setActiveEdgeServerId(nextEdgeServerId)
 
       const runtime = runtimeRef.current
       if (!runtime) {
+        isSyncingBindingsBaselineRef.current = false
         return
       }
 
@@ -215,7 +264,7 @@ export function FullConstructorPage() {
   )
 
   const handleSaveBindingsIntent = useCallback(() => {
-    if (!diagram || !activeEdgeServerId || isSavingBindings) {
+    if (!diagram || !activeEdgeServerId || isSavingBindingsRef.current) {
       return
     }
 
@@ -225,6 +274,7 @@ export function FullConstructorPage() {
       return
     }
 
+    isSavingBindingsRef.current = true
     setIsSavingBindings(true)
     setBindingsSaveError(null)
 
@@ -251,13 +301,14 @@ export function FullConstructorPage() {
 
         setBindingsSaveError(toErrorMessage(saveError, 'Failed to save binding set.'))
       } finally {
+        isSavingBindingsRef.current = false
         setIsSavingBindings(false)
       }
     })()
-  }, [activeEdgeServerId, diagram, isSavingBindings])
+  }, [activeEdgeServerId, diagram])
 
   const handleSaveLayoutIntent = useCallback(() => {
-    if (isSubmittingDestructiveSave) {
+    if (isSubmittingDestructiveSave || isForwardingLayoutSaveIntentRef.current) {
       return
     }
 
@@ -267,7 +318,11 @@ export function FullConstructorPage() {
       return
     }
 
+    isForwardingLayoutSaveIntentRef.current = true
     saveFlow.onSaveLayoutIntent()
+    void Promise.resolve().then(() => {
+      isForwardingLayoutSaveIntentRef.current = false
+    })
   }, [hasPersistedBindingSets, isSubmittingDestructiveSave, saveFlow])
 
   const handleSaveAsCopyFromModal = useCallback(() => {
@@ -364,6 +419,21 @@ export function FullConstructorPage() {
             Unable to open hosted constructor page.
           </p>
           {error && <p className="text-xs text-[var(--color-danger)]/90">{error}</p>}
+          {canOpenWithEmptyBindings && diagram && (
+            <button
+              type="button"
+              className="rounded-md border border-[var(--color-surface-border)] px-3 py-1.5 text-xs text-white hover:bg-[var(--color-surface-200)]"
+              onClick={() => {
+                setBindingSets([])
+                setDirtyState((previous) => ({ ...previous, bindingsDirty: false }))
+                setCanOpenWithEmptyBindings(false)
+                setError(null)
+                setPhase('ready')
+              }}
+            >
+              Open with empty bindings
+            </button>
+          )}
           <button
             type="button"
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-1.5 text-xs text-white hover:bg-[var(--color-surface-200)]"
@@ -390,7 +460,7 @@ export function FullConstructorPage() {
             onSaveAsIntent={saveFlow.onSaveAsIntent}
             onSaveBindingsIntent={handleSaveBindingsIntent}
             onMachineChange={handleMachineChange}
-            onDirtyStateChange={setDirtyState}
+            onDirtyStateChange={handleDirtyStateChange}
           />
         </div>
       )}

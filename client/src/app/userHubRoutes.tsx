@@ -1,7 +1,12 @@
+import { Suspense, lazy } from 'react'
 import { type RouteObject } from 'react-router-dom'
 import { GalleryPage } from '@/features/user-hub/pages/GalleryPage'
 import { UserHubLayout } from '@/features/user-hub/UserHubLayout'
-import { FullConstructorPage } from '@/features/user-hub/pages/FullConstructorPage'
+
+const FullConstructorPage = lazy(async () => {
+  const module = await import('@/features/user-hub/pages/FullConstructorPage')
+  return { default: module.FullConstructorPage }
+})
 
 function UserHubPlaceholder({ label }: { label: string }) {
   return (
@@ -35,7 +40,17 @@ export const userHubRouteChildren: RouteObject[] = [
       },
       {
         path: 'editor/:id',
-        element: <FullConstructorPage />,
+        element: (
+          <Suspense
+            fallback={
+              <div className="flex min-h-[18rem] flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--color-surface-border)] text-sm text-[#94a3b8]">
+                Loading hosted constructor page...
+              </div>
+            }
+          >
+            <FullConstructorPage />
+          </Suspense>
+        ),
       },
       {
         path: '*',

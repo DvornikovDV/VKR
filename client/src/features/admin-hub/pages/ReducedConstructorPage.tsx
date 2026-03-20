@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ConstructorHost } from '@/features/constructor-host/ConstructorHost'
 import {
@@ -20,6 +20,7 @@ type PagePhase = 'loading' | 'ready' | 'error'
 
 export function ReducedConstructorPage() {
   const { id } = useParams<{ id: string }>()
+  const isForwardingLayoutSaveIntentRef = useRef(false)
   const [phase, setPhase] = useState<PagePhase>('loading')
   const [diagram, setDiagram] = useState<EditorRouteDiagram | null>(null)
   const [dirtyState, setDirtyState] = useState<DirtyState>({ layoutDirty: false, bindingsDirty: false })
@@ -45,6 +46,7 @@ export function ReducedConstructorPage() {
     setError(null)
     setCanOpenWithEmptyLayout(false)
     setDirtyState({ layoutDirty: false, bindingsDirty: false })
+    isForwardingLayoutSaveIntentRef.current = false
 
     try {
       const loadedDiagram = await getDiagramById(id)
@@ -95,6 +97,18 @@ export function ReducedConstructorPage() {
   useEffect(() => {
     void loadDiagram()
   }, [loadDiagram])
+
+  const handleSaveLayoutIntent = useCallback(() => {
+    if (isForwardingLayoutSaveIntentRef.current) {
+      return
+    }
+
+    isForwardingLayoutSaveIntentRef.current = true
+    saveFlow.onSaveLayoutIntent()
+    void Promise.resolve().then(() => {
+      isForwardingLayoutSaveIntentRef.current = false
+    })
+  }, [saveFlow])
 
   return (
     <section className="mx-auto flex h-full min-h-[calc(100svh-3.5rem)] w-full max-w-[120rem] flex-col px-4 py-4">
@@ -147,7 +161,7 @@ export function ReducedConstructorPage() {
             mode="reduced"
             initialLayout={diagram.layout}
             onReady={saveFlow.registerRuntime}
-            onSaveLayoutIntent={saveFlow.onSaveLayoutIntent}
+            onSaveLayoutIntent={handleSaveLayoutIntent}
             onSaveAsIntent={saveFlow.onSaveAsIntent}
             onSaveBindingsIntent={() => undefined}
             onDirtyStateChange={setDirtyState}

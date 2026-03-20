@@ -9,6 +9,11 @@ export interface DiagramBindingSetRecord {
   updatedAt?: string
 }
 
+export interface BindingSetsImportRecoveryResult {
+  bindingSets: DiagramBindingSetRecord[]
+  recoveryError: BindingsPayloadError | null
+}
+
 export class BindingsPayloadError extends Error {
   readonly _tag = 'BindingsPayloadError'
   readonly path: string
@@ -133,6 +138,55 @@ export function importBindingSetsPayload(payload: unknown): DiagramBindingSetRec
 
   const normalizedBindingSets = payload.map((entry, index) => normalizeBindingSet(entry, index))
   return cloneSerializable(normalizedBindingSets)
+}
+
+export function importBindingSetsPayloadWithRecovery(
+  payload: unknown,
+): BindingSetsImportRecoveryResult {
+  if (!Array.isArray(payload)) {
+    return {
+      bindingSets: [],
+      recoveryError: new BindingsPayloadError('Import binding sets payload must be an array.', 'bindings'),
+    }
+  }
+
+  const recovered: DiagramBindingSetRecord[] = []
+  let invalidEntries = 0
+  let firstInvalidError: BindingsPayloadError | null = null
+
+  payload.forEach((entry, index) => {
+    try {
+      recovered.push(normalizeBindingSet(entry, index))
+    } catch (error) {
+      if (!isBindingsPayloadError(error)) {
+        throw error
+      }
+
+      invalidEntries += 1
+      if (!firstInvalidError) {
+        firstInvalidError = error
+      }
+    }
+  })
+
+  if (!firstInvalidError) {
+    return {
+      bindingSets: cloneSerializable(recovered),
+      recoveryError: null,
+    }
+  }
+
+  const recoveredCount = recovered.length
+  const totalCount = payload.length
+  const detail = `${invalidEntries} invalid entr${invalidEntries === 1 ? 'y' : 'ies'} skipped, ${recoveredCount}/${totalCount} kept.`
+
+  return {
+    bindingSets: cloneSerializable(recovered),
+    recoveryError: new BindingsPayloadError(
+      `${firstInvalidError.message} ${detail}`,
+      firstInvalidError.path,
+    ),
+  }
 }
 
 export function findBindingSetForEdgeServer(

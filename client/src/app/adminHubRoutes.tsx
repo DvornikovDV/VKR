@@ -1,10 +1,15 @@
+import { Suspense, lazy } from 'react'
 import { type RouteObject } from 'react-router-dom'
 import { AdminHubLayout } from '@/features/admin-hub/AdminHubLayout'
 import { DiagramGalleryPage } from '@/features/admin-hub/pages/DiagramGalleryPage'
 import { EdgeFleetPage } from '@/features/admin-hub/pages/EdgeFleetPage'
 import { OverviewPage } from '@/features/admin-hub/pages/OverviewPage'
-import { ReducedConstructorPage } from '@/features/admin-hub/pages/ReducedConstructorPage'
 import { UserManagementPage } from '@/features/admin-hub/pages/UserManagementPage'
+
+const ReducedConstructorPage = lazy(async () => {
+  const module = await import('@/features/admin-hub/pages/ReducedConstructorPage')
+  return { default: module.ReducedConstructorPage }
+})
 
 function AdminHubPlaceholder({ label }: { label: string }) {
   return (
@@ -50,7 +55,17 @@ export const adminHubRouteChildren: RouteObject[] = [
       },
       {
         path: 'editor/:id',
-        element: <ReducedConstructorPage />,
+        element: (
+          <Suspense
+            fallback={
+              <div className="flex min-h-[18rem] flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--color-surface-border)] text-sm text-[#94a3b8]">
+                Loading hosted constructor page...
+              </div>
+            }
+          >
+            <ReducedConstructorPage />
+          </Suspense>
+        ),
       },
       {
         path: '*',

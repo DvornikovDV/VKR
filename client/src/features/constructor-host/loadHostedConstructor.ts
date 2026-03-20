@@ -9,6 +9,7 @@ export interface LoadHostedConstructorOptions {
 }
 
 let hostedConstructorModulePromise: Promise<HostedConstructorModule> | null = null
+let hostedConstructorReloadSequence = 0
 
 function assertBrowserEnvironment(): void {
   if (typeof window === 'undefined') {
@@ -16,12 +17,16 @@ function assertBrowserEnvironment(): void {
   }
 }
 
-function resolveHostedConstructorEntryUrl(): string {
+function resolveHostedConstructorEntryUrl(reloadToken?: string): string {
   assertBrowserEnvironment()
 
   const entryUrl = new URL(HOSTED_CONSTRUCTOR_ENTRY_PATH, window.location.origin)
   if (entryUrl.origin !== window.location.origin) {
     throw new Error(`Hosted constructor entry must be same-origin: ${entryUrl.toString()}`)
+  }
+
+  if (reloadToken) {
+    entryUrl.searchParams.set('reload', reloadToken)
   }
 
   return entryUrl.toString()
@@ -39,8 +44,11 @@ function isHostedConstructorModule(value: unknown): value is HostedConstructorMo
   )
 }
 
-async function loadHostedConstructorModule(importer: HostedConstructorImporter): Promise<HostedConstructorModule> {
-  const moduleUrl = resolveHostedConstructorEntryUrl()
+async function loadHostedConstructorModule(
+  importer: HostedConstructorImporter,
+  reloadToken?: string,
+): Promise<HostedConstructorModule> {
+  const moduleUrl = resolveHostedConstructorEntryUrl(reloadToken)
   const loadedModule = await importer(moduleUrl)
 
   if (!isHostedConstructorModule(loadedModule)) {
@@ -58,11 +66,15 @@ export async function loadHostedConstructor(
   const { forceReload = false, importer = defaultHostedConstructorImporter } = options
 
   if (forceReload) {
+    hostedConstructorReloadSequence += 1
     hostedConstructorModulePromise = null
   }
 
   if (!hostedConstructorModulePromise) {
-    hostedConstructorModulePromise = loadHostedConstructorModule(importer)
+    hostedConstructorModulePromise = loadHostedConstructorModule(
+      importer,
+      hostedConstructorReloadSequence > 0 ? String(hostedConstructorReloadSequence) : undefined,
+    )
   }
 
   try {
@@ -75,4 +87,5 @@ export async function loadHostedConstructor(
 
 export function resetHostedConstructorLoaderForTests(): void {
   hostedConstructorModulePromise = null
+  hostedConstructorReloadSequence = 0
 }
