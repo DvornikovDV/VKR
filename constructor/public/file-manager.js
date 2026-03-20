@@ -14,6 +14,7 @@ class FileManager {
         this.currentSchemaVersion = null;
         this.currentMachineId = null;
         this.isHostedRuntime = options.hostedRuntime === true;
+        this.editorMode = options.editorMode === 'reduced' ? 'reduced' : 'full';
         this.hostedCallbacks = options.hostedCallbacks && typeof options.hostedCallbacks === 'object'
             ? options.hostedCallbacks
             : null;
@@ -21,6 +22,10 @@ class FileManager {
 
     setWidgetManager(widgetManager) {
         this.widgetManager = widgetManager;
+    }
+
+    isBindingsEnabled() {
+        return this.editorMode !== 'reduced';
     }
 
     _getHostedCallback(callbackName) {
@@ -330,6 +335,10 @@ class FileManager {
     /** Сохранение файлов аппаратных привязок.
      * Выход: Promise. */
     async saveBindings() {
+        if (!this.isBindingsEnabled()) {
+            return;
+        }
+
         if (this.isHostedRuntime) {
             this._emitHostedIntent('onSaveBindingsIntent');
             return;
@@ -376,6 +385,10 @@ class FileManager {
 
     /** Загрузка файла аппаратных привязок с жесткой валидацией (Фаза F). */
     loadBindings() {
+        if (!this.isBindingsEnabled()) {
+            return;
+        }
+
         if (this.isHostedRuntime) {
             return;
         }

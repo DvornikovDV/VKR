@@ -52,6 +52,8 @@ class UIController {
                 ? this.hostedConfig.deviceCatalog
                 : [];
         this._destroyed = false;
+        this._layoutLoadGeneration = 0;
+        this._bindingsLoadGeneration = 0;
         this._domListenerCleanup = [];
         this.initPromise = this.init();
     }
@@ -69,6 +71,30 @@ class UIController {
     resolveEditorMode() {
         const mode = (this.hostedConfig && this.hostedConfig.mode) || this.hostedOptions.mode;
         return mode === 'reduced' ? 'reduced' : 'full';
+    }
+
+    isReducedMode() {
+        return this.editorMode === 'reduced';
+    }
+
+    isBindingsEnabled() {
+        return !this.isReducedMode();
+    }
+
+    applyEditorModeAttributes() {
+        const root = this.getRootElement();
+        if (!root || root === document) {
+            return;
+        }
+
+        if (typeof root.setAttribute === 'function') {
+            root.setAttribute('data-editor-mode', this.editorMode);
+        }
+
+        if (root.classList && typeof root.classList.add === 'function') {
+            root.classList.add(this.isBindingsEnabled() ? 'constructor-mode-full' : 'constructor-mode-reduced');
+            root.classList.remove(this.isBindingsEnabled() ? 'constructor-mode-reduced' : 'constructor-mode-full');
+        }
     }
 
     getRootElement() {
@@ -126,6 +152,8 @@ class UIController {
             return;
         }
 
+        this.applyEditorModeAttributes();
+
         this.canvasManager = new CanvasManager({
             rootElement: this.getRootElement(),
             canvasContainerElement: this.getElement('canvas-container'),
@@ -134,6 +162,9 @@ class UIController {
             zoomValueElement: this.getElement('zoom-value'),
         });
         await this.canvasManager.ready();
+        if (this._destroyed) {
+            return;
+        }
 
         this.imageManager = new ImageManager(this.canvasManager);
         this.connectionPointManager = new ConnectionPointManager(this.canvasManager);
@@ -156,6 +187,7 @@ class UIController {
             this.bindingsManager,
             {
                 hostedRuntime: this.isHostedRuntime,
+                editorMode: this.editorMode,
                 hostedCallbacks: this.getHostedCallbacks()
             }
         );
@@ -164,6 +196,9 @@ class UIController {
         });
 
         await this.loadDevicesRegistry();
+        if (this._destroyed) {
+            return;
+        }
 
         this.setupManagerCallbacks();
         this.setupEventListeners();
@@ -196,7 +231,17 @@ class UIController {
             return;
         }
 
-        callbacks.onDirtyStateChange(state);
+        const normalizedState = state && typeof state === 'object'
+            ? {
+                layoutDirty: Boolean(state.layoutDirty),
+                bindingsDirty: this.isBindingsEnabled() ? Boolean(state.bindingsDirty) : false,
+            }
+            : {
+                layoutDirty: false,
+                bindingsDirty: false,
+            };
+
+        callbacks.onDirtyStateChange(normalizedState);
     }
 
     emitMachineChange(machineId) {
@@ -212,9 +257,35 @@ class UIController {
         return this.initPromise;
     }
 
+    nextLayoutLoadGeneration() {
+        this._layoutLoadGeneration += 1;
+        return this._layoutLoadGeneration;
+    }
+
+    nextBindingsLoadGeneration() {
+        this._bindingsLoadGeneration += 1;
+        return this._bindingsLoadGeneration;
+    }
+
+    isLayoutLoadStale(generation) {
+        return this._destroyed || generation !== this._layoutLoadGeneration;
+    }
+
+    isBindingsLoadStale(generation) {
+        return this._destroyed || generation !== this._bindingsLoadGeneration;
+    }
+
     mapHostedCatalogToBindingsDevices(deviceCatalog = []) {
         const mappedDevices = [];
         const seenDeviceKeys = new Set();
+        const normalizeMetricValue = (value) => {
+            if (typeof value !== 'string') {
+                return null;
+            }
+
+            const trimmedValue = value.trim();
+            return trimmedValue.length > 0 ? trimmedValue : null;
+        };
 
         deviceCatalog.forEach((entry) => {
             if (!entry || typeof entry !== 'object') {
@@ -235,13 +306,73 @@ class UIController {
             seenDeviceKeys.add(dedupeKey);
 
             const metrics = Array.isArray(entry.metrics) ? entry.metrics : [];
-            const firstMetric = metrics.length > 0 ? metrics[0] : null;
+            const normalizedMetrics = [];
+
+            metrics.forEach((metricEntry) => {
+                if (typeof metricEntry === 'string') {
+                    const metricKey = normalizeMetricValue(metricEntry);
+                    if (!metricKey) {
+                        return;
+                    }
+
+                    normalizedMetrics.push({
+                        key: metricKey,
+                        label: metricKey,
+                    });
+                    return;
+                }
+
+                if (!metricEntry || typeof metricEntry !== 'object') {
+                    return;
+                }
+
+                const metricKey = normalizeMetricValue(metricEntry.key || metricEntry.metric || metricEntry.label);
+                if (!metricKey) {
+                    return;
+                }
+
+                const normalizedMetricEntry = {
+                    key: metricKey,
+                    label: normalizeMetricValue(metricEntry.label) || metricKey,
+                };
+
+                const normalizedUnit = normalizeMetricValue(metricEntry.unit);
+                if (normalizedUnit) {
+                    normalizedMetricEntry.unit = normalizedUnit;
+                }
+
+                if (typeof metricEntry.min === 'number') {
+                    normalizedMetricEntry.min = metricEntry.min;
+                }
+
+                if (typeof metricEntry.max === 'number') {
+                    normalizedMetricEntry.max = metricEntry.max;
+                }
+
+                normalizedMetrics.push(normalizedMetricEntry);
+            });
+
+            const dedupedMetrics = [];
+            const seenMetricKeys = new Set();
+            normalizedMetrics.forEach((metricEntry) => {
+                if (seenMetricKeys.has(metricEntry.key)) {
+                    return;
+                }
+                seenMetricKeys.add(metricEntry.key);
+                dedupedMetrics.push(metricEntry);
+            });
+
+            const fallbackMetric = { key: 'value', label: 'value' };
+            const metricsForDevice = dedupedMetrics.length > 0 ? dedupedMetrics : [fallbackMetric];
+            const firstMetric = metricsForDevice[0];
 
             mappedDevices.push({
                 machineId: machineId,
                 id: deviceId,
                 name: entry.deviceLabel || deviceId,
                 type: entry.deviceType || 'device',
+                metrics: metricsForDevice,
+                metric: firstMetric.key,
                 unit: firstMetric && firstMetric.unit ? firstMetric.unit : null,
                 min: firstMetric && typeof firstMetric.min === 'number' ? firstMetric.min : null,
                 max: firstMetric && typeof firstMetric.max === 'number' ? firstMetric.max : null,
@@ -266,6 +397,20 @@ class UIController {
             return;
         }
 
+        if (!this.isBindingsEnabled()) {
+            machineSelect.innerHTML = '';
+
+            const emptyOption = document.createElement('option');
+            emptyOption.value = '';
+            emptyOption.textContent = 'No machine';
+            machineSelect.appendChild(emptyOption);
+
+            machineSelect.value = '';
+            machineSelect.disabled = true;
+            return;
+        }
+
+        machineSelect.disabled = false;
         const previousValue = machineSelect.value;
         machineSelect.innerHTML = '';
 
@@ -290,6 +435,21 @@ class UIController {
 
     /** Load constructor device registry for standalone mode. */
     async loadDevicesRegistry() {
+        const bindingsEnabled = typeof this.isBindingsEnabled === 'function'
+            ? this.isBindingsEnabled()
+            : this.editorMode !== 'reduced';
+
+        if (!bindingsEnabled) {
+            if (this.bindingsManager) {
+                this.bindingsManager.allDevices = [];
+                this.bindingsManager.selectedMachineId = null;
+            }
+            if (typeof this.renderMachineOptions === 'function') {
+                this.renderMachineOptions();
+            }
+            return;
+        }
+
         if (this.isHostedRuntime) {
             if (this.bindingsManager) {
                 this.bindingsManager.allDevices = this.mapHostedCatalogToBindingsDevices(this.hostedDeviceCatalog);
@@ -316,6 +476,11 @@ class UIController {
 
     /** Callback для обновления списка при смене контроллера. */
     setupBindingsManagerCallback() {
+        if (!this.isBindingsEnabled()) {
+            this.bindingsManager.onMachineChanged = null;
+            return;
+        }
+
         this.bindingsManager.onMachineChanged = (newMachineId) => {
             const machineSelect = this.getElement('machine-select');
             if (machineSelect) {
@@ -330,6 +495,11 @@ class UIController {
         const machineSelect = this.getElement('machine-select');
 
         if (!machineSelect) return;
+        if (!this.isBindingsEnabled()) {
+            machineSelect.value = '';
+            machineSelect.disabled = true;
+            return;
+        }
 
         this.registerDomListener(machineSelect, 'change', () => {
             const machineId = machineSelect.value;
@@ -357,6 +527,47 @@ class UIController {
     }
 
     /** Настройка callback-функций менеджеров. */
+    stripBindingsUiFromPropertiesPanel() {
+        if (this.isBindingsEnabled()) {
+            return;
+        }
+
+        const propertiesRoot = this.getElement('properties-content');
+        if (!propertiesRoot || typeof propertiesRoot.querySelector !== 'function') {
+            return;
+        }
+
+        const deviceSelect = propertiesRoot.querySelector('#device-binding-select');
+        const metricSelect = propertiesRoot.querySelector('#metric-binding-select');
+        const deviceSection = deviceSelect && typeof deviceSelect.closest === 'function'
+            ? deviceSelect.closest('.mb-1')
+            : null;
+        const metricSection = metricSelect && typeof metricSelect.closest === 'function'
+            ? metricSelect.closest('.mb-1')
+            : null;
+        const headingSection = deviceSection ? deviceSection.previousElementSibling : null;
+
+        if (deviceSection && typeof deviceSection.remove === 'function') {
+            deviceSection.remove();
+        }
+        if (metricSection && typeof metricSection.remove === 'function') {
+            metricSection.remove();
+        }
+        if (
+            headingSection &&
+            typeof headingSection.remove === 'function' &&
+            typeof headingSection.textContent === 'string' &&
+            headingSection.textContent.toLowerCase().includes('привяз')
+        ) {
+            headingSection.remove();
+        }
+
+        const metadataSection = propertiesRoot.querySelector('.mt-2.p-2');
+        if (metadataSection && typeof metadataSection.remove === 'function') {
+            metadataSection.remove();
+        }
+    }
+
     setupManagerCallbacks() {
         // Обработчики ImageManager
         this.imageManager.onImageSelected = (konvaImg, frame, handle) => {
@@ -548,7 +759,13 @@ class UIController {
         this.bindingsManager.onBindingsClearRequest = () => {
             if (this.widgetManager && Array.isArray(this.widgetManager.widgets)) {
                 this.widgetManager.widgets.forEach(w => {
-                    w.bindingId = null;
+                    if (typeof this.widgetManager.syncWidgetBinding === 'function') {
+                        this.widgetManager.syncWidgetBinding(w, null);
+                    } else {
+                        w.bindingId = null;
+                        w.bindingMetric = null;
+                        w.binding = null;
+                    }
                 });
             }
         };
@@ -578,6 +795,7 @@ class UIController {
         this.widgetManager.onWidgetSelected = (widget) => {
             this.selectionManager.selectWidget(widget);
             this.propertiesPanel.showPropertiesForWidget(widget, this.bindingsManager.allDevices);
+            this.stripBindingsUiFromPropertiesPanel();
         };
 
         this.widgetManager.onWidgetDragEnd = (widget) => {
@@ -634,14 +852,14 @@ class UIController {
         }
 
         const saveBindingsBtn = this.getElement('save-bindings-btn');
-        if (saveBindingsBtn) {
+        if (saveBindingsBtn && this.isBindingsEnabled()) {
             this.registerDomListener(saveBindingsBtn, 'click', () => {
                 this.fileManager.saveBindings();
             });
         }
 
         const loadBindingsBtn = this.getElement('load-bindings-btn');
-        if (loadBindingsBtn) {
+        if (loadBindingsBtn && this.isBindingsEnabled()) {
             this.registerDomListener(loadBindingsBtn, 'click', () => {
                 this.fileManager.loadBindings();
             });
@@ -879,18 +1097,34 @@ class UIController {
     }
 
     async loadLayout(layout = {}) {
+        const loadGeneration = this.nextLayoutLoadGeneration();
         await this.ready();
-        if (this._destroyed) {
+        if (this.isLayoutLoadStale(loadGeneration)) {
             return;
         }
 
         this.fileManager.clearCanvas(false);
+        if (this.isLayoutLoadStale(loadGeneration)) {
+            return;
+        }
 
         await this.fileManager.importImages(layout.images || []);
+        if (this.isLayoutLoadStale(loadGeneration)) {
+            return;
+        }
         this.connectionPointManager.importPoints(layout.connectionPoints || [], this.imageManager);
+        if (this.isLayoutLoadStale(loadGeneration)) {
+            return;
+        }
         this.connectionManager.importConnections(layout.connections || [], this.connectionPointManager);
+        if (this.isLayoutLoadStale(loadGeneration)) {
+            return;
+        }
         if (this.widgetManager) {
             this.widgetManager.importWidgets(layout.widgets || [], this.imageManager);
+            if (this.isLayoutLoadStale(loadGeneration)) {
+                return;
+            }
         }
 
         this.notifyDirtyState({
@@ -914,13 +1148,17 @@ class UIController {
     }
 
     async loadBindings(bindings = []) {
+        const loadGeneration = this.nextBindingsLoadGeneration();
         await this.ready();
-        if (this._destroyed || this.editorMode === 'reduced') {
+        if (this.editorMode === 'reduced' || this.isBindingsLoadStale(loadGeneration)) {
             return;
         }
 
         if (this.widgetManager) {
             this.widgetManager.importBindings(Array.isArray(bindings) ? bindings : []);
+            if (this.isBindingsLoadStale(loadGeneration)) {
+                return;
+            }
         }
 
         this.notifyDirtyState({
@@ -951,7 +1189,9 @@ class UIController {
         this.hostedDeviceCatalog = Array.isArray(input.deviceCatalog) ? input.deviceCatalog : [];
 
         if (this.bindingsManager) {
-            this.bindingsManager.allDevices = this.mapHostedCatalogToBindingsDevices(this.hostedDeviceCatalog);
+            this.bindingsManager.allDevices = this.isBindingsEnabled()
+                ? this.mapHostedCatalogToBindingsDevices(this.hostedDeviceCatalog)
+                : [];
         }
 
         this.renderMachineOptions();
@@ -959,6 +1199,10 @@ class UIController {
 
     setActiveMachine(machineId) {
         if (this._destroyed || this.editorMode === 'reduced') {
+            return;
+        }
+
+        if (!this.bindingsManager || !this.fileManager) {
             return;
         }
 
@@ -985,15 +1229,21 @@ class UIController {
         }
 
         this._destroyed = true;
+        this.nextLayoutLoadGeneration();
+        this.nextBindingsLoadGeneration();
 
         this.cleanupDomListeners();
 
-        if (this.contextMenu && typeof this.contextMenu.destroy === 'function') {
-            this.contextMenu.destroy();
+        const contextMenu = this.contextMenu;
+        this.contextMenu = null;
+        if (contextMenu && typeof contextMenu.destroy === 'function') {
+            contextMenu.destroy();
         }
 
-        if (this.canvasManager && typeof this.canvasManager.destroy === 'function') {
-            this.canvasManager.destroy();
+        const canvasManager = this.canvasManager;
+        this.canvasManager = null;
+        if (canvasManager && typeof canvasManager.destroy === 'function') {
+            canvasManager.destroy();
         }
     }
 }

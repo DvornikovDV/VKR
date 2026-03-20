@@ -29,6 +29,8 @@ class CanvasManager {
     this.resizeObserver = null
     this.cleanupCallbacks = []
     this.initTimer = null
+    this._destroyed = false
+    this._readyResolved = false
     this.readyPromise = new Promise((resolve) => {
       this.resolveReady = resolve
     })
@@ -51,11 +53,38 @@ class CanvasManager {
     return this.readyPromise
   }
 
-  init() {
-    this.initTimer = setTimeout(() => {
-      this.createStage()
-      this.setupEventListeners()
+  resolveReadyOnce() {
+    if (this._readyResolved) {
+      return
+    }
+
+    this._readyResolved = true
+    if (typeof this.resolveReady === 'function') {
       this.resolveReady()
+    }
+  }
+
+  init() {
+    if (this._destroyed) {
+      this.resolveReadyOnce()
+      return
+    }
+
+    this.initTimer = setTimeout(() => {
+      this.initTimer = null
+      if (this._destroyed) {
+        this.resolveReadyOnce()
+        return
+      }
+
+      this.createStage()
+      if (this._destroyed) {
+        this.resolveReadyOnce()
+        return
+      }
+
+      this.setupEventListeners()
+      this.resolveReadyOnce()
     }, 100)
   }
 
@@ -166,7 +195,7 @@ class CanvasManager {
   }
 
   setupEventListeners() {
-    if (!this.stage) {
+    if (!this.stage || this._destroyed) {
       return
     }
 
@@ -179,8 +208,16 @@ class CanvasManager {
       window.removeEventListener('resize', onResize)
     })
 
-    if (this.canvasContainerElement && typeof ResizeObserver !== 'undefined') {
-      this.resizeObserver = new ResizeObserver(() => {
+    const resizeObserverCtor =
+      typeof globalThis !== 'undefined' &&
+      typeof globalThis.ResizeObserver === 'function'
+        ? globalThis.ResizeObserver
+        : typeof window !== 'undefined' && typeof window.ResizeObserver === 'function'
+          ? window.ResizeObserver
+          : undefined
+
+    if (this.canvasContainerElement && resizeObserverCtor) {
+      this.resizeObserver = new resizeObserverCtor(() => {
         this.resizeStageToContainer()
       })
       this.resizeObserver.observe(this.canvasContainerElement)
@@ -278,10 +315,18 @@ class CanvasManager {
   }
 
   destroy() {
+    if (this._destroyed) {
+      this.resolveReadyOnce()
+      return
+    }
+
+    this._destroyed = true
+
     if (this.initTimer) {
       clearTimeout(this.initTimer)
       this.initTimer = null
     }
+    this.resolveReadyOnce()
 
     while (this.cleanupCallbacks.length > 0) {
       const cleanup = this.cleanupCallbacks.pop()

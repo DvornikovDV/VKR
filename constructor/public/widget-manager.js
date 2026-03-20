@@ -3,6 +3,52 @@
 
 import { createWidget } from './widget-types.js';
 
+function normalizeMetric(metric) {
+  if (typeof metric !== 'string') {
+    return null;
+  }
+  const trimmedMetric = metric.trim();
+  return trimmedMetric.length > 0 ? trimmedMetric : null;
+}
+
+function normalizeBindingPayload(binding) {
+  if (!binding || typeof binding !== 'object') {
+    return null;
+  }
+
+  const deviceId = typeof binding.deviceId === 'string' ? binding.deviceId : null;
+  const metric = normalizeMetric(binding.metric) || 'value';
+  if (!deviceId) {
+    return null;
+  }
+
+  return { deviceId, metric };
+}
+
+function resolveBindingPayload(widget) {
+  if (widget && widget.bindingId === null) {
+    return null;
+  }
+
+  if (typeof widget.bindingId === 'string' && widget.bindingId.length > 0) {
+    const fromBindingObject = normalizeBindingPayload(widget.binding);
+    return {
+      deviceId: widget.bindingId,
+      metric:
+        normalizeMetric(widget.bindingMetric) ||
+        (fromBindingObject ? fromBindingObject.metric : null) ||
+        'value',
+    };
+  }
+
+  const fromBindingObject = normalizeBindingPayload(widget.binding);
+  if (fromBindingObject) {
+    return fromBindingObject;
+  }
+
+  return null;
+}
+
 export class Widget {
   constructor(config) {
     this.id = config.id;
@@ -24,6 +70,8 @@ export class Widget {
     this.konvaGroup = null;
 
     this.bindingId = config.bindingId || null;
+    this.bindingMetric = normalizeMetric(config.bindingMetric) || null;
+    this.binding = normalizeBindingPayload(config.binding);
   }
 
   /** Определение категории виджета.
@@ -336,6 +384,24 @@ export class WidgetManager {
     console.log('All widgets cleared');
   }
 
+  syncWidgetBinding(widget, binding) {
+    const normalizedBinding = normalizeBindingPayload(binding);
+    if (!widget) {
+      return;
+    }
+
+    if (!normalizedBinding) {
+      widget.binding = null;
+      widget.bindingMetric = null;
+      widget.bindingId = null;
+      return;
+    }
+
+    widget.binding = { ...normalizedBinding };
+    widget.bindingMetric = normalizedBinding.metric;
+    widget.bindingId = normalizedBinding.deviceId;
+  }
+
   /** Экспорт конфигураций всех виджетов для сериализации мнемосхемы.
    * Выход: Массив конфигураций (Array). */
   exportWidgets() {
@@ -356,6 +422,15 @@ export class WidgetManager {
         borderColor: w.borderColor || '#cccccc',
         bindingId: w.bindingId || null
       };
+
+      const binding = resolveBindingPayload(w);
+      if (binding) {
+        base.binding = binding;
+        base.bindingMetric = binding.metric;
+      } else {
+        base.binding = null;
+        base.bindingMetric = null;
+      }
 
       // Display виджеты
       if (w.type === 'number-display') {
@@ -395,11 +470,18 @@ export class WidgetManager {
    * Выход: Массив связей (Array). */
   exportBindings() {
     return this.widgets
-      .filter(w => !!w.bindingId)
-      .map(w => ({
-        elementId: w.id,
-        deviceId: w.bindingId
-      }));
+      .map(w => {
+        const binding = resolveBindingPayload(w);
+        if (!binding) {
+          return null;
+        }
+        return {
+          widgetId: w.id,
+          deviceId: binding.deviceId,
+          metric: binding.metric
+        };
+      })
+      .filter(Boolean);
   }
 
   /** Десериализация связей и установка их к созданным виджетам.
@@ -407,9 +489,13 @@ export class WidgetManager {
   importBindings(bindings) {
     if (!Array.isArray(bindings)) return;
     bindings.forEach(b => {
-      const widget = this.getWidget(b.elementId);
+      const widgetId = b.widgetId || b.elementId;
+      const widget = this.getWidget(widgetId);
       if (widget) {
-        widget.bindingId = b.deviceId;
+        this.syncWidgetBinding(widget, {
+          deviceId: b.deviceId,
+          metric: b.metric
+        });
       }
     });
     console.log(`Bindings imported for ${bindings.length} elements`);
@@ -432,6 +518,20 @@ export class WidgetManager {
       const widget = createWidget(data.type, data);
 
       if (widget) {
+        if (data && typeof data === 'object') {
+          const bindingFromData = normalizeBindingPayload(data.binding);
+          if (bindingFromData) {
+            this.syncWidgetBinding(widget, bindingFromData);
+          } else if (typeof data.bindingId === 'string' && data.bindingId.length > 0) {
+            this.syncWidgetBinding(widget, {
+              deviceId: data.bindingId,
+              metric: data.bindingMetric
+            });
+          } else {
+            this.syncWidgetBinding(widget, null);
+          }
+        }
+
         widget.render(this.layer);
         this.attachDragHandlers(widget);
         this.widgets.push(widget);

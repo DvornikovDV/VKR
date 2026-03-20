@@ -185,6 +185,119 @@ class PropertiesPanel {
         this.bindingsManager = bindingsManager;
     }
 
+    normalizeBindingMetric(metric) {
+        if (typeof metric !== 'string') {
+            return null;
+        }
+
+        const trimmedMetric = metric.trim();
+        return trimmedMetric.length > 0 ? trimmedMetric : null;
+    }
+
+    getAvailableDevices() {
+        if (!this.bindingsManager || !this.bindingsManager.selectedMachineId || !Array.isArray(this.bindingsManager.allDevices)) {
+            return [];
+        }
+
+        return this.bindingsManager.allDevices.filter(
+            (device) => device.machineId === this.bindingsManager.selectedMachineId,
+        );
+    }
+
+    getAvailableMetricsForDevice(deviceId) {
+        if (!deviceId) {
+            return [];
+        }
+
+        const metrics = [];
+        const pushMetric = (metricValue) => {
+            const normalizedMetric = this.normalizeBindingMetric(metricValue);
+            if (normalizedMetric) {
+                metrics.push(normalizedMetric);
+            }
+        };
+
+        if (this.bindingsManager && Array.isArray(this.bindingsManager.availableDeviceMetrics)) {
+            this.bindingsManager.availableDeviceMetrics.forEach((entry) => {
+                if (entry && entry.deviceId === deviceId) {
+                    pushMetric(entry.metric);
+                }
+            });
+        }
+
+        if (metrics.length > 0) {
+            return Array.from(new Set(metrics));
+        }
+
+        const device = this.getAvailableDevices().find((entry) => entry.id === deviceId);
+        if (!device) {
+            return [];
+        }
+
+        if (Array.isArray(device.metrics)) {
+            device.metrics.forEach((entry) => {
+                if (typeof entry === 'string') {
+                    pushMetric(entry);
+                    return;
+                }
+
+                if (entry && typeof entry === 'object') {
+                    pushMetric(entry.key || entry.metric || entry.label);
+                }
+            });
+        }
+
+        pushMetric(device.metric);
+
+        return Array.from(new Set(metrics));
+    }
+
+    setWidgetBinding(widget, deviceId, metric) {
+        const resolvedDeviceId = typeof deviceId === 'string' && deviceId.length > 0 ? deviceId : null;
+        if (!resolvedDeviceId) {
+            widget.bindingId = null;
+            widget.bindingMetric = null;
+            widget.binding = null;
+            return;
+        }
+
+        const availableMetrics = this.getAvailableMetricsForDevice(resolvedDeviceId);
+        let resolvedMetric = this.normalizeBindingMetric(metric);
+
+        if (!resolvedMetric) {
+            resolvedMetric = availableMetrics[0] || null;
+        }
+
+        if (!resolvedMetric) {
+            resolvedMetric = 'value';
+        }
+
+        if (this.bindingsManager && typeof this.bindingsManager.canAssignDevice === 'function') {
+            const isValidPair = this.bindingsManager.canAssignDevice(resolvedDeviceId, resolvedMetric);
+            if (!isValidPair) {
+                const fallbackMetric = availableMetrics.find((metricKey) =>
+                    this.bindingsManager.canAssignDevice(resolvedDeviceId, metricKey),
+                );
+
+                if (!fallbackMetric) {
+                    widget.bindingId = null;
+                    widget.bindingMetric = null;
+                    widget.binding = null;
+                    return;
+                }
+
+                resolvedMetric = fallbackMetric;
+            }
+        }
+
+        widget.bindingId = resolvedDeviceId;
+        widget.bindingMetric = resolvedMetric;
+        widget.binding = {
+            deviceId: resolvedDeviceId,
+            metric: resolvedMetric,
+        };
+    }
+
     /** Отображение свойств графического элемента. 
      * Вход: konvaImg (Konva.Image). */
     showPropertiesForImage(konvaImg) {
@@ -231,7 +344,23 @@ class PropertiesPanel {
         const y = widget.y.toFixed(0);
         const w = widget.width.toFixed(0);
         const h = widget.height.toFixed(0);
-        const bindingId = widget.bindingId || '';
+        const availableDevices = this.getAvailableDevices();
+
+        let bindingId = widget.bindingId || '';
+        let bindingMetric = this.normalizeBindingMetric(widget.bindingMetric);
+        const bindingDeviceExists = availableDevices.some((device) => device.id === bindingId);
+
+        if (!bindingDeviceExists) {
+            this.setWidgetBinding(widget, null, null);
+            bindingId = '';
+            bindingMetric = null;
+        } else {
+            const availableMetrics = this.getAvailableMetricsForDevice(bindingId);
+            if (!bindingMetric || !availableMetrics.includes(bindingMetric)) {
+                this.setWidgetBinding(widget, bindingId, bindingMetric || null);
+                bindingMetric = this.normalizeBindingMetric(widget.bindingMetric);
+            }
+        }
 
         let html = `
             <div class="mb-2"><strong>Виджет</strong></div>
@@ -288,15 +417,28 @@ class PropertiesPanel {
                 <option value="">-- не привязано --</option>
         `;
 
-        // Фильтрация устройств активного контроллера
-        let availableDevices = [];
-        if (this.bindingsManager && this.bindingsManager.selectedMachineId) {
-            availableDevices = this.bindingsManager.allDevices.filter(d => d.machineId === this.bindingsManager.selectedMachineId);
-        }
-
         availableDevices.forEach(device => {
             const selected = bindingId === device.id ? 'selected' : '';
             html += `<option value="${device.id}" ${selected}>${device.name} (${device.type})</option>`;
+        });
+
+        const availableMetrics = bindingId ? this.getAvailableMetricsForDevice(bindingId) : [];
+        const selectedMetric = bindingMetric && availableMetrics.includes(bindingMetric)
+            ? bindingMetric
+            : '';
+
+        html += `
+              </select>
+            </div>
+            <div class="mb-1">
+              <label class="form-label small">Metric:</label>
+              <select id="metric-binding-select" class="form-control form-control-sm" ${bindingId ? '' : 'disabled'}>
+                <option value="">-- select metric --</option>
+        `;
+
+        availableMetrics.forEach((metricKey) => {
+            const selected = selectedMetric === metricKey ? 'selected' : '';
+            html += `<option value="${metricKey}" ${selected}>${metricKey}</option>`;
         });
 
         html += `
@@ -400,8 +542,19 @@ class PropertiesPanel {
         const deviceSelect = this.container.querySelector('#device-binding-select');
         if (deviceSelect) {
             deviceSelect.addEventListener('change', (e) => {
-                widget.bindingId = e.target.value || null;
-                // Полная перерисовка панели для обновления метаданных
+                const nextDeviceId = e.target.value || null;
+                const nextMetric = nextDeviceId
+                    ? this.getAvailableMetricsForDevice(nextDeviceId)[0] || null
+                    : null;
+                this.setWidgetBinding(widget, nextDeviceId, nextMetric);
+                this.showPropertiesForWidget(widget);
+            });
+        }
+
+        const metricSelect = this.container.querySelector('#metric-binding-select');
+        if (metricSelect) {
+            metricSelect.addEventListener('change', (e) => {
+                this.setWidgetBinding(widget, widget.bindingId || null, e.target.value || null);
                 this.showPropertiesForWidget(widget);
             });
         }

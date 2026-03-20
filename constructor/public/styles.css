@@ -327,6 +327,22 @@ body {
 }
 
 /* Адаптивность */
+.hosted-constructor-root[data-editor-mode="reduced"] .toolbar-right {
+    display: none !important;
+}
+
+.hosted-constructor-root[data-editor-mode="reduced"] #save-bindings-btn,
+.hosted-constructor-root[data-editor-mode="reduced"] #load-bindings-btn {
+    display: none !important;
+}
+
+.hosted-constructor-root[data-editor-mode="reduced"] #properties-content .mb-1:has(#device-binding-select),
+.hosted-constructor-root[data-editor-mode="reduced"] #properties-content .mb-1:has(#metric-binding-select),
+.hosted-constructor-root[data-editor-mode="reduced"] #properties-content .mb-2.mt-3:has(+ .mb-1 #device-binding-select),
+.hosted-constructor-root[data-editor-mode="reduced"] #properties-content .mt-2.p-2 {
+    display: none !important;
+}
+
 @media (max-width: 768px) {
     .properties-panel {
         display: none;
