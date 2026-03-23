@@ -8,6 +8,7 @@ function isElementNode(value) {
 class CanvasManager {
   constructor(options = {}) {
     this.rootElement = isElementNode(options.rootElement) ? options.rootElement : document
+    this.disableDocumentFallback = options.disableDocumentFallback === true
     this.canvasContainerElement = isElementNode(options.canvasContainerElement)
       ? options.canvasContainerElement
       : this.resolveElementById('canvas-container')
@@ -30,9 +31,10 @@ class CanvasManager {
     this.cleanupCallbacks = []
     this.initTimer = null
     this._destroyed = false
-    this._readyResolved = false
-    this.readyPromise = new Promise((resolve) => {
+    this._readySettled = false
+    this.readyPromise = new Promise((resolve, reject) => {
       this.resolveReady = resolve
+      this.rejectReady = reject
     })
 
     this.init()
@@ -44,6 +46,10 @@ class CanvasManager {
       if (scopedElement) {
         return scopedElement
       }
+
+      if (this.disableDocumentFallback) {
+        return null
+      }
     }
 
     return document.getElementById(id)
@@ -54,13 +60,24 @@ class CanvasManager {
   }
 
   resolveReadyOnce() {
-    if (this._readyResolved) {
+    if (this._readySettled) {
       return
     }
 
-    this._readyResolved = true
+    this._readySettled = true
     if (typeof this.resolveReady === 'function') {
       this.resolveReady()
+    }
+  }
+
+  rejectReadyOnce(error) {
+    if (this._readySettled) {
+      return
+    }
+
+    this._readySettled = true
+    if (typeof this.rejectReady === 'function') {
+      this.rejectReady(error instanceof Error ? error : new Error(String(error)))
     }
   }
 
@@ -77,24 +94,31 @@ class CanvasManager {
         return
       }
 
-      this.createStage()
-      if (this._destroyed) {
-        this.resolveReadyOnce()
-        return
-      }
+      try {
+        this.createStage()
+        if (this._destroyed) {
+          this.resolveReadyOnce()
+          return
+        }
 
-      this.setupEventListeners()
-      this.resolveReadyOnce()
+        this.setupEventListeners()
+        this.resolveReadyOnce()
+      } catch (error) {
+        this.rejectReadyOnce(error)
+      }
     }, 100)
   }
 
   createStage() {
+    if (!globalThis.Konva || typeof globalThis.Konva.Stage !== 'function') {
+      throw new Error('Konva runtime is not available. Hosted constructor bootstrap failed.')
+    }
+
     const container = this.canvasContainerElement || this.resolveElementById('canvas-container')
     const canvas = this.canvasElement || this.resolveElementById('canvas')
 
     if (!container || !canvas) {
-      console.error('Canvas container not found')
-      return
+      throw new Error('Canvas container not found.')
     }
 
     this.canvasContainerElement = container

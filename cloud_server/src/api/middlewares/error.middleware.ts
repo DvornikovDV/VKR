@@ -1,7 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
 
-// ── Custom Error class ────────────────────────────────────────────────────
-
 /**
  * Operational error with HTTP status code.
  * Distinguishes expected business errors from programmer errors.
@@ -20,18 +18,14 @@ export class AppError extends Error {
     }
 }
 
-// ── Middleware: 404 ───────────────────────────────────────────────────────
-
 /** Catches unmatched routes and forwards a 404 AppError. */
 export function notFoundMiddleware(req: Request, _res: Response, next: NextFunction): void {
     next(new AppError(`Route not found: ${req.method} ${req.originalUrl}`, 404));
 }
 
-// ── Middleware: global error handler ─────────────────────────────────────
-
 /**
  * Centralized Express error handler.
- * Must be registered LAST in the middleware chain (after all routes).
+ * Must be registered last in the middleware chain (after all routes).
  */
 export function errorMiddleware(
     err: Error | AppError,
@@ -47,7 +41,16 @@ export function errorMiddleware(
         return;
     }
 
-    // Programmer error — log the full stack
+    const bodyParserError = err as Error & { type?: string; status?: number };
+    if (bodyParserError.type === 'entity.too.large' || bodyParserError.status === 413) {
+        res.status(413).json({
+            status: 'error',
+            message: 'Request body is too large',
+        });
+        return;
+    }
+
+    // Programmer error: log the full stack.
     console.error('[error] Unhandled exception:', err);
 
     res.status(500).json({

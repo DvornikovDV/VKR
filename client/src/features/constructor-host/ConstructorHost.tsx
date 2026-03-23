@@ -13,6 +13,7 @@ import { DEFAULT_MACHINE_SWITCH_MESSAGE } from '@/features/constructor-host/useU
 
 type HostPhase = 'loading' | 'ready' | 'error'
 
+const HOSTED_RUNTIME_ROOT_SELECTOR = '[data-hosted-constructor-root="true"]'
 const EMPTY_BINDINGS: WidgetBindingRecord[] = []
 const EMPTY_MACHINES: EditorMachineOption[] = []
 const EMPTY_CATALOG: EditorDeviceMetricCatalogEntry[] = []
@@ -77,6 +78,19 @@ function confirmBrowserNavigation(message: string): boolean {
   }
 
   return window.confirm(message)
+}
+
+function cleanupHostedRuntimeRoots(container: HTMLElement | null): void {
+  if (!container) {
+    return
+  }
+
+  const staleRoots = container.querySelectorAll(HOSTED_RUNTIME_ROOT_SELECTOR)
+  staleRoots.forEach((rootNode) => {
+    if (rootNode.parentNode) {
+      rootNode.parentNode.removeChild(rootNode)
+    }
+  })
 }
 
 export function ConstructorHost({
@@ -178,6 +192,8 @@ export function ConstructorHost({
       if (!container) {
         return
       }
+
+      cleanupHostedRuntimeRoots(container)
 
       setPhase('loading')
       setError(null)
@@ -284,6 +300,7 @@ export function ConstructorHost({
       if (currentInstance) {
         void Promise.resolve(currentInstance.destroy())
       }
+      cleanupHostedRuntimeRoots(containerRef.current)
     }
   }, [reportFatalError, retryKey, runtimeConfig])
 

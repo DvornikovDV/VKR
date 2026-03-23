@@ -20,6 +20,28 @@ let trustedUserToken: string;
 let trustedUserId: string;
 let strangerUserToken: string;
 
+function numericRollup(last: number) {
+    return {
+        kind: 'numeric' as const,
+        min: last,
+        max: last,
+        sum: last,
+        count: 1,
+        avg: last,
+        last,
+    };
+}
+
+function booleanRollup(last: boolean) {
+    return {
+        kind: 'boolean' as const,
+        trueCount: last ? 1 : 0,
+        falseCount: last ? 0 : 1,
+        count: 1,
+        last,
+    };
+}
+
 async function createAdminUser(email: string): Promise<string> {
     const { user } = await AuthService.register(email, 'password1234');
     await User.findByIdAndUpdate(user._id, { role: 'ADMIN' }).exec();
@@ -76,33 +98,40 @@ describe('T061 - Edge catalog integration', () => {
                 timestamp: new Date(),
                 metadata: { edgeId, sourceId: 'plc-a', deviceId: 'pump-1' },
                 metric: 'temperature',
-                value: 21.2,
+                rollup: numericRollup(21.2),
             },
             {
                 timestamp: new Date(),
                 metadata: { edgeId, sourceId: 'plc-a', deviceId: 'pump-1' },
                 metric: 'temperature',
-                value: 21.9,
+                rollup: numericRollup(21.9),
             },
             {
                 timestamp: new Date(),
                 metadata: { edgeId, sourceId: 'plc-a', deviceId: 'pump-1' },
                 metric: 'pressure',
-                value: 3.2,
+                rollup: numericRollup(3.2),
             },
             {
                 timestamp: new Date(),
                 metadata: { edgeId, sourceId: '   ', deviceId: 'valve-2' },
                 metric: 'state',
-                value: true,
+                rollup: booleanRollup(true),
             },
             {
                 timestamp: new Date(),
                 metadata: { edgeId: anotherEdgeId, sourceId: 'x', deviceId: 'y' },
                 metric: 'z',
-                value: 100,
+                rollup: numericRollup(100),
             },
         ]);
+
+        await mongoose.connection.collection('telemetry').insertOne({
+            timestamp: new Date(),
+            metadata: { edgeId, sourceId: 'legacy-plc', deviceId: 'legacy-device' },
+            metric: 'legacy-temp',
+            value: 55.5,
+        });
 
         const res = await request(app)
             .get(`/api/edge-servers/${edgeId}/catalog`)
@@ -118,6 +147,13 @@ describe('T061 - Edge catalog integration', () => {
                     deviceId: 'valve-2',
                     metric: 'state',
                     label: 'unknown-source / valve-2 / state',
+                },
+                {
+                    edgeServerId: edgeId,
+                    sourceId: 'legacy-plc',
+                    deviceId: 'legacy-device',
+                    metric: 'legacy-temp',
+                    label: 'legacy-plc / legacy-device / legacy-temp',
                 },
                 {
                     edgeServerId: edgeId,
@@ -145,7 +181,7 @@ describe('T061 - Edge catalog integration', () => {
                 timestamp: new Date(),
                 metadata: { edgeId, sourceId: 'plc-a', deviceId: 'pump-1' },
                 metric: 'temperature',
-                value: 22,
+                rollup: numericRollup(22),
             },
         ]);
 

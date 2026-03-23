@@ -45,6 +45,8 @@ const DiagramSchema = new Schema<IDiagram>(
     {
         // versionKey: true — Mongoose default; must stay enabled for OCC
         timestamps: true,
+        // Keep empty layout objects in API payloads.
+        minimize: false,
     },
 );
 

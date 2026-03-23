@@ -1,4 +1,8 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+import path from 'node:path';
+
+// Always load env from the cloud_server root, regardless of process.cwd().
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 /** Validates that a required env variable is set and returns its value. */
 function require_env(key: string): string {
@@ -28,6 +32,17 @@ function optional_trimmed_string(key: string): string | undefined {
     return trimmed.length > 0 ? trimmed : undefined;
 }
 
+/** Parses an optional non-empty string env var with fallback. */
+function optional_non_empty_string(key: string, fallback: string): string {
+    const raw = process.env[key];
+    if (raw === undefined) return fallback;
+    const trimmed = raw.trim();
+    if (!trimmed) {
+        throw new Error(`Environment variable ${key} must be a non-empty string.`);
+    }
+    return trimmed;
+}
+
 export const ENV = {
     /** Node environment */
     NODE_ENV: process.env['NODE_ENV'] ?? 'development',
@@ -46,6 +61,9 @@ export const ENV = {
 
     /** CORS allowed origins (comma-separated) */
     CORS_ORIGINS: (process.env['CORS_ORIGINS'] ?? 'http://localhost:3000').split(',').map(o => o.trim()),
+
+    /** Max accepted HTTP request body size for JSON and URL-encoded payloads */
+    REQUEST_BODY_LIMIT: optional_non_empty_string('REQUEST_BODY_LIMIT', '10mb'),
 
     /** Max PRO-tier diagram bindings (0 = unlimited) */
     MAX_PRO_BINDINGS: optional_int('MAX_PRO_BINDINGS', 0),

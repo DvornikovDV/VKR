@@ -108,6 +108,10 @@ class UIController {
             if (scopedNode) {
                 return scopedNode;
             }
+
+            if (this.isHostedRuntime) {
+                return null;
+            }
         }
 
         return document.getElementById(id);
@@ -119,6 +123,10 @@ class UIController {
             const scopedNode = root.querySelector(selector);
             if (scopedNode) {
                 return scopedNode;
+            }
+
+            if (this.isHostedRuntime) {
+                return null;
             }
         }
 
@@ -156,6 +164,7 @@ class UIController {
 
         this.canvasManager = new CanvasManager({
             rootElement: this.getRootElement(),
+            disableDocumentFallback: this.isHostedRuntime,
             canvasContainerElement: this.getElement('canvas-container'),
             canvasElement: this.getElement('canvas'),
             zoomSliderElement: this.getElement('zoom-slider'),
@@ -170,7 +179,9 @@ class UIController {
         this.connectionPointManager = new ConnectionPointManager(this.canvasManager);
         this.connectionManager = new ConnectionManager(this.canvasManager);
         this.selectionManager = new SelectionManager(this.canvasManager);
-        this.propertiesPanel = new PropertiesPanel(this.canvasManager);
+        this.propertiesPanel = new PropertiesPanel(this.canvasManager, {
+            containerElement: this.getElement('properties-content')
+        });
         this.widgetManager = new WidgetManager(
             this.canvasManager.getLayer(),
             this.imageManager,
@@ -841,6 +852,13 @@ class UIController {
         if (saveSchemaBtn) {
             this.registerDomListener(saveSchemaBtn, 'click', () => {
                 this.fileManager.saveScheme();
+            });
+        }
+
+        const saveAsBtn = this.getElement('save-as-btn');
+        if (saveAsBtn) {
+            this.registerDomListener(saveAsBtn, 'click', () => {
+                this.fileManager.requestSaveAs();
             });
         }
 

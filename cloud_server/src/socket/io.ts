@@ -91,5 +91,6 @@ export function _resetIO(): void {
         TelemetryAggregatorService.stopDrainLoop(_drainHandle);
         _drainHandle = null;
     }
+    TelemetryAggregatorService.resetForTests();
     _io = null;
 }

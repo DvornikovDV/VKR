@@ -10,14 +10,15 @@ import { errorMiddleware, notFoundMiddleware } from './api/middlewares/error.mid
 import apiRouter from './api/routes';
 import authRouter from './api/auth.routes';
 import { setupSwagger } from './api/swagger';
+import { provisionDefaultAdmin } from './scripts/seed';
 
 const app = express();
 const server = http.createServer(app);
 
 // ── Middleware ────────────────────────────────────────────────────────────
 app.use(cors({ origin: ENV.CORS_ORIGINS, credentials: true }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: ENV.REQUEST_BODY_LIMIT }));
+app.use(express.urlencoded({ extended: true, limit: ENV.REQUEST_BODY_LIMIT }));
 
 // ── Socket.IO ─────────────────────────────────────────────────────────────
 initSocketIO(server);
@@ -43,6 +44,12 @@ app.use(errorMiddleware);
 // ── Startup ───────────────────────────────────────────────────────────────
 async function start(): Promise<void> {
     await connectDatabase();
+    try {
+        await provisionDefaultAdmin();
+    } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`[seed] Startup provisioning skipped due to invalid default admin config: ${message}`);
+    }
     await ensureTelemetryCollection(mongoose.connection);
 
     server.listen(ENV.PORT, () => {

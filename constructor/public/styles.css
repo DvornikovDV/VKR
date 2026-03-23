@@ -1,16 +1,271 @@
 /* Основные стили для конструктора мнемосхем */
 
-* {
+body[data-constructor-standalone="true"] *,
+.hosted-constructor-root * {
     box-sizing: border-box;
 }
 
-body {
+body[data-constructor-standalone="true"] {
     margin: 0;
     padding: 0;
     height: 100vh;
     overflow: hidden;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
+
+.hosted-constructor-root {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: #0f172a;
+    background-color: #f5f5f5;
+}
+
+.hosted-constructor-root .toolbar-header {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    z-index: 30;
+}
+
+.hosted-constructor-root .toolbar-content {
+    padding: 0 14px;
+    gap: 10px;
+}
+
+.hosted-constructor-root .toolbar-left {
+    flex: 0 0 auto;
+}
+
+.hosted-constructor-root .app-title {
+    font-size: 1.2rem;
+    white-space: nowrap;
+}
+
+.hosted-constructor-root .toolbar-center {
+    flex: 0 0 auto;
+    margin-left: 0;
+}
+
+.hosted-constructor-root .toolbar-icons {
+    position: static;
+    transform: none;
+    margin-left: auto;
+}
+
+.hosted-constructor-root .toolbar-right {
+    margin-left: 8px;
+}
+
+.hosted-constructor-root .main-workspace {
+    position: absolute;
+    top: 56px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+}
+
+.hosted-constructor-root .machine-select {
+    width: auto;
+    min-width: 150px;
+    margin-right: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.92);
+    color: #111827;
+    height: 32px;
+    padding: 0 10px;
+    font-size: 0.875rem;
+}
+
+.hosted-constructor-root .toolbar-btn,
+.hosted-constructor-root .toolbar-icon-button {
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+    color: #fff;
+    transition: filter 0.15s ease, transform 0.15s ease;
+}
+
+.hosted-constructor-root .toolbar-btn:hover,
+.hosted-constructor-root .toolbar-icon-button:hover {
+    filter: brightness(1.05);
+}
+
+.hosted-constructor-root .toolbar-btn:active,
+.hosted-constructor-root .toolbar-icon-button:active {
+    transform: translateY(1px);
+}
+
+.hosted-constructor-root .toolbar-btn {
+    min-width: 84px;
+    height: 34px;
+    padding: 0 12px;
+    font-weight: 600;
+    font-size: 0.875rem;
+}
+
+.hosted-constructor-root .toolbar-btn-primary {
+    background: #2563eb;
+}
+
+.hosted-constructor-root .toolbar-icon-button {
+    width: 34px;
+    height: 34px;
+    font-size: 18px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.hosted-constructor-root .toolbar-icon-button.active {
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.55);
+}
+
+.hosted-constructor-root .toolbar-icon-button-primary {
+    background: #2563eb;
+}
+
+.hosted-constructor-root .toolbar-icon-button-danger {
+    background: #dc2626;
+}
+
+.hosted-constructor-root .hosted-file-menu {
+    position: relative;
+}
+
+.hosted-constructor-root .hosted-file-menu-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    min-width: 180px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 10px;
+    background: #ffffff;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.2);
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 50;
+}
+
+.hosted-constructor-root .hosted-file-menu-popover[hidden] {
+    display: none !important;
+}
+
+.hosted-constructor-root .hosted-file-item {
+    border: 0;
+    background: transparent;
+    width: 100%;
+    text-align: left;
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 0.875rem;
+    color: #1f2937;
+    cursor: pointer;
+}
+
+.hosted-constructor-root .hosted-file-item:hover {
+    background: #eff6ff;
+}
+
+.hosted-constructor-root .hosted-file-separator {
+    height: 1px;
+    background: rgba(15, 23, 42, 0.12);
+    margin: 4px 2px;
+}
+
+.hosted-constructor-root .form-control,
+.hosted-constructor-root .form-select {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 0.375rem 0.5rem;
+    font-size: 0.875rem;
+    color: #0f172a;
+    background: #fff;
+}
+
+.hosted-constructor-root .form-control:disabled,
+.hosted-constructor-root .form-select:disabled {
+    background: #f1f5f9;
+    color: #64748b;
+    cursor: not-allowed;
+}
+
+.hosted-constructor-root .form-control-sm {
+    font-size: 0.8125rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.hosted-constructor-root .form-control-color {
+    height: 2rem;
+    padding: 0.125rem;
+}
+
+.hosted-constructor-root .form-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    color: #334155;
+    font-weight: 500;
+}
+
+.hosted-constructor-root .btn {
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 0.375rem 0.625rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+}
+
+.hosted-constructor-root .btn-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8125rem;
+}
+
+.hosted-constructor-root .btn-primary {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+}
+
+.hosted-constructor-root .btn-danger {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #fff;
+}
+
+.hosted-constructor-root .btn-outline-primary {
+    border-color: #2563eb;
+    color: #2563eb;
+    background: #fff;
+}
+
+.hosted-constructor-root .btn-outline-secondary {
+    border-color: #94a3b8;
+    color: #334155;
+    background: #fff;
+}
+
+.hosted-constructor-root .text-muted {
+    color: #64748b !important;
+}
+
+.hosted-constructor-root .small { font-size: 0.8125rem; }
+.hosted-constructor-root .mb-1 { margin-bottom: 0.25rem; }
+.hosted-constructor-root .mb-2 { margin-bottom: 0.5rem; }
+.hosted-constructor-root .mt-2 { margin-top: 0.5rem; }
+.hosted-constructor-root .mt-3 { margin-top: 0.75rem; }
+.hosted-constructor-root .p-2 { padding: 0.5rem; }
+.hosted-constructor-root .d-flex { display: flex; }
+.hosted-constructor-root .justify-content-between { justify-content: space-between; }
+.hosted-constructor-root .align-items-center { align-items: center; }
 
 /* Шапка с панелью инструментов */
 .toolbar-header {

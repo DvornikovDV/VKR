@@ -71,6 +71,7 @@ function makeMockSocket(edgeId: string): Socket {
 describe('T033 — Telemetry DB Failover (US4)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        TelemetryAggregatorService.resetForTests();
     });
 
     afterEach(() => {
@@ -93,7 +94,7 @@ describe('T033 — Telemetry DB Failover (US4)', () => {
         expect(TelemetryAggregatorService.windowSize()).toBe(1);
 
         // drain() MUST NOT throw even though insertMany throws
-        await expect(TelemetryAggregatorService.drain()).resolves.toBeUndefined();
+        await expect(TelemetryAggregatorService.drain({ force: true })).resolves.toBeUndefined();
 
         // Window should have been cleared regardless of DB failure
         expect(TelemetryAggregatorService.windowSize()).toBe(0);

@@ -6,6 +6,7 @@
     "scripts": {
         "dev": "ts-node src/app.ts",
         "seed": "ts-node src/scripts/seed.ts",
+        "reset:telemetry": "ts-node src/scripts/reset-telemetry.ts",
         "build": "tsc",
         "start": "node dist/app.js",
         "repro": "node -r ts-node/register ./src/scripts/run-repro.ts",

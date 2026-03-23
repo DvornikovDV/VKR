@@ -68,6 +68,26 @@ beforeEach(async () => {
     await DiagramBindings.deleteMany({});
 });
 
+describe('Layout payload integrity', () => {
+    it('should preserve an empty layout object through create and get-by-id', async () => {
+        const createRes = await request(app)
+            .post('/api/diagrams')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ name: 'Empty layout diagram', layout: {} });
+
+        expect(createRes.status).toBe(201);
+        expect(createRes.body.data.layout).toEqual({});
+
+        const diagramId = createRes.body.data._id as string;
+        const getRes = await request(app)
+            .get(`/api/diagrams/${diagramId}`)
+            .set('Authorization', `Bearer ${token}`);
+
+        expect(getRes.status).toBe(200);
+        expect(getRes.body.data.layout).toEqual({});
+    });
+});
+
 // ── T020: OCC conflict (409) ──────────────────────────────────────────────
 
 describe('T020 — PUT /api/diagrams/:id OCC conflict', () => {

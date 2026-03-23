@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Pencil } from 'lucide-react'
 import { useParams } from 'react-router-dom'
 import { ConstructorHost } from '@/features/constructor-host/ConstructorHost'
 import {
@@ -50,6 +51,7 @@ function toErrorMessage(error: unknown, fallback: string): string {
 export function FullConstructorPage() {
   const { id } = useParams<{ id: string }>()
   const runtimeRef = useRef<HostedConstructorInstance | null>(null)
+  const diagramNameInputRef = useRef<HTMLInputElement | null>(null)
   const isSyncingBindingsBaselineRef = useRef(false)
   const isSavingBindingsRef = useRef(false)
   const isForwardingLayoutSaveIntentRef = useRef(false)
@@ -60,14 +62,18 @@ export function FullConstructorPage() {
   const [activeEdgeServerId, setActiveEdgeServerId] = useState<string | null>(null)
   const [deviceCatalog, setDeviceCatalog] = useState<EditorDeviceMetricCatalogEntry[]>([])
   const [bindingSets, setBindingSets] = useState<DiagramBindingSetRecord[]>([])
-  const [isSavingBindings, setIsSavingBindings] = useState(false)
   const [bindingsSaveError, setBindingsSaveError] = useState<string | null>(null)
   const [bindingsInvalidatedModalOpen, setBindingsInvalidatedModalOpen] = useState(false)
   const [isSubmittingDestructiveSave, setIsSubmittingDestructiveSave] = useState(false)
   const [bindingsInvalidatedModalError, setBindingsInvalidatedModalError] = useState<string | null>(null)
   const [dirtyState, setDirtyState] = useState<DirtyState>({ layoutDirty: false, bindingsDirty: false })
   const [error, setError] = useState<string | null>(null)
+  const [layoutRecoveryNotice, setLayoutRecoveryNotice] = useState<string | null>(null)
   const [canOpenWithEmptyBindings, setCanOpenWithEmptyBindings] = useState(false)
+  const [isEditingDiagramName, setIsEditingDiagramName] = useState(false)
+  const [diagramNameDraft, setDiagramNameDraft] = useState('')
+  const [isRenamingDiagram, setIsRenamingDiagram] = useState(false)
+  const [diagramNameError, setDiagramNameError] = useState<string | null>(null)
 
   const saveFlow = useHostedLayoutSaveFlow({
     diagram,
@@ -94,17 +100,37 @@ export function FullConstructorPage() {
   const hasUnsavedChanges = hasUnsavedChangesFromDirtyState(dirtyState)
   useUnsavedChangesGuard({ hasUnsavedChanges })
 
+  useEffect(() => {
+    if (diagram && !isEditingDiagramName) {
+      setDiagramNameDraft(diagram.name)
+    }
+  }, [diagram, isEditingDiagramName])
+
+  useEffect(() => {
+    if (!isEditingDiagramName || !diagramNameInputRef.current) {
+      return
+    }
+
+    diagramNameInputRef.current.focus()
+    diagramNameInputRef.current.select()
+  }, [isEditingDiagramName])
+
   const loadDiagram = useCallback(async () => {
     if (!id) {
       setPhase('error')
       setError('Missing diagram id in route.')
+      setLayoutRecoveryNotice(null)
       setCanOpenWithEmptyBindings(false)
       return
     }
 
     setPhase('loading')
     setError(null)
+    setLayoutRecoveryNotice(null)
     setCanOpenWithEmptyBindings(false)
+    setIsEditingDiagramName(false)
+    setIsRenamingDiagram(false)
+    setDiagramNameError(null)
     setBindingsSaveError(null)
     setBindingsInvalidatedModalError(null)
     setBindingsInvalidatedModalOpen(false)
@@ -118,7 +144,18 @@ export function FullConstructorPage() {
         getTrustedEdgeServers(),
         getBindingsByDiagram(id),
       ])
-      const normalizedLayout = importLayoutPayload(loadedDiagram.layout)
+      let normalizedLayout: EditorRouteDiagram['layout'] = {}
+      let layoutRecoveryError: Error | null = null
+
+      try {
+        normalizedLayout = importLayoutPayload(loadedDiagram.layout)
+      } catch (layoutError) {
+        if (!isLayoutPayloadError(layoutError)) {
+          throw layoutError
+        }
+        layoutRecoveryError = layoutError
+      }
+
       const bindingsRecovery = importBindingSetsPayloadWithRecovery(loadedBindingSets)
       const nextMachines = mapTrustedEdgeServersToMachineOptions(trustedEdgeServers)
       const nextActiveEdgeServerId = nextMachines[0]?.edgeServerId ?? null
@@ -135,8 +172,15 @@ export function FullConstructorPage() {
       setBindingSets(bindingsRecovery.recoveryError ? [] : bindingsRecovery.bindingSets)
       setDirtyState({ layoutDirty: false, bindingsDirty: false })
 
+      if (layoutRecoveryError) {
+        setLayoutRecoveryNotice(
+          `Layout payload was invalid and has been recovered with an empty layout: ${layoutRecoveryError.message}`,
+        )
+      }
+
       if (bindingsRecovery.recoveryError) {
         setPhase('error')
+        setLayoutRecoveryNotice(null)
         setCanOpenWithEmptyBindings(true)
         setError(`Invalid bindings payload: ${bindingsRecovery.recoveryError.message}`)
         return
@@ -153,6 +197,7 @@ export function FullConstructorPage() {
       setBindingSets([])
       setDirtyState({ layoutDirty: false, bindingsDirty: false })
       setPhase('error')
+      setLayoutRecoveryNotice(null)
       setCanOpenWithEmptyBindings(false)
 
       if (isLayoutPayloadError(loadError)) {
@@ -275,7 +320,6 @@ export function FullConstructorPage() {
     }
 
     isSavingBindingsRef.current = true
-    setIsSavingBindings(true)
     setBindingsSaveError(null)
 
     void (async () => {
@@ -302,7 +346,6 @@ export function FullConstructorPage() {
         setBindingsSaveError(toErrorMessage(saveError, 'Failed to save binding set.'))
       } finally {
         isSavingBindingsRef.current = false
-        setIsSavingBindings(false)
       }
     })()
   }, [activeEdgeServerId, diagram])
@@ -395,26 +438,150 @@ export function FullConstructorPage() {
     })()
   }, [diagram, isSubmittingDestructiveSave])
 
+  const startDiagramRename = useCallback(() => {
+    if (!diagram || isRenamingDiagram) {
+      return
+    }
+
+    setDiagramNameError(null)
+    setDiagramNameDraft(diagram.name)
+    setIsEditingDiagramName(true)
+  }, [diagram, isRenamingDiagram])
+
+  const cancelDiagramRename = useCallback(() => {
+    if (!diagram || isRenamingDiagram) {
+      return
+    }
+
+    setDiagramNameError(null)
+    setDiagramNameDraft(diagram.name)
+    setIsEditingDiagramName(false)
+  }, [diagram, isRenamingDiagram])
+
+  const commitDiagramRename = useCallback(async () => {
+    if (!diagram || !isEditingDiagramName || isRenamingDiagram) {
+      return
+    }
+
+    const trimmedName = diagramNameDraft.trim()
+    if (trimmedName.length === 0) {
+      setDiagramNameError('Diagram name cannot be empty.')
+      return
+    }
+
+    if (trimmedName === diagram.name) {
+      setDiagramNameError(null)
+      setIsEditingDiagramName(false)
+      return
+    }
+
+    setDiagramNameError(null)
+    setIsRenamingDiagram(true)
+
+    try {
+      await updateDiagram(diagram._id, {
+        name: trimmedName,
+        __v: diagram.__v,
+      })
+
+      setDiagram((previous) => {
+        if (!previous || previous._id !== diagram._id) {
+          return previous
+        }
+
+        return {
+          ...previous,
+          name: trimmedName,
+          __v: previous.__v + 1,
+        }
+      })
+      setIsEditingDiagramName(false)
+    } catch (renameError) {
+      setDiagramNameError(toErrorMessage(renameError, 'Failed to rename diagram.'))
+    } finally {
+      setIsRenamingDiagram(false)
+    }
+  }, [diagram, diagramNameDraft, isEditingDiagramName, isRenamingDiagram])
+
   return (
-    <section className="mx-auto flex h-full min-h-[calc(100svh-3.5rem)] w-full max-w-[120rem] flex-col px-4 py-4">
-      <header className="mb-3">
-        <h1 className="text-lg font-semibold text-white">Hosted Constructor</h1>
-        <p className="text-sm text-[#94a3b8]">Full mode editor for USER routes.</p>
-        {bindingsSaveError && (
-          <p className="mt-2 rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-xs text-[var(--color-danger)]">
+    <section className="flex h-full min-h-[calc(100svh-3.5rem)] w-full flex-col" style={{ overscrollBehaviorX: 'none' }}>
+      {bindingsSaveError && (
+        <div className="px-4 pt-3">
+          <p className="rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-xs text-[var(--color-danger)]">
             {bindingsSaveError}
           </p>
-        )}
-      </header>
+        </div>
+      )}
+      {layoutRecoveryNotice && (
+        <div className="px-4 pt-3">
+          <p className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">
+            {layoutRecoveryNotice}
+          </p>
+        </div>
+      )}
+
+      {phase === 'ready' && diagram && (
+        <div className="px-4 pt-3">
+          <div className="rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] px-3 py-2">
+            <div className="flex items-center gap-2">
+              {isEditingDiagramName ? (
+                <input
+                  ref={diagramNameInputRef}
+                  type="text"
+                  value={diagramNameDraft}
+                  disabled={isRenamingDiagram}
+                  onChange={(event) => setDiagramNameDraft(event.target.value)}
+                  onBlur={() => {
+                    void commitDiagramRename()
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      event.currentTarget.blur()
+                      return
+                    }
+
+                    if (event.key === 'Escape') {
+                      event.preventDefault()
+                      cancelDiagramRename()
+                    }
+                  }}
+                  className="h-8 min-w-0 flex-1 rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-2 text-sm font-semibold text-white outline-none focus:border-[var(--color-brand-500)]"
+                  aria-label="Diagram name"
+                />
+              ) : (
+                <h1 className="truncate text-sm font-semibold text-white">{diagram.name}</h1>
+              )}
+
+              {!isEditingDiagramName && (
+                <button
+                  type="button"
+                  onClick={startDiagramRename}
+                  disabled={isRenamingDiagram}
+                  className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--color-surface-border)] text-[#cbd5e1] hover:bg-[var(--color-surface-200)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                  title="Rename diagram"
+                  aria-label="Rename diagram"
+                >
+                  <Pencil size={12} />
+                </button>
+              )}
+            </div>
+
+            {diagramNameError && (
+              <p className="mt-2 text-xs text-[var(--color-danger)]">{diagramNameError}</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {phase === 'loading' && (
-        <div className="flex min-h-[18rem] flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--color-surface-border)] text-sm text-[#94a3b8]">
+        <div className="mx-4 my-4 flex min-h-[18rem] flex-1 items-center justify-center border border-dashed border-[var(--color-surface-border)] text-sm text-[#94a3b8]">
           Loading diagram...
         </div>
       )}
 
       {phase === 'error' && (
-        <div className="flex min-h-[18rem] flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-6 text-center">
+        <div className="mx-4 my-4 flex min-h-[18rem] flex-1 flex-col items-center justify-center gap-3 border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-6 text-center">
           <p className="text-sm font-medium text-[var(--color-danger)]">
             Unable to open hosted constructor page.
           </p>
@@ -447,7 +614,7 @@ export function FullConstructorPage() {
       )}
 
       {phase === 'ready' && diagram && (
-        <div className="flex min-h-[18rem] flex-1 overflow-hidden rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)]">
+        <div className="flex min-h-[18rem] flex-1 overflow-hidden">
           <ConstructorHost
             className="h-full w-full"
             mode="full"

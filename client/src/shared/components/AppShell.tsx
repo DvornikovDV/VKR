@@ -143,7 +143,7 @@ export function AppShell({ hubTitle, navItems }: AppShellProps) {
                 </header>
 
                 {/* Page content */}
-                <main className="flex-1 overflow-auto">
+                <main className="flex-1 overflow-auto" style={{ overscrollBehaviorX: 'none' }}>
                     <Outlet />
                 </main>
             </div>

@@ -169,9 +169,9 @@ function validateAndAutoCorrectValue(widget, propName, value) {
 }
 
 class PropertiesPanel {
-    constructor(canvasManager) {
+    constructor(canvasManager, options = {}) {
         this.canvasManager = canvasManager;
-        this.container = document.getElementById('properties-content');
+        this.container = options.containerElement || document.getElementById('properties-content');
         this.selectedImage = null;
         this.selectedWidget = null;
         this.bindingsManager = null;

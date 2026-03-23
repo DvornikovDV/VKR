@@ -1,7 +1,10 @@
 import { type Server as IOServer } from 'socket.io';
-import { Telemetry, type ITelemetryDoc } from '../models/Telemetry';
-
-// ── Types ─────────────────────────────────────────────────────────────────
+import {
+    Telemetry,
+    type BooleanTelemetryRollup,
+    type ITelemetryDoc,
+    type NumericTelemetryRollup,
+} from '../models/Telemetry';
 
 export interface TelemetryReading {
     sourceId: string;
@@ -11,166 +14,323 @@ export interface TelemetryReading {
     ts: number; // Unix ms timestamp from the edge packet
 }
 
-/** Composite key for the in-memory aggregation window. */
-type AggKey = `${string}:${string}:${string}:${string}`; // edgeId:sourceId:deviceId:metric
+type ValueKind = 'numeric' | 'boolean';
 
-interface AggEntry {
+type BucketKey = `${string}:${string}:${string}:${string}:${number}:${'n' | 'b'}`;
+
+interface BaseBucketEntry {
     edgeId: string;
     sourceId: string;
     deviceId: string;
     metric: string;
+    bucketStartMs: number;
+    lastTs: number;
+}
+
+interface NumericBucketEntry extends BaseBucketEntry {
+    kind: 'numeric';
     min: number;
     max: number;
-    last: number | boolean;
     sum: number;
     count: number;
-    latestTs: number;
+    last: number;
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────
+interface BooleanBucketEntry extends BaseBucketEntry {
+    kind: 'boolean';
+    trueCount: number;
+    falseCount: number;
+    count: number;
+    last: boolean;
+}
 
-const WINDOW_MS = 1_000; // 1 000 ms sliding window
-/** Hard cap on unique aggregation keys per window — prevents OOM from malicious edge flood. */
+type BucketEntry = NumericBucketEntry | BooleanBucketEntry;
+
+interface DrainOptions {
+    force?: boolean;
+    nowMs?: number;
+}
+
+const BUCKET_MS = 1_000;
+const ALLOWED_LATENESS_MS = 2_000;
+const MAX_FUTURE_SKEW_MS = 5_000;
+const MAX_PAST_AGE_MS = 7 * 24 * 60 * 60 * 1_000;
 const WINDOW_MAX_KEYS = 50_000;
 
-// ── Aggregation Window ────────────────────────────────────────────────────
+const window = new Map<BucketKey, BucketEntry>();
 
-/**
- * In-memory map: composite key → aggregated bucket.
- *
- * Populated by `ingest()`, drained every WINDOW_MS by `startDrainLoop()`.
- * Must NOT grow unboundedly — drain removes all keys on each tick.
- */
-const window = new Map<AggKey, AggEntry>();
+let maxEventTsSeen = 0;
+let sealedThroughBucketEndMs = 0;
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-function makeKey(edgeId: string, r: TelemetryReading): AggKey {
-    return `${edgeId}:${r.sourceId}:${r.deviceId}:${r.metric}`;
+function getValueKind(value: number | boolean): ValueKind {
+    return typeof value === 'number' ? 'numeric' : 'boolean';
 }
 
-function numericValue(v: number | boolean): number {
-    return typeof v === 'boolean' ? (v ? 1 : 0) : v;
+function bucketStart(ts: number): number {
+    return Math.floor(ts / BUCKET_MS) * BUCKET_MS;
 }
 
-// ── Core API ──────────────────────────────────────────────────────────────
+function makeKey(edgeId: string, reading: TelemetryReading, startMs: number): BucketKey {
+    const kindSuffix: 'n' | 'b' = typeof reading.value === 'number' ? 'n' : 'b';
+    return `${edgeId}:${reading.sourceId}:${reading.deviceId}:${reading.metric}:${startMs}:${kindSuffix}`;
+}
 
-/**
- * Ingests a batch of readings from one edge push into the aggregation window.
- * Called by the WebSocket edge handler AFTER broadcasting to dashboard clients.
- *
- * @param edgeId   EdgeServer._id string (room name)
- * @param readings Array of telemetry points from the edge packet
- */
-function ingest(edgeId: string, readings: TelemetryReading[]): void {
-    for (const r of readings) {
-        // OOM guard: if window is at capacity, drop remaining readings for this batch
-        if (window.size >= WINDOW_MAX_KEYS) {
-            console.warn(`[TelemetryAggregator] Window cap (${WINDOW_MAX_KEYS}) reached — dropping readings`);
+export function isTimestampValid(ts: number, nowMs: number = Date.now()): boolean {
+    if (!Number.isFinite(ts) || ts <= 0) {
+        return false;
+    }
+
+    if (ts > nowMs + MAX_FUTURE_SKEW_MS) {
+        return false;
+    }
+
+    if (ts < nowMs - MAX_PAST_AGE_MS) {
+        return false;
+    }
+
+    return true;
+}
+
+function upsertNumericEntry(
+    existing: NumericBucketEntry | undefined,
+    edgeId: string,
+    reading: TelemetryReading,
+    startMs: number,
+): NumericBucketEntry {
+    const numericValue = reading.value as number;
+
+    if (!existing) {
+        return {
+            kind: 'numeric',
+            edgeId,
+            sourceId: reading.sourceId,
+            deviceId: reading.deviceId,
+            metric: reading.metric,
+            bucketStartMs: startMs,
+            min: numericValue,
+            max: numericValue,
+            sum: numericValue,
+            count: 1,
+            last: numericValue,
+            lastTs: reading.ts,
+        };
+    }
+
+    existing.min = Math.min(existing.min, numericValue);
+    existing.max = Math.max(existing.max, numericValue);
+    existing.sum += numericValue;
+    existing.count += 1;
+    if (reading.ts >= existing.lastTs) {
+        existing.last = numericValue;
+        existing.lastTs = reading.ts;
+    }
+    return existing;
+}
+
+function upsertBooleanEntry(
+    existing: BooleanBucketEntry | undefined,
+    edgeId: string,
+    reading: TelemetryReading,
+    startMs: number,
+): BooleanBucketEntry {
+    const booleanValue = reading.value as boolean;
+
+    if (!existing) {
+        return {
+            kind: 'boolean',
+            edgeId,
+            sourceId: reading.sourceId,
+            deviceId: reading.deviceId,
+            metric: reading.metric,
+            bucketStartMs: startMs,
+            trueCount: booleanValue ? 1 : 0,
+            falseCount: booleanValue ? 0 : 1,
+            count: 1,
+            last: booleanValue,
+            lastTs: reading.ts,
+        };
+    }
+
+    if (booleanValue) {
+        existing.trueCount += 1;
+    } else {
+        existing.falseCount += 1;
+    }
+    existing.count += 1;
+    if (reading.ts >= existing.lastTs) {
+        existing.last = booleanValue;
+        existing.lastTs = reading.ts;
+    }
+    return existing;
+}
+
+function toTelemetryDoc(entry: BucketEntry): ITelemetryDoc {
+    let rollup: NumericTelemetryRollup | BooleanTelemetryRollup;
+
+    if (entry.kind === 'numeric') {
+        rollup = {
+            kind: 'numeric',
+            min: entry.min,
+            max: entry.max,
+            sum: entry.sum,
+            count: entry.count,
+            avg: entry.count > 0 ? entry.sum / entry.count : 0,
+            last: entry.last,
+        };
+    } else {
+        rollup = {
+            kind: 'boolean',
+            trueCount: entry.trueCount,
+            falseCount: entry.falseCount,
+            count: entry.count,
+            last: entry.last,
+        };
+    }
+
+    return {
+        timestamp: new Date(entry.bucketStartMs),
+        metadata: {
+            edgeId: entry.edgeId,
+            sourceId: entry.sourceId,
+            deviceId: entry.deviceId,
+        },
+        metric: entry.metric,
+        rollup,
+    };
+}
+
+function computeFlushWatermark(nowMs: number, force: boolean): number {
+    if (force) {
+        return Number.POSITIVE_INFINITY;
+    }
+
+    const eventWatermark =
+        maxEventTsSeen > 0
+            ? maxEventTsSeen - ALLOWED_LATENESS_MS
+            : Number.NEGATIVE_INFINITY;
+    const processingWatermark = nowMs - ALLOWED_LATENESS_MS;
+
+    return Math.max(eventWatermark, processingWatermark);
+}
+
+function ingest(edgeId: string, readings: TelemetryReading[], nowMs: number = Date.now()): void {
+    for (const reading of readings) {
+        if (!isTimestampValid(reading.ts, nowMs)) {
+            console.warn(
+                `[TelemetryAggregator] Dropping reading with invalid ts (${reading.ts}) for edge ${edgeId}`,
+            );
+            continue;
+        }
+
+        const startMs = bucketStart(reading.ts);
+        const endMs = startMs + BUCKET_MS;
+
+        if (sealedThroughBucketEndMs > 0 && endMs <= sealedThroughBucketEndMs) {
+            console.warn(
+                `[TelemetryAggregator] Dropping too-late reading for sealed bucket ${new Date(startMs).toISOString()}`,
+            );
+            continue;
+        }
+
+        const key = makeKey(edgeId, reading, startMs);
+        if (window.size >= WINDOW_MAX_KEYS && !window.has(key)) {
+            console.warn(`[TelemetryAggregator] Window cap (${WINDOW_MAX_KEYS}) reached, dropping readings`);
             break;
         }
-        const key = makeKey(edgeId, r);
-        const num = numericValue(r.value);
-        const existing = window.get(key);
 
-        if (existing) {
-            existing.min = Math.min(existing.min, num);
-            existing.max = Math.max(existing.max, num);
-            existing.last = r.value;
-            existing.sum += num;
-            existing.count += 1;
-            existing.latestTs = Math.max(existing.latestTs, r.ts);
-        } else {
-            window.set(key, {
+        const kind = getValueKind(reading.value);
+        if (kind === 'numeric') {
+            const existing = window.get(key);
+            const next = upsertNumericEntry(
+                existing && existing.kind === 'numeric' ? existing : undefined,
                 edgeId,
-                sourceId: r.sourceId,
-                deviceId: r.deviceId,
-                metric: r.metric,
-                min: num,
-                max: num,
-                last: r.value,
-                sum: num,
-                count: 1,
-                latestTs: r.ts,
-            });
+                reading,
+                startMs,
+            );
+            window.set(key, next);
+        } else {
+            const existing = window.get(key);
+            const next = upsertBooleanEntry(
+                existing && existing.kind === 'boolean' ? existing : undefined,
+                edgeId,
+                reading,
+                startMs,
+            );
+            window.set(key, next);
         }
+
+        maxEventTsSeen = Math.max(maxEventTsSeen, reading.ts);
     }
 }
 
-/**
- * Drains the current aggregation window into MongoDB.
- *
- * CRITICAL: DB failures are caught and logged — they MUST NOT affect
- * the broadcast path (which happens before this write) or cause any
- * uncaught rejection.
- *
- * Called by `startDrainLoop` every WINDOW_MS.
- * Exported for testing and manual draining.
- */
-async function drain(): Promise<void> {
-    if (window.size === 0) return;
+async function drain(options: DrainOptions = {}): Promise<void> {
+    if (window.size === 0) {
+        return;
+    }
 
-    // Atomically snapshot and clear the window
-    const entries = [...window.values()];
-    window.clear();
+    const nowMs = options.nowMs ?? Date.now();
+    const force = options.force === true;
+    const flushWatermark = computeFlushWatermark(nowMs, force);
 
-    const docs: ITelemetryDoc[] = entries.map((e) => ({
-        timestamp: new Date(e.latestTs),
-        metadata: {
-            edgeId: e.edgeId,
-            sourceId: e.sourceId,
-            deviceId: e.deviceId,
-        },
-        metric: e.metric,
-        value: e.last,
-    }));
+    const flushingEntries: BucketEntry[] = [];
+    let nextSealedThrough = sealedThroughBucketEndMs;
+
+    for (const [key, entry] of window.entries()) {
+        const bucketEnd = entry.bucketStartMs + BUCKET_MS;
+        if (force || bucketEnd <= flushWatermark) {
+            flushingEntries.push(entry);
+            window.delete(key);
+            nextSealedThrough = Math.max(nextSealedThrough, bucketEnd);
+        }
+    }
+
+    if (flushingEntries.length === 0) {
+        return;
+    }
+
+    sealedThroughBucketEndMs = nextSealedThrough;
+
+    const docs = flushingEntries
+        .map((entry) => toTelemetryDoc(entry))
+        .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
     try {
         await Telemetry.insertMany(docs, { ordered: false });
     } catch (err) {
-        // DB failure is INTENTIONALLY non-fatal.
-        // Broadcasts already happened; only persistence is lost for this window.
+        // DB failures are intentionally non-fatal for realtime delivery.
         console.error('[TelemetryAggregator] DB write failed (non-fatal):', err);
     }
 }
 
-/**
- * Starts the periodic drain loop.
- * Should be called once after Socket.IO is initialized.
- *
- * The returned NodeJS.Timeout reference can be passed to `stopDrainLoop`
- * for cleanup during testing.
- *
- * @param io  Socket.IO server instance (reserved for future per-window emits)
- */
 function startDrainLoop(_io: IOServer): NodeJS.Timeout {
     const handle = setInterval(() => {
-        // Fire-and-forget: drain() handles its own errors internally
         void drain();
-    }, WINDOW_MS);
+    }, BUCKET_MS);
 
-    console.log(`[TelemetryAggregator] Drain loop started (${WINDOW_MS}ms interval)`);
+    console.log(`[TelemetryAggregator] Drain loop started (${BUCKET_MS}ms interval)`);
     return handle;
 }
 
-/**
- * Stops the drain loop (call in test teardowns).
- */
 function stopDrainLoop(handle: NodeJS.Timeout): void {
     clearInterval(handle);
 }
 
-/** Returns the current size of the aggregation window (for tests). */
 function windowSize(): number {
     return window.size;
 }
 
-// ── Export ────────────────────────────────────────────────────────────────
+function resetForTests(): void {
+    window.clear();
+    maxEventTsSeen = 0;
+    sealedThroughBucketEndMs = 0;
+}
 
 export const TelemetryAggregatorService = {
     ingest,
     drain,
+    isTimestampValid,
     startDrainLoop,
     stopDrainLoop,
     windowSize,
+    resetForTests,
 };

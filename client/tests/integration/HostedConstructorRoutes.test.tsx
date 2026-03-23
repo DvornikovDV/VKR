@@ -124,7 +124,7 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
 
     renderRoutes('/hub/editor/diagram-42')
 
-    expect(await screen.findByText('Hosted Constructor')).toBeInTheDocument()
+    expect(await screen.findByTestId('constructor-host-runtime')).toBeInTheDocument()
 
     await waitFor(() => {
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
@@ -164,6 +164,58 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
     })
 
     expect(harness.getLastConfig()?.mode).toBe('reduced')
+  })
+
+  it('auto-recovers invalid layout payloads on user full route and opens runtime', async () => {
+    const harness = createMockHostedConstructorHarness()
+    mockedLoadHostedConstructor.mockResolvedValue(harness.module)
+
+    server.use(
+      http.get('/api/diagrams/:id', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: String(params.id),
+            name: 'Broken User Diagram',
+            layout: null,
+            __v: 1,
+          },
+        }),
+      ),
+      http.get('/api/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [{ _id: 'edge-1', name: 'Machine 1', isActive: true }],
+        }),
+      ),
+      http.get('/api/edge-servers/:edgeId/catalog', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
+      http.get('/api/diagrams/:id/bindings', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
+    )
+
+    act(() => {
+      useAuthStore.getState().setSession(userSession)
+    })
+
+    renderRoutes('/hub/editor/diagram-invalid-layout')
+
+    await waitFor(() => {
+      expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
+    })
+
+    expect(screen.queryByText('Unable to open hosted constructor page.')).not.toBeInTheDocument()
+    expect(screen.getByText(/recovered with an empty layout/i)).toBeInTheDocument()
+    expect(harness.getLastConfig()?.initialLayout).toEqual({})
+    expect(harness.getLastConfig()?.mode).toBe('full')
   })
 
   it('keeps hosted runtime mounted while temporary re-auth overlay is visible (T014a)', async () => {

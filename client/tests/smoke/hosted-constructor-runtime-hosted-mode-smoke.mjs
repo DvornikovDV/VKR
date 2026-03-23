@@ -55,11 +55,15 @@ if (!Array.isArray(hostedControllerContext.bindingsManager.allDevices)) {
 
 let layoutIntentCalls = 0
 let bindingsIntentCalls = 0
+let saveAsIntentCalls = 0
 const hostedFileManager = new FileManager(null, null, null, null, null, null, {
   hostedRuntime: true,
   hostedCallbacks: {
     onSaveLayoutIntent: () => {
       layoutIntentCalls += 1
+    },
+    onSaveAsIntent: () => {
+      saveAsIntentCalls += 1
     },
     onSaveBindingsIntent: () => {
       bindingsIntentCalls += 1
@@ -78,6 +82,10 @@ if (layoutIntentCalls !== 1) {
 
 if (bindingsIntentCalls !== 1) {
   throw new Error('Hosted saveBindings() should emit one onSaveBindingsIntent callback.')
+}
+
+if (saveAsIntentCalls !== 1) {
+  throw new Error('Hosted loadScheme() should emit one onSaveAsIntent callback.')
 }
 
 globalThis.fetch = originalFetch

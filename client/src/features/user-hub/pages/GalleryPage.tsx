@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import {
   createDiagram,
   getDiagrams,
+  getDiagramById,
+  updateDiagram,
   type Diagram,
 } from '@/shared/api/diagrams'
 import { deleteBinding, getBindingsByDiagram } from '@/shared/api/bindings'
@@ -15,6 +17,7 @@ import {
 
 interface DiagramCardState extends DiagramCardModel {
   updatedAt: string
+  version: number | null
 }
 
 function toUpdatedAt(diagram: Diagram): string {
@@ -28,7 +31,16 @@ function toCardModel(diagram: Diagram, profiles: TelemetryProfileEntry[]): Diagr
     thumbnailUrl: undefined,
     telemetryProfiles: profiles,
     updatedAt: toUpdatedAt(diagram),
+    version: typeof diagram.__v === 'number' ? diagram.__v : null,
   }
+}
+
+function toErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message
+  }
+
+  return fallback
 }
 
 export function GalleryPage() {
@@ -133,6 +145,47 @@ export function GalleryPage() {
     }
   }
 
+  async function handleRenameDiagram(diagramId: string, nextName: string) {
+    const trimmedName = nextName.trim()
+    if (trimmedName.length === 0) {
+      throw new Error('Diagram name cannot be empty.')
+    }
+
+    const card = cards.find((item) => item.id === diagramId)
+    if (!card) {
+      throw new Error('Diagram card was not found.')
+    }
+
+    let version = card.version
+    if (version === null) {
+      const latest = await getDiagramById(diagramId)
+      version = latest.__v
+    }
+
+    try {
+      await updateDiagram(diagramId, {
+        name: trimmedName,
+        __v: version,
+      })
+    } catch (renameError) {
+      throw new Error(toErrorMessage(renameError, 'Failed to rename diagram.'))
+    }
+
+    const refreshed = await getDiagramById(diagramId)
+    setCards((prev) =>
+      prev.map((item) =>
+        item.id === diagramId
+          ? {
+              ...item,
+              name: refreshed.name,
+              updatedAt: toUpdatedAt(refreshed),
+              version: refreshed.__v,
+            }
+          : item,
+      ),
+    )
+  }
+
   const isCreateDisabled = !canCreate() || isCreating
 
   return (
@@ -180,7 +233,7 @@ export function GalleryPage() {
           No diagrams yet. Create your first diagram to get started.
         </p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid items-start gap-4 md:grid-cols-2">
           {cards.map((diagram) => (
             <DiagramCard
               key={diagram.id}
@@ -198,6 +251,7 @@ export function GalleryPage() {
               onDeleteTelemetryProfile={(profile) =>
                 void handleDeleteTelemetryProfile(diagram.id, profile)
               }
+              onRenameDiagram={(diagramId, name) => handleRenameDiagram(diagramId, name)}
             />
           ))}
         </div>

@@ -290,9 +290,18 @@ class FileManager {
     }
 
     /** Загрузка структуры мнемосхемы из файла с автовосстановлением связей. */
-    loadScheme() {
+    requestSaveAs() {
         if (this.isHostedRuntime) {
             this._emitHostedIntent('onSaveAsIntent');
+            return;
+        }
+
+        this.loadScheme();
+    }
+
+    loadScheme() {
+        if (this.isHostedRuntime) {
+            this.requestSaveAs();
             return;
         }
 

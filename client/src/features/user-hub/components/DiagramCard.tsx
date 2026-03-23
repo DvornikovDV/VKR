@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, ExternalLink, Pencil, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { deleteDiagram } from '@/shared/api/diagrams'
@@ -24,6 +24,7 @@ interface DiagramCardProps {
   onDeleteTelemetryProfile: (profile: TelemetryProfileEntry) => void
   canEditDiagram?: (diagram: DiagramCardModel) => boolean
   onDiagramDeleted?: (diagramId: string) => void
+  onRenameDiagram?: (diagramId: string, name: string) => Promise<void> | void
 }
 
 export function DiagramCard({
@@ -33,12 +34,33 @@ export function DiagramCard({
   onDeleteTelemetryProfile,
   canEditDiagram,
   onDiagramDeleted,
+  onRenameDiagram,
 }: DiagramCardProps) {
   const [profilesOpen, setProfilesOpen] = useState(false)
   const [isDeletingDiagram, setIsDeletingDiagram] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [nameDraft, setNameDraft] = useState(diagram.name)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameError, setRenameError] = useState<string | null>(null)
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
   const navigate = useNavigate()
   const canEdit = canEditDiagram ? canEditDiagram(diagram) : true
+
+  useEffect(() => {
+    if (!isEditingName) {
+      setNameDraft(diagram.name)
+    }
+  }, [diagram.name, isEditingName])
+
+  useEffect(() => {
+    if (!isEditingName || !nameInputRef.current) {
+      return
+    }
+
+    nameInputRef.current.focus()
+    nameInputRef.current.select()
+  }, [isEditingName])
 
   function handleEditLayout() {
     if (!canEdit) {
@@ -75,6 +97,61 @@ export function DiagramCard({
     }
   }
 
+  function startRename() {
+    if (!canEdit || isDeletingDiagram || isRenaming) {
+      return
+    }
+
+    setRenameError(null)
+    setNameDraft(diagram.name)
+    setIsEditingName(true)
+  }
+
+  function cancelRename() {
+    if (isRenaming) {
+      return
+    }
+
+    setRenameError(null)
+    setNameDraft(diagram.name)
+    setIsEditingName(false)
+  }
+
+  async function commitRename() {
+    if (!isEditingName || isRenaming) {
+      return
+    }
+
+    const nextName = nameDraft.trim()
+    if (nextName.length === 0) {
+      setRenameError('Diagram name cannot be empty.')
+      return
+    }
+
+    if (nextName === diagram.name) {
+      setRenameError(null)
+      setIsEditingName(false)
+      return
+    }
+
+    if (!onRenameDiagram) {
+      setIsEditingName(false)
+      return
+    }
+
+    setRenameError(null)
+    setIsRenaming(true)
+
+    try {
+      await onRenameDiagram(diagram.id, nextName)
+      setIsEditingName(false)
+    } catch {
+      setRenameError('Failed to rename diagram. Please try again.')
+    } finally {
+      setIsRenaming(false)
+    }
+  }
+
   return (
     <article className="rounded-xl border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
       <div className="flex items-center gap-3">
@@ -93,7 +170,49 @@ export function DiagramCard({
         </div>
 
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-base font-semibold text-white">{diagram.name}</h3>
+          <div className="flex items-center gap-2">
+            {isEditingName ? (
+              <input
+                ref={nameInputRef}
+                type="text"
+                value={nameDraft}
+                disabled={isRenaming}
+                onChange={(event) => setNameDraft(event.target.value)}
+                onBlur={() => {
+                  void commitRename()
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    event.currentTarget.blur()
+                    return
+                  }
+
+                  if (event.key === 'Escape') {
+                    event.preventDefault()
+                    cancelRename()
+                  }
+                }}
+                className="h-7 min-w-0 flex-1 rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-2 text-sm font-semibold text-white outline-none focus:border-[var(--color-brand-500)]"
+                aria-label="Diagram name"
+              />
+            ) : (
+              <h3 className="truncate text-base font-semibold text-white">{diagram.name}</h3>
+            )}
+
+            {!isEditingName && (
+              <button
+                type="button"
+                onClick={startRename}
+                disabled={!canEdit || isDeletingDiagram}
+                title={!canEdit ? 'Renaming is disabled by diagram limit policy' : 'Rename diagram'}
+                className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--color-surface-border)] text-[#cbd5e1] hover:bg-[var(--color-surface-200)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+                aria-label="Rename diagram"
+              >
+                <Pencil size={12} />
+              </button>
+            )}
+          </div>
           <p className="text-xs text-[#94a3b8]">
             Telemetry Profiles: {diagram.telemetryProfiles.length}
           </p>
@@ -123,6 +242,7 @@ export function DiagramCard({
       </div>
 
       {deleteError && <p className="mt-2 text-xs text-[var(--color-danger)]">{deleteError}</p>}
+      {renameError && <p className="mt-2 text-xs text-[var(--color-danger)]">{renameError}</p>}
 
       <div className="mt-4 rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-200)]">
         <button

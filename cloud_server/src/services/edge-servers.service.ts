@@ -250,7 +250,16 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
         deviceId: string;
         metric: string;
     }>([
-        { $match: { 'metadata.edgeId': edgeIdStr } },
+        {
+            $match: {
+                'metadata.edgeId': edgeIdStr,
+                $or: [
+                    { rollup: { $exists: true } },
+                    // Compatibility with legacy telemetry documents before one-time reset.
+                    { value: { $exists: true } },
+                ],
+            },
+        },
         {
             $group: {
                 _id: {
