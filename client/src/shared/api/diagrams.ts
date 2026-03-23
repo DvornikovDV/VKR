@@ -14,6 +14,9 @@ export interface EditorRouteDiagram extends Omit<Diagram, '__v'> {
   __v: number
 }
 
+export type DashboardDiagramSummary = Diagram
+export type DashboardDiagramDocument = Diagram
+
 export interface CreateDiagramPayload {
   name: string
   layout: Record<string, unknown>
@@ -37,8 +40,16 @@ export async function getDiagrams(): Promise<Diagram[]> {
   return apiClient.get<Diagram[]>('/diagrams')
 }
 
+export async function getDashboardDiagrams(): Promise<DashboardDiagramSummary[]> {
+  return apiClient.get<DashboardDiagramSummary[]>('/diagrams')
+}
+
 export async function getDiagramById(diagramId: string): Promise<EditorRouteDiagram> {
   return apiClient.get<EditorRouteDiagram>(`/diagrams/${diagramId}`)
+}
+
+export async function getDashboardDiagramById(diagramId: string): Promise<DashboardDiagramDocument> {
+  return apiClient.get<DashboardDiagramDocument>(`/diagrams/${diagramId}`)
 }
 
 export async function createDiagram(payload: CreateDiagramPayload): Promise<Diagram> {

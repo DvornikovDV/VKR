@@ -15,6 +15,8 @@ export interface TelemetryProfile {
   updatedAt?: string
 }
 
+export type DashboardBindingProfile = TelemetryProfile
+
 export interface UpsertTelemetryProfilePayload {
   edgeServerId: string
   widgetBindings: WidgetBinding[]
@@ -22,6 +24,12 @@ export interface UpsertTelemetryProfilePayload {
 
 export async function getBindingsByDiagram(diagramId: string): Promise<TelemetryProfile[]> {
   return apiClient.get<TelemetryProfile[]>(`/diagrams/${diagramId}/bindings`)
+}
+
+export async function getDashboardBindingProfiles(
+  diagramId: string,
+): Promise<DashboardBindingProfile[]> {
+  return apiClient.get<DashboardBindingProfile[]>(`/diagrams/${diagramId}/bindings`)
 }
 
 export async function createBinding(

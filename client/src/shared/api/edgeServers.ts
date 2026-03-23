@@ -24,6 +24,8 @@ export interface TrustedEdgeServer {
   lastSeen?: string | null
 }
 
+export type DashboardTrustedEdgeServer = TrustedEdgeServer
+
 export interface EdgeServerCatalogRow {
   edgeServerId: string
   sourceId?: string | null
@@ -47,6 +49,10 @@ export async function getEdgeServers(): Promise<EdgeServer[]> {
 
 export async function getTrustedEdgeServers(): Promise<TrustedEdgeServer[]> {
   return apiClient.get<TrustedEdgeServer[]>('/edge-servers')
+}
+
+export async function getDashboardTrustedEdgeServers(): Promise<DashboardTrustedEdgeServer[]> {
+  return apiClient.get<DashboardTrustedEdgeServer[]>('/edge-servers')
 }
 
 export async function getEdgeServerCatalog(edgeId: string): Promise<EdgeServerCatalogRow[]> {
