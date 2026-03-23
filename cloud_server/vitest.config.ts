@@ -23,12 +23,14 @@ export default defineConfig({
                 test: {
                     name: 'unit',
                     include: ['tests/unit/**/*.test.ts'],
+                    setupFiles: ['./tests/setup.ts'],
                 },
             },
             {
                 test: {
                     name: 'integration',
                     include: ['tests/integration/**/*.test.ts'],
+                    setupFiles: ['./tests/setup.ts'],
                     // Sequential: each integration test file gets exclusive DB access
                     fileParallelism: false,
                     sequence: { concurrent: false },
