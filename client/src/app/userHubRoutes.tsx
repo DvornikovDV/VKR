@@ -1,6 +1,7 @@
 import { Suspense, lazy } from 'react'
 import { type RouteObject } from 'react-router-dom'
 import { GalleryPage } from '@/features/user-hub/pages/GalleryPage'
+import { DashboardPage } from '@/features/user-hub/pages/DashboardPage'
 import { UserHubLayout } from '@/features/user-hub/UserHubLayout'
 
 const FullConstructorPage = lazy(async () => {
@@ -51,6 +52,10 @@ export const userHubRouteChildren: RouteObject[] = [
             <FullConstructorPage />
           </Suspense>
         ),
+      },
+      {
+        path: 'dashboard',
+        element: <DashboardPage />,
       },
       {
         path: '*',
