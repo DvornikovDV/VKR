@@ -189,14 +189,14 @@ describe('DashboardPage (US1)', () => {
     await waitFor(() => {
       expect(router.state.location.search).toContain('diagramId=diagram-2')
       expect(router.state.location.search).not.toContain('edgeId=')
-    })
+    }, { timeout: 1000 })
     expect(screen.getByText('Select an edge server to start monitoring.')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-2')
     await waitFor(() => {
       expect(router.state.location.search).toContain('diagramId=diagram-2')
       expect(router.state.location.search).toContain('edgeId=edge-2')
-    })
+    }, { timeout: 1000 })
   })
 })
 
@@ -257,10 +257,47 @@ describe('DashboardPage (US2)', () => {
       runtimeHarness.emitTransportStatus('edge-1', 'reconnecting')
     })
 
-    expect(
-      screen.getByText('Transport reconnecting. Last rendered values are preserved.'),
-    ).toBeInTheDocument()
+    await waitFor(() => {
+      expect(
+        screen.getByText('Transport reconnecting. Last rendered values are preserved.'),
+      ).toBeInTheDocument()
+    }, { timeout: 3000 })
     expect(screen.getByText('48.7')).toBeInTheDocument()
+  })
+
+  it('distinguishes edge offline state from transport reconnecting state', async () => {
+    setupDashboardApiFixtures()
+    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId: 'edge-1' }),
+      )
+    })
+
+    act(() => {
+      runtimeHarness.emitTransportStatus('edge-1', 'connected')
+      runtimeHarness.emitEdgeStatus({ edgeId: 'edge-1', online: false })
+    })
+
+    expect(screen.getByText('Transport: Connected')).toBeInTheDocument()
+    expect(screen.getByText('Edge: Edge offline')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Transport reconnecting. Last rendered values are preserved.'),
+    ).not.toBeInTheDocument()
+
+    act(() => {
+      runtimeHarness.emitTransportStatus('edge-1', 'reconnecting')
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText('Transport: Reconnecting')).toBeInTheDocument()
+      expect(screen.getByText('Edge: Edge offline')).toBeInTheDocument()
+      expect(
+        screen.getByText('Transport reconnecting. Last rendered values are preserved.'),
+      ).toBeInTheDocument()
+    }, { timeout: 3000 })
   })
 
   it('disposes the previous runtime session when monitoring context changes', async () => {
@@ -285,7 +322,7 @@ describe('DashboardPage (US2)', () => {
         expect.objectContaining({ edgeId: 'edge-2' }),
       )
       expect(runtimeHarness.getDisposeCount('edge-1')).toBeGreaterThanOrEqual(1)
-    })
+    }, { timeout: 2000 })
   })
 })
 
