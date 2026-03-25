@@ -26,9 +26,7 @@ export interface DashboardRuntimeSessionState {
   runtimeError: string | null
 }
 
-export interface UseDashboardRuntimeSessionResult extends DashboardRuntimeSessionState {
-  resetRuntimeValues: () => void
-}
+export type UseDashboardRuntimeSessionResult = DashboardRuntimeSessionState
 
 function createIdleState(): DashboardRuntimeSessionState {
   return {
@@ -171,16 +169,5 @@ export function useDashboardRuntimeSession(
     }
   }, [disposeSession, enabled, normalizedEdgeId, runtimeClient])
 
-  const resetRuntimeValues = useCallback(() => {
-    setState((previous) => ({
-      ...previous,
-      latestMetricValueByBindingKey: {},
-      lastServerTimestamp: null,
-    }))
-  }, [])
-
-  return {
-    ...state,
-    resetRuntimeValues,
-  }
+  return state
 }

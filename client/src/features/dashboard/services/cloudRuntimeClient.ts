@@ -2,7 +2,6 @@ import { io } from 'socket.io-client'
 import { useAuthStore } from '@/shared/store/useAuthStore'
 import type {
   DashboardEdgeStatusEvent,
-  DashboardSubscribedEvent,
   DashboardTelemetryEvent,
   DashboardTelemetryReading,
   DashboardTransportStatus,
@@ -28,7 +27,6 @@ export interface StartDashboardRuntimeSessionOptions {
   onTransportStatusChange?: (status: DashboardTransportStatus) => void
   onTelemetry?: (event: DashboardTelemetryEvent) => void
   onEdgeStatus?: (event: DashboardEdgeStatusEvent) => void
-  onSubscribed?: (event: DashboardSubscribedEvent) => void
   onRuntimeError?: (error: Error) => void
 }
 
@@ -43,6 +41,7 @@ export interface CloudRuntimeClient {
 }
 
 const DEFAULT_SOCKET_PATH = '/socket.io'
+const DASHBOARD_SUBSCRIBE_EVENT = 'subscribe'
 
 function normalizeEdgeId(edgeId: string): string {
   return edgeId.trim()
@@ -150,19 +149,6 @@ function parseEdgeStatusEvent(payload: unknown, expectedEdgeId: string): Dashboa
   }
 }
 
-function parseSubscribedEvent(payload: unknown, expectedEdgeId: string): DashboardSubscribedEvent | null {
-  if (!isRecord(payload)) {
-    return null
-  }
-
-  const edgeId = toNonEmptyString(payload.edgeId)
-  if (!edgeId || edgeId !== expectedEdgeId) {
-    return null
-  }
-
-  return { edgeId }
-}
-
 function resolveSocketUrl(): string | undefined {
   const configured = import.meta.env.VITE_CLOUD_SOCKET_URL as string | undefined
   if (!configured) {
@@ -194,6 +180,10 @@ function createDefaultSocket(token: string): DashboardSocketLike {
   }) as unknown as DashboardSocketLike
 }
 
+function emitDashboardSubscribeRequest(socket: DashboardSocketLike, edgeId: string): void {
+  socket.emit(DASHBOARD_SUBSCRIBE_EVENT, { edgeId })
+}
+
 export function createCloudRuntimeClient(
   socketFactory: DashboardSocketFactory = createDefaultSocket,
 ): CloudRuntimeClient {
@@ -222,7 +212,7 @@ export function createCloudRuntimeClient(
 
       const handleConnect = () => {
         notifyTransportStatus('connected')
-        socket.emit('subscribe', { edgeId })
+        emitDashboardSubscribeRequest(socket, edgeId)
       }
 
       const handleDisconnect = () => {
@@ -254,22 +244,12 @@ export function createCloudRuntimeClient(
         options.onEdgeStatus?.(parsed)
       }
 
-      const handleSubscribed = (payload: unknown) => {
-        const parsed = parseSubscribedEvent(payload, edgeId)
-        if (!parsed) {
-          return
-        }
-
-        options.onSubscribed?.(parsed)
-      }
-
       notifyTransportStatus('connecting')
       socket.on('connect', handleConnect)
       socket.on('disconnect', handleDisconnect)
       socket.on('connect_error', handleConnectError)
       socket.on('telemetry', handleTelemetry)
       socket.on('edge_status', handleEdgeStatus)
-      socket.on('subscribed', handleSubscribed)
       socket.connect()
 
       return {
@@ -285,7 +265,6 @@ export function createCloudRuntimeClient(
           socket.off('connect_error', handleConnectError)
           socket.off('telemetry', handleTelemetry)
           socket.off('edge_status', handleEdgeStatus)
-          socket.off('subscribed', handleSubscribed)
           socket.disconnect()
         },
         isConnected: () => socket.connected,

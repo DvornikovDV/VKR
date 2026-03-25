@@ -45,6 +45,25 @@ function getMessage(
   }
 }
 
+function getHint(state: DashboardRecoveryState): string | null {
+  switch (state) {
+    case 'empty':
+      return 'Dashboard starts monitoring after Diagram and Edge Server are both selected.'
+    case 'loading':
+      return 'Resolving saved diagram and binding profile from cloud contracts.'
+    case 'invalid-selection':
+      return 'Choose a valid Diagram and Edge pair from the selectors above.'
+    case 'missing-binding-profile':
+      return 'Create or save bindings in Constructor, then return to Dashboard monitoring.'
+    case 'invalid-binding-profile':
+      return 'Saved binding profile needs a refresh because widget ids no longer match.'
+    case 'ready':
+      return 'Live telemetry updates are applied from the selected Edge subscription.'
+    default:
+      return null
+  }
+}
+
 export function DashboardStatePanel({
   state,
   selectedDiagramName,
@@ -54,14 +73,25 @@ export function DashboardStatePanel({
   errorMessage = null,
 }: DashboardStatePanelProps) {
   const message = getMessage(state, selectedDiagramName, errorMessage)
+  const hint = getHint(state)
   const transportLabel = selectTransportStatusLabel(transportStatus)
   const edgeAvailabilityLabel = selectEdgeAvailabilityLabel(edgeAvailability)
   const isReconnecting = transportStatus === 'reconnecting'
+  const isLoading = state === 'loading'
+  const isError = state === 'generic-error'
 
   return (
-    <section className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
+    <section
+      aria-busy={isLoading}
+      className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4 shadow-[inset_0_1px_0_rgba(148,163,184,0.06)]"
+    >
       <h1 className="text-xl font-semibold text-white">Dashboard Monitoring</h1>
-      <p className="mt-1 text-sm text-[#94a3b8]">{message}</p>
+      <p
+        className={`mt-1 text-sm transition-colors duration-200 ${isError ? 'text-[var(--color-danger)]' : 'text-[#94a3b8]'}`}
+      >
+        {message}
+      </p>
+      {hint && <p className="mt-1 text-xs text-[#7f90a7]">{hint}</p>}
 
       <div className="mt-3 text-xs text-[#94a3b8]">
         <p>Diagram: {selectedDiagramName ?? 'Not selected'}</p>
@@ -72,6 +102,12 @@ export function DashboardStatePanel({
         <p>Transport: {transportLabel}</p>
         <p>Edge: {edgeAvailabilityLabel}</p>
       </div>
+
+      {isLoading && (
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-200)]">
+          <div className="h-full w-2/5 animate-pulse rounded-full bg-[var(--color-brand-500)]" />
+        </div>
+      )}
 
       {isReconnecting && (
         <p className="mt-2 text-xs text-[var(--color-warning)]">

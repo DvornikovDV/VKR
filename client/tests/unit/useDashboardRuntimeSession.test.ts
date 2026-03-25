@@ -4,7 +4,11 @@ import { useDashboardRuntimeSession } from '@/features/dashboard/hooks/useDashbo
 import { createDashboardBindingKey } from '@/features/dashboard/model/selectors'
 import { createCloudRuntimeClient } from '@/features/dashboard/services/cloudRuntimeClient'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
-import { createMockDashboardRuntimeSocketHarness } from '../integration/helpers/mockDashboardRuntimeSocket'
+import {
+  createDashboardEdgeStatusEventFixture,
+  createDashboardTelemetryEventFixture,
+  createMockDashboardRuntimeSocketHarness,
+} from '../integration/helpers/mockDashboardRuntimeSocket'
 
 const userSession: Session = {
   id: 'user-1',
@@ -46,6 +50,12 @@ describe('useDashboardRuntimeSession (T015)', () => {
 
     expect(result.current.activeEdgeId).toBe('edge-1')
     expect(socketHarness.getLastSubscribePayload()).toEqual({ edgeId: 'edge-1' })
+    expect(socketHarness.getEmittedEvents()).toEqual([
+      {
+        event: 'subscribe',
+        payload: { edgeId: 'edge-1' },
+      },
+    ])
   })
 
   it('applies telemetry for active edge and tracks edge availability', async () => {
@@ -65,33 +75,37 @@ describe('useDashboardRuntimeSession (T015)', () => {
     })
 
     act(() => {
-      socketHarness.emitTelemetry({
-        edgeId: 'edge-1',
-        readings: [
-          {
-            sourceId: 'source-1',
-            deviceId: 'pump-1',
-            metric: 'temperature',
-            last: 41.2,
-            ts: 1763895000000,
-          },
-        ],
-        serverTs: 1763895001000,
-      })
-      socketHarness.emitTelemetry({
-        edgeId: 'edge-2',
-        readings: [
-          {
-            sourceId: 'source-2',
-            deviceId: 'pump-2',
-            metric: 'pressure',
-            last: 12,
-            ts: 1763895000001,
-          },
-        ],
-        serverTs: 1763895001001,
-      })
-      socketHarness.emitEdgeStatus({ edgeId: 'edge-1', online: false })
+      socketHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId: 'edge-1',
+          readings: [
+            {
+              sourceId: 'source-1',
+              deviceId: 'pump-1',
+              metric: 'temperature',
+              last: 41.2,
+              ts: 1763895000000,
+            },
+          ],
+          serverTs: 1763895001000,
+        }),
+      )
+      socketHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId: 'edge-2',
+          readings: [
+            {
+              sourceId: 'source-2',
+              deviceId: 'pump-2',
+              metric: 'pressure',
+              last: 12,
+              ts: 1763895000001,
+            },
+          ],
+          serverTs: 1763895001001,
+        }),
+      )
+      socketHarness.emitEdgeStatus(createDashboardEdgeStatusEventFixture({ edgeId: 'edge-1', online: false }))
     })
 
     await waitFor(() => {
@@ -126,19 +140,20 @@ describe('useDashboardRuntimeSession (T015)', () => {
     })
 
     act(() => {
-      socketHarness.emitTelemetry({
-        edgeId: 'edge-1',
-        readings: [
-          {
-            sourceId: 'source-1',
-            deviceId: 'pump-1',
-            metric: 'temperature',
-            last: 55,
-            ts: 1763895002000,
-          },
-        ],
-        serverTs: 1763895003000,
-      })
+      socketHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          readings: [
+            {
+              sourceId: 'source-1',
+              deviceId: 'pump-1',
+              metric: 'temperature',
+              last: 55,
+              ts: 1763895002000,
+            },
+          ],
+          serverTs: 1763895003000,
+        }),
+      )
     })
 
     await waitFor(() => {

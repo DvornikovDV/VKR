@@ -299,6 +299,7 @@ export function DashboardPage() {
 
   const isToolbarDisabled = isBootstrapLoading || Boolean(bootstrapError)
   const isRuntimeEnabled = recoveryState === 'ready' && Boolean(selectedEdgeId && selectedBindingProfile)
+  const isRecoveryLoading = recoveryState === 'loading'
 
   const runtimeSession = useDashboardRuntimeSession({
     edgeId: selectedEdgeId,
@@ -318,7 +319,7 @@ export function DashboardPage() {
 
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-6">
-      <div className="space-y-4">
+      <div className={`space-y-4 transition-opacity duration-200 ${isRecoveryLoading ? 'opacity-90' : 'opacity-100'}`}>
         <DashboardToolbar
           diagrams={diagrams}
           selectedDiagramId={selectedDiagramId}
@@ -352,15 +353,19 @@ export function DashboardPage() {
           errorMessage={bootstrapError ?? bindingsError ?? savedDiagramError ?? runtimeSession.runtimeError}
         />
 
-        <DashboardRuntimeSurface
-          isActiveContext={isRuntimeEnabled}
-          savedDiagram={selectedSavedDiagram}
-          runtimeProjection={runtimeProjection}
-          transportStatus={runtimeSession.transportStatus}
-          edgeAvailability={runtimeSession.edgeAvailability}
-          latestMetricValueByBindingKey={runtimeSession.latestMetricValueByBindingKey}
-          lastServerTimestamp={runtimeSession.lastServerTimestamp}
-        />
+        <section className="rounded-xl border border-[#1f2a3d] bg-[#0a1220] p-3 shadow-[inset_0_1px_0_rgba(148,163,184,0.08)]">
+          <div className="rounded-lg border border-[#162033] bg-[radial-gradient(circle_at_top,_#132238,_#0a1220_58%)] p-2">
+            <DashboardRuntimeSurface
+              isActiveContext={isRuntimeEnabled}
+              savedDiagram={selectedSavedDiagram}
+              runtimeProjection={runtimeProjection}
+              transportStatus={runtimeSession.transportStatus}
+              edgeAvailability={runtimeSession.edgeAvailability}
+              latestMetricValueByBindingKey={runtimeSession.latestMetricValueByBindingKey}
+              lastServerTimestamp={runtimeSession.lastServerTimestamp}
+            />
+          </div>
+        </section>
       </div>
     </section>
   )

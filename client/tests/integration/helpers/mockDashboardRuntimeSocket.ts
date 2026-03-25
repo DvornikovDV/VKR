@@ -5,6 +5,7 @@ import type {
 } from '@/features/dashboard/services/cloudRuntimeClient'
 import type {
   DashboardEdgeStatusEvent,
+  DashboardTelemetryReading,
   DashboardTelemetryEvent,
 } from '@/features/dashboard/model/types'
 
@@ -13,6 +14,7 @@ type SocketEventHandler = (...args: unknown[]) => void
 interface MockSocketState {
   listeners: Map<string, Set<SocketEventHandler>>
   lastSubscribePayload: { edgeId: string } | null
+  emittedEvents: Array<{ event: string; payload: unknown }>
 }
 
 export interface MockDashboardRuntimeSocketHarness {
@@ -29,6 +31,7 @@ export interface MockDashboardRuntimeSocketHarness {
   emitTelemetry: (event: DashboardTelemetryEvent) => void
   emitEdgeStatus: (event: DashboardEdgeStatusEvent) => void
   getLastSubscribePayload: () => { edgeId: string } | null
+  getEmittedEvents: () => Array<{ event: string; payload: unknown }>
   reset: () => void
 }
 
@@ -36,6 +39,7 @@ function createState(): MockSocketState {
   return {
     listeners: new Map<string, Set<SocketEventHandler>>(),
     lastSubscribePayload: null,
+    emittedEvents: [],
   }
 }
 
@@ -47,6 +51,37 @@ function dispatchEvent(state: MockSocketState, eventName: string, ...args: unkno
 
   for (const handler of handlers) {
     handler(...args)
+  }
+}
+
+export function createDashboardTelemetryReadingFixture(
+  overrides: Partial<DashboardTelemetryReading> = {},
+): DashboardTelemetryReading {
+  return {
+    sourceId: overrides.sourceId ?? 'source-1',
+    deviceId: overrides.deviceId ?? 'pump-1',
+    metric: overrides.metric ?? 'temperature',
+    last: overrides.last ?? 42.5,
+    ts: overrides.ts ?? 1763895000000,
+  }
+}
+
+export function createDashboardTelemetryEventFixture(
+  overrides: Partial<DashboardTelemetryEvent> = {},
+): DashboardTelemetryEvent {
+  return {
+    edgeId: overrides.edgeId ?? 'edge-1',
+    readings: overrides.readings ?? [createDashboardTelemetryReadingFixture()],
+    serverTs: overrides.serverTs ?? 1763895000200,
+  }
+}
+
+export function createDashboardEdgeStatusEventFixture(
+  overrides: Partial<DashboardEdgeStatusEvent> = {},
+): DashboardEdgeStatusEvent {
+  return {
+    edgeId: overrides.edgeId ?? 'edge-1',
+    online: overrides.online ?? true,
   }
 }
 
@@ -74,6 +109,8 @@ export function createMockDashboardRuntimeSocketHarness(): MockDashboardRuntimeS
       return socket
     }),
     emit: vi.fn((event: string, payload?: unknown) => {
+      state.emittedEvents.push({ event, payload: payload ?? null })
+
       if (event === 'subscribe' && payload && typeof payload === 'object' && 'edgeId' in payload) {
         state.lastSubscribePayload = { edgeId: String((payload as { edgeId: unknown }).edgeId) }
       }
@@ -120,9 +157,11 @@ export function createMockDashboardRuntimeSocketHarness(): MockDashboardRuntimeS
       dispatchEvent(state, 'edge_status', event)
     },
     getLastSubscribePayload: () => state.lastSubscribePayload,
+    getEmittedEvents: () => [...state.emittedEvents],
     reset: () => {
       state.listeners.clear()
       state.lastSubscribePayload = null
+      state.emittedEvents = []
       socket.connected = false
       ;(socket.connect as ReturnType<typeof vi.fn>).mockClear()
       ;(socket.disconnect as ReturnType<typeof vi.fn>).mockClear()

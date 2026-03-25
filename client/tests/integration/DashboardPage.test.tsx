@@ -4,6 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
 import { server } from '../mocks/server'
+import {
+  createDashboardApiFixtures,
+  createDashboardApiHandlers,
+  type DashboardRestFixtures,
+} from '../mocks/handlers'
+import { createDashboardTelemetryEventFixture } from './helpers/mockDashboardRuntimeSocket'
 import { userHubRouteChildren } from '@/app/userHubRoutes'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
@@ -127,88 +133,10 @@ function mount(path: string) {
   return router
 }
 
-function setupDashboardApiFixtures() {
-  const diagramDocuments: Record<string, { _id: string; name: string; layout: { widgets: Array<Record<string, unknown>> } }> = {
-    'diagram-1': {
-      _id: 'diagram-1',
-      name: 'Boiler',
-      layout: {
-        widgets: [{ id: 'widget-1', type: 'number-display', x: 20, y: 20 }],
-      },
-    },
-    'diagram-2': {
-      _id: 'diagram-2',
-      name: 'Pump',
-      layout: {
-        widgets: [{ id: 'widget-2', type: 'number-display', x: 20, y: 20 }],
-      },
-    },
-  }
-
-  server.use(
-    http.get('/api/diagrams', () =>
-      HttpResponse.json({
-        status: 'success',
-        data: Object.values(diagramDocuments),
-      }),
-    ),
-    http.get('/api/diagrams/:id', ({ params }) => {
-      const diagramId = String(params.id)
-      const document = diagramDocuments[diagramId]
-
-      if (!document) {
-        return HttpResponse.json(
-          { status: 'error', message: 'Diagram not found' },
-          { status: 404 },
-        )
-      }
-
-      return HttpResponse.json({
-        status: 'success',
-        data: document,
-      })
-    }),
-    http.get('/api/edge-servers', () =>
-      HttpResponse.json({
-        status: 'success',
-        data: [
-          { _id: 'edge-1', name: 'Edge A' },
-          { _id: 'edge-2', name: 'Edge B' },
-        ],
-      }),
-    ),
-    http.get('/api/diagrams/:id/bindings', ({ params }) => {
-      if (params.id === 'diagram-1') {
-        return HttpResponse.json({
-          status: 'success',
-          data: [
-            {
-              _id: 'binding-1',
-              diagramId: 'diagram-1',
-              edgeServerId: 'edge-1',
-              widgetBindings: [{ widgetId: 'widget-1', deviceId: 'pump-1', metric: 'temperature' }],
-            },
-          ],
-        })
-      }
-
-      if (params.id === 'diagram-2') {
-        return HttpResponse.json({
-          status: 'success',
-          data: [
-            {
-              _id: 'binding-2',
-              diagramId: 'diagram-2',
-              edgeServerId: 'edge-2',
-              widgetBindings: [{ widgetId: 'widget-2', deviceId: 'pump-2', metric: 'flow' }],
-            },
-          ],
-        })
-      }
-
-      return HttpResponse.json({ status: 'success', data: [] })
-    }),
-  )
+function setupDashboardApiFixtures(overrides: Partial<DashboardRestFixtures> = {}) {
+  const fixtures = createDashboardApiFixtures(overrides)
+  server.use(...createDashboardApiHandlers(fixtures))
+  return fixtures
 }
 
 beforeEach(() => {
@@ -306,19 +234,20 @@ describe('DashboardPage (US2)', () => {
 
     act(() => {
       runtimeHarness.emitTransportStatus('edge-1', 'connected')
-      runtimeHarness.emitTelemetry({
-        edgeId: 'edge-1',
-        readings: [
-          {
-            sourceId: 'source-1',
-            deviceId: 'pump-1',
-            metric: 'temperature',
-            last: 48.7,
-            ts: 1763895000000,
-          },
-        ],
-        serverTs: 1763895000500,
-      })
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          readings: [
+            {
+              sourceId: 'source-1',
+              deviceId: 'pump-1',
+              metric: 'temperature',
+              last: 48.7,
+              ts: 1763895000000,
+            },
+          ],
+          serverTs: 1763895000500,
+        }),
+      )
     })
 
     expect(screen.getByText('pump-1::temperature')).toBeInTheDocument()
@@ -459,33 +388,34 @@ describe('DashboardPage (US3)', () => {
 
     act(() => {
       runtimeHarness.emitTransportStatus('edge-1', 'connected')
-      runtimeHarness.emitTelemetry({
-        edgeId: 'edge-1',
-        readings: [
-          {
-            sourceId: 'source-1',
-            deviceId: 'pump-1',
-            metric: 'temperature',
-            last: '48.5',
-            ts: 1763895000000,
-          },
-          {
-            sourceId: 'source-1',
-            deviceId: 'pump-1',
-            metric: 'status',
-            last: 15,
-            ts: 1763895000001,
-          },
-          {
-            sourceId: 'source-1',
-            deviceId: 'pump-1',
-            metric: 'alarm',
-            last: 'false',
-            ts: 1763895000002,
-          },
-        ],
-        serverTs: 1763895000500,
-      })
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          readings: [
+            {
+              sourceId: 'source-1',
+              deviceId: 'pump-1',
+              metric: 'temperature',
+              last: '48.5',
+              ts: 1763895000000,
+            },
+            {
+              sourceId: 'source-1',
+              deviceId: 'pump-1',
+              metric: 'status',
+              last: 15,
+              ts: 1763895000001,
+            },
+            {
+              sourceId: 'source-1',
+              deviceId: 'pump-1',
+              metric: 'alarm',
+              last: 'false',
+              ts: 1763895000002,
+            },
+          ],
+          serverTs: 1763895000500,
+        }),
+      )
     })
 
     expect(screen.getByText('widget-number')).toBeInTheDocument()
@@ -496,5 +426,82 @@ describe('DashboardPage (US3)', () => {
     expect(screen.getByText('Value: 48.5')).toBeInTheDocument()
     expect(screen.getByText('Value: 15')).toBeInTheDocument()
     expect(screen.getByText('Value: false')).toBeInTheDocument()
+  })
+})
+
+describe('DashboardPage (US4)', () => {
+  it('keeps command-capable widgets visible but non-operative in monitoring MVP', async () => {
+    setupDashboardApiFixtures({
+      diagramsById: {
+        'diagram-1': {
+          _id: 'diagram-1',
+          name: 'Boiler',
+          layout: {
+            widgets: [
+              { id: 'widget-supported', type: 'number-display' },
+              { id: 'widget-command', type: 'button-control' },
+            ],
+          },
+        },
+      },
+      bindingProfilesByDiagramId: {
+        'diagram-1': [
+          {
+            _id: 'binding-1',
+            diagramId: 'diagram-1',
+            edgeServerId: 'edge-1',
+            widgetBindings: [
+              { widgetId: 'widget-supported', deviceId: 'pump-1', metric: 'temperature' },
+              { widgetId: 'widget-command', deviceId: 'pump-1', metric: 'command-setpoint' },
+            ],
+          },
+        ],
+      },
+    })
+
+    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId: 'edge-1' }),
+      )
+    })
+
+    act(() => {
+      runtimeHarness.emitTransportStatus('edge-1', 'connected')
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          readings: [
+            {
+              sourceId: 'source-1',
+              deviceId: 'pump-1',
+              metric: 'temperature',
+              last: 49,
+              ts: 1763895000000,
+            },
+            {
+              sourceId: 'source-1',
+              deviceId: 'pump-1',
+              metric: 'command-setpoint',
+              last: 72,
+              ts: 1763895000001,
+            },
+          ],
+        }),
+      )
+    })
+
+    expect(screen.getByText('widget-command')).toBeInTheDocument()
+    expect(screen.getByText('widget-supported')).toBeInTheDocument()
+    expect(screen.getByText('Value: 49')).toBeInTheDocument()
+    expect(screen.getByText('Visible only. Unsupported in monitoring MVP.')).toBeInTheDocument()
+
+    const nonOperativeWidget = screen.getByTestId('dashboard-runtime-widget-widget-command')
+    expect(nonOperativeWidget).toHaveAttribute('aria-disabled', 'true')
+    expect(nonOperativeWidget.className).toContain('pointer-events-none')
+    expect(
+      screen.queryByRole('button', { name: /widget-command/i }),
+    ).not.toBeInTheDocument()
   })
 })

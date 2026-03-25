@@ -1,4 +1,144 @@
-// Default MSW handlers (empty baseline — tests add their own via server.use())
-import { HttpHandler } from 'msw'
+import { http, HttpResponse, type HttpHandler } from 'msw'
 
+interface DashboardWidgetFixture extends Record<string, unknown> {
+  id: string
+  type: string
+}
+
+export interface DashboardDiagramFixture {
+  _id: string
+  name: string
+  layout: {
+    widgets: DashboardWidgetFixture[]
+  }
+}
+
+export interface DashboardBindingFixture {
+  widgetId: string
+  deviceId: string
+  metric: string
+}
+
+export interface DashboardBindingProfileFixture {
+  _id: string
+  diagramId: string
+  edgeServerId: string
+  widgetBindings: DashboardBindingFixture[]
+}
+
+export interface DashboardEdgeFixture {
+  _id: string
+  name: string
+}
+
+export interface DashboardRestFixtures {
+  diagramsById: Record<string, DashboardDiagramFixture>
+  trustedEdges: DashboardEdgeFixture[]
+  bindingProfilesByDiagramId: Record<string, DashboardBindingProfileFixture[]>
+}
+
+function createDefaultDashboardRestFixtures(): DashboardRestFixtures {
+  return {
+    diagramsById: {
+      'diagram-1': {
+        _id: 'diagram-1',
+        name: 'Boiler',
+        layout: {
+          widgets: [{ id: 'widget-1', type: 'number-display', x: 20, y: 20 }],
+        },
+      },
+      'diagram-2': {
+        _id: 'diagram-2',
+        name: 'Pump',
+        layout: {
+          widgets: [{ id: 'widget-2', type: 'number-display', x: 20, y: 20 }],
+        },
+      },
+    },
+    trustedEdges: [
+      { _id: 'edge-1', name: 'Edge A' },
+      { _id: 'edge-2', name: 'Edge B' },
+    ],
+    bindingProfilesByDiagramId: {
+      'diagram-1': [
+        {
+          _id: 'binding-1',
+          diagramId: 'diagram-1',
+          edgeServerId: 'edge-1',
+          widgetBindings: [{ widgetId: 'widget-1', deviceId: 'pump-1', metric: 'temperature' }],
+        },
+      ],
+      'diagram-2': [
+        {
+          _id: 'binding-2',
+          diagramId: 'diagram-2',
+          edgeServerId: 'edge-2',
+          widgetBindings: [{ widgetId: 'widget-2', deviceId: 'pump-2', metric: 'flow' }],
+        },
+      ],
+    },
+  }
+}
+
+export function createDashboardApiFixtures(
+  overrides: Partial<DashboardRestFixtures> = {},
+): DashboardRestFixtures {
+  const defaults = createDefaultDashboardRestFixtures()
+
+  return {
+    diagramsById: {
+      ...defaults.diagramsById,
+      ...(overrides.diagramsById ?? {}),
+    },
+    trustedEdges: overrides.trustedEdges ?? defaults.trustedEdges,
+    bindingProfilesByDiagramId: {
+      ...defaults.bindingProfilesByDiagramId,
+      ...(overrides.bindingProfilesByDiagramId ?? {}),
+    },
+  }
+}
+
+function selectDiagramCatalog(
+  diagramsById: Record<string, DashboardDiagramFixture>,
+): DashboardDiagramFixture[] {
+  return Object.values(diagramsById)
+}
+
+export function createDashboardApiHandlers(fixtures: DashboardRestFixtures): HttpHandler[] {
+  return [
+    http.get('/api/diagrams', () =>
+      HttpResponse.json({
+        status: 'success',
+        data: selectDiagramCatalog(fixtures.diagramsById),
+      }),
+    ),
+    http.get('/api/diagrams/:id', ({ params }) => {
+      const diagramId = String(params.id)
+      const document = fixtures.diagramsById[diagramId]
+
+      if (!document) {
+        return HttpResponse.json({ status: 'error', message: 'Diagram not found' }, { status: 404 })
+      }
+
+      return HttpResponse.json({
+        status: 'success',
+        data: document,
+      })
+    }),
+    http.get('/api/edge-servers', () =>
+      HttpResponse.json({
+        status: 'success',
+        data: fixtures.trustedEdges,
+      }),
+    ),
+    http.get('/api/diagrams/:id/bindings', ({ params }) =>
+      HttpResponse.json({
+        status: 'success',
+        data: fixtures.bindingProfilesByDiagramId[String(params.id)] ?? [],
+      }),
+    ),
+  ]
+}
+
+// Baseline handlers remain empty; tests register scenario-specific handlers.
 export const handlers: HttpHandler[] = []
