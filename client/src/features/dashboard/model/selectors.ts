@@ -33,6 +33,36 @@ function isSupportedRuntimeValue(value: unknown): value is DashboardRuntimeValue
   )
 }
 
+function projectLedValue(value: DashboardRuntimeValue): boolean {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'number') {
+    return value !== 0
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (!normalized) {
+      return false
+    }
+
+    if (normalized === 'false' || normalized === '0' || normalized === 'off' || normalized === 'no') {
+      return false
+    }
+
+    if (normalized === 'true' || normalized === '1' || normalized === 'on' || normalized === 'yes') {
+      return true
+    }
+
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed !== 0 : true
+  }
+
+  return false
+}
+
 export function createDashboardBindingKey(deviceId: string, metric: string): string {
   return `${toNonEmptyString(deviceId)}${DASHBOARD_BINDING_KEY_SEPARATOR}${toNonEmptyString(metric)}`
 }
@@ -118,7 +148,7 @@ export function projectDashboardWidgetValue(
   }
 
   if (widgetType === 'led') {
-    return Boolean(value)
+    return projectLedValue(value)
   }
 
   return value

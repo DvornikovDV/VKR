@@ -128,28 +128,46 @@ function mount(path: string) {
 }
 
 function setupDashboardApiFixtures() {
+  const diagramDocuments: Record<string, { _id: string; name: string; layout: { widgets: Array<Record<string, unknown>> } }> = {
+    'diagram-1': {
+      _id: 'diagram-1',
+      name: 'Boiler',
+      layout: {
+        widgets: [{ id: 'widget-1', type: 'number-display', x: 20, y: 20 }],
+      },
+    },
+    'diagram-2': {
+      _id: 'diagram-2',
+      name: 'Pump',
+      layout: {
+        widgets: [{ id: 'widget-2', type: 'number-display', x: 20, y: 20 }],
+      },
+    },
+  }
+
   server.use(
     http.get('/api/diagrams', () =>
       HttpResponse.json({
         status: 'success',
-        data: [
-          {
-            _id: 'diagram-1',
-            name: 'Boiler',
-            layout: {
-              widgets: [{ id: 'widget-1', type: 'number-display', x: 20, y: 20 }],
-            },
-          },
-          {
-            _id: 'diagram-2',
-            name: 'Pump',
-            layout: {
-              widgets: [{ id: 'widget-2', type: 'number-display', x: 20, y: 20 }],
-            },
-          },
-        ],
+        data: Object.values(diagramDocuments),
       }),
     ),
+    http.get('/api/diagrams/:id', ({ params }) => {
+      const diagramId = String(params.id)
+      const document = diagramDocuments[diagramId]
+
+      if (!document) {
+        return HttpResponse.json(
+          { status: 'error', message: 'Diagram not found' },
+          { status: 404 },
+        )
+      }
+
+      return HttpResponse.json({
+        status: 'success',
+        data: document,
+      })
+    }),
     http.get('/api/edge-servers', () =>
       HttpResponse.json({
         status: 'success',
@@ -339,5 +357,144 @@ describe('DashboardPage (US2)', () => {
       )
       expect(runtimeHarness.getDisposeCount('edge-1')).toBeGreaterThanOrEqual(1)
     })
+  })
+})
+
+describe('DashboardPage (US3)', () => {
+  it('renders missing-binding-profile state when trusted edge has no saved profile for selected diagram', async () => {
+    setupDashboardApiFixtures()
+    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-2')
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(
+      screen.getByText('No saved binding profile for the selected Diagram + Edge pair.'),
+    ).toBeInTheDocument()
+  })
+
+  it('renders invalid-binding-profile state when saved binding references stale widget ids', async () => {
+    setupDashboardApiFixtures()
+    server.use(
+      http.get('/api/diagrams/diagram-1/bindings', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              _id: 'binding-stale',
+              diagramId: 'diagram-1',
+              edgeServerId: 'edge-1',
+              widgetBindings: [{ widgetId: 'widget-deleted', deviceId: 'pump-1', metric: 'temperature' }],
+            },
+          ],
+        }),
+      ),
+    )
+
+    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByText('Saved binding profile references stale widget ids.')).toBeInTheDocument()
+  })
+
+  it('uses saved diagram snapshot for runtime rendering and applies bound values for supported widgets', async () => {
+    setupDashboardApiFixtures()
+    server.use(
+      http.get('/api/diagrams', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              _id: 'diagram-1',
+              name: 'Boiler',
+              layout: {
+                widgets: [{ id: 'widget-draft-only', type: 'text-display' }],
+              },
+            },
+          ],
+        }),
+      ),
+      http.get('/api/diagrams/diagram-1', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: 'diagram-1',
+            name: 'Boiler',
+            layout: {
+              widgets: [
+                { id: 'widget-number', type: 'number-display' },
+                { id: 'widget-text', type: 'text-display' },
+                { id: 'widget-led', type: 'led' },
+              ],
+            },
+          },
+        }),
+      ),
+      http.get('/api/diagrams/diagram-1/bindings', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              _id: 'binding-1',
+              diagramId: 'diagram-1',
+              edgeServerId: 'edge-1',
+              widgetBindings: [
+                { widgetId: 'widget-number', deviceId: 'pump-1', metric: 'temperature' },
+                { widgetId: 'widget-text', deviceId: 'pump-1', metric: 'status' },
+                { widgetId: 'widget-led', deviceId: 'pump-1', metric: 'alarm' },
+              ],
+            },
+          ],
+        }),
+      ),
+    )
+
+    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId: 'edge-1' }),
+      )
+    })
+
+    act(() => {
+      runtimeHarness.emitTransportStatus('edge-1', 'connected')
+      runtimeHarness.emitTelemetry({
+        edgeId: 'edge-1',
+        readings: [
+          {
+            sourceId: 'source-1',
+            deviceId: 'pump-1',
+            metric: 'temperature',
+            last: '48.5',
+            ts: 1763895000000,
+          },
+          {
+            sourceId: 'source-1',
+            deviceId: 'pump-1',
+            metric: 'status',
+            last: 15,
+            ts: 1763895000001,
+          },
+          {
+            sourceId: 'source-1',
+            deviceId: 'pump-1',
+            metric: 'alarm',
+            last: 'false',
+            ts: 1763895000002,
+          },
+        ],
+        serverTs: 1763895000500,
+      })
+    })
+
+    expect(screen.getByText('widget-number')).toBeInTheDocument()
+    expect(screen.getByText('widget-text')).toBeInTheDocument()
+    expect(screen.getByText('widget-led')).toBeInTheDocument()
+    expect(screen.queryByText('widget-draft-only')).not.toBeInTheDocument()
+
+    expect(screen.getByText('Value: 48.5')).toBeInTheDocument()
+    expect(screen.getByText('Value: 15')).toBeInTheDocument()
+    expect(screen.getByText('Value: false')).toBeInTheDocument()
   })
 })

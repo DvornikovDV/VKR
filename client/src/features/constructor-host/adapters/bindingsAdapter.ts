@@ -179,12 +179,13 @@ export function importBindingSetsPayloadWithRecovery(
   const recoveredCount = recovered.length
   const totalCount = payload.length
   const detail = `${invalidEntries} invalid entr${invalidEntries === 1 ? 'y' : 'ies'} skipped, ${recoveredCount}/${totalCount} kept.`
+  const recoveryBaseError: BindingsPayloadError = firstInvalidError
 
   return {
     bindingSets: cloneSerializable(recovered),
     recoveryError: new BindingsPayloadError(
-      `${firstInvalidError.message} ${detail}`,
-      firstInvalidError.path,
+      `${recoveryBaseError.message} ${detail}`,
+      recoveryBaseError.path,
     ),
   }
 }

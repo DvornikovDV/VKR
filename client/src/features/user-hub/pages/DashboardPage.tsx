@@ -1,14 +1,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getDashboardBindingProfiles } from '@/shared/api/bindings'
-import { getDashboardDiagrams } from '@/shared/api/diagrams'
+import { getDashboardDiagramById, getDashboardDiagrams } from '@/shared/api/diagrams'
 import { getDashboardTrustedEdgeServers } from '@/shared/api/edgeServers'
 import { useDashboardRouteState } from '@/features/dashboard/hooks/useDashboardRouteState'
 import { useDashboardRuntimeSession } from '@/features/dashboard/hooks/useDashboardRuntimeSession'
 import { DashboardToolbar } from '@/features/dashboard/components/DashboardToolbar'
 import { DashboardStatePanel } from '@/features/dashboard/components/DashboardStatePanel'
 import { DashboardRuntimeSurface } from '@/features/dashboard/components/DashboardRuntimeSurface'
+import {
+  resolveBindingProfileForEdge,
+  validateBindingProfileAgainstSavedWidgets,
+} from '@/features/dashboard/model/bindingValidation'
+import { selectDashboardRuntimeProjection } from '@/features/dashboard/model/selectors'
 import type {
   DashboardBindingProfile,
+  DashboardDiagramDocument,
   DashboardRecoveryState,
   DashboardDiagramSummary,
   DashboardTrustedEdgeServer,
@@ -30,6 +36,9 @@ export function DashboardPage() {
   const { routeState, isStructurallyInvalid, setRouteState } = useDashboardRouteState()
 
   const [diagrams, setDiagrams] = useState<DashboardDiagramSummary[]>([])
+  const [savedDiagramDocumentsById, setSavedDiagramDocumentsById] = useState<
+    Record<string, DashboardDiagramDocument>
+  >({})
   const [trustedEdges, setTrustedEdges] = useState<DashboardTrustedEdgeServer[]>([])
   const [bindingProfilesByDiagram, setBindingProfilesByDiagram] = useState<
     Record<string, DashboardBindingProfile[]>
@@ -37,8 +46,10 @@ export function DashboardPage() {
 
   const [isBootstrapLoading, setIsBootstrapLoading] = useState(true)
   const [isBindingsLoading, setIsBindingsLoading] = useState(false)
+  const [isSavedDiagramLoading, setIsSavedDiagramLoading] = useState(false)
   const [bootstrapError, setBootstrapError] = useState<string | null>(null)
   const [bindingsError, setBindingsError] = useState<string | null>(null)
+  const [savedDiagramError, setSavedDiagramError] = useState<string | null>(null)
 
   const selectedDiagramId = routeState.diagramId
   const selectedEdgeId = routeState.edgeId
@@ -47,6 +58,15 @@ export function DashboardPage() {
     () => diagrams.find((diagram) => diagram._id === selectedDiagramId) ?? null,
     [diagrams, selectedDiagramId],
   )
+  const hasSavedDiagramForSelectedDiagram =
+    selectedDiagramId ? hasOwnKey(savedDiagramDocumentsById, selectedDiagramId) : false
+  const selectedSavedDiagram = useMemo(() => {
+    if (!selectedDiagramId || !hasSavedDiagramForSelectedDiagram) {
+      return null
+    }
+
+    return savedDiagramDocumentsById[selectedDiagramId]
+  }, [savedDiagramDocumentsById, hasSavedDiagramForSelectedDiagram, selectedDiagramId])
 
   const hasBindingsForSelectedDiagram =
     selectedDiagramId ? hasOwnKey(bindingProfilesByDiagram, selectedDiagramId) : false
@@ -95,20 +115,21 @@ export function DashboardPage() {
       return
     }
 
+    const diagramId = selectedDiagramId
     let isMounted = true
     setIsBindingsLoading(true)
     setBindingsError(null)
 
     async function loadBindings() {
       try {
-        const profiles = await getDashboardBindingProfiles(selectedDiagramId)
+        const profiles = await getDashboardBindingProfiles(diagramId)
         if (!isMounted) {
           return
         }
 
         setBindingProfilesByDiagram((previous) => ({
           ...previous,
-          [selectedDiagramId]: profiles,
+          [diagramId]: profiles,
         }))
       } catch (error) {
         if (!isMounted) {
@@ -130,6 +151,47 @@ export function DashboardPage() {
     }
   }, [hasBindingsForSelectedDiagram, selectedDiagramId])
 
+  useEffect(() => {
+    if (!selectedDiagramId || !selectedDiagram || hasSavedDiagramForSelectedDiagram) {
+      return
+    }
+
+    const diagramId = selectedDiagramId
+    let isMounted = true
+    setIsSavedDiagramLoading(true)
+    setSavedDiagramError(null)
+
+    async function loadSavedDiagramDocument() {
+      try {
+        const document = await getDashboardDiagramById(diagramId)
+        if (!isMounted) {
+          return
+        }
+
+        setSavedDiagramDocumentsById((previous) => ({
+          ...previous,
+          [diagramId]: document,
+        }))
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+
+        setSavedDiagramError(toErrorMessage(error, 'Failed to load saved dashboard diagram.'))
+      } finally {
+        if (isMounted) {
+          setIsSavedDiagramLoading(false)
+        }
+      }
+    }
+
+    void loadSavedDiagramDocument()
+
+    return () => {
+      isMounted = false
+    }
+  }, [hasSavedDiagramForSelectedDiagram, selectedDiagram, selectedDiagramId])
+
   const selectedDiagramProfiles = useMemo(() => {
     if (!selectedDiagramId || !hasBindingsForSelectedDiagram) {
       return []
@@ -147,6 +209,17 @@ export function DashboardPage() {
     () => trustedEdges.find((edge) => edge._id === selectedEdgeId) ?? null,
     [selectedEdgeId, trustedEdges],
   )
+  const selectedBindingProfile = useMemo(
+    () => resolveBindingProfileForEdge(selectedDiagramProfiles, selectedEdgeId),
+    [selectedDiagramProfiles, selectedEdgeId],
+  )
+  const bindingValidation = useMemo(() => {
+    if (!selectedSavedDiagram) {
+      return null
+    }
+
+    return validateBindingProfileAgainstSavedWidgets(selectedBindingProfile, selectedSavedDiagram.layout)
+  }, [selectedBindingProfile, selectedSavedDiagram])
 
   const recoveryState: DashboardRecoveryState = useMemo(() => {
     if (isStructurallyInvalid) {
@@ -154,6 +227,10 @@ export function DashboardPage() {
     }
 
     if (bootstrapError || bindingsError) {
+      return 'generic-error'
+    }
+
+    if (savedDiagramError) {
       return 'generic-error'
     }
 
@@ -181,33 +258,63 @@ export function DashboardPage() {
       return 'invalid-selection'
     }
 
-    const isValidPair = edgeOptions.some((edge) => edge._id === selectedEdgeId)
-    if (!isValidPair) {
-      return 'invalid-selection'
+    if (!selectedBindingProfile) {
+      return 'missing-binding-profile'
+    }
+
+    if (isSavedDiagramLoading || !selectedSavedDiagram) {
+      return 'loading'
+    }
+
+    if (!bindingValidation) {
+      return 'loading'
+    }
+
+    if (bindingValidation.state === 'invalid-binding-profile') {
+      return 'invalid-binding-profile'
+    }
+
+    if (bindingValidation.state === 'missing-binding-profile') {
+      return 'missing-binding-profile'
     }
 
     return 'ready'
   }, [
+    bindingValidation,
     bindingsError,
     bootstrapError,
-    edgeOptions,
     hasBindingsForSelectedDiagram,
     isBindingsLoading,
     isBootstrapLoading,
+    isSavedDiagramLoading,
     isStructurallyInvalid,
+    savedDiagramError,
     selectedDiagram,
     selectedDiagramId,
+    selectedBindingProfile,
+    selectedSavedDiagram,
     selectedEdge,
     selectedEdgeId,
   ])
 
   const isToolbarDisabled = isBootstrapLoading || Boolean(bootstrapError)
-  const isRuntimeEnabled = recoveryState === 'ready' && Boolean(selectedEdgeId)
+  const isRuntimeEnabled = recoveryState === 'ready' && Boolean(selectedEdgeId && selectedBindingProfile)
 
   const runtimeSession = useDashboardRuntimeSession({
     edgeId: selectedEdgeId,
     enabled: isRuntimeEnabled,
   })
+  const runtimeProjection = useMemo(() => {
+    if (!selectedSavedDiagram || !selectedBindingProfile) {
+      return null
+    }
+
+    return selectDashboardRuntimeProjection(
+      selectedSavedDiagram,
+      selectedBindingProfile,
+      runtimeSession.latestMetricValueByBindingKey,
+    )
+  }, [runtimeSession.latestMetricValueByBindingKey, selectedBindingProfile, selectedSavedDiagram])
 
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-6">
@@ -242,11 +349,13 @@ export function DashboardPage() {
           selectedEdgeName={selectedEdge?.name ?? null}
           transportStatus={runtimeSession.transportStatus}
           edgeAvailability={runtimeSession.edgeAvailability}
-          errorMessage={bootstrapError ?? bindingsError ?? runtimeSession.runtimeError}
+          errorMessage={bootstrapError ?? bindingsError ?? savedDiagramError ?? runtimeSession.runtimeError}
         />
 
         <DashboardRuntimeSurface
           isActiveContext={isRuntimeEnabled}
+          savedDiagram={selectedSavedDiagram}
+          runtimeProjection={runtimeProjection}
           transportStatus={runtimeSession.transportStatus}
           edgeAvailability={runtimeSession.edgeAvailability}
           latestMetricValueByBindingKey={runtimeSession.latestMetricValueByBindingKey}

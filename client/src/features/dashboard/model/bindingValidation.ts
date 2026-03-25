@@ -17,6 +17,15 @@ export interface DashboardBindingValidationResult {
   missingWidgetIds: string[]
 }
 
+function normalizeEdgeId(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
 function normalizeWidgetId(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null
@@ -53,7 +62,7 @@ export function extractSavedWidgetIds(layout: DashboardLayoutDocument): string[]
     ids.add(widgetId)
   }
 
-  return Array.from(ids)
+  return Array.from(ids).sort((left, right) => left.localeCompare(right))
 }
 
 export function extractBindingWidgetIds(bindingProfile: DashboardBindingProfile): string[] {
@@ -68,7 +77,7 @@ export function extractBindingWidgetIds(bindingProfile: DashboardBindingProfile)
     ids.add(widgetId)
   }
 
-  return Array.from(ids)
+  return Array.from(ids).sort((left, right) => left.localeCompare(right))
 }
 
 export function findMissingBindingWidgetIds(
@@ -84,7 +93,29 @@ export function findMissingBindingWidgetIds(
     }
   }
 
-  return Array.from(missing)
+  return Array.from(missing).sort((left, right) => left.localeCompare(right))
+}
+
+export function resolveBindingProfileForEdge(
+  bindingProfiles: DashboardBindingProfile[] | null | undefined,
+  edgeId: string | null | undefined,
+): DashboardBindingProfile | null {
+  if (!Array.isArray(bindingProfiles)) {
+    return null
+  }
+
+  const normalizedEdgeId = normalizeEdgeId(edgeId)
+  if (!normalizedEdgeId) {
+    return null
+  }
+
+  for (const profile of bindingProfiles) {
+    if (normalizeEdgeId(profile.edgeServerId) === normalizedEdgeId) {
+      return profile
+    }
+  }
+
+  return null
 }
 
 export function validateBindingProfileAgainstSavedWidgets(
