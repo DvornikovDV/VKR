@@ -3,8 +3,10 @@ import { getDashboardBindingProfiles } from '@/shared/api/bindings'
 import { getDashboardDiagrams } from '@/shared/api/diagrams'
 import { getDashboardTrustedEdgeServers } from '@/shared/api/edgeServers'
 import { useDashboardRouteState } from '@/features/dashboard/hooks/useDashboardRouteState'
+import { useDashboardRuntimeSession } from '@/features/dashboard/hooks/useDashboardRuntimeSession'
 import { DashboardToolbar } from '@/features/dashboard/components/DashboardToolbar'
 import { DashboardStatePanel } from '@/features/dashboard/components/DashboardStatePanel'
+import { DashboardRuntimeSurface } from '@/features/dashboard/components/DashboardRuntimeSurface'
 import type {
   DashboardBindingProfile,
   DashboardRecoveryState,
@@ -200,6 +202,12 @@ export function DashboardPage() {
   ])
 
   const isToolbarDisabled = isBootstrapLoading || Boolean(bootstrapError)
+  const isRuntimeEnabled = recoveryState === 'ready' && Boolean(selectedEdgeId)
+
+  const runtimeSession = useDashboardRuntimeSession({
+    edgeId: selectedEdgeId,
+    enabled: isRuntimeEnabled,
+  })
 
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-6">
@@ -232,7 +240,17 @@ export function DashboardPage() {
           state={recoveryState}
           selectedDiagramName={selectedDiagram?.name ?? null}
           selectedEdgeName={selectedEdge?.name ?? null}
-          errorMessage={bootstrapError ?? bindingsError}
+          transportStatus={runtimeSession.transportStatus}
+          edgeAvailability={runtimeSession.edgeAvailability}
+          errorMessage={bootstrapError ?? bindingsError ?? runtimeSession.runtimeError}
+        />
+
+        <DashboardRuntimeSurface
+          isActiveContext={isRuntimeEnabled}
+          transportStatus={runtimeSession.transportStatus}
+          edgeAvailability={runtimeSession.edgeAvailability}
+          latestMetricValueByBindingKey={runtimeSession.latestMetricValueByBindingKey}
+          lastServerTimestamp={runtimeSession.lastServerTimestamp}
         />
       </div>
     </section>

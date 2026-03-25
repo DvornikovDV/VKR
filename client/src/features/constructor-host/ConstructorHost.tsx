@@ -186,6 +186,7 @@ export function ConstructorHost({
 
   useEffect(() => {
     let isActive = true
+    let cleanupContainer: HTMLElement | null = containerRef.current
 
     async function mountRuntime() {
       const container = containerRef.current
@@ -193,6 +194,7 @@ export function ConstructorHost({
         return
       }
 
+      cleanupContainer = container
       cleanupHostedRuntimeRoots(container)
 
       setPhase('loading')
@@ -300,7 +302,7 @@ export function ConstructorHost({
       if (currentInstance) {
         void Promise.resolve(currentInstance.destroy())
       }
-      cleanupHostedRuntimeRoots(containerRef.current)
+      cleanupHostedRuntimeRoots(cleanupContainer)
     }
   }, [reportFatalError, retryKey, runtimeConfig])
 

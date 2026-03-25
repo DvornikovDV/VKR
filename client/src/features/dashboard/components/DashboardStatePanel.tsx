@@ -1,9 +1,19 @@
-import type { DashboardRecoveryState } from '@/features/dashboard/model/types'
+import {
+  selectEdgeAvailabilityLabel,
+  selectTransportStatusLabel,
+} from '@/features/dashboard/model/selectors'
+import type {
+  DashboardEdgeAvailability,
+  DashboardRecoveryState,
+  DashboardTransportStatus,
+} from '@/features/dashboard/model/types'
 
 interface DashboardStatePanelProps {
   state: DashboardRecoveryState
   selectedDiagramName: string | null
   selectedEdgeName: string | null
+  transportStatus?: DashboardTransportStatus
+  edgeAvailability?: DashboardEdgeAvailability
   errorMessage?: string | null
 }
 
@@ -39,9 +49,14 @@ export function DashboardStatePanel({
   state,
   selectedDiagramName,
   selectedEdgeName,
+  transportStatus = 'idle',
+  edgeAvailability = 'unknown',
   errorMessage = null,
 }: DashboardStatePanelProps) {
   const message = getMessage(state, selectedDiagramName, errorMessage)
+  const transportLabel = selectTransportStatusLabel(transportStatus)
+  const edgeAvailabilityLabel = selectEdgeAvailabilityLabel(edgeAvailability)
+  const isReconnecting = transportStatus === 'reconnecting'
 
   return (
     <section className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
@@ -52,6 +67,17 @@ export function DashboardStatePanel({
         <p>Diagram: {selectedDiagramName ?? 'Not selected'}</p>
         <p>Edge Server: {selectedEdgeName ?? 'Not selected'}</p>
       </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[#cbd5e1]">
+        <p>Transport: {transportLabel}</p>
+        <p>Edge: {edgeAvailabilityLabel}</p>
+      </div>
+
+      {isReconnecting && (
+        <p className="mt-2 text-xs text-[var(--color-warning)]">
+          Transport reconnecting. Last rendered values are preserved.
+        </p>
+      )}
     </section>
   )
 }
