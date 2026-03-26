@@ -1,5 +1,13 @@
 import mongoose from 'mongoose';
-import { EdgeServer, type IEdgeServer } from '../models/EdgeServer';
+import {
+    EdgeServer,
+    type EdgeAvailabilitySnapshot,
+    type EdgeLifecycleState,
+    type EdgeOnboardingPackageMetadata,
+    type EdgePersistentCredentialMetadata,
+    type IEdgeServer,
+    type OnboardingPackageStatus,
+} from '../models/EdgeServer';
 import { User } from '../models/User';
 import { Telemetry } from '../models/Telemetry';
 import { AppError } from '../api/middlewares/error.middleware';
@@ -41,6 +49,111 @@ function toObjectId(id: string, label: string): mongoose.Types.ObjectId {
 /** Counts how many trusted edge servers a user is already assigned to. */
 async function countUserEdgeServers(userId: mongoose.Types.ObjectId): Promise<number> {
     return EdgeServer.countDocuments({ trustedUsers: userId }).exec();
+}
+
+type AdminProjectionOnboardingPackage = {
+    credentialId: string;
+    status: OnboardingPackageStatus;
+    issuedAt: Date;
+    expiresAt: Date;
+    usedAt: Date | null;
+    displayHint: string | null;
+};
+
+export interface AdminEdgeProjection {
+    _id: string;
+    name: string;
+    lifecycleState: EdgeLifecycleState;
+    isTelemetryReady: boolean;
+    availability: EdgeAvailabilitySnapshot;
+    trustedUsers: unknown[];
+    createdBy: unknown | null;
+    currentOnboardingPackage: AdminProjectionOnboardingPackage | null;
+    persistentCredentialVersion: number | null;
+    lastLifecycleEventAt: Date | null;
+}
+
+export interface TelemetryReadyEdgeProjection {
+    _id: string;
+    name: string;
+    lifecycleState: 'Active';
+    availability: EdgeAvailabilitySnapshot;
+}
+
+type EdgeProjectionInput = {
+    _id: mongoose.Types.ObjectId | string;
+    name: string;
+    lifecycleState: EdgeLifecycleState;
+    availability?: EdgeAvailabilitySnapshot;
+    lastSeen?: Date | null;
+    trustedUsers?: unknown[];
+    createdBy?: unknown;
+    currentOnboardingPackage?: EdgeOnboardingPackageMetadata | null;
+    persistentCredential?: EdgePersistentCredentialMetadata | null;
+    lastLifecycleEventAt?: Date | null;
+};
+
+function toIdString(id: mongoose.Types.ObjectId | string): string {
+    return typeof id === 'string' ? id : id.toString();
+}
+
+function normalizeAvailabilitySnapshot(input: EdgeProjectionInput): EdgeAvailabilitySnapshot {
+    const availability = input.availability;
+    if (availability) {
+        return {
+            online: Boolean(availability.online),
+            lastSeenAt: availability.lastSeenAt ?? null,
+        };
+    }
+
+    return {
+        online: false,
+        lastSeenAt: input.lastSeen ?? null,
+    };
+}
+
+function maskOnboardingPackage(
+    pkg?: EdgeOnboardingPackageMetadata | null,
+): AdminProjectionOnboardingPackage | null {
+    if (!pkg) return null;
+    return {
+        credentialId: pkg.credentialId,
+        status: pkg.status,
+        issuedAt: pkg.issuedAt,
+        expiresAt: pkg.expiresAt,
+        usedAt: pkg.usedAt ?? null,
+        displayHint: pkg.displayHint ?? null,
+    };
+}
+
+export function mapEdgeToAdminProjection(input: EdgeProjectionInput): AdminEdgeProjection {
+    return {
+        _id: toIdString(input._id),
+        name: input.name,
+        lifecycleState: input.lifecycleState,
+        isTelemetryReady: input.lifecycleState === 'Active',
+        availability: normalizeAvailabilitySnapshot(input),
+        trustedUsers: input.trustedUsers ?? [],
+        createdBy: input.createdBy ?? null,
+        currentOnboardingPackage: maskOnboardingPackage(input.currentOnboardingPackage),
+        persistentCredentialVersion: input.persistentCredential?.version ?? null,
+        lastLifecycleEventAt: input.lastLifecycleEventAt ?? null,
+    };
+}
+
+export function mapEdgeToTelemetryReadyProjection(
+    input: Pick<EdgeProjectionInput, '_id' | 'name' | 'lifecycleState' | 'availability' | 'lastSeen'>,
+): TelemetryReadyEdgeProjection | null {
+    if (input.lifecycleState !== 'Active') {
+        return null;
+    }
+
+    return {
+        _id: toIdString(input._id),
+        name: input.name,
+        lifecycleState: 'Active',
+        availability: normalizeAvailabilitySnapshot(input),
+    };
 }
 
 // ── Service methods ───────────────────────────────────────────────────────
@@ -305,4 +418,6 @@ export const EdgeServersService = {
     removeUserFromEdge,
     pingEdgeServer,
     getCatalogForUser,
+    mapEdgeToAdminProjection,
+    mapEdgeToTelemetryReadyProjection,
 };
