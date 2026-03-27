@@ -1,88 +1,126 @@
-import { type Socket, type Server as IOServer } from 'socket.io';
 import bcrypt from 'bcrypt';
+import { type Server as IOServer, type Socket } from 'socket.io';
 import { EdgeServer } from '../../models/EdgeServer';
 import { updateLastSeen } from '../../services/edge-servers.service';
 import { registerTelemetryHandler } from './telemetry';
 
-// ── Constants ─────────────────────────────────────────────────────────────
-
-/** Namespace for edge device WebSocket connections. */
 export const EDGE_NAMESPACE = '/edge';
 
-// ── Authentication ────────────────────────────────────────────────────────
+export type EdgeCredentialMode = 'onboarding' | 'persistent';
 
-/**
- * Authenticates an edge device socket using the `x-api-key` header.
- *
- * Handshake flow:
- *   Edge sends: `{ headers: { 'x-api-key': '<plaintext-api-key>', 'x-edge-id': '<edgeId>' } }`
- *   Server validates: bcrypt.compare(apiKey, EdgeServer.apiKeyHash)
- *
- * On success: attaches `socket.data.edgeId` and calls next()
- * On failure: calls next(Error) → connection rejected
- */
-async function edgeAuthMiddleware(
-    socket: Socket,
-    next: (err?: Error) => void,
-): Promise<void> {
-    const apiKey = socket.handshake.headers['x-api-key'];
-    const edgeIdHeader = socket.handshake.headers['x-edge-id'];
+type EdgeAuthPayload = {
+    edgeId: string;
+    credentialMode: EdgeCredentialMode;
+    credentialSecret: string;
+};
 
-    if (!apiKey || typeof apiKey !== 'string') {
-        next(new Error('Edge auth error: x-api-key header missing'));
-        return;
+const activeEdgeSockets = new Map<string, Set<Socket>>();
+
+function normalizeEdgeAuthPayload(socket: Socket): EdgeAuthPayload | null {
+    const auth = socket.handshake.auth as Record<string, unknown> | undefined;
+
+    const edgeId = typeof auth?.['edgeId'] === 'string' ? auth['edgeId'].trim() : '';
+    const credentialMode = auth?.['credentialMode'];
+    const credentialSecret =
+        typeof auth?.['credentialSecret'] === 'string' ? auth['credentialSecret'].trim() : '';
+
+    const hasValidMode = credentialMode === 'onboarding' || credentialMode === 'persistent';
+
+    if (!edgeId || !hasValidMode || !credentialSecret) {
+        return null;
     }
 
-    if (!edgeIdHeader || typeof edgeIdHeader !== 'string') {
-        next(new Error('Edge auth error: x-edge-id header missing'));
+    return {
+        edgeId,
+        credentialMode,
+        credentialSecret,
+    };
+}
+
+function trackActiveEdgeSocket(edgeId: string, socket: Socket): void {
+    const socketsForEdge = activeEdgeSockets.get(edgeId) ?? new Set<Socket>();
+    socketsForEdge.add(socket);
+    activeEdgeSockets.set(edgeId, socketsForEdge);
+}
+
+function untrackActiveEdgeSocket(edgeId: string, socket: Socket): void {
+    const socketsForEdge = activeEdgeSockets.get(edgeId);
+    if (!socketsForEdge) return;
+
+    socketsForEdge.delete(socket);
+    if (socketsForEdge.size === 0) {
+        activeEdgeSockets.delete(edgeId);
+    }
+}
+
+export function getActiveEdgeSocketCount(edgeId?: string): number {
+    if (edgeId) {
+        return activeEdgeSockets.get(edgeId)?.size ?? 0;
+    }
+
+    let total = 0;
+    for (const socketsForEdge of activeEdgeSockets.values()) {
+        total += socketsForEdge.size;
+    }
+    return total;
+}
+
+export function disconnectEdgeSockets(edgeId: string, reason = 'edge_forced_disconnect'): number {
+    const socketsForEdge = activeEdgeSockets.get(edgeId);
+    if (!socketsForEdge || socketsForEdge.size === 0) {
+        return 0;
+    }
+
+    const sockets = Array.from(socketsForEdge);
+    for (const socket of sockets) {
+        socket.emit('edge_disconnect', { edgeId, reason });
+        socket.disconnect(true);
+    }
+
+    return sockets.length;
+}
+
+export function resetActiveEdgeSocketsForTests(): void {
+    activeEdgeSockets.clear();
+}
+
+async function edgeAuthMiddleware(socket: Socket, next: (err?: Error) => void): Promise<void> {
+    const payload = normalizeEdgeAuthPayload(socket);
+    if (!payload) {
+        next(new Error('invalid_credential'));
         return;
     }
 
     try {
-        const edge = await EdgeServer.findById(edgeIdHeader)
-            .select('apiKeyHash isActive')
+        const edge = await EdgeServer.findById(payload.edgeId)
+            .select('apiKeyHash isActive lifecycleState')
             .exec();
 
         if (!edge) {
-            next(new Error('Edge auth error: edge server not found'));
+            next(new Error('edge_not_found'));
             return;
         }
 
-        if (!edge.isActive) {
-            next(new Error('Edge auth error: edge server is deactivated'));
+        if (edge.lifecycleState === 'Blocked' || !edge.isActive) {
+            next(new Error('blocked'));
             return;
         }
 
-        const valid = await bcrypt.compare(apiKey, edge.apiKeyHash);
+        const valid = await bcrypt.compare(payload.credentialSecret, edge.apiKeyHash);
         if (!valid) {
-            next(new Error('Edge auth error: invalid API key'));
+            next(new Error('invalid_credential'));
             return;
         }
 
-        // Attach authenticated identity to socket data
-        socket.data = { edgeId: edgeIdHeader };
+        socket.data['edgeId'] = payload.edgeId;
+        socket.data['credentialMode'] = payload.credentialMode;
         next();
-    } catch (err) {
-        console.error('[edge-auth] Unexpected error during middleware:', err);
-        next(new Error('Edge auth error: internal server error'));
+    } catch (error) {
+        console.error('[edge-auth] Unexpected error during middleware:', error);
+        next(new Error('edge_auth_internal_error'));
     }
 }
 
-// ── Connection handler ────────────────────────────────────────────────────
-
-/**
- * Registers a connection handler on the /edge namespace.
- * Each successfully authenticated edge socket:
- *   1. Updates in-memory lastSeen registry.
- *   2. Broadcasts `edge_status { edgeId, online: true }` to subscribed dashboard clients.
- *   3. Registers the `telemetry` event handler (T032).
- *   4. On disconnect: broadcasts `edge_status { edgeId, online: false }` to dashboard clients.
- *
- * Dashboard clients subscribe to a room keyed by `edgeId` via the `subscribe` event.
- * The `edge_status` event is the authoritative source of truth for equipment online state.
- *
- * @param io  Root Socket.IO server (used to broadcast to dashboard rooms)
- */
 export function registerEdgeNamespace(io: IOServer): void {
     const edgeNs = io.of(EDGE_NAMESPACE);
 
@@ -91,21 +129,21 @@ export function registerEdgeNamespace(io: IOServer): void {
     });
 
     edgeNs.on('connection', (socket) => {
-        const edgeId = socket.data.edgeId as string;
+        const edgeId = String(socket.data['edgeId'] ?? '');
+        if (!edgeId) {
+            socket.disconnect(true);
+            return;
+        }
 
+        trackActiveEdgeSocket(edgeId, socket);
         console.log(`[edge] Edge connected: ${edgeId} (socket: ${socket.id})`);
 
-        // Record connection time; 'edge_status {online: true}' is deferred to
-        // the first valid telemetry batch (Variant A: no flapping on fast connect/disconnect)
         updateLastSeen(edgeId);
-
-        // Register telemetry batch event (T032)
         registerTelemetryHandler(socket, io, edgeId);
 
         socket.on('disconnect', (reason: string) => {
-            console.log(`[edge] Edge disconnected: ${edgeId} — reason: ${reason}`);
-
-            // Notify subscribed dashboard clients that this edge went offline
+            untrackActiveEdgeSocket(edgeId, socket);
+            console.log(`[edge] Edge disconnected: ${edgeId} - reason: ${reason}`);
             io.to(edgeId).emit('edge_status', { edgeId, online: false });
         });
 
@@ -116,4 +154,3 @@ export function registerEdgeNamespace(io: IOServer): void {
 
     console.log(`[edge] Namespace "${EDGE_NAMESPACE}" registered`);
 }
-

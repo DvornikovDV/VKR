@@ -32,6 +32,30 @@ apiRouter.get('/edge-servers', authMiddleware, requireRole('USER'), EdgeServersC
 apiRouter.post('/edge-servers', authMiddleware, requireRole('ADMIN'), EdgeServersController.registerEdgeServer);
 apiRouter.post('/edge-servers/:edgeId/bind', authMiddleware, requireRole('ADMIN'), EdgeServersController.bindUserToEdge);
 apiRouter.delete('/edge-servers/:edgeId/bind/:userId', authMiddleware, requireRole('ADMIN'), EdgeServersController.unbindUserFromEdge);
+apiRouter.post(
+    '/edge-servers/:edgeId/onboarding/reset',
+    authMiddleware,
+    requireRole('ADMIN'),
+    EdgeServersController.resetOnboardingCredentials,
+);
+apiRouter.post(
+    '/edge-servers/:edgeId/trust/revoke',
+    authMiddleware,
+    requireRole('ADMIN'),
+    EdgeServersController.revokeEdgeTrust,
+);
+apiRouter.post(
+    '/edge-servers/:edgeId/block',
+    authMiddleware,
+    requireRole('ADMIN'),
+    EdgeServersController.blockEdgeServer,
+);
+apiRouter.post(
+    '/edge-servers/:edgeId/re-enable-onboarding',
+    authMiddleware,
+    requireRole('ADMIN'),
+    EdgeServersController.reenableEdgeOnboarding,
+);
 apiRouter.get('/edge-servers/:edgeId/catalog', authMiddleware, requireRole('USER'), EdgeServersController.getEdgeServerCatalog);
 apiRouter.get('/edge-servers/:edgeId/ping', authMiddleware, requireRole('ADMIN'), EdgeServersController.pingEdgeServer);
 

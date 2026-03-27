@@ -3,6 +3,7 @@ import path from 'node:path'
 import { ENV } from '../config/env'
 
 export type EdgeCredentialMode = 'onboarding' | 'persistent'
+export type PersistedCredentialLifecycleState = 'Active'
 
 export interface PersistedCredentialRecord {
   edgeId: string
@@ -10,6 +11,7 @@ export interface PersistedCredentialRecord {
   credentialSecret: string
   version: number | null
   issuedAt: string
+  lifecycleState?: PersistedCredentialLifecycleState
 }
 
 export interface PersistedCredentialStore {
@@ -33,7 +35,8 @@ function isPersistedCredentialRecord(value: unknown): value is PersistedCredenti
     candidate['credentialSecret'].trim().length > 0 &&
     (typeof candidate['version'] === 'number' || candidate['version'] === null) &&
     typeof candidate['issuedAt'] === 'string' &&
-    candidate['issuedAt'].trim().length > 0
+    candidate['issuedAt'].trim().length > 0 &&
+    (candidate['lifecycleState'] === undefined || candidate['lifecycleState'] === 'Active')
   )
 }
 

@@ -31,6 +31,13 @@ export interface EdgeActivationEventPayload {
   }
 }
 
+function assertPositiveInteger(value: number, label: string): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer`)
+  }
+  return value
+}
+
 function assertNonEmpty(value: string, label: string): string {
   const trimmed = value.trim()
   if (!trimmed) {
@@ -44,6 +51,19 @@ export function buildEdgeHandshakeAuth(record: PersistedCredentialRecord): EdgeH
     edgeId: assertNonEmpty(record.edgeId, 'edgeId'),
     credentialMode: record.credentialMode,
     credentialSecret: assertNonEmpty(record.credentialSecret, 'credentialSecret'),
+  }
+}
+
+export function buildPersistedCredentialRecordFromActivation(
+  payload: EdgeActivationEventPayload,
+): PersistedCredentialRecord {
+  return {
+    edgeId: assertNonEmpty(payload.edgeId, 'edgeId'),
+    credentialMode: 'persistent',
+    credentialSecret: assertNonEmpty(payload.persistentCredential.secret, 'persistentCredential.secret'),
+    version: assertPositiveInteger(payload.persistentCredential.version, 'persistentCredential.version'),
+    issuedAt: assertNonEmpty(payload.persistentCredential.issuedAt, 'persistentCredential.issuedAt'),
+    lifecycleState: payload.lifecycleState,
   }
 }
 

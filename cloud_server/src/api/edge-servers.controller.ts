@@ -18,6 +18,11 @@ type EdgeCatalogSuccessResponse = {
     data: EdgeCatalogEntry[];
 };
 
+type LifecycleActionNotReadyResponse = {
+    status: 'error';
+    message: string;
+};
+
 // ── Handlers ──────────────────────────────────────────────────────────────
 
 /**
@@ -153,6 +158,81 @@ async function getEdgeServerCatalog(
     }
 }
 
+function requireEdgeId(req: AuthRequest): string {
+    const edgeId = typeof req.params['edgeId'] === 'string' ? req.params['edgeId'].trim() : '';
+    if (!edgeId) {
+        throw new AppError('edgeId is required', 400);
+    }
+    return edgeId;
+}
+
+function sendLifecycleActionNotReady(
+    res: Response,
+    actionLabel: string,
+): void {
+    const payload: LifecycleActionNotReadyResponse = {
+        status: 'error',
+        message: `${actionLabel} is wired but not implemented yet`,
+    };
+    res.status(501).json(payload);
+}
+
+async function resetOnboardingCredentials(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+): Promise<void> {
+    try {
+        requireUser(req);
+        requireEdgeId(req);
+        sendLifecycleActionNotReady(res, 'resetOnboardingCredentials');
+    } catch (err) {
+        next(err);
+    }
+}
+
+async function revokeEdgeTrust(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+): Promise<void> {
+    try {
+        requireUser(req);
+        requireEdgeId(req);
+        sendLifecycleActionNotReady(res, 'revokeEdgeTrust');
+    } catch (err) {
+        next(err);
+    }
+}
+
+async function blockEdgeServer(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+): Promise<void> {
+    try {
+        requireUser(req);
+        requireEdgeId(req);
+        sendLifecycleActionNotReady(res, 'blockEdgeServer');
+    } catch (err) {
+        next(err);
+    }
+}
+
+async function reenableEdgeOnboarding(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+): Promise<void> {
+    try {
+        requireUser(req);
+        requireEdgeId(req);
+        sendLifecycleActionNotReady(res, 'reenableEdgeOnboarding');
+    } catch (err) {
+        next(err);
+    }
+}
+
 // ── Export ────────────────────────────────────────────────────────────────
 
 export const EdgeServersController = {
@@ -162,4 +242,8 @@ export const EdgeServersController = {
     unbindUserFromEdge,
     pingEdgeServer,
     getEdgeServerCatalog,
+    resetOnboardingCredentials,
+    revokeEdgeTrust,
+    blockEdgeServer,
+    reenableEdgeOnboarding,
 };
