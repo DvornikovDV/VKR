@@ -122,7 +122,7 @@ describe('useHostedLayoutSaveFlow', () => {
   })
 
   it('prevents duplicate Save As submits while request is in-flight and keeps dialog open on blocked cancel', async () => {
-    let resolveClone: ((value: EditorRouteDiagram) => void) | null = null
+    let resolveClone!: (value: EditorRouteDiagram) => void
     const clonePromise = new Promise<EditorRouteDiagram>((resolve) => {
       resolveClone = resolve
     })
@@ -160,9 +160,10 @@ describe('useHostedLayoutSaveFlow', () => {
     })
     expect(mockedCloneDiagram).toHaveBeenCalledTimes(1)
 
-    if (!resolveClone || !firstSubmit) {
+    if (!firstSubmit) {
       throw new Error('Expected in-flight Save As submit to be created.')
     }
+    const submitPromise = firstSubmit
 
     await act(async () => {
       resolveClone({
@@ -171,7 +172,7 @@ describe('useHostedLayoutSaveFlow', () => {
         layout: { widgets: [{ id: 'w-1' }] },
         __v: 0,
       })
-      await firstSubmit
+      await submitPromise
     })
 
     await waitFor(() => {

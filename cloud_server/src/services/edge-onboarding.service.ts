@@ -1,6 +1,7 @@
 import bcrypt from 'bcrypt';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { type Types } from 'mongoose';
+import { ENV } from '../config/env';
 import {
     type EdgeActivationSnapshot,
     type EdgeLifecycleState,
@@ -8,10 +9,11 @@ import {
     type EdgePersistentCredentialMetadata,
 } from '../models/EdgeServer';
 
-export const DEFAULT_ONBOARDING_PACKAGE_TTL_MS = 24 * 60 * 60 * 1000;
+export const DEFAULT_ONBOARDING_PACKAGE_TTL_MS = ENV.EDGE_ONBOARDING_PACKAGE_TTL_HOURS * 60 * 60 * 1000;
 const DEFAULT_BCRYPT_ROUNDS = 10;
 
-const DEFAULT_SECRET_BYTES = 32;
+const DEFAULT_ONBOARDING_SECRET_BYTES = ENV.EDGE_ONBOARDING_SECRET_BYTES;
+const DEFAULT_PERSISTENT_SECRET_BYTES = ENV.EDGE_PERSISTENT_SECRET_BYTES;
 
 export type LifecycleTransitionReason =
     | 'registered'
@@ -20,6 +22,8 @@ export type LifecycleTransitionReason =
     | 'trust_revoked'
     | 'blocked'
     | 'reenabled';
+
+export type CredentialSecretKind = 'onboarding' | 'persistent';
 
 interface CreateOnboardingPackageMetadataInput {
     issuedBy: Types.ObjectId | null;
@@ -59,8 +63,17 @@ function withActivationDefaults(
     };
 }
 
-export function generateCredentialSecret(secretBytes = DEFAULT_SECRET_BYTES): string {
+export function generateCredentialSecret(secretBytes = DEFAULT_ONBOARDING_SECRET_BYTES): string {
     return randomBytes(secretBytes).toString('base64url');
+}
+
+export function generateCredentialSecretForKind(
+    kind: CredentialSecretKind,
+    secretBytes?: number,
+): string {
+    const defaultSecretBytes =
+        kind === 'persistent' ? DEFAULT_PERSISTENT_SECRET_BYTES : DEFAULT_ONBOARDING_SECRET_BYTES;
+    return randomBytes(secretBytes ?? defaultSecretBytes).toString('base64url');
 }
 
 export async function hashCredentialSecret(
@@ -169,6 +182,7 @@ export function applyLifecycleTransition(
 
 export const EdgeOnboardingService = {
     generateCredentialSecret,
+    generateCredentialSecretForKind,
     hashCredentialSecret,
     verifyCredentialSecret,
     createOnboardingPackageMetadata,

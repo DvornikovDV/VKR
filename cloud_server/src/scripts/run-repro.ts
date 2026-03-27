@@ -1,10 +1,13 @@
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 type ReproModule = {
     default?: (() => unknown | Promise<unknown>) | Record<string, unknown>;
     run?: () => unknown | Promise<unknown>;
 };
+
+const cjsRequire = createRequire(__filename);
 
 function resolveFromRoot(relativePath: string): string {
     return path.resolve(process.cwd(), relativePath);
@@ -14,7 +17,7 @@ function loadOptionalSetup(): void {
     const setupPath = resolveFromRoot('tests/setup.ts');
 
     if (fs.existsSync(setupPath)) {
-        require(setupPath);
+        cjsRequire(setupPath);
     }
 }
 
@@ -45,7 +48,7 @@ async function run(): Promise<void> {
 
     loadOptionalSetup();
 
-    const loaded = require(reproPath) as ReproModule;
+    const loaded = cjsRequire(reproPath) as ReproModule;
     const runnable = getRunnableExport(loaded);
 
     if (runnable) {
