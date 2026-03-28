@@ -9,7 +9,6 @@ import { type AuthRequest } from './middlewares/auth.middleware';
 import { UsersService } from '../services/users.service';
 import {
     EdgeServersService,
-    mapEdgeToAdminProjection,
     type AdminEdgeProjection,
 } from '../services/edge-servers.service';
 import { AppError } from './middlewares/error.middleware';
@@ -97,10 +96,7 @@ async function listGlobalEdgeServers(
     next: NextFunction,
 ): Promise<void> {
     try {
-        const servers = await EdgeServersService.listAllForAdmin();
-        const payload: AdminEdgeProjection[] = (servers as Array<Parameters<typeof mapEdgeToAdminProjection>[0]>).map(
-            mapEdgeToAdminProjection,
-        );
+        const payload: AdminEdgeProjection[] = await EdgeServersService.listAllForAdmin();
         res.status(200).json({ status: 'success', data: payload });
     } catch (err) {
         next(err);

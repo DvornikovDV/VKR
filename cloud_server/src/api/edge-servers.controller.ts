@@ -1,6 +1,7 @@
 import { type Response, type NextFunction } from 'express';
 import { type AuthRequest } from './middlewares/auth.middleware';
 import { EdgeServersService, type EdgeCatalogEntry } from '../services/edge-servers.service';
+import { EdgeOnboardingService } from '../services/edge-onboarding.service';
 import { AppError } from './middlewares/error.middleware';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -21,6 +22,11 @@ type EdgeCatalogSuccessResponse = {
 type LifecycleActionNotReadyResponse = {
     status: 'error';
     message: string;
+};
+
+type OnboardingActionSuccessPayload = {
+    edge: unknown;
+    onboardingPackage: unknown;
 };
 
 // ── Handlers ──────────────────────────────────────────────────────────────
@@ -51,23 +57,24 @@ async function registerEdgeServer(
     next: NextFunction,
 ): Promise<void> {
     try {
-        const body = req.body as { name?: unknown; apiKeyHash?: unknown };
+        const body = req.body as { name?: unknown };
 
         if (typeof body.name !== 'string' || !body.name.trim()) {
             throw new AppError('name is required', 400);
         }
-        if (typeof body.apiKeyHash !== 'string' || !body.apiKeyHash.trim()) {
-            throw new AppError('apiKeyHash is required', 400);
-        }
 
         const { userId: adminId } = requireUser(req);
 
-        const edgeServer = await EdgeServersService.register(
+        const result = await EdgeOnboardingService.registerEdgeServer(
             body.name.trim(),
-            body.apiKeyHash.trim(),
             adminId,
         );
-        res.status(201).json({ status: 'success', data: edgeServer });
+        const payload: OnboardingActionSuccessPayload = {
+            ...result.edge,
+            edge: result.edge,
+            onboardingPackage: result.onboardingPackage,
+        };
+        res.status(201).json({ status: 'success', data: payload });
     } catch (err) {
         next(err);
     }
@@ -183,9 +190,15 @@ async function resetOnboardingCredentials(
     next: NextFunction,
 ): Promise<void> {
     try {
-        requireUser(req);
-        requireEdgeId(req);
-        sendLifecycleActionNotReady(res, 'resetOnboardingCredentials');
+        const { userId: adminId } = requireUser(req);
+        const edgeId = requireEdgeId(req);
+        const result = await EdgeOnboardingService.resetOnboardingCredentials(edgeId, adminId);
+        const payload: OnboardingActionSuccessPayload = {
+            ...result.edge,
+            edge: result.edge,
+            onboardingPackage: result.onboardingPackage,
+        };
+        res.status(200).json({ status: 'success', data: payload });
     } catch (err) {
         next(err);
     }

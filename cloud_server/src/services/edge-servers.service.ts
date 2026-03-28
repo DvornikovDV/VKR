@@ -196,17 +196,18 @@ async function listAll(): Promise<IEdgeServer[]> {
 }
 
 /**
- * Returns all EdgeServers for Admin Fleet view, with populated
- * trustedUsers (id, email) and createdBy (id, email).
- * apiKeyHash is excluded from the response.
+ * Returns Admin Fleet projection with masked onboarding metadata.
+ * Secret hashes are excluded at query level and never exposed by mapping.
  */
-async function listAllForAdmin(): Promise<unknown[]> {
-    return EdgeServer.find()
-        .select('-apiKeyHash')
+async function listAllForAdmin(): Promise<AdminEdgeProjection[]> {
+    const edgeServers = await EdgeServer.find()
+        .select('-apiKeyHash -currentOnboardingPackage.secretHash -persistentCredential.secretHash')
         .populate('trustedUsers', 'email role subscriptionTier')
         .populate('createdBy', 'email')
-        .lean()
+        .lean<Array<Parameters<typeof mapEdgeToAdminProjection>[0]>>()
         .exec();
+
+    return edgeServers.map((edgeServer) => mapEdgeToAdminProjection(edgeServer));
 }
 
 /**
