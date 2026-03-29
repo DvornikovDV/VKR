@@ -58,6 +58,20 @@ function isPersistableCredentialRecord(value: unknown): value is PersistedCreden
   return isPersistedCredentialRecord(value) && value.credentialMode === 'persistent'
 }
 
+function isLegacyPersistedOnboardingRecord(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+
+  const candidate = value as Record<string, unknown>
+  return (
+    candidate['credentialMode'] === 'onboarding' &&
+    typeof candidate['edgeId'] === 'string' &&
+    candidate['edgeId'].trim().length > 0 &&
+    typeof candidate['credentialSecret'] === 'string' &&
+    candidate['credentialSecret'].trim().length > 0 &&
+    isValidIsoDate(candidate['issuedAt'])
+  )
+}
+
 async function ensureParentDir(filePath: string): Promise<void> {
   const parentDir = path.dirname(filePath)
   await mkdir(parentDir, { recursive: true })
@@ -74,11 +88,15 @@ export function createPersistedCredentialStore(
         const json = await readFile(resolvedPath, 'utf-8')
         const parsed = JSON.parse(json) as unknown
 
-        if (!isPersistableCredentialRecord(parsed)) {
-          throw new Error(`Invalid persisted credential format in ${resolvedPath}`)
+        if (isPersistableCredentialRecord(parsed)) {
+          return parsed
         }
 
-        return parsed
+        if (isLegacyPersistedOnboardingRecord(parsed)) {
+          return null
+        }
+
+        throw new Error(`Invalid persisted credential format in ${resolvedPath}`)
       } catch (error) {
         const errorWithCode = error as NodeJS.ErrnoException
         if (errorWithCode.code === 'ENOENT') {

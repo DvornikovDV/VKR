@@ -35,7 +35,8 @@ export const lastSeenRegistry = new Map<string, number>();
 
 /**
  * Called by the WebSocket edge handler when a telemetry batch arrives.
- * Updates both the in-memory registry and (asynchronously) the DB `lastSeen` field.
+ * Updates in-memory registry and persists only canonical availability timestamp.
+ * Legacy `lastSeen` synchronization is handled centrally by model middleware.
  */
 export function updateLastSeen(edgeId: string): void {
     const observedAtMs = Date.now();
@@ -47,7 +48,6 @@ export function updateLastSeen(edgeId: string): void {
         {
             $set: {
                 'availability.lastSeenAt': observedAt,
-                lastSeen: observedAt,
             },
         },
     )

@@ -1,4 +1,4 @@
-import { apiClient } from '@/shared/api/client'
+﻿import { apiClient } from '@/shared/api/client'
 
 export type OnboardingLifecycleState =
   | 'Pending First Connection'
@@ -29,30 +29,20 @@ export interface OnboardingPackageSummary {
   displayHint: string | null
 }
 
-export interface EdgeServer {
+export interface AdminEdgeServer {
   _id: string
   name: string
-  trustedUsers?: Array<string | EdgeServerUserRef>
-  createdBy?: string | Pick<EdgeServerUserRef, '_id' | 'email'>
-  isActive?: boolean
-  lastSeen?: string | null
-  createdAt?: string
-
-  lifecycleState?: OnboardingLifecycleState
-  isTelemetryReady?: boolean
-  availability?: EdgeAvailabilitySnapshot
-  currentOnboardingPackage?: OnboardingPackageSummary | null
-  persistentCredentialVersion?: number | null
-  lastLifecycleEventAt?: string | null
-}
-
-export interface AdminEdgeServer extends EdgeServer {
+  trustedUsers: Array<string | EdgeServerUserRef>
+  createdBy: string | Pick<EdgeServerUserRef, '_id' | 'email'> | null
   lifecycleState: OnboardingLifecycleState
   isTelemetryReady: boolean
   availability: EdgeAvailabilitySnapshot
   currentOnboardingPackage: OnboardingPackageSummary | null
   persistentCredentialVersion: number | null
   lastLifecycleEventAt: string | null
+  isActive: boolean
+  lastSeen: string | null
+  createdAt?: string
 }
 
 export interface TrustedEdgeServer {
@@ -61,8 +51,8 @@ export interface TrustedEdgeServer {
   lifecycleState: 'Active'
   isTelemetryReady: true
   availability: EdgeAvailabilitySnapshot
-  isActive?: true
-  lastSeen?: string | null
+  isActive: true
+  lastSeen: string | null
 }
 
 export type DashboardTrustedEdgeServer = TrustedEdgeServer
@@ -88,7 +78,7 @@ export interface FirstConnectionPackageDisclosure {
 }
 
 export interface OnboardingDisclosureResponse {
-  edge: EdgeServer
+  edge: AdminEdgeServer
   onboardingPackage: FirstConnectionPackageDisclosure
 }
 
@@ -100,9 +90,24 @@ interface EdgeAvailabilityLike {
   availability?: Partial<EdgeAvailabilitySnapshot> | null
   online?: boolean
   isOnline?: boolean
-  isActive?: boolean
   lastSeenAt?: string | null
   lastSeen?: string | null
+}
+
+interface AdminEdgeServerLike extends EdgeAvailabilityLike {
+  _id?: string
+  id?: string
+  edgeId?: string
+  name?: string
+  trustedUsers?: Array<string | EdgeServerUserRef>
+  createdBy?: string | Pick<EdgeServerUserRef, '_id' | 'email'> | null
+  isActive?: boolean
+  createdAt?: string
+  lifecycleState?: OnboardingLifecycleState
+  isTelemetryReady?: boolean
+  currentOnboardingPackage?: OnboardingPackageSummary | null
+  persistentCredentialVersion?: number | null
+  lastLifecycleEventAt?: string | null
 }
 
 interface TrustedEdgeServerLike extends EdgeAvailabilityLike {
@@ -111,8 +116,10 @@ interface TrustedEdgeServerLike extends EdgeAvailabilityLike {
   edgeId?: string
   name?: string
   lifecycleState?: OnboardingLifecycleState
-  isTelemetryReady?: boolean
-  isActive?: boolean
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
 }
 
 function normalizeAvailability(edge: EdgeAvailabilityLike): EdgeAvailabilitySnapshot {
@@ -123,12 +130,9 @@ function normalizeAvailability(edge: EdgeAvailabilityLike): EdgeAvailabilitySnap
         ? edge.isOnline
         : typeof edge.online === 'boolean'
           ? edge.online
-          : typeof edge.isActive === 'boolean'
-            ? edge.isActive
-            : false
+          : false
 
-  const lastSeenAt =
-    edge.availability?.lastSeenAt ?? edge.lastSeenAt ?? edge.lastSeen ?? null
+  const lastSeenAt = edge.availability?.lastSeenAt ?? edge.lastSeenAt ?? edge.lastSeen ?? null
 
   return {
     online,
@@ -136,7 +140,7 @@ function normalizeAvailability(edge: EdgeAvailabilityLike): EdgeAvailabilitySnap
   }
 }
 
-function normalizeLifecycleState(edge: EdgeServer): OnboardingLifecycleState {
+function normalizeLifecycleState(edge: AdminEdgeServerLike): OnboardingLifecycleState {
   if (edge.lifecycleState) {
     return edge.lifecycleState
   }
@@ -144,13 +148,17 @@ function normalizeLifecycleState(edge: EdgeServer): OnboardingLifecycleState {
   return edge.isActive ? 'Active' : 'Pending First Connection'
 }
 
-function normalizeAdminEdgeServer(edge: EdgeServer): AdminEdgeServer {
+function normalizeAdminEdgeServer(edge: AdminEdgeServerLike): AdminEdgeServer {
+  const edgeId = edge._id ?? edge.id ?? edge.edgeId ?? ''
   const lifecycleState = normalizeLifecycleState(edge)
   const availability = normalizeAvailability(edge)
   const isTelemetryReady = edge.isTelemetryReady ?? lifecycleState === 'Active'
 
   return {
-    ...edge,
+    _id: isNonEmptyString(edgeId) ? edgeId : '',
+    name: isNonEmptyString(edge.name) ? edge.name : (isNonEmptyString(edgeId) ? edgeId : 'Unnamed edge'),
+    trustedUsers: edge.trustedUsers ?? [],
+    createdBy: edge.createdBy ?? null,
     lifecycleState,
     isTelemetryReady,
     availability,
@@ -159,23 +167,24 @@ function normalizeAdminEdgeServer(edge: EdgeServer): AdminEdgeServer {
     lastLifecycleEventAt: edge.lastLifecycleEventAt ?? null,
     isActive: isTelemetryReady,
     lastSeen: edge.lastSeen ?? availability.lastSeenAt,
+    createdAt: edge.createdAt,
   }
 }
 
 function normalizeTrustedEdgeServer(edge: TrustedEdgeServerLike): TrustedEdgeServer | null {
   const edgeId = edge._id ?? edge.id ?? edge.edgeId ?? ''
-  if (edgeId.length === 0) {
+  if (!isNonEmptyString(edgeId)) {
     return null
   }
 
-  if (edge.lifecycleState && edge.lifecycleState !== 'Active') {
+  if (edge.lifecycleState !== 'Active') {
     return null
   }
 
   const availability = normalizeAvailability(edge)
   return {
     _id: edgeId,
-    name: edge.name ?? edgeId,
+    name: isNonEmptyString(edge.name) ? edge.name : edgeId,
     lifecycleState: 'Active',
     isTelemetryReady: true,
     availability,
@@ -185,7 +194,7 @@ function normalizeTrustedEdgeServer(edge: TrustedEdgeServerLike): TrustedEdgeSer
 }
 
 function normalizeOnboardingDisclosureResponse(
-  response: OnboardingDisclosureResponse,
+  response: { edge: AdminEdgeServerLike; onboardingPackage: FirstConnectionPackageDisclosure },
 ): OnboardingDisclosureResponse {
   return {
     ...response,
@@ -194,8 +203,10 @@ function normalizeOnboardingDisclosureResponse(
 }
 
 export async function getEdgeServers(): Promise<AdminEdgeServer[]> {
-  const rows = await apiClient.get<EdgeServer[]>('/admin/edge-servers')
-  return rows.map(normalizeAdminEdgeServer)
+  const rows = await apiClient.get<AdminEdgeServerLike[]>('/admin/edge-servers')
+  return rows
+    .map(normalizeAdminEdgeServer)
+    .filter((edge) => isNonEmptyString(edge._id))
 }
 
 export async function getTrustedEdgeServers(): Promise<TrustedEdgeServer[]> {
@@ -216,7 +227,10 @@ export async function getEdgeServerCatalog(edgeId: string): Promise<EdgeServerCa
 export async function registerEdgeServer(
   payload: RegisterEdgeServerPayload,
 ): Promise<OnboardingDisclosureResponse> {
-  const response = await apiClient.post<OnboardingDisclosureResponse>('/edge-servers', payload)
+  const response = await apiClient.post<{
+    edge: AdminEdgeServerLike
+    onboardingPackage: FirstConnectionPackageDisclosure
+  }>('/edge-servers', payload)
   return normalizeOnboardingDisclosureResponse(response)
 }
 
@@ -230,37 +244,38 @@ export async function registerEdgeServerWithOnboarding(
 export async function resetEdgeOnboardingCredentials(
   edgeId: string,
 ): Promise<OnboardingDisclosureResponse> {
-  const response = await apiClient.post<OnboardingDisclosureResponse>(
-    `/edge-servers/${edgeId}/onboarding/reset`,
-  )
+  const response = await apiClient.post<{
+    edge: AdminEdgeServerLike
+    onboardingPackage: FirstConnectionPackageDisclosure
+  }>(`/edge-servers/${edgeId}/onboarding/reset`)
   return normalizeOnboardingDisclosureResponse(response)
 }
 
-export async function revokeEdgeTrust(edgeId: string): Promise<EdgeServer> {
-  const response = await apiClient.post<EdgeServer>(`/edge-servers/${edgeId}/trust/revoke`)
+export async function revokeEdgeTrust(edgeId: string): Promise<AdminEdgeServer> {
+  const response = await apiClient.post<AdminEdgeServerLike>(`/edge-servers/${edgeId}/trust/revoke`)
   return normalizeAdminEdgeServer(response)
 }
 
-export async function blockEdgeServer(edgeId: string): Promise<EdgeServer> {
-  const response = await apiClient.post<EdgeServer>(`/edge-servers/${edgeId}/block`)
+export async function blockEdgeServer(edgeId: string): Promise<AdminEdgeServer> {
+  const response = await apiClient.post<AdminEdgeServerLike>(`/edge-servers/${edgeId}/block`)
   return normalizeAdminEdgeServer(response)
 }
 
-export async function reenableEdgeOnboarding(edgeId: string): Promise<EdgeServer> {
-  const response = await apiClient.post<EdgeServer>(`/edge-servers/${edgeId}/re-enable-onboarding`)
+export async function reenableEdgeOnboarding(edgeId: string): Promise<AdminEdgeServer> {
+  const response = await apiClient.post<AdminEdgeServerLike>(`/edge-servers/${edgeId}/re-enable-onboarding`)
   return normalizeAdminEdgeServer(response)
 }
 
 export async function bindEdgeServer(
   edgeId: string,
   payload: BindEdgeServerPayload,
-): Promise<EdgeServer> {
-  const response = await apiClient.post<EdgeServer>(`/edge-servers/${edgeId}/bind`, payload)
+): Promise<AdminEdgeServer> {
+  const response = await apiClient.post<AdminEdgeServerLike>(`/edge-servers/${edgeId}/bind`, payload)
   return normalizeAdminEdgeServer(response)
 }
 
 // Revoke access maps to backend unbind for a specific user and edge server pair.
-export async function revokeEdgeServerAccess(edgeId: string, userId: string): Promise<EdgeServer> {
-  const response = await apiClient.delete<EdgeServer>(`/edge-servers/${edgeId}/bind/${userId}`)
+export async function revokeEdgeServerAccess(edgeId: string, userId: string): Promise<AdminEdgeServer> {
+  const response = await apiClient.delete<AdminEdgeServerLike>(`/edge-servers/${edgeId}/bind/${userId}`)
   return normalizeAdminEdgeServer(response)
 }

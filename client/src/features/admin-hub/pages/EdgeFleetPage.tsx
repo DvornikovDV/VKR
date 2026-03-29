@@ -8,7 +8,7 @@ import {
   revokeEdgeTrust,
   resetEdgeOnboardingCredentials,
   revokeEdgeServerAccess,
-  type EdgeServer,
+  type AdminEdgeServer,
   type OnboardingDisclosureResponse,
   type OnboardingPackageStatus,
 } from '@/shared/api/edgeServers'
@@ -50,7 +50,7 @@ function toUserRef(value: string | { _id?: string; email?: string } | null | und
   }
 }
 
-function getAssignedUsers(edgeServer: EdgeServer): Array<{ _id: string; email: string }> {
+function getAssignedUsers(edgeServer: AdminEdgeServer): Array<{ _id: string; email: string }> {
   if (!edgeServer.trustedUsers || edgeServer.trustedUsers.length === 0) {
     return []
   }
@@ -60,8 +60,8 @@ function getAssignedUsers(edgeServer: EdgeServer): Array<{ _id: string; email: s
     .filter((item): item is { _id: string; email: string } => item !== null)
 }
 
-function normalizeLifecycleState(edgeServer: EdgeServer): string {
-  return edgeServer.lifecycleState ?? 'Unknown'
+function normalizeLifecycleState(edgeServer: AdminEdgeServer): string {
+  return edgeServer.lifecycleState
 }
 
 function onboardingStatusLabel(status: OnboardingPackageStatus): string {
@@ -128,7 +128,7 @@ function lifecycleActionPendingLabel(action: LifecycleAction): string {
 }
 
 export function EdgeFleetPage() {
-  const [edgeServers, setEdgeServers] = useState<EdgeServer[]>([])
+  const [edgeServers, setEdgeServers] = useState<AdminEdgeServer[]>([])
   const [users, setUsers] = useState<UserRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -322,7 +322,7 @@ export function EdgeFleetPage() {
     }
   }
 
-  function openRevokeModal(edgeServer: EdgeServer) {
+  function openRevokeModal(edgeServer: AdminEdgeServer) {
     const assignedUsers = getAssignedUsers(edgeServer)
     if (assignedUsers.length === 0) {
       return
@@ -356,7 +356,7 @@ export function EdgeFleetPage() {
     }
   }
 
-  function isEdgeOnline(edge: EdgeServer): boolean {
+  function isEdgeOnline(edge: AdminEdgeServer): boolean {
     if (edge.availability && typeof edge.availability.online === 'boolean') {
       return edge.availability.online
     }

@@ -29,6 +29,11 @@ export interface DashboardBindingProfileFixture {
 export interface DashboardEdgeFixture {
   _id: string
   name: string
+  lifecycleState: 'Active'
+  availability: {
+    online: boolean
+    lastSeenAt: string | null
+  }
 }
 
 export interface DashboardRestFixtures {
@@ -125,8 +130,18 @@ function createDefaultDashboardRestFixtures(): DashboardRestFixtures {
       },
     },
     trustedEdges: [
-      { _id: 'edge-1', name: 'Edge A' },
-      { _id: 'edge-2', name: 'Edge B' },
+      {
+        _id: 'edge-1',
+        name: 'Edge A',
+        lifecycleState: 'Active',
+        availability: { online: true, lastSeenAt: '2026-03-26T10:20:00.000Z' },
+      },
+      {
+        _id: 'edge-2',
+        name: 'Edge B',
+        lifecycleState: 'Active',
+        availability: { online: false, lastSeenAt: '2026-03-26T10:10:00.000Z' },
+      },
     ],
     bindingProfilesByDiagramId: {
       'diagram-1': [

@@ -197,6 +197,11 @@ const EdgeServerSchema = new Schema<IEdgeServer>(
 );
 
 type UpdateContainer = Record<string, unknown>;
+type QueryProjectionChain = {
+    select: (fields: string) => QueryProjectionChain;
+    lean: () => QueryProjectionChain;
+    exec: () => Promise<unknown>;
+};
 
 function asObject(value: unknown): UpdateContainer | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -236,12 +241,16 @@ function asSecretHashContainer(secretHash: unknown): { secretHash?: string | nul
     return { secretHash };
 }
 
+function hasOwn(record: UpdateContainer, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(record, key);
+}
+
 async function synchronizeLegacyCompatibilityInUpdate(
     context: {
-        model: any;
+        model: unknown;
         getQuery: () => unknown;
         getUpdate: () => unknown;
-        setUpdate: (update: any) => void;
+        setUpdate: (update: unknown) => void;
     },
 ): Promise<void> {
     const updateRecord = asObject(context.getUpdate());
@@ -254,20 +263,72 @@ async function synchronizeLegacyCompatibilityInUpdate(
         return;
     }
 
+    const availabilityPatch = asObject(setRecord['availability']);
+    const touchesAvailabilityLastSeen =
+        hasOwn(setRecord, 'availability.lastSeenAt') ||
+        (availabilityPatch !== null && hasOwn(availabilityPatch, 'lastSeenAt'));
+    const touchesLegacyLastSeen = hasOwn(setRecord, 'lastSeen');
+    const touchesLastSeenFields = touchesAvailabilityLastSeen || touchesLegacyLastSeen;
+
+    if (touchesLastSeenFields) {
+        const availabilityLastSeen = asDate(
+            hasOwn(setRecord, 'availability.lastSeenAt')
+                ? setRecord['availability.lastSeenAt']
+                : availabilityPatch?.['lastSeenAt'],
+        );
+        const legacyLastSeen = asDate(hasOwn(setRecord, 'lastSeen') ? setRecord['lastSeen'] : null);
+        const resolvedLastSeenAt = resolveLegacyLastSeenTimestamp({
+            availabilityLastSeenAt: availabilityLastSeen,
+            lastSeen: legacyLastSeen,
+        });
+
+        setRecord['lastSeen'] = resolvedLastSeenAt;
+        if (availabilityPatch) {
+            availabilityPatch['lastSeenAt'] = resolvedLastSeenAt;
+            setRecord['availability'] = availabilityPatch;
+            delete setRecord['availability.lastSeenAt'];
+        } else {
+            setRecord['availability.lastSeenAt'] = resolvedLastSeenAt;
+        }
+    }
+
+    const onboardingPackagePatch = asObject(setRecord['currentOnboardingPackage']);
+    const persistentCredentialPatch = asObject(setRecord['persistentCredential']);
+    const touchesLifecycleState = hasOwn(setRecord, 'lifecycleState');
+    const touchesApiKeyHash = hasOwn(setRecord, 'apiKeyHash');
+    const touchesOnboardingSecretHash =
+        hasOwn(setRecord, 'currentOnboardingPackage.secretHash') ||
+        (onboardingPackagePatch !== null && hasOwn(onboardingPackagePatch, 'secretHash'));
+    const touchesPersistentSecretHash =
+        hasOwn(setRecord, 'persistentCredential.secretHash') ||
+        (persistentCredentialPatch !== null && hasOwn(persistentCredentialPatch, 'secretHash'));
+    const shouldSyncLegacyCredential =
+        touchesLifecycleState ||
+        touchesApiKeyHash ||
+        touchesOnboardingSecretHash ||
+        touchesPersistentSecretHash;
+
+    if (!shouldSyncLegacyCredential) {
+        context.setUpdate(updateRecord);
+        return;
+    }
+
     type ExistingProjection = {
         lifecycleState?: EdgeLifecycleState;
         apiKeyHash?: string;
-        lastSeen?: Date | null;
-        availability?: { lastSeenAt?: Date | null } | null;
         currentOnboardingPackage?: { secretHash?: string | null } | null;
         persistentCredential?: { secretHash?: string | null } | null;
     };
 
     const query = context.getQuery();
-    const existing = (await context.model
+    const modelRecord = context.model as {
+        findOne: (...args: unknown[]) => QueryProjectionChain;
+    };
+
+    const existing = (await modelRecord
         .findOne(query)
         .select(
-            'lifecycleState apiKeyHash lastSeen availability.lastSeenAt currentOnboardingPackage.secretHash persistentCredential.secretHash',
+            'lifecycleState apiKeyHash currentOnboardingPackage.secretHash persistentCredential.secretHash',
         )
         .lean()
         .exec()) as ExistingProjection | null;
@@ -277,19 +338,6 @@ async function synchronizeLegacyCompatibilityInUpdate(
     if (lifecycleState) {
         setRecord['isActive'] = isLegacyEdgeActive(lifecycleState);
     }
-
-    const availabilityPatch = asObject(setRecord['availability']);
-    const availabilityLastSeen = asDate(
-        setRecord['availability.lastSeenAt'] ?? availabilityPatch?.['lastSeenAt'] ?? null,
-    );
-    const legacyLastSeen = asDate(setRecord['lastSeen'] ?? null);
-    const resolvedLastSeenAt = resolveLegacyLastSeenTimestamp({
-        availabilityLastSeenAt: availabilityLastSeen ?? existing?.availability?.lastSeenAt ?? null,
-        lastSeen: legacyLastSeen ?? existing?.lastSeen ?? null,
-    });
-
-    setRecord['availability.lastSeenAt'] = resolvedLastSeenAt;
-    setRecord['lastSeen'] = resolvedLastSeenAt;
 
     if (lifecycleState) {
         const currentApiKeyHash =
@@ -351,7 +399,7 @@ EdgeServerSchema.pre('updateOne', function syncLegacyCompatibilityForUpdateOne(n
         model: this.model,
         getQuery: () => this.getQuery(),
         getUpdate: () => this.getUpdate(),
-        setUpdate: (update) => this.setUpdate(update as any),
+        setUpdate: (update) => this.setUpdate(update as Parameters<typeof this.setUpdate>[0]),
     })
         .then(() => next())
         .catch(next);
@@ -362,7 +410,7 @@ EdgeServerSchema.pre('findOneAndUpdate', function syncLegacyCompatibilityForFind
         model: this.model,
         getQuery: () => this.getQuery(),
         getUpdate: () => this.getUpdate(),
-        setUpdate: (update) => this.setUpdate(update as any),
+        setUpdate: (update) => this.setUpdate(update as Parameters<typeof this.setUpdate>[0]),
     })
         .then(() => next())
         .catch(next);

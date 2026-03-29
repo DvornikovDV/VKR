@@ -1,18 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getEdgeServers, getTrustedEdgeServers } from '@/shared/api/edgeServers'
+﻿import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  getEdgeServers,
+  getTrustedEdgeServers,
+  type AdminEdgeServer,
+  type TrustedEdgeServer,
+} from '@/shared/api/edgeServers'
 import { useTelemetryStore } from '@/shared/store/useTelemetryStore'
-
-interface EdgeServerStatusDto {
-  _id?: string
-  id?: string
-  edgeId?: string
-  isOnline?: boolean
-  online?: boolean
-  availability?: {
-    online?: boolean
-    lastSeenAt?: string | null
-  } | null
-}
 
 interface UseEdgeStatusOptions {
   edgeIds?: string[]
@@ -27,21 +20,11 @@ interface UseEdgeStatusResult {
   refresh: () => Promise<void>
 }
 
-function normalizeEdgeStatus(rows: EdgeServerStatusDto[]): Record<string, boolean> {
+function normalizeEdgeStatus(rows: Array<AdminEdgeServer | TrustedEdgeServer>): Record<string, boolean> {
   const map: Record<string, boolean> = {}
 
   for (const row of rows) {
-    const id = row._id ?? row.id ?? row.edgeId
-    if (!id) {
-      continue
-    }
-
-    const online =
-      typeof row.availability?.online === 'boolean'
-        ? row.availability.online
-        : row.isOnline ?? row.online ?? false
-
-    map[id] = Boolean(online)
+    map[row._id] = Boolean(row.availability.online)
   }
 
   return map

@@ -74,8 +74,13 @@ describe('Constructor host foundation tasks (T004-T007)', () => {
         HttpResponse.json({
           status: 'success',
           data: [
-            { _id: 'edge-b', name: 'Bravo', isActive: false },
-            { _id: 'edge-a', name: 'Alpha', isActive: true },
+            // Legacy-only payload must be ignored by strict lifecycle filtering.
+            { _id: 'edge-legacy', name: 'Legacy', isActive: true },
+            // Canonical non-Active payload must be ignored as not telemetry-ready.
+            { _id: 'edge-blocked', name: 'Blocked', lifecycleState: 'Blocked' },
+            // Canonical Active rows are accepted.
+            { _id: 'edge-b', name: 'Bravo', lifecycleState: 'Active', availability: { online: false } },
+            { _id: 'edge-a', name: 'Alpha', lifecycleState: 'Active', availability: { online: true } },
           ],
         }),
       ),
