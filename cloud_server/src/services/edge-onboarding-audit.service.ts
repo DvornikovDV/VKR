@@ -26,6 +26,17 @@ interface BlockAuditActionInput extends AdminAuditActionInput {
     reason?: string;
 }
 
+interface EdgeAuditActionInput {
+    edgeId: string;
+    edgeActorId?: string;
+    details?: Record<string, unknown>;
+}
+
+interface PersistentIssuedAuditActionInput extends EdgeAuditActionInput {
+    version: number;
+    issuedAt: string;
+}
+
 function toObjectId(id: string, label: string): Types.ObjectId {
     if (!mongoose.isValidObjectId(id)) {
         throw new AppError(`Invalid ${label}`, 400);
@@ -89,6 +100,32 @@ async function recordActivationSucceeded(input: {
     });
 }
 
+async function recordActivationRejected(input: EdgeAuditActionInput): Promise<IEdgeOnboardingAudit> {
+    return writeEvent({
+        edgeId: input.edgeId,
+        type: 'activation_rejected',
+        actorType: 'edge',
+        actorId: input.edgeActorId ?? input.edgeId,
+        details: input.details,
+    });
+}
+
+async function recordPersistentIssued(
+    input: PersistentIssuedAuditActionInput,
+): Promise<IEdgeOnboardingAudit> {
+    return writeEvent({
+        edgeId: input.edgeId,
+        type: 'persistent_issued',
+        actorType: 'system',
+        actorId: null,
+        details: {
+            version: input.version,
+            issuedAt: input.issuedAt,
+            ...input.details,
+        },
+    });
+}
+
 async function recordTrustRevoked(input: AdminAuditActionInput): Promise<IEdgeOnboardingAudit> {
     return writeEvent({
         edgeId: input.edgeId,
@@ -147,6 +184,8 @@ export const EdgeOnboardingAuditService = {
     recordRegistered,
     recordOnboardingReset,
     recordActivationSucceeded,
+    recordActivationRejected,
+    recordPersistentIssued,
     recordTrustRevoked,
     recordBlocked,
     recordReenabled,

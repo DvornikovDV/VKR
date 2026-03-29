@@ -20,22 +20,36 @@ export interface PersistedCredentialStore {
   clear: () => Promise<void>
 }
 
+function isValidIsoDate(value: unknown): value is string {
+  if (typeof value !== 'string' || value.trim().length === 0) return false
+  return !Number.isNaN(Date.parse(value))
+}
+
 function isPersistedCredentialRecord(value: unknown): value is PersistedCredentialRecord {
   if (!value || typeof value !== 'object') return false
 
   const candidate = value as Record<string, unknown>
-  const hasValidMode =
-    candidate['credentialMode'] === 'onboarding' || candidate['credentialMode'] === 'persistent'
+  const credentialMode = candidate['credentialMode']
+  const isOnboarding = credentialMode === 'onboarding'
+  const isPersistent = credentialMode === 'persistent'
+
+  if (!isOnboarding && !isPersistent) return false
+  if (typeof candidate['edgeId'] !== 'string' || candidate['edgeId'].trim().length === 0) return false
+  if (
+    typeof candidate['credentialSecret'] !== 'string' ||
+    candidate['credentialSecret'].trim().length === 0
+  ) {
+    return false
+  }
+  if (!isValidIsoDate(candidate['issuedAt'])) return false
+
+  if (isOnboarding) {
+    return candidate['version'] === null && candidate['lifecycleState'] === undefined
+  }
 
   return (
-    typeof candidate['edgeId'] === 'string' &&
-    candidate['edgeId'].trim().length > 0 &&
-    hasValidMode &&
-    typeof candidate['credentialSecret'] === 'string' &&
-    candidate['credentialSecret'].trim().length > 0 &&
-    (typeof candidate['version'] === 'number' || candidate['version'] === null) &&
-    typeof candidate['issuedAt'] === 'string' &&
-    candidate['issuedAt'].trim().length > 0 &&
+    Number.isInteger(candidate['version']) &&
+    Number(candidate['version']) > 0 &&
     (candidate['lifecycleState'] === undefined || candidate['lifecycleState'] === 'Active')
   )
 }

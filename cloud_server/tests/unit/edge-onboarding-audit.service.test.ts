@@ -7,7 +7,7 @@ describe('EdgeOnboardingAuditService', () => {
         vi.restoreAllMocks();
     });
 
-    it('writes canonical audit events for registration/reset/activation/revoke/block/re-enable', async () => {
+    it('writes canonical audit events for registration/reset/activation/rejection/persistent issue/revoke/block/re-enable', async () => {
         const createSpy = vi
             .spyOn(EdgeOnboardingAudit, 'create')
             .mockResolvedValue({} as never);
@@ -18,6 +18,15 @@ describe('EdgeOnboardingAuditService', () => {
         await EdgeOnboardingAuditService.recordRegistered({ edgeId, adminId });
         await EdgeOnboardingAuditService.recordOnboardingReset({ edgeId, adminId });
         await EdgeOnboardingAuditService.recordActivationSucceeded({ edgeId });
+        await EdgeOnboardingAuditService.recordActivationRejected({
+            edgeId,
+            details: { code: 'invalid_credential' },
+        });
+        await EdgeOnboardingAuditService.recordPersistentIssued({
+            edgeId,
+            version: 1,
+            issuedAt: new Date('2026-03-26T00:00:00.000Z').toISOString(),
+        });
         await EdgeOnboardingAuditService.recordTrustRevoked({ edgeId, adminId });
         await EdgeOnboardingAuditService.recordBlocked({ edgeId, adminId, reason: 'manual-block' });
         await EdgeOnboardingAuditService.recordReenabled({ edgeId, adminId });
@@ -27,6 +36,8 @@ describe('EdgeOnboardingAuditService', () => {
             'registered',
             'onboarding_reset',
             'activation_succeeded',
+            'activation_rejected',
+            'persistent_issued',
             'trust_revoked',
             'blocked',
             'reenabled',

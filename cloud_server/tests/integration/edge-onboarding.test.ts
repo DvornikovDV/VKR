@@ -388,6 +388,17 @@ describe('Edge onboarding integration contract', () => {
                 ),
             ).resolves.toBe(true);
 
+            const auditEvents = await EdgeOnboardingAudit.find({ edgeId }).lean().exec();
+            const eventTypes = auditEvents.map((event) => event.type);
+            expect(eventTypes).toContain('activation_succeeded');
+            expect(eventTypes).toContain('persistent_issued');
+
+            const persistentIssued = auditEvents.find((event) => event.type === 'persistent_issued');
+            expect(persistentIssued?.details).toMatchObject({
+                version: 1,
+            });
+            expect(persistentIssued?.details).not.toHaveProperty('secret');
+
             socket.disconnect();
         });
 
@@ -417,6 +428,14 @@ describe('Edge onboarding integration contract', () => {
                 credentialSecret: 'invalid-secret',
             });
             expect(invalidError).toBe('invalid_credential');
+
+            const secondEdgeAuditEvents = await EdgeOnboardingAudit.find({ edgeId: secondEdge.edgeId })
+                .lean()
+                .exec();
+            const hasActivationRejected = secondEdgeAuditEvents.some(
+                (event) => event.type === 'activation_rejected',
+            );
+            expect(hasActivationRejected).toBe(true);
 
             const thirdEdge = await registerEdge('Edge Expired Secret');
             await EdgeServer.findByIdAndUpdate(thirdEdge.edgeId, {

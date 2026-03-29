@@ -1,5 +1,14 @@
 import { ENV } from '../config/env'
-import type { EdgeCredentialMode, PersistedCredentialRecord } from '../onboarding/persistedCredentialStore'
+import type {
+  EdgeCredentialMode,
+  PersistedCredentialRecord,
+  PersistedCredentialStore,
+} from '../onboarding/persistedCredentialStore'
+import type {
+  BootstrapEdgeActivationInput,
+  EdgeActivationBootstrapResult,
+  PersistActivationEventInput,
+} from '../onboarding/activateEdge'
 
 export interface EdgeHandshakeAuthPayload {
   edgeId: string
@@ -31,6 +40,16 @@ export interface EdgeActivationEventPayload {
   }
 }
 
+export type EdgeConnectErrorCode =
+  | 'edge_not_found'
+  | 'blocked'
+  | 'onboarding_not_allowed'
+  | 'onboarding_package_missing'
+  | 'onboarding_package_expired'
+  | 'onboarding_package_reused'
+  | 'invalid_credential'
+  | 'persistent_credential_revoked'
+
 function assertPositiveInteger(value: number, label: string): number {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${label} must be a positive integer`)
@@ -54,6 +73,20 @@ export function buildEdgeHandshakeAuth(record: PersistedCredentialRecord): EdgeH
   }
 }
 
+export function buildOnboardingCredentialRecord(
+  edgeId: string,
+  onboardingSecret: string,
+  issuedAt = new Date().toISOString(),
+): PersistedCredentialRecord {
+  return {
+    edgeId: assertNonEmpty(edgeId, 'edgeId'),
+    credentialMode: 'onboarding',
+    credentialSecret: assertNonEmpty(onboardingSecret, 'onboardingSecret'),
+    version: null,
+    issuedAt: assertNonEmpty(issuedAt, 'issuedAt'),
+  }
+}
+
 export function buildPersistedCredentialRecordFromActivation(
   payload: EdgeActivationEventPayload,
 ): PersistedCredentialRecord {
@@ -65,6 +98,62 @@ export function buildPersistedCredentialRecordFromActivation(
     issuedAt: assertNonEmpty(payload.persistentCredential.issuedAt, 'persistentCredential.issuedAt'),
     lifecycleState: payload.lifecycleState,
   }
+}
+
+export function isEdgeActivationEventPayload(value: unknown): value is EdgeActivationEventPayload {
+  if (!value || typeof value !== 'object') return false
+
+  const candidate = value as Record<string, unknown>
+  if (candidate['lifecycleState'] !== 'Active') return false
+  if (typeof candidate['edgeId'] !== 'string' || candidate['edgeId'].trim().length === 0) return false
+
+  const persistentCredential = candidate['persistentCredential']
+  if (!persistentCredential || typeof persistentCredential !== 'object') return false
+  const credential = persistentCredential as Record<string, unknown>
+
+  return (
+    Number.isInteger(credential['version']) &&
+    Number(credential['version']) > 0 &&
+    typeof credential['secret'] === 'string' &&
+    credential['secret'].trim().length > 0 &&
+    typeof credential['issuedAt'] === 'string' &&
+    credential['issuedAt'].trim().length > 0
+  )
+}
+
+export function isEdgeConnectErrorCode(value: string): value is EdgeConnectErrorCode {
+  return (
+    value === 'edge_not_found' ||
+    value === 'blocked' ||
+    value === 'onboarding_not_allowed' ||
+    value === 'onboarding_package_missing' ||
+    value === 'onboarding_package_expired' ||
+    value === 'onboarding_package_reused' ||
+    value === 'invalid_credential' ||
+    value === 'persistent_credential_revoked'
+  )
+}
+
+export interface PrepareEdgeRuntimeHandshakeInput extends BootstrapEdgeActivationInput {
+  store?: PersistedCredentialStore
+}
+
+export interface ApplyEdgeActivationEventInput extends PersistActivationEventInput {
+  store?: PersistedCredentialStore
+}
+
+export async function prepareEdgeRuntimeHandshake(
+  input: PrepareEdgeRuntimeHandshakeInput = {},
+): Promise<EdgeActivationBootstrapResult> {
+  const activationModule = await import('../onboarding/activateEdge')
+  return activationModule.bootstrapEdgeActivation(input)
+}
+
+export async function applyEdgeActivationEvent(
+  input: ApplyEdgeActivationEventInput,
+): Promise<PersistedCredentialRecord> {
+  const activationModule = await import('../onboarding/activateEdge')
+  return activationModule.persistActivationCredentialFromEvent(input)
 }
 
 export function buildCloudSocketClientOptions(

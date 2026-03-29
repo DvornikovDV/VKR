@@ -330,6 +330,26 @@ function applyCredentialRejectionTransition(edge: IEdgeServer, at: Date): void {
     edge.lastLifecycleEventAt = transition.occurredAt;
 }
 
+async function recordActivationRejectedAuditEvent(input: {
+    edge: IEdgeServer;
+    credentialMode: CredentialSecretKind;
+    code: EdgeAuthRejectionCode;
+    now: Date;
+    details?: Record<string, unknown>;
+}): Promise<void> {
+    await EdgeOnboardingAuditService.recordActivationRejected({
+        edgeId: input.edge._id.toString(),
+        edgeActorId: input.edge._id.toString(),
+        details: {
+            credentialMode: input.credentialMode,
+            code: input.code,
+            occurredAt: input.now.toISOString(),
+            lifecycleState: input.edge.lifecycleState,
+            ...input.details,
+        },
+    });
+}
+
 function toOnboardingRejectionCode(status: OnboardingPackageStatus): EdgeAuthRejectionCode {
     if (status === 'expired') {
         return 'onboarding_package_expired';
@@ -357,6 +377,12 @@ async function authenticateWithOnboardingCredential(
     ) {
         applyCredentialRejectionTransition(edge, now);
         await edge.save();
+        await recordActivationRejectedAuditEvent({
+            edge,
+            credentialMode: 'onboarding',
+            code: 'onboarding_not_allowed',
+            now,
+        });
         return { ok: false, code: 'onboarding_not_allowed' };
     }
 
@@ -364,6 +390,12 @@ async function authenticateWithOnboardingCredential(
     if (!onboardingPackage) {
         applyCredentialRejectionTransition(edge, now);
         await edge.save();
+        await recordActivationRejectedAuditEvent({
+            edge,
+            credentialMode: 'onboarding',
+            code: 'onboarding_package_missing',
+            now,
+        });
         return { ok: false, code: 'onboarding_package_missing' };
     }
 
@@ -378,13 +410,27 @@ async function authenticateWithOnboardingCredential(
 
         applyCredentialRejectionTransition(edge, now);
         await edge.save();
-        return { ok: false, code: toOnboardingRejectionCode(resolvedStatus) };
+        const rejectionCode = toOnboardingRejectionCode(resolvedStatus);
+        await recordActivationRejectedAuditEvent({
+            edge,
+            credentialMode: 'onboarding',
+            code: rejectionCode,
+            now,
+            details: { onboardingPackageStatus: resolvedStatus },
+        });
+        return { ok: false, code: rejectionCode };
     }
 
     const valid = await verifyCredentialSecret(credentialSecret, onboardingPackage.secretHash);
     if (!valid) {
         applyCredentialRejectionTransition(edge, now);
         await edge.save();
+        await recordActivationRejectedAuditEvent({
+            edge,
+            credentialMode: 'onboarding',
+            code: 'invalid_credential',
+            now,
+        });
         return { ok: false, code: 'invalid_credential' };
     }
 
@@ -437,11 +483,23 @@ async function authenticateWithOnboardingCredential(
         await latestEdge.save();
 
         if (latestEdge.lifecycleState === 'Blocked' || !latestEdge.isActive) {
+            await recordActivationRejectedAuditEvent({
+                edge: latestEdge,
+                credentialMode: 'onboarding',
+                code: 'blocked',
+                now,
+            });
             return { ok: false, code: 'blocked' };
         }
 
         const latestPackage = latestEdge.currentOnboardingPackage;
         if (!latestPackage) {
+            await recordActivationRejectedAuditEvent({
+                edge: latestEdge,
+                credentialMode: 'onboarding',
+                code: 'onboarding_package_missing',
+                now,
+            });
             return { ok: false, code: 'onboarding_package_missing' };
         }
 
@@ -451,16 +509,43 @@ async function authenticateWithOnboardingCredential(
             await latestEdge.save();
         }
 
-        return { ok: false, code: toOnboardingRejectionCode(latestStatus) };
+        const rejectionCode = toOnboardingRejectionCode(latestStatus);
+        await recordActivationRejectedAuditEvent({
+            edge: latestEdge,
+            credentialMode: 'onboarding',
+            code: rejectionCode,
+            now,
+            details: { onboardingPackageStatus: latestStatus },
+        });
+
+        return { ok: false, code: rejectionCode };
     }
+
+    const activatedEdgeId = activatedEdge._id.toString();
+    await EdgeOnboardingAuditService.recordActivationSucceeded({
+        edgeId: activatedEdgeId,
+        edgeActorId: activatedEdgeId,
+        details: {
+            credentialMode: 'onboarding',
+            persistentVersion: rotatedPersistentCredential.version,
+        },
+    });
+    await EdgeOnboardingAuditService.recordPersistentIssued({
+        edgeId: activatedEdgeId,
+        version: rotatedPersistentCredential.version,
+        issuedAt: rotatedPersistentCredential.issuedAt.toISOString(),
+        details: {
+            lifecycleState: 'Active',
+        },
+    });
 
     return {
         ok: true,
-        edgeId: activatedEdge._id.toString(),
+        edgeId: activatedEdgeId,
         credentialMode: 'onboarding',
         lifecycleState: 'Active',
         edgeActivation: {
-            edgeId: activatedEdge._id.toString(),
+            edgeId: activatedEdgeId,
             lifecycleState: 'Active',
             persistentCredential: {
                 version: rotatedPersistentCredential.version,
@@ -479,6 +564,12 @@ async function authenticateWithPersistentCredential(
     if (edge.lifecycleState !== 'Active') {
         applyCredentialRejectionTransition(edge, now);
         await edge.save();
+        await recordActivationRejectedAuditEvent({
+            edge,
+            credentialMode: 'persistent',
+            code: 'persistent_credential_revoked',
+            now,
+        });
         return { ok: false, code: 'persistent_credential_revoked' };
     }
 
@@ -486,6 +577,12 @@ async function authenticateWithPersistentCredential(
     if (!persistentCredential || persistentCredential.revokedAt) {
         applyCredentialRejectionTransition(edge, now);
         await edge.save();
+        await recordActivationRejectedAuditEvent({
+            edge,
+            credentialMode: 'persistent',
+            code: 'persistent_credential_revoked',
+            now,
+        });
         return { ok: false, code: 'persistent_credential_revoked' };
     }
 
@@ -493,6 +590,12 @@ async function authenticateWithPersistentCredential(
     if (!valid) {
         applyCredentialRejectionTransition(edge, now);
         await edge.save();
+        await recordActivationRejectedAuditEvent({
+            edge,
+            credentialMode: 'persistent',
+            code: 'invalid_credential',
+            now,
+        });
         return { ok: false, code: 'invalid_credential' };
     }
 
@@ -523,11 +626,17 @@ async function authenticateEdgeHandshake(
         return { ok: false, code: 'edge_not_found' };
     }
 
+    const now = input.now ?? new Date();
+
     if (edge.lifecycleState === 'Blocked' || !edge.isActive) {
+        await recordActivationRejectedAuditEvent({
+            edge,
+            credentialMode: input.credentialMode,
+            code: 'blocked',
+            now,
+        });
         return { ok: false, code: 'blocked' };
     }
-
-    const now = input.now ?? new Date();
 
     if (input.credentialMode === 'onboarding') {
         return authenticateWithOnboardingCredential(edge, input.credentialSecret, now);
