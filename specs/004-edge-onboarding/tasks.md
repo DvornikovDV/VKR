@@ -106,7 +106,7 @@
 - [X] T026 [US3] Implement lifecycle-aware admin fleet projections with separated availability and `isTelemetryReady` in `cloud_server/src/services/edge-servers.service.ts` and `cloud_server/src/api/admin.controller.ts`
 - [X] T027 [US3] Restrict user-facing ready-edge queries to `Active` edges in `cloud_server/src/services/edge-servers.service.ts` and `cloud_server/src/api/edge-servers.controller.ts`
 - [X] T028 [US3] Update Admin Fleet rendering and actions for lifecycle badges, recovery controls, block controls, and separate availability indicators in `client/src/features/admin-hub/pages/EdgeFleetPage.tsx`
-- [ ] T029 [US3] Update shared client edge contracts to expose lifecycle, masked onboarding metadata, and telemetry-ready filtering semantics for downstream `002-frontend` and `003-dashboard` consumers in `client/src/shared/api/edgeServers.ts` and `client/src/shared/hooks/useEdgeStatus.ts`
+- [X] T029 [US3] Update shared client edge contracts to expose lifecycle, masked onboarding metadata, and telemetry-ready filtering semantics for downstream `002-frontend` and `003-dashboard` consumers in `client/src/shared/api/edgeServers.ts` and `client/src/shared/hooks/useEdgeStatus.ts`
 
 **Checkpoint**: All product surfaces consume one lifecycle model and readiness stays gated by `Active` only.
 
@@ -120,6 +120,7 @@
 - [ ] T031 [P] Run quickstart validation and OpenAPI lint from `specs/004-edge-onboarding/quickstart.md` and `specs/004-edge-onboarding/contracts/openapi.yaml`
 - [ ] T032 Verify no plaintext secret persistence remains, explicitly fix lifecycle/legacy state desynchronization (`isActive`, `lastSeen`, `apiKeyHash` vs lifecycle fields), and remove legacy single-credential assumptions in `cloud_server/src/models/EdgeServer.ts`, `cloud_server/src/services/edge-servers.service.ts`, `cloud_server/src/services/users.service.ts`, `edge_server/src/onboarding/persistedCredentialStore.ts`, and `client/src/features/admin-hub/pages/EdgeFleetPage.tsx`
 - [ ] T033 Add dedicated regression validation that lifecycle state and any retained legacy compatibility fields cannot diverge (including user stats readiness semantics) in `cloud_server/tests/integration/edge-onboarding.test.ts` and `cloud_server/tests/integration/users.profile.test.ts`
+- [ ] T034 Post-implementation review follow-up (execute after T030-T033): harden shared client edge contract normalization and legacy compatibility by (1) enforcing strict `Active`-only telemetry-ready filtering when lifecycle fields are partial/missing, (2) tightening shared API return types to lifecycle-aware DTOs instead of optional legacy shapes, and (3) adding permanent regression tests for normalization behavior and mixed legacy/canonical payload handling in `client/src/shared/api/edgeServers.ts`, `client/src/shared/hooks/useEdgeStatus.ts`, `client/tests/integration/ConstructorHostFoundation.test.tsx`, and `client/tests/unit/`
 
 **Checkpoint**: Contracts, tests, and security expectations are aligned for release.
 
@@ -214,6 +215,6 @@ T024 [US3] Add client lifecycle rendering coverage in client/tests/integration/A
 ## Notes
 
 - Total stories covered: `US1`, `US2`, `US3`
-- Total tasks: `33`
+- Total tasks: `34`
 - Story task counts: `US1 = 6`, `US2 = 6`, `US3 = 7`
 - All tasks follow the required checklist format: checkbox, task ID, optional `[P]`, required story label for story phases, and exact file paths

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { apiClient } from '@/shared/api/client'
+import { getEdgeServers, getTrustedEdgeServers } from '@/shared/api/edgeServers'
 import { useTelemetryStore } from '@/shared/store/useTelemetryStore'
 
 interface EdgeServerStatusDto {
@@ -8,6 +8,10 @@ interface EdgeServerStatusDto {
   edgeId?: string
   isOnline?: boolean
   online?: boolean
+  availability?: {
+    online?: boolean
+    lastSeenAt?: string | null
+  } | null
 }
 
 interface UseEdgeStatusOptions {
@@ -32,7 +36,12 @@ function normalizeEdgeStatus(rows: EdgeServerStatusDto[]): Record<string, boolea
       continue
     }
 
-    map[id] = Boolean(row.isOnline ?? row.online ?? false)
+    const online =
+      typeof row.availability?.online === 'boolean'
+        ? row.availability.online
+        : row.isOnline ?? row.online ?? false
+
+    map[id] = Boolean(online)
   }
 
   return map
@@ -51,10 +60,15 @@ export function useEdgeStatus(options: UseEdgeStatusOptions = {}): UseEdgeStatus
     setError(null)
 
     try {
-      const rows = await apiClient.get<EdgeServerStatusDto[]>('/edge-servers')
+      const rows = await getEdgeServers()
       setRestEdgeStatusById(normalizeEdgeStatus(rows))
     } catch {
-      setError('Failed to refresh edge status from REST fallback.')
+      try {
+        const rows = await getTrustedEdgeServers()
+        setRestEdgeStatusById(normalizeEdgeStatus(rows))
+      } catch {
+        setError('Failed to refresh edge status from REST fallback.')
+      }
     } finally {
       setLoading(false)
     }
