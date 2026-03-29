@@ -5,6 +5,7 @@ import { TelemetryAggregatorService } from '../services/telemetry-aggregator.ser
 import { jwtSocketMiddleware } from './auth';
 import {
     disconnectEdgeSockets,
+    type EdgeForcedDisconnectReason,
     getActiveEdgeSocketCount,
     registerEdgeNamespace,
     resetActiveEdgeSocketsForTests,
@@ -62,7 +63,10 @@ export function getIO(): Server {
     return _io;
 }
 
-export function disconnectEdgeSocketsById(edgeId: string, reason?: string): number {
+export function disconnectEdgeSocketsById(
+    edgeId: string,
+    reason?: EdgeForcedDisconnectReason,
+): number {
     return disconnectEdgeSockets(edgeId, reason);
 }
 

@@ -9,6 +9,7 @@ import { registerTelemetryHandler } from './telemetry';
 export const EDGE_NAMESPACE = '/edge';
 
 export type EdgeCredentialMode = 'onboarding' | 'persistent';
+export type EdgeForcedDisconnectReason = 'edge_forced_disconnect' | 'trust_revoked' | 'blocked';
 
 type EdgeAuthPayload = {
     edgeId: string;
@@ -67,7 +68,10 @@ export function getActiveEdgeSocketCount(edgeId?: string): number {
     return total;
 }
 
-export function disconnectEdgeSockets(edgeId: string, reason = 'edge_forced_disconnect'): number {
+export function disconnectEdgeSockets(
+    edgeId: string,
+    reason: EdgeForcedDisconnectReason = 'edge_forced_disconnect',
+): number {
     const socketsForEdge = activeEdgeSockets.get(edgeId);
     if (!socketsForEdge || socketsForEdge.size === 0) {
         return 0;

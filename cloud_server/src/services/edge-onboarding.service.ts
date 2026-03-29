@@ -91,6 +91,10 @@ export interface OnboardingPackageActionResult {
     onboardingPackage: OnboardingPackageDisclosure;
 }
 
+export interface EdgeLifecycleActionResult {
+    edge: AdminEdgeProjection;
+}
+
 export interface EdgeActivationPayload {
     edgeId: string;
     lifecycleState: 'Active';
@@ -750,6 +754,171 @@ async function resetOnboardingCredentials(
     };
 }
 
+function revokePersistentCredentialForReason(
+    persistentCredential: EdgePersistentCredentialMetadata | null,
+    revokedAt: Date,
+    reason: 'recovery' | 'block',
+): EdgePersistentCredentialMetadata | null {
+    if (!persistentCredential) {
+        return null;
+    }
+
+    return {
+        ...persistentCredential,
+        revokedAt,
+        revocationReason: reason,
+    };
+}
+
+function applyBlockToOnboardingPackage(
+    onboardingPackage: EdgeOnboardingPackageMetadata | null,
+): EdgeOnboardingPackageMetadata | null {
+    if (!onboardingPackage || onboardingPackage.status !== 'ready') {
+        return onboardingPackage;
+    }
+
+    return {
+        ...onboardingPackage,
+        status: 'blocked',
+    };
+}
+
+async function revokeEdgeTrust(edgeId: string, adminId: string): Promise<EdgeLifecycleActionResult> {
+    const edgeObjectId = toObjectId(edgeId, 'edgeId');
+    const edge = await EdgeServer.findById(edgeObjectId).exec();
+
+    if (!edge) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    if (edge.lifecycleState !== 'Active') {
+        throw new AppError('Trust can be revoked only for Active edge servers', 409);
+    }
+
+    const now = new Date();
+    const lifecycleTransition = applyLifecycleTransition({
+        lifecycleState: edge.lifecycleState,
+        reason: 'trust_revoked',
+        at: now,
+        activation: edge.activation,
+    });
+
+    edge.lifecycleState = lifecycleTransition.lifecycleState;
+    edge.activation = lifecycleTransition.activation;
+    edge.lastLifecycleEventAt = lifecycleTransition.occurredAt;
+    edge.persistentCredential = revokePersistentCredentialForReason(
+        edge.persistentCredential,
+        now,
+        'recovery',
+    );
+    await edge.save();
+
+    await EdgeOnboardingAuditService.recordTrustRevoked({
+        edgeId,
+        adminId,
+        details: {
+            lifecycleState: edge.lifecycleState,
+        },
+    });
+
+    return {
+        edge: mapEdgeDocumentToAdminProjection(edge),
+    };
+}
+
+async function blockEdgeServer(edgeId: string, adminId: string): Promise<EdgeLifecycleActionResult> {
+    const edgeObjectId = toObjectId(edgeId, 'edgeId');
+    const edge = await EdgeServer.findById(edgeObjectId).exec();
+
+    if (!edge) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    if (edge.lifecycleState === 'Blocked') {
+        throw new AppError('Edge server is already blocked', 409);
+    }
+
+    const now = new Date();
+    const lifecycleTransition = applyLifecycleTransition({
+        lifecycleState: edge.lifecycleState,
+        reason: 'blocked',
+        at: now,
+        activation: edge.activation,
+    });
+
+    edge.lifecycleState = lifecycleTransition.lifecycleState;
+    edge.activation = lifecycleTransition.activation;
+    edge.lastLifecycleEventAt = lifecycleTransition.occurredAt;
+    edge.currentOnboardingPackage = applyBlockToOnboardingPackage(edge.currentOnboardingPackage);
+    edge.persistentCredential = revokePersistentCredentialForReason(
+        edge.persistentCredential,
+        now,
+        'block',
+    );
+    edge.availability = {
+        ...(edge.availability ?? { online: false, lastSeenAt: null }),
+        online: false,
+    };
+    // Legacy compatibility flag remains aligned with lifecycle block semantics.
+    edge.isActive = false;
+    await edge.save();
+
+    await EdgeOnboardingAuditService.recordBlocked({
+        edgeId,
+        adminId,
+        details: {
+            lifecycleState: edge.lifecycleState,
+        },
+    });
+
+    return {
+        edge: mapEdgeDocumentToAdminProjection(edge),
+    };
+}
+
+async function reenableEdgeOnboarding(
+    edgeId: string,
+    adminId: string,
+): Promise<EdgeLifecycleActionResult> {
+    const edgeObjectId = toObjectId(edgeId, 'edgeId');
+    const edge = await EdgeServer.findById(edgeObjectId).exec();
+
+    if (!edge) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    if (edge.lifecycleState !== 'Blocked') {
+        throw new AppError('Only blocked edge servers can be re-enabled', 409);
+    }
+
+    const now = new Date();
+    const lifecycleTransition = applyLifecycleTransition({
+        lifecycleState: edge.lifecycleState,
+        reason: 'reenabled',
+        at: now,
+        activation: edge.activation,
+    });
+
+    edge.lifecycleState = lifecycleTransition.lifecycleState;
+    edge.activation = lifecycleTransition.activation;
+    edge.lastLifecycleEventAt = lifecycleTransition.occurredAt;
+    // Legacy compatibility flag must permit onboarding handshake after re-enable.
+    edge.isActive = true;
+    await edge.save();
+
+    await EdgeOnboardingAuditService.recordReenabled({
+        edgeId,
+        adminId,
+        details: {
+            lifecycleState: edge.lifecycleState,
+        },
+    });
+
+    return {
+        edge: mapEdgeDocumentToAdminProjection(edge),
+    };
+}
+
 export const EdgeOnboardingService = {
     generateCredentialSecret,
     generateCredentialSecretForKind,
@@ -763,5 +932,8 @@ export const EdgeOnboardingService = {
     applyLifecycleTransition,
     registerEdgeServer,
     resetOnboardingCredentials,
+    revokeEdgeTrust,
+    blockEdgeServer,
+    reenableEdgeOnboarding,
     authenticateEdgeHandshake,
 };

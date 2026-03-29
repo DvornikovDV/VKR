@@ -49,7 +49,17 @@ async function createEdgeServer(name: string): Promise<string> {
         .set('Authorization', `Bearer ${adminToken}`)
         .send({ name, apiKeyHash: `hash_${name}` });
     expect(res.status).toBe(201);
-    return (res.body.data._id as string);
+    return (res.body.data?.edge?._id as string);
+}
+
+async function setLifecycleState(edgeId: string, lifecycleState: string): Promise<void> {
+    await EdgeServer.findByIdAndUpdate(edgeId, {
+        $set: {
+            lifecycleState,
+            isActive: true,
+            availability: { online: false, lastSeenAt: null },
+        },
+    }).exec();
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -106,6 +116,8 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
             .send({ userId: freeUserId })
             .expect(200);
 
+        await setLifecycleState(edgeId, 'Active');
+
         // freeUser sees the edge
         const res = await request(app)
             .get('/api/edge-servers')
@@ -125,6 +137,8 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
             .set('Authorization', `Bearer ${adminToken}`)
             .send({ userId: freeUserId })
             .expect(200);
+
+        await setLifecycleState(edgeId, 'Active');
 
         const res = await request(app)
             .get('/api/edge-servers')

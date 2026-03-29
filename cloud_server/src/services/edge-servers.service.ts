@@ -181,11 +181,27 @@ async function register(
 
 /**
  * Returns all EdgeServers where the given userId is in trustedUsers.
- * Regular users only see their own trusted servers.
+ * Regular users only see telemetry-ready trusted servers.
  */
-async function listForUser(userIdStr: string): Promise<IEdgeServer[]> {
+async function listForUser(userIdStr: string): Promise<TelemetryReadyEdgeProjection[]> {
     const userId = toObjectId(userIdStr, 'userId');
-    return EdgeServer.find({ trustedUsers: userId }).exec();
+    const edgeServers = await EdgeServer.find({
+        trustedUsers: userId,
+        lifecycleState: 'Active',
+    })
+        .select('_id name lifecycleState availability lastSeen')
+        .lean<Array<Parameters<typeof mapEdgeToTelemetryReadyProjection>[0]>>()
+        .exec();
+
+    const projections: TelemetryReadyEdgeProjection[] = [];
+    for (const edgeServer of edgeServers) {
+        const projection = mapEdgeToTelemetryReadyProjection(edgeServer);
+        if (projection) {
+            projections.push(projection);
+        }
+    }
+
+    return projections;
 }
 
 /**
@@ -201,7 +217,9 @@ async function listAll(): Promise<IEdgeServer[]> {
  */
 async function listAllForAdmin(): Promise<AdminEdgeProjection[]> {
     const edgeServers = await EdgeServer.find()
-        .select('-apiKeyHash -currentOnboardingPackage.secretHash -persistentCredential.secretHash')
+        .select(
+            '-apiKeyHash -isActive -lastSeen -currentOnboardingPackage.secretHash -persistentCredential.secretHash',
+        )
         .populate('trustedUsers', 'email role subscriptionTier')
         .populate('createdBy', 'email')
         .lean<Array<Parameters<typeof mapEdgeToAdminProjection>[0]>>()
@@ -346,8 +364,8 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
     const userId = toObjectId(userIdStr, 'userId');
 
     const edgeServer = await EdgeServer.findById(edgeId)
-        .select('trustedUsers')
-        .lean<{ trustedUsers: mongoose.Types.ObjectId[] }>()
+        .select('trustedUsers lifecycleState')
+        .lean<{ trustedUsers: mongoose.Types.ObjectId[]; lifecycleState: EdgeLifecycleState }>()
         .exec();
 
     if (!edgeServer) {
@@ -357,6 +375,10 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
     const isTrusted = edgeServer.trustedUsers.some((uid) => uid.equals(userId));
     if (!isTrusted) {
         throw new AppError('Edge server is not in user trusted list (FR-8)', 403);
+    }
+
+    if (edgeServer.lifecycleState !== 'Active') {
+        throw new AppError('Edge server is not telemetry-ready (Active lifecycle required)', 409);
     }
 
     const deduplicated = await Telemetry.aggregate<{

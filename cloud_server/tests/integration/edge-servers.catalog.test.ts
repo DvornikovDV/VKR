@@ -56,7 +56,17 @@ async function createEdgeServer(name: string): Promise<string> {
         .send({ name, apiKeyHash: `hash_${name}` });
 
     expect(res.status).toBe(201);
-    return res.body.data._id as string;
+    return res.body.data?.edge?._id as string;
+}
+
+async function setLifecycleState(edgeId: string, lifecycleState: string): Promise<void> {
+    await EdgeServer.findByIdAndUpdate(edgeId, {
+        $set: {
+            lifecycleState,
+            isActive: true,
+            availability: { online: false, lastSeenAt: null },
+        },
+    }).exec();
 }
 
 beforeAll(async () => {
@@ -68,6 +78,7 @@ beforeAll(async () => {
     const trusted = await AuthService.register('catalog_trusted@test.com', 'password1234');
     trustedUserToken = trusted.token;
     trustedUserId = trusted.user._id.toString();
+    await User.findByIdAndUpdate(trusted.user._id, { subscriptionTier: 'PRO' }).exec();
 
     const stranger = await AuthService.register('catalog_stranger@test.com', 'password1234');
     strangerUserToken = stranger.token;
@@ -92,6 +103,8 @@ describe('T061 - Edge catalog integration', () => {
             .set('Authorization', `Bearer ${adminToken}`)
             .send({ userId: trustedUserId })
             .expect(200);
+
+        await setLifecycleState(edgeId, 'Active');
 
         await Telemetry.insertMany([
             {
@@ -175,6 +188,7 @@ describe('T061 - Edge catalog integration', () => {
 
     it('returns 403 for non-trusted user access', async () => {
         const edgeId = await createEdgeServer('CatalogForbiddenEdge');
+        await setLifecycleState(edgeId, 'Active');
 
         await Telemetry.insertMany([
             {
@@ -192,5 +206,55 @@ describe('T061 - Edge catalog integration', () => {
         expect(res.status).toBe(403);
         expect(res.body.status).toBe('error');
         expect(res.body.message).toMatch(/trusted/i);
+    });
+
+    it('T023-4 returns only Active trusted edges in USER readiness list', async () => {
+        const activeEdgeId = await createEdgeServer('CatalogActiveEdge');
+        const reonboardingEdgeId = await createEdgeServer('CatalogRecoveryEdge');
+
+        await request(app)
+            .post(`/api/edge-servers/${activeEdgeId}/bind`)
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ userId: trustedUserId })
+            .expect(200);
+
+        await request(app)
+            .post(`/api/edge-servers/${reonboardingEdgeId}/bind`)
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ userId: trustedUserId })
+            .expect(200);
+
+        await setLifecycleState(activeEdgeId, 'Active');
+        await setLifecycleState(reonboardingEdgeId, 'Re-onboarding Required');
+
+        const listResponse = await request(app)
+            .get('/api/edge-servers')
+            .set('Authorization', `Bearer ${trustedUserToken}`);
+
+        expect(listResponse.status).toBe(200);
+        expect(Array.isArray(listResponse.body.data)).toBe(true);
+        expect(listResponse.body.data).toHaveLength(1);
+        expect(listResponse.body.data[0]?._id).toBe(activeEdgeId);
+        expect(listResponse.body.data[0]?.lifecycleState).toBe('Active');
+    });
+
+    it('T023-5 returns 409 for trusted user catalog request when edge is not Active', async () => {
+        const edgeId = await createEdgeServer('CatalogInactiveEdge');
+
+        await request(app)
+            .post(`/api/edge-servers/${edgeId}/bind`)
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ userId: trustedUserId })
+            .expect(200);
+
+        await setLifecycleState(edgeId, 'Re-onboarding Required');
+
+        const res = await request(app)
+            .get(`/api/edge-servers/${edgeId}/catalog`)
+            .set('Authorization', `Bearer ${trustedUserToken}`);
+
+        expect(res.status).toBe(409);
+        expect(res.body.status).toBe('error');
+        expect(res.body.message).toMatch(/active/i);
     });
 });

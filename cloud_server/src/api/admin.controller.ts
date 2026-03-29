@@ -96,8 +96,8 @@ async function listGlobalEdgeServers(
     next: NextFunction,
 ): Promise<void> {
     try {
-        const payload: AdminEdgeProjection[] = await EdgeServersService.listAllForAdmin();
-        res.status(200).json({ status: 'success', data: payload });
+        const fleetProjection: AdminEdgeProjection[] = await EdgeServersService.listAllForAdmin();
+        res.status(200).json({ status: 'success', data: fleetProjection });
     } catch (err) {
         next(err);
     }
