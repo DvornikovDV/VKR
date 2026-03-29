@@ -3,20 +3,21 @@ import {
   bindEdgeServer,
   getEdgeServers,
   registerEdgeServer,
+  resetEdgeOnboardingCredentials,
   revokeEdgeServerAccess,
   type EdgeServer,
+  type OnboardingDisclosureResponse,
+  type OnboardingPackageStatus,
 } from '@/shared/api/edgeServers'
 import { getUsers, type UserRow } from '@/shared/api/users'
 import { useEdgeStatus } from '@/shared/hooks/useEdgeStatus'
 
 interface RegisterFormState {
   name: string
-  apiKeyHash: string
 }
 
 const INITIAL_REGISTER_FORM: RegisterFormState = {
   name: '',
-  apiKeyHash: '',
 }
 
 function normalizeError(error: unknown, fallback: string): string {
@@ -54,6 +55,50 @@ function getAssignedUsers(edgeServer: EdgeServer): Array<{ _id: string; email: s
     .filter((item): item is { _id: string; email: string } => item !== null)
 }
 
+function normalizeLifecycleState(edgeServer: EdgeServer): string {
+  return edgeServer.lifecycleState ?? 'Unknown'
+}
+
+function onboardingStatusLabel(status: OnboardingPackageStatus): string {
+  switch (status) {
+    case 'ready':
+      return 'Ready'
+    case 'used':
+      return 'Used'
+    case 'expired':
+      return 'Expired'
+    case 'reset':
+      return 'Reset'
+    case 'blocked':
+      return 'Blocked'
+  }
+}
+
+function formatUtcTimestamp(value: string | null | undefined): string {
+  if (!value) {
+    return 'N/A'
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return 'N/A'
+  }
+
+  return date.toISOString().replace('T', ' ').replace('.000Z', ' UTC')
+}
+
+function lifecycleBadgeClass(lifecycleState: string): string {
+  if (lifecycleState === 'Active') {
+    return 'rounded-full bg-[var(--color-online)]/10 px-2 py-1 text-xs text-[var(--color-online)]'
+  }
+
+  if (lifecycleState === 'Blocked') {
+    return 'rounded-full bg-[var(--color-danger)]/10 px-2 py-1 text-xs text-[var(--color-danger)]'
+  }
+
+  return 'rounded-full bg-[#f59e0b]/10 px-2 py-1 text-xs text-[#fbbf24]'
+}
+
 export function EdgeFleetPage() {
   const [edgeServers, setEdgeServers] = useState<EdgeServer[]>([])
   const [users, setUsers] = useState<UserRow[]>([])
@@ -64,6 +109,10 @@ export function EdgeFleetPage() {
   const [registerOpen, setRegisterOpen] = useState(false)
   const [registerForm, setRegisterForm] = useState<RegisterFormState>(INITIAL_REGISTER_FORM)
   const [isRegistering, setIsRegistering] = useState(false)
+  const [latestDisclosure, setLatestDisclosure] = useState<OnboardingDisclosureResponse | null>(
+    null,
+  )
+  const [resettingEdgeId, setResettingEdgeId] = useState<string | null>(null)
 
   const [assignOpen, setAssignOpen] = useState(false)
   const [assignEdgeId, setAssignEdgeId] = useState<string>('')
@@ -122,6 +171,7 @@ export function EdgeFleetPage() {
       return
     }
 
+    setLatestDisclosure(null)
     setIsRefreshing(true)
     await Promise.all([loadData(), refreshEdgeStatus()])
     setIsRefreshing(false)
@@ -137,17 +187,36 @@ export function EdgeFleetPage() {
     setIsRegistering(true)
 
     try {
-      const created = await registerEdgeServer({
+      const disclosure = await registerEdgeServer({
         name: registerForm.name.trim(),
-        apiKeyHash: registerForm.apiKeyHash.trim(),
       })
-      setEdgeServers((prev) => [created, ...prev])
+      setEdgeServers((prev) => [disclosure.edge, ...prev])
+      setLatestDisclosure(disclosure)
       setRegisterForm(INITIAL_REGISTER_FORM)
       setRegisterOpen(false)
     } catch (registerError) {
       setError(normalizeError(registerError, 'Failed to register edge server.'))
     } finally {
       setIsRegistering(false)
+    }
+  }
+
+  async function handleResetOnboarding(edgeId: string) {
+    if (resettingEdgeId) {
+      return
+    }
+
+    setError(null)
+    setResettingEdgeId(edgeId)
+
+    try {
+      const disclosure = await resetEdgeOnboardingCredentials(edgeId)
+      setEdgeServers((prev) => prev.map((edge) => (edge._id === edgeId ? disclosure.edge : edge)))
+      setLatestDisclosure(disclosure)
+    } catch (resetError) {
+      setError(normalizeError(resetError, 'Failed to reset onboarding package.'))
+    } finally {
+      setResettingEdgeId(null)
     }
   }
 
@@ -214,13 +283,21 @@ export function EdgeFleetPage() {
     }
   }
 
+  function isEdgeOnline(edge: EdgeServer): boolean {
+    if (edge.availability && typeof edge.availability.online === 'boolean') {
+      return edge.availability.online
+    }
+
+    return isOnline(edge._id)
+  }
+
   return (
     <section className="mx-auto w-full max-w-7xl px-4 py-6">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold text-white">Edge Fleet</h1>
           <p className="text-sm text-[#94a3b8]">
-            Register servers, assign users, and revoke API key access.
+            Register edges, manage onboarding lifecycle, and control user access.
           </p>
         </div>
 
@@ -249,12 +326,55 @@ export function EdgeFleetPage() {
         </p>
       )}
 
+      {latestDisclosure && (
+        <section className="mb-4 rounded-lg border border-[var(--color-brand-600)]/40 bg-[var(--color-brand-600)]/10 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-white">One-time onboarding package</h2>
+              <p className="mt-1 text-xs text-[#cbd5e1]">
+                Save this secret now. It is shown only after registration or reset.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setLatestDisclosure(null)}
+              className="rounded-md border border-[var(--color-surface-border)] px-2 py-1 text-xs text-white hover:bg-[var(--color-surface-200)]"
+            >
+              Hide secret
+            </button>
+          </div>
+
+          <dl className="mt-3 grid gap-2 text-xs text-[#e2e8f0] sm:grid-cols-2">
+            <div>
+              <dt className="text-[#94a3b8]">Edge ID</dt>
+              <dd className="font-mono">{latestDisclosure.onboardingPackage.edgeId}</dd>
+            </div>
+            <div>
+              <dt className="text-[#94a3b8]">Expires at</dt>
+              <dd>{formatUtcTimestamp(latestDisclosure.onboardingPackage.expiresAt)}</dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-[#94a3b8]">Onboarding secret</dt>
+              <dd className="mt-1 rounded-md bg-black/30 px-2 py-2 font-mono">
+                {latestDisclosure.onboardingPackage.onboardingSecret}
+              </dd>
+            </div>
+            <div className="sm:col-span-2">
+              <dt className="text-[#94a3b8]">Instructions</dt>
+              <dd>{latestDisclosure.onboardingPackage.instructions}</dd>
+            </div>
+          </dl>
+        </section>
+      )}
+
       <div className="overflow-x-auto rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)]">
         <table className="min-w-full text-left text-sm text-[#e2e8f0]">
           <thead className="bg-[var(--color-surface-200)] text-xs uppercase tracking-wide text-[#94a3b8]">
             <tr>
               <th className="px-3 py-3">Name</th>
-              <th className="px-3 py-3">Status</th>
+              <th className="px-3 py-3">Lifecycle</th>
+              <th className="px-3 py-3">Availability</th>
+              <th className="px-3 py-3">Onboarding Package</th>
               <th className="px-3 py-3">Assigned Users</th>
               <th className="px-3 py-3">Registered By</th>
               <th className="px-3 py-3">Actions</th>
@@ -263,37 +383,70 @@ export function EdgeFleetPage() {
           <tbody>
             {isLoading ? (
               <tr>
-                <td className="px-3 py-6 text-[#94a3b8]" colSpan={5}>
+                <td className="px-3 py-6 text-[#94a3b8]" colSpan={7}>
                   Loading edge fleet...
                 </td>
               </tr>
             ) : edgeServers.length === 0 ? (
               <tr>
-                <td className="px-3 py-6 text-[#94a3b8]" colSpan={5}>
+                <td className="px-3 py-6 text-[#94a3b8]" colSpan={7}>
                   No edge servers registered yet.
                 </td>
               </tr>
             ) : (
               edgeServers.map((edge) => {
                 const assignedUsers = getAssignedUsers(edge)
+                const lifecycleState = normalizeLifecycleState(edge)
+                const onboardingPackage = edge.currentOnboardingPackage
+                const online = isEdgeOnline(edge)
                 const createdByEmail =
                   typeof edge.createdBy === 'object' && edge.createdBy && 'email' in edge.createdBy
                     ? edge.createdBy.email
                     : 'Unknown'
+                const isResetting = resettingEdgeId === edge._id
 
                 return (
                   <tr key={edge._id} className="border-t border-[var(--color-surface-border)]">
                     <td className="px-3 py-3 text-white">{edge.name}</td>
                     <td className="px-3 py-3">
+                      <span className={lifecycleBadgeClass(lifecycleState)}>{lifecycleState}</span>
+                    </td>
+                    <td className="px-3 py-3">
                       <span
                         className={
-                          isOnline(edge._id)
+                          online
                             ? 'rounded-full bg-[var(--color-online)]/10 px-2 py-1 text-xs text-[var(--color-online)]'
                             : 'rounded-full bg-[var(--color-offline)]/10 px-2 py-1 text-xs text-[var(--color-offline)]'
                         }
                       >
-                        {isOnline(edge._id) ? 'Online' : 'Offline'}
+                        {online ? 'Online' : 'Offline'}
                       </span>
+                    </td>
+                    <td className="px-3 py-3 text-xs text-[#cbd5e1]">
+                      {onboardingPackage ? (
+                        <div className="space-y-1">
+                          <p>
+                            <span className="text-[#94a3b8]">Status:</span>{' '}
+                            {onboardingStatusLabel(onboardingPackage.status)}
+                          </p>
+                          <p>
+                            <span className="text-[#94a3b8]">Issued:</span>{' '}
+                            {formatUtcTimestamp(onboardingPackage.issuedAt)}
+                          </p>
+                          <p>
+                            <span className="text-[#94a3b8]">Expires:</span>{' '}
+                            {formatUtcTimestamp(onboardingPackage.expiresAt)}
+                          </p>
+                          {onboardingPackage.displayHint ? (
+                            <p>
+                              <span className="text-[#94a3b8]">Hint:</span>{' '}
+                              {onboardingPackage.displayHint}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-[#94a3b8]">Not issued</span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-[#cbd5e1]">
                       {assignedUsers.length === 0
@@ -303,6 +456,14 @@ export function EdgeFleetPage() {
                     <td className="px-3 py-3 text-[#94a3b8]">{createdByEmail}</td>
                     <td className="px-3 py-3">
                       <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleResetOnboarding(edge._id)}
+                          disabled={Boolean(resettingEdgeId)}
+                          className="rounded-md border border-[var(--color-brand-600)]/50 px-2 py-1.5 text-xs text-[var(--color-brand-300)] hover:bg-[var(--color-brand-600)]/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isResetting ? 'Resetting...' : 'Reset onboarding'}
+                        </button>
                         <button
                           type="button"
                           onClick={() => openAssignModal(edge._id)}
@@ -332,7 +493,9 @@ export function EdgeFleetPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
             <h2 className="text-base font-semibold text-white">Register Edge Server</h2>
-            <p className="mt-1 text-sm text-[#94a3b8]">Create a new edge entry for the fleet.</p>
+            <p className="mt-1 text-sm text-[#94a3b8]">
+              Create a new edge and receive a one-time onboarding package.
+            </p>
 
             <form className="mt-4 space-y-3" onSubmit={(event) => void handleRegisterSubmit(event)}>
               <label className="block text-sm text-[#cbd5e1]">
@@ -343,19 +506,6 @@ export function EdgeFleetPage() {
                   required
                   onChange={(event) =>
                     setRegisterForm((prev) => ({ ...prev, name: event.target.value }))
-                  }
-                  className="mt-1 w-full rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white"
-                />
-              </label>
-
-              <label className="block text-sm text-[#cbd5e1]">
-                API key hash
-                <input
-                  type="text"
-                  value={registerForm.apiKeyHash}
-                  required
-                  onChange={(event) =>
-                    setRegisterForm((prev) => ({ ...prev, apiKeyHash: event.target.value }))
                   }
                   className="mt-1 w-full rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white"
                 />

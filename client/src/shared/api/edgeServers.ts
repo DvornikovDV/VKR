@@ -67,11 +67,6 @@ export interface EdgeServerCatalogRow {
 
 export interface RegisterEdgeServerPayload {
   name: string
-  apiKeyHash: string
-}
-
-export interface RegisterEdgeServerWithOnboardingPayload {
-  name: string
 }
 
 export interface FirstConnectionPackageDisclosure {
@@ -109,14 +104,15 @@ export async function getEdgeServerCatalog(edgeId: string): Promise<EdgeServerCa
 
 export async function registerEdgeServer(
   payload: RegisterEdgeServerPayload,
-): Promise<EdgeServer> {
-  return apiClient.post<EdgeServer>('/edge-servers', payload)
-}
-
-export async function registerEdgeServerWithOnboarding(
-  payload: RegisterEdgeServerWithOnboardingPayload,
 ): Promise<OnboardingDisclosureResponse> {
   return apiClient.post<OnboardingDisclosureResponse>('/edge-servers', payload)
+}
+
+// Backward-compatible alias for earlier task naming.
+export async function registerEdgeServerWithOnboarding(
+  payload: RegisterEdgeServerPayload,
+): Promise<OnboardingDisclosureResponse> {
+  return registerEdgeServer(payload)
 }
 
 export async function resetEdgeOnboardingCredentials(
