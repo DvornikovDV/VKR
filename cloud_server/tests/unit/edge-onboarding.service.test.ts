@@ -7,6 +7,9 @@ import {
     createPersistentCredentialMetadata,
     generateCredentialSecret,
     hashCredentialSecret,
+    isOnboardingPackageExpired,
+    resolveOnboardingPackageStatus,
+    rotatePersistentCredentialMetadata,
     verifyCredentialSecret,
 } from '../../src/services/edge-onboarding.service';
 import {
@@ -52,6 +55,49 @@ describe('edge-onboarding.service', () => {
         expect(metadata.version).toBe(3);
         expect(metadata.revokedAt).toBeNull();
         expect(metadata.revocationReason).toBeNull();
+    });
+
+    it('evaluates onboarding package expiry only for ready packages', () => {
+        const now = new Date('2026-03-26T03:00:00.000Z');
+        const expiredReady = createOnboardingPackageMetadata({
+            issuedBy: null,
+            secretHash: 'hash-ready-expired',
+            issuedAt: new Date('2026-03-26T01:00:00.000Z'),
+            expiresAt: new Date('2026-03-26T02:00:00.000Z'),
+        });
+
+        expect(isOnboardingPackageExpired(expiredReady, now)).toBe(true);
+        expect(resolveOnboardingPackageStatus(expiredReady, now)).toBe('expired');
+
+        const usedPackage = {
+            ...expiredReady,
+            status: 'used' as const,
+            usedAt: new Date('2026-03-26T01:30:00.000Z'),
+        };
+
+        expect(isOnboardingPackageExpired(usedPackage, now)).toBe(false);
+        expect(resolveOnboardingPackageStatus(usedPackage, now)).toBe('used');
+    });
+
+    it('rotates persistent credential metadata and increments version from current credential', () => {
+        const current = createPersistentCredentialMetadata({
+            secretHash: 'current-hash',
+            previousVersion: 2,
+            issuedAt: new Date('2026-03-26T00:00:00.000Z'),
+        });
+
+        const rotated = rotatePersistentCredentialMetadata({
+            nextSecretHash: 'next-hash',
+            previousCredential: current,
+            issuedAt: new Date('2026-03-26T01:00:00.000Z'),
+        });
+
+        expect(rotated.version).toBe(4);
+        expect(rotated.secretHash).toBe('next-hash');
+        expect(rotated.issuedAt.toISOString()).toBe('2026-03-26T01:00:00.000Z');
+        expect(rotated.lastAcceptedAt).toBeNull();
+        expect(rotated.revokedAt).toBeNull();
+        expect(rotated.revocationReason).toBeNull();
     });
 
     it('applies lifecycle transitions and exposes lifecycle-aware projections', () => {

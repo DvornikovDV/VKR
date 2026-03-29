@@ -11,6 +11,7 @@ import {
     type EdgeOnboardingPackageMetadata,
     type EdgePersistentCredentialMetadata,
     type IEdgeServer,
+    type OnboardingPackageStatus,
 } from '../models/EdgeServer';
 import { EdgeOnboardingAuditService } from './edge-onboarding-audit.service';
 import {
@@ -33,6 +34,15 @@ export type LifecycleTransitionReason =
     | 'reenabled';
 
 export type CredentialSecretKind = 'onboarding' | 'persistent';
+export type EdgeAuthRejectionCode =
+    | 'edge_not_found'
+    | 'blocked'
+    | 'onboarding_not_allowed'
+    | 'onboarding_package_missing'
+    | 'onboarding_package_expired'
+    | 'onboarding_package_reused'
+    | 'invalid_credential'
+    | 'persistent_credential_revoked';
 
 interface CreateOnboardingPackageMetadataInput {
     issuedBy: Types.ObjectId | null;
@@ -46,6 +56,12 @@ interface CreateOnboardingPackageMetadataInput {
 interface CreatePersistentCredentialMetadataInput {
     secretHash: string;
     previousVersion?: number | null;
+    issuedAt?: Date;
+}
+
+interface RotatePersistentCredentialMetadataInput {
+    nextSecretHash: string;
+    previousCredential?: EdgePersistentCredentialMetadata | null;
     issuedAt?: Date;
 }
 
@@ -74,6 +90,36 @@ export interface OnboardingPackageActionResult {
     edge: AdminEdgeProjection;
     onboardingPackage: OnboardingPackageDisclosure;
 }
+
+export interface EdgeActivationPayload {
+    edgeId: string;
+    lifecycleState: 'Active';
+    persistentCredential: {
+        version: number;
+        secret: string;
+        issuedAt: string;
+    };
+}
+
+interface AuthenticateEdgeHandshakeInput {
+    edgeId: string;
+    credentialMode: CredentialSecretKind;
+    credentialSecret: string;
+    now?: Date;
+}
+
+export type AuthenticateEdgeHandshakeResult =
+    | {
+        ok: true;
+        edgeId: string;
+        credentialMode: CredentialSecretKind;
+        lifecycleState: 'Active';
+        edgeActivation: EdgeActivationPayload | null;
+    }
+    | {
+        ok: false;
+        code: EdgeAuthRejectionCode;
+    };
 
 function withActivationDefaults(
     activation?: EdgeActivationSnapshot | null,
@@ -188,6 +234,33 @@ export function createPersistentCredentialMetadata(
     };
 }
 
+export function rotatePersistentCredentialMetadata(
+    input: RotatePersistentCredentialMetadataInput,
+): EdgePersistentCredentialMetadata {
+    return createPersistentCredentialMetadata({
+        secretHash: input.nextSecretHash,
+        previousVersion: input.previousCredential?.version ?? null,
+        issuedAt: input.issuedAt,
+    });
+}
+
+export function isOnboardingPackageExpired(
+    metadata: Pick<EdgeOnboardingPackageMetadata, 'status' | 'expiresAt'>,
+    now = new Date(),
+): boolean {
+    return metadata.status === 'ready' && metadata.expiresAt.getTime() <= now.getTime();
+}
+
+export function resolveOnboardingPackageStatus(
+    metadata: Pick<EdgeOnboardingPackageMetadata, 'status' | 'expiresAt'>,
+    now = new Date(),
+): OnboardingPackageStatus {
+    if (isOnboardingPackageExpired(metadata, now)) {
+        return 'expired';
+    }
+    return metadata.status;
+}
+
 export function applyLifecycleTransition(
     input: ApplyLifecycleTransitionInput,
 ): LifecycleTransitionResult {
@@ -244,6 +317,223 @@ export function applyLifecycleTransition(
                 occurredAt: at,
             };
     }
+}
+
+function applyCredentialRejectionTransition(edge: IEdgeServer, at: Date): void {
+    const transition = applyLifecycleTransition({
+        lifecycleState: edge.lifecycleState,
+        reason: 'activation_rejected',
+        at,
+        activation: edge.activation,
+    });
+    edge.activation = transition.activation;
+    edge.lastLifecycleEventAt = transition.occurredAt;
+}
+
+function toOnboardingRejectionCode(status: OnboardingPackageStatus): EdgeAuthRejectionCode {
+    if (status === 'expired') {
+        return 'onboarding_package_expired';
+    }
+
+    if (status === 'used' || status === 'reset') {
+        return 'onboarding_package_reused';
+    }
+
+    if (status === 'blocked') {
+        return 'blocked';
+    }
+
+    return 'onboarding_not_allowed';
+}
+
+async function authenticateWithOnboardingCredential(
+    edge: IEdgeServer,
+    credentialSecret: string,
+    now: Date,
+): Promise<AuthenticateEdgeHandshakeResult> {
+    if (
+        edge.lifecycleState !== 'Pending First Connection' &&
+        edge.lifecycleState !== 'Re-onboarding Required'
+    ) {
+        applyCredentialRejectionTransition(edge, now);
+        await edge.save();
+        return { ok: false, code: 'onboarding_not_allowed' };
+    }
+
+    const onboardingPackage = edge.currentOnboardingPackage;
+    if (!onboardingPackage) {
+        applyCredentialRejectionTransition(edge, now);
+        await edge.save();
+        return { ok: false, code: 'onboarding_package_missing' };
+    }
+
+    const resolvedStatus = resolveOnboardingPackageStatus(onboardingPackage, now);
+    if (resolvedStatus !== 'ready') {
+        if (onboardingPackage.status !== resolvedStatus) {
+            onboardingPackage.status = resolvedStatus;
+            if (resolvedStatus === 'expired') {
+                edge.lastLifecycleEventAt = now;
+            }
+        }
+
+        applyCredentialRejectionTransition(edge, now);
+        await edge.save();
+        return { ok: false, code: toOnboardingRejectionCode(resolvedStatus) };
+    }
+
+    const valid = await verifyCredentialSecret(credentialSecret, onboardingPackage.secretHash);
+    if (!valid) {
+        applyCredentialRejectionTransition(edge, now);
+        await edge.save();
+        return { ok: false, code: 'invalid_credential' };
+    }
+
+    const persistentSecret = generateCredentialSecretForKind('persistent');
+    const persistentSecretHash = await hashCredentialSecret(persistentSecret);
+    const rotatedPersistentCredential = rotatePersistentCredentialMetadata({
+        nextSecretHash: persistentSecretHash,
+        previousCredential: edge.persistentCredential,
+        issuedAt: now,
+    });
+
+    const transition = applyLifecycleTransition({
+        lifecycleState: edge.lifecycleState,
+        reason: 'activation_succeeded',
+        at: now,
+        activation: edge.activation,
+    });
+
+    const activatedEdge = await EdgeServer.findOneAndUpdate(
+        {
+            _id: edge._id,
+            lifecycleState: { $in: ['Pending First Connection', 'Re-onboarding Required'] },
+            'currentOnboardingPackage.credentialId': onboardingPackage.credentialId,
+            'currentOnboardingPackage.secretHash': onboardingPackage.secretHash,
+            'currentOnboardingPackage.status': 'ready',
+            'currentOnboardingPackage.expiresAt': { $gt: now },
+        },
+        {
+            $set: {
+                'currentOnboardingPackage.status': 'used',
+                'currentOnboardingPackage.usedAt': now,
+                persistentCredential: rotatedPersistentCredential,
+                lifecycleState: transition.lifecycleState,
+                activation: transition.activation,
+                lastLifecycleEventAt: transition.occurredAt,
+                // Legacy compatibility field remains synchronized with the currently valid credential hash.
+                apiKeyHash: persistentSecretHash,
+            },
+        },
+        { new: true },
+    ).exec();
+
+    if (!activatedEdge) {
+        const latestEdge = await EdgeServer.findById(edge._id).exec();
+        if (!latestEdge) {
+            return { ok: false, code: 'edge_not_found' };
+        }
+
+        applyCredentialRejectionTransition(latestEdge, now);
+        await latestEdge.save();
+
+        if (latestEdge.lifecycleState === 'Blocked' || !latestEdge.isActive) {
+            return { ok: false, code: 'blocked' };
+        }
+
+        const latestPackage = latestEdge.currentOnboardingPackage;
+        if (!latestPackage) {
+            return { ok: false, code: 'onboarding_package_missing' };
+        }
+
+        const latestStatus = resolveOnboardingPackageStatus(latestPackage, now);
+        if (latestStatus !== latestPackage.status) {
+            latestPackage.status = latestStatus;
+            await latestEdge.save();
+        }
+
+        return { ok: false, code: toOnboardingRejectionCode(latestStatus) };
+    }
+
+    return {
+        ok: true,
+        edgeId: activatedEdge._id.toString(),
+        credentialMode: 'onboarding',
+        lifecycleState: 'Active',
+        edgeActivation: {
+            edgeId: activatedEdge._id.toString(),
+            lifecycleState: 'Active',
+            persistentCredential: {
+                version: rotatedPersistentCredential.version,
+                secret: persistentSecret,
+                issuedAt: rotatedPersistentCredential.issuedAt.toISOString(),
+            },
+        },
+    };
+}
+
+async function authenticateWithPersistentCredential(
+    edge: IEdgeServer,
+    credentialSecret: string,
+    now: Date,
+): Promise<AuthenticateEdgeHandshakeResult> {
+    if (edge.lifecycleState !== 'Active') {
+        applyCredentialRejectionTransition(edge, now);
+        await edge.save();
+        return { ok: false, code: 'persistent_credential_revoked' };
+    }
+
+    const persistentCredential = edge.persistentCredential;
+    if (!persistentCredential || persistentCredential.revokedAt) {
+        applyCredentialRejectionTransition(edge, now);
+        await edge.save();
+        return { ok: false, code: 'persistent_credential_revoked' };
+    }
+
+    const valid = await verifyCredentialSecret(credentialSecret, persistentCredential.secretHash);
+    if (!valid) {
+        applyCredentialRejectionTransition(edge, now);
+        await edge.save();
+        return { ok: false, code: 'invalid_credential' };
+    }
+
+    edge.persistentCredential = {
+        ...persistentCredential,
+        lastAcceptedAt: now,
+    };
+    await edge.save();
+
+    return {
+        ok: true,
+        edgeId: edge._id.toString(),
+        credentialMode: 'persistent',
+        lifecycleState: 'Active',
+        edgeActivation: null,
+    };
+}
+
+async function authenticateEdgeHandshake(
+    input: AuthenticateEdgeHandshakeInput,
+): Promise<AuthenticateEdgeHandshakeResult> {
+    if (!mongoose.isValidObjectId(input.edgeId)) {
+        return { ok: false, code: 'edge_not_found' };
+    }
+
+    const edge = await EdgeServer.findById(input.edgeId).exec();
+    if (!edge) {
+        return { ok: false, code: 'edge_not_found' };
+    }
+
+    if (edge.lifecycleState === 'Blocked' || !edge.isActive) {
+        return { ok: false, code: 'blocked' };
+    }
+
+    const now = input.now ?? new Date();
+
+    if (input.credentialMode === 'onboarding') {
+        return authenticateWithOnboardingCredential(edge, input.credentialSecret, now);
+    }
+
+    return authenticateWithPersistentCredential(edge, input.credentialSecret, now);
 }
 
 async function registerEdgeServer(
@@ -358,7 +648,11 @@ export const EdgeOnboardingService = {
     verifyCredentialSecret,
     createOnboardingPackageMetadata,
     createPersistentCredentialMetadata,
+    rotatePersistentCredentialMetadata,
+    isOnboardingPackageExpired,
+    resolveOnboardingPackageStatus,
     applyLifecycleTransition,
     registerEdgeServer,
     resetOnboardingCredentials,
+    authenticateEdgeHandshake,
 };

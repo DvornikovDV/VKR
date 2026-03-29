@@ -1,7 +1,9 @@
-import bcrypt from 'bcrypt';
 import { type Server as IOServer, type Socket } from 'socket.io';
-import { EdgeServer } from '../../models/EdgeServer';
 import { updateLastSeen } from '../../services/edge-servers.service';
+import {
+    EdgeOnboardingService,
+    type EdgeActivationPayload,
+} from '../../services/edge-onboarding.service';
 import { registerTelemetryHandler } from './telemetry';
 
 export const EDGE_NAMESPACE = '/edge';
@@ -92,28 +94,21 @@ async function edgeAuthMiddleware(socket: Socket, next: (err?: Error) => void): 
     }
 
     try {
-        const edge = await EdgeServer.findById(payload.edgeId)
-            .select('apiKeyHash isActive lifecycleState')
-            .exec();
+        const authResult = await EdgeOnboardingService.authenticateEdgeHandshake({
+            edgeId: payload.edgeId,
+            credentialMode: payload.credentialMode,
+            credentialSecret: payload.credentialSecret,
+        });
 
-        if (!edge) {
-            next(new Error('edge_not_found'));
+        if (!authResult.ok) {
+            next(new Error(authResult.code));
             return;
         }
 
-        if (edge.lifecycleState === 'Blocked' || !edge.isActive) {
-            next(new Error('blocked'));
-            return;
-        }
-
-        const valid = await bcrypt.compare(payload.credentialSecret, edge.apiKeyHash);
-        if (!valid) {
-            next(new Error('invalid_credential'));
-            return;
-        }
-
-        socket.data['edgeId'] = payload.edgeId;
-        socket.data['credentialMode'] = payload.credentialMode;
+        socket.data['edgeId'] = authResult.edgeId;
+        socket.data['credentialMode'] = authResult.credentialMode;
+        socket.data['lifecycleState'] = authResult.lifecycleState;
+        socket.data['edgeActivation'] = authResult.edgeActivation;
         next();
     } catch (error) {
         console.error('[edge-auth] Unexpected error during middleware:', error);
@@ -137,6 +132,12 @@ export function registerEdgeNamespace(io: IOServer): void {
 
         trackActiveEdgeSocket(edgeId, socket);
         console.log(`[edge] Edge connected: ${edgeId} (socket: ${socket.id})`);
+
+        const edgeActivation = socket.data['edgeActivation'] as EdgeActivationPayload | null | undefined;
+        if (edgeActivation) {
+            socket.emit('edge_activation', edgeActivation);
+            socket.data['edgeActivation'] = null;
+        }
 
         updateLastSeen(edgeId);
         registerTelemetryHandler(socket, io, edgeId);

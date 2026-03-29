@@ -31,9 +31,10 @@ export function initSocketIO(httpServer: HttpServer): Server {
         pingTimeout: 60000,
     });
 
-    _io.use(jwtSocketMiddleware);
+    const dashboardNs = _io.of('/');
+    dashboardNs.use(jwtSocketMiddleware);
 
-    _io.on('connection', (socket: Socket) => {
+    dashboardNs.on('connection', (socket: Socket) => {
         console.log(`[socket.io] Dashboard connected: ${socket.id} from ${socket.handshake.address}`);
 
         registerSubscribeHandler(socket);

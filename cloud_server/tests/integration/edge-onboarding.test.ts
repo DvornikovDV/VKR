@@ -1,14 +1,29 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { type AddressInfo } from 'node:net';
+import { io as createSocketClient, type Socket as ClientSocket } from 'socket.io-client';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
-import { app } from '../../src/app';
+import { app, server } from '../../src/app';
 import { connectDatabase, disconnectDatabase } from '../../src/database/mongoose';
 import { EdgeOnboardingAudit } from '../../src/models/EdgeOnboardingAudit';
 import { EdgeServer } from '../../src/models/EdgeServer';
 import { User } from '../../src/models/User';
 import { AuthService } from '../../src/services/auth.service';
 import { verifyCredentialSecret } from '../../src/services/edge-onboarding.service';
+import { EDGE_NAMESPACE } from '../../src/socket/events/edge';
 
 let adminToken = '';
+let edgeSocketUrl = '';
+const activeClientSockets = new Set<ClientSocket>();
+
+type EdgeActivationPayload = {
+    edgeId: string;
+    lifecycleState: 'Active';
+    persistentCredential: {
+        version: number;
+        secret: string;
+        issuedAt: string;
+    };
+};
 
 async function createAdminToken(email: string): Promise<string> {
     const { user } = await AuthService.register(email, 'password1234');
@@ -17,12 +32,200 @@ async function createAdminToken(email: string): Promise<string> {
     return login.token;
 }
 
+async function ensureServerListening(): Promise<string> {
+    if (!server.listening) {
+        await new Promise<void>((resolve, reject) => {
+            server.listen(0, '127.0.0.1', () => resolve());
+            server.once('error', reject);
+        });
+    }
+
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+        throw new Error('HTTP server address is unavailable for edge socket integration tests');
+    }
+
+    return `http://127.0.0.1:${(address as AddressInfo).port}`;
+}
+
+function trackSocket(socket: ClientSocket): ClientSocket {
+    activeClientSockets.add(socket);
+    return socket;
+}
+
+async function closeSocket(socket: ClientSocket): Promise<void> {
+    if (socket.disconnected) {
+        socket.close();
+        return;
+    }
+
+    await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => resolve(), 300);
+        socket.once('disconnect', () => {
+            clearTimeout(timer);
+            resolve();
+        });
+        socket.disconnect();
+    });
+}
+
+async function cleanupClientSockets(): Promise<void> {
+    const sockets = Array.from(activeClientSockets);
+    activeClientSockets.clear();
+    await Promise.all(sockets.map((socket) => closeSocket(socket)));
+}
+
+async function connectEdgeSocket(auth: {
+    edgeId: string;
+    credentialMode: 'onboarding' | 'persistent';
+    credentialSecret: string;
+}): Promise<ClientSocket> {
+    return new Promise<ClientSocket>((resolve, reject) => {
+        const socket = trackSocket(
+            createSocketClient(`${edgeSocketUrl}${EDGE_NAMESPACE}`, {
+                auth,
+                transports: ['websocket'],
+                reconnection: false,
+                forceNew: true,
+                autoConnect: false,
+                timeout: 3000,
+            }),
+        );
+
+        const timer = setTimeout(() => {
+            socket.close();
+            reject(new Error('edge_socket_connect_timeout'));
+        }, 3500);
+
+        socket.once('connect', () => {
+            clearTimeout(timer);
+            resolve(socket);
+        });
+
+        socket.once('connect_error', (error) => {
+            clearTimeout(timer);
+            socket.close();
+            reject(error);
+        });
+
+        socket.connect();
+    });
+}
+
+async function connectEdgeExpectError(auth: {
+    edgeId: string;
+    credentialMode: 'onboarding' | 'persistent';
+    credentialSecret: string;
+}): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+        const socket = trackSocket(
+            createSocketClient(`${edgeSocketUrl}${EDGE_NAMESPACE}`, {
+                auth,
+                transports: ['websocket'],
+                reconnection: false,
+                forceNew: true,
+                autoConnect: false,
+                timeout: 3000,
+            }),
+        );
+
+        const timer = setTimeout(() => {
+            socket.close();
+            reject(new Error('edge_socket_connect_error_timeout'));
+        }, 3500);
+
+        socket.once('connect', () => {
+            clearTimeout(timer);
+            socket.close();
+            reject(new Error('expected_connect_error_but_connected'));
+        });
+
+        socket.once('connect_error', (error) => {
+            clearTimeout(timer);
+            const message = error instanceof Error ? error.message : String(error);
+            socket.close();
+            resolve(message);
+        });
+
+        socket.connect();
+    });
+}
+
+async function connectOnboardingSocket(
+    edgeId: string,
+    onboardingSecret: string,
+): Promise<{ socket: ClientSocket; activationPayload: EdgeActivationPayload }> {
+    return new Promise((resolve, reject) => {
+        const socket = trackSocket(
+            createSocketClient(`${edgeSocketUrl}${EDGE_NAMESPACE}`, {
+                auth: {
+                    edgeId,
+                    credentialMode: 'onboarding',
+                    credentialSecret: onboardingSecret,
+                },
+                transports: ['websocket'],
+                reconnection: false,
+                forceNew: true,
+                autoConnect: false,
+                timeout: 3000,
+            }),
+        );
+
+        let connected = false;
+        let activationPayload: EdgeActivationPayload | null = null;
+        const timer = setTimeout(() => {
+            socket.close();
+            reject(new Error('edge_activation_timeout'));
+        }, 3500);
+
+        const maybeResolve = () => {
+            if (!connected || !activationPayload) return;
+            clearTimeout(timer);
+            resolve({ socket, activationPayload });
+        };
+
+        socket.once('connect', () => {
+            connected = true;
+            maybeResolve();
+        });
+
+        socket.once('edge_activation', (payload: unknown) => {
+            activationPayload = payload as EdgeActivationPayload;
+            maybeResolve();
+        });
+
+        socket.once('connect_error', (error) => {
+            clearTimeout(timer);
+            socket.close();
+            reject(error);
+        });
+
+        socket.connect();
+    });
+}
+
+async function registerEdge(name: string): Promise<{ edgeId: string; onboardingSecret: string }> {
+    const registration = await request(app)
+        .post('/api/edge-servers')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name });
+
+    expect(registration.status).toBe(201);
+    expect(registration.body.status).toBe('success');
+
+    return {
+        edgeId: registration.body.data?.edge?._id as string,
+        onboardingSecret: registration.body.data?.onboardingPackage?.onboardingSecret as string,
+    };
+}
+
 describe('Edge onboarding integration contract', () => {
     beforeAll(async () => {
         await connectDatabase();
         await User.deleteMany({}).exec();
         await EdgeServer.deleteMany({}).exec();
         await EdgeOnboardingAudit.deleteMany({}).exec();
+        edgeSocketUrl = await ensureServerListening();
 
         adminToken = await createAdminToken('admin_edge_onboarding@test.com');
     });
@@ -32,10 +235,26 @@ describe('Edge onboarding integration contract', () => {
         await EdgeOnboardingAudit.deleteMany({}).exec();
     });
 
+    afterEach(async () => {
+        await cleanupClientSockets();
+    });
+
     afterAll(async () => {
+        await cleanupClientSockets();
         await User.deleteMany({}).exec();
         await EdgeServer.deleteMany({}).exec();
         await EdgeOnboardingAudit.deleteMany({}).exec();
+        if (server.listening) {
+            await new Promise<void>((resolve, reject) => {
+                server.close((error) => {
+                    if (error) {
+                        reject(error);
+                        return;
+                    }
+                    resolve();
+                });
+            });
+        }
         await disconnectDatabase();
     });
 
@@ -147,8 +366,109 @@ describe('Edge onboarding integration contract', () => {
     });
 
     describe('Socket.IO onboarding flows', () => {
-        it.todo('accepts first activation with valid onboarding credential');
-        it.todo('rejects reused, invalid, or expired onboarding credentials');
-        it.todo('accepts trusted reconnect only with persistent credential');
+        it('accepts first activation with valid onboarding credential', async () => {
+            const { edgeId, onboardingSecret } = await registerEdge('Edge Socket Activate');
+
+            const { socket, activationPayload } = await connectOnboardingSocket(edgeId, onboardingSecret);
+            expect(activationPayload.edgeId).toBe(edgeId);
+            expect(activationPayload.lifecycleState).toBe('Active');
+            expect(activationPayload.persistentCredential.version).toBe(1);
+            expect(typeof activationPayload.persistentCredential.secret).toBe('string');
+            expect(activationPayload.persistentCredential.secret.length).toBeGreaterThan(20);
+
+            const edge = await EdgeServer.findById(edgeId).exec();
+            expect(edge?.lifecycleState).toBe('Active');
+            expect(edge?.currentOnboardingPackage?.status).toBe('used');
+            expect(edge?.currentOnboardingPackage?.usedAt).toBeInstanceOf(Date);
+            expect(edge?.persistentCredential?.version).toBe(1);
+            await expect(
+                verifyCredentialSecret(
+                    activationPayload.persistentCredential.secret,
+                    edge?.persistentCredential?.secretHash ?? '',
+                ),
+            ).resolves.toBe(true);
+
+            socket.disconnect();
+        });
+
+        it('rejects reused, invalid, or expired onboarding credentials', async () => {
+            const firstEdge = await registerEdge('Edge Reused Secret');
+            const { socket: firstSocket } = await connectOnboardingSocket(
+                firstEdge.edgeId,
+                firstEdge.onboardingSecret,
+            );
+            firstSocket.disconnect();
+
+            await EdgeServer.findByIdAndUpdate(firstEdge.edgeId, {
+                $set: { lifecycleState: 'Re-onboarding Required' },
+            }).exec();
+
+            const reusedError = await connectEdgeExpectError({
+                edgeId: firstEdge.edgeId,
+                credentialMode: 'onboarding',
+                credentialSecret: firstEdge.onboardingSecret,
+            });
+            expect(reusedError).toBe('onboarding_package_reused');
+
+            const secondEdge = await registerEdge('Edge Invalid Secret');
+            const invalidError = await connectEdgeExpectError({
+                edgeId: secondEdge.edgeId,
+                credentialMode: 'onboarding',
+                credentialSecret: 'invalid-secret',
+            });
+            expect(invalidError).toBe('invalid_credential');
+
+            const thirdEdge = await registerEdge('Edge Expired Secret');
+            await EdgeServer.findByIdAndUpdate(thirdEdge.edgeId, {
+                $set: {
+                    'currentOnboardingPackage.expiresAt': new Date('2000-01-01T00:00:00.000Z'),
+                    'currentOnboardingPackage.status': 'ready',
+                },
+            }).exec();
+
+            const expiredError = await connectEdgeExpectError({
+                edgeId: thirdEdge.edgeId,
+                credentialMode: 'onboarding',
+                credentialSecret: thirdEdge.onboardingSecret,
+            });
+            expect(expiredError).toBe('onboarding_package_expired');
+
+            const expiredEdge = await EdgeServer.findById(thirdEdge.edgeId).exec();
+            expect(expiredEdge?.currentOnboardingPackage?.status).toBe('expired');
+        });
+
+        it('accepts trusted reconnect only with persistent credential', async () => {
+            const { edgeId, onboardingSecret } = await registerEdge('Edge Persistent Reconnect');
+            const { socket: onboardingSocket, activationPayload } = await connectOnboardingSocket(
+                edgeId,
+                onboardingSecret,
+            );
+            onboardingSocket.disconnect();
+
+            const persistentSocket = await connectEdgeSocket({
+                edgeId,
+                credentialMode: 'persistent',
+                credentialSecret: activationPayload.persistentCredential.secret,
+            });
+
+            let activationEventCount = 0;
+            persistentSocket.on('edge_activation', () => {
+                activationEventCount += 1;
+            });
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            expect(activationEventCount).toBe(0);
+
+            const edgeAfterReconnect = await EdgeServer.findById(edgeId).exec();
+            expect(edgeAfterReconnect?.persistentCredential?.lastAcceptedAt).toBeInstanceOf(Date);
+
+            const wrongPersistentError = await connectEdgeExpectError({
+                edgeId,
+                credentialMode: 'persistent',
+                credentialSecret: onboardingSecret,
+            });
+            expect(wrongPersistentError).toBe('invalid_credential');
+
+            persistentSocket.disconnect();
+        });
     });
 });
