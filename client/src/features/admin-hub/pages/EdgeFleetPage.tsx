@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  blockEdgeServer,
   bindEdgeServer,
   getEdgeServers,
+  reenableEdgeOnboarding,
   registerEdgeServer,
+  revokeEdgeTrust,
   resetEdgeOnboardingCredentials,
   revokeEdgeServerAccess,
   type EdgeServer,
@@ -15,6 +18,8 @@ import { useEdgeStatus } from '@/shared/hooks/useEdgeStatus'
 interface RegisterFormState {
   name: string
 }
+
+type LifecycleAction = 'revoke' | 'block' | 'reenable'
 
 const INITIAL_REGISTER_FORM: RegisterFormState = {
   name: '',
@@ -96,7 +101,30 @@ function lifecycleBadgeClass(lifecycleState: string): string {
     return 'rounded-full bg-[var(--color-danger)]/10 px-2 py-1 text-xs text-[var(--color-danger)]'
   }
 
+  if (lifecycleState === 'Re-onboarding Required') {
+    return 'rounded-full bg-[#fb923c]/10 px-2 py-1 text-xs text-[#fdba74]'
+  }
+
   return 'rounded-full bg-[#f59e0b]/10 px-2 py-1 text-xs text-[#fbbf24]'
+}
+
+function telemetryReadinessClass(isReady: boolean): string {
+  if (isReady) {
+    return 'rounded-full bg-[var(--color-online)]/10 px-2 py-1 text-xs text-[var(--color-online)]'
+  }
+
+  return 'rounded-full bg-[#f59e0b]/10 px-2 py-1 text-xs text-[#fbbf24]'
+}
+
+function lifecycleActionPendingLabel(action: LifecycleAction): string {
+  switch (action) {
+    case 'revoke':
+      return 'Revoking trust...'
+    case 'block':
+      return 'Blocking...'
+    case 'reenable':
+      return 'Re-enabling...'
+  }
 }
 
 export function EdgeFleetPage() {
@@ -113,6 +141,8 @@ export function EdgeFleetPage() {
     null,
   )
   const [resettingEdgeId, setResettingEdgeId] = useState<string | null>(null)
+  const [lifecycleActionEdgeId, setLifecycleActionEdgeId] = useState<string | null>(null)
+  const [lifecycleAction, setLifecycleAction] = useState<LifecycleAction | null>(null)
 
   const [assignOpen, setAssignOpen] = useState(false)
   const [assignEdgeId, setAssignEdgeId] = useState<string>('')
@@ -202,7 +232,7 @@ export function EdgeFleetPage() {
   }
 
   async function handleResetOnboarding(edgeId: string) {
-    if (resettingEdgeId) {
+    if (resettingEdgeId || lifecycleActionEdgeId) {
       return
     }
 
@@ -217,6 +247,49 @@ export function EdgeFleetPage() {
       setError(normalizeError(resetError, 'Failed to reset onboarding package.'))
     } finally {
       setResettingEdgeId(null)
+    }
+  }
+
+  async function handleLifecycleAction(edgeId: string, action: LifecycleAction) {
+    if (resettingEdgeId || lifecycleActionEdgeId) {
+      return
+    }
+
+    setError(null)
+    setLifecycleActionEdgeId(edgeId)
+    setLifecycleAction(action)
+
+    try {
+      const updated =
+        action === 'revoke'
+          ? await revokeEdgeTrust(edgeId)
+          : action === 'block'
+            ? await blockEdgeServer(edgeId)
+            : await reenableEdgeOnboarding(edgeId)
+
+      const normalizedUpdated =
+        action === 'revoke'
+          ? {
+              ...updated,
+              availability: {
+                online: false,
+                lastSeenAt: updated.availability?.lastSeenAt ?? null,
+              },
+            }
+          : updated
+
+      setEdgeServers((prev) => prev.map((edge) => (edge._id === edgeId ? normalizedUpdated : edge)))
+    } catch (actionError) {
+      const fallback =
+        action === 'revoke'
+          ? 'Failed to revoke edge trust.'
+          : action === 'block'
+            ? 'Failed to block edge server.'
+            : 'Failed to re-enable edge onboarding.'
+      setError(normalizeError(actionError, fallback))
+    } finally {
+      setLifecycleActionEdgeId(null)
+      setLifecycleAction(null)
     }
   }
 
@@ -404,6 +477,11 @@ export function EdgeFleetPage() {
                     ? edge.createdBy.email
                     : 'Unknown'
                 const isResetting = resettingEdgeId === edge._id
+                const isLifecycleActionInProgress = lifecycleActionEdgeId === edge._id
+                const canRevokeTrust = lifecycleState === 'Active'
+                const canBlockEdge = lifecycleState !== 'Blocked'
+                const canReenableOnboarding = lifecycleState === 'Blocked'
+                const canResetOnboarding = lifecycleState !== 'Blocked'
 
                 return (
                   <tr key={edge._id} className="border-t border-[var(--color-surface-border)]">
@@ -412,15 +490,20 @@ export function EdgeFleetPage() {
                       <span className={lifecycleBadgeClass(lifecycleState)}>{lifecycleState}</span>
                     </td>
                     <td className="px-3 py-3">
-                      <span
-                        className={
-                          online
-                            ? 'rounded-full bg-[var(--color-online)]/10 px-2 py-1 text-xs text-[var(--color-online)]'
-                            : 'rounded-full bg-[var(--color-offline)]/10 px-2 py-1 text-xs text-[var(--color-offline)]'
-                        }
-                      >
-                        {online ? 'Online' : 'Offline'}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={
+                            online
+                              ? 'rounded-full bg-[var(--color-online)]/10 px-2 py-1 text-xs text-[var(--color-online)]'
+                              : 'rounded-full bg-[var(--color-offline)]/10 px-2 py-1 text-xs text-[var(--color-offline)]'
+                          }
+                        >
+                          {online ? 'Online' : 'Offline'}
+                        </span>
+                        <span className={telemetryReadinessClass(Boolean(edge.isTelemetryReady))}>
+                          {edge.isTelemetryReady ? 'Telemetry ready' : 'Telemetry locked'}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-xs text-[#cbd5e1]">
                       {onboardingPackage ? (
@@ -459,21 +542,58 @@ export function EdgeFleetPage() {
                         <button
                           type="button"
                           onClick={() => void handleResetOnboarding(edge._id)}
-                          disabled={Boolean(resettingEdgeId)}
+                          disabled={Boolean(resettingEdgeId || lifecycleActionEdgeId) || !canResetOnboarding}
                           className="rounded-md border border-[var(--color-brand-600)]/50 px-2 py-1.5 text-xs text-[var(--color-brand-300)] hover:bg-[var(--color-brand-600)]/10 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {isResetting ? 'Resetting...' : 'Reset onboarding'}
                         </button>
+                        {canRevokeTrust ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleLifecycleAction(edge._id, 'revoke')}
+                            disabled={Boolean(resettingEdgeId || lifecycleActionEdgeId)}
+                            className="rounded-md border border-[#f59e0b]/40 px-2 py-1.5 text-xs text-[#fbbf24] hover:bg-[#f59e0b]/10 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isLifecycleActionInProgress && lifecycleAction === 'revoke'
+                              ? lifecycleActionPendingLabel('revoke')
+                              : 'Revoke trust'}
+                          </button>
+                        ) : null}
+                        {canBlockEdge ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleLifecycleAction(edge._id, 'block')}
+                            disabled={Boolean(resettingEdgeId || lifecycleActionEdgeId)}
+                            className="rounded-md border border-[var(--color-danger)]/40 px-2 py-1.5 text-xs text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isLifecycleActionInProgress && lifecycleAction === 'block'
+                              ? lifecycleActionPendingLabel('block')
+                              : 'Block edge'}
+                          </button>
+                        ) : null}
+                        {canReenableOnboarding ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleLifecycleAction(edge._id, 'reenable')}
+                            disabled={Boolean(resettingEdgeId || lifecycleActionEdgeId)}
+                            className="rounded-md border border-[var(--color-brand-600)]/50 px-2 py-1.5 text-xs text-[var(--color-brand-300)] hover:bg-[var(--color-brand-600)]/10 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isLifecycleActionInProgress && lifecycleAction === 'reenable'
+                              ? lifecycleActionPendingLabel('reenable')
+                              : 'Re-enable onboarding'}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => openAssignModal(edge._id)}
+                          disabled={Boolean(resettingEdgeId || lifecycleActionEdgeId)}
                           className="rounded-md border border-[var(--color-surface-border)] px-2 py-1.5 text-xs text-white hover:bg-[var(--color-surface-200)]"
                         >
                           Assign to User
                         </button>
                         <button
                           type="button"
-                          disabled={assignedUsers.length === 0}
+                          disabled={assignedUsers.length === 0 || Boolean(resettingEdgeId || lifecycleActionEdgeId)}
                           onClick={() => openRevokeModal(edge)}
                           className="rounded-md border border-[var(--color-danger)]/40 px-2 py-1.5 text-xs text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:cursor-not-allowed disabled:opacity-50"
                         >

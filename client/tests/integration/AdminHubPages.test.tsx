@@ -272,6 +272,250 @@ describe('Admin Hub routes and pages (T050d)', () => {
     })
   })
 
+  it('T024: renders lifecycle controls and applies recovery actions from lifecycle-aware payloads', async () => {
+    interface MockEdge {
+      _id: string
+      name: string
+      lifecycleState: 'Pending First Connection' | 'Active' | 'Re-onboarding Required' | 'Blocked'
+      isTelemetryReady: boolean
+      availability: {
+        online: boolean
+        lastSeenAt: string | null
+      }
+      trustedUsers: Array<{ _id: string; email: string }>
+      createdBy: { _id: string; email: string } | null
+      currentOnboardingPackage: {
+        credentialId: string
+        status: 'ready' | 'used' | 'expired' | 'reset' | 'blocked'
+        issuedAt: string
+        expiresAt: string
+        usedAt: string | null
+        displayHint: string | null
+      } | null
+      persistentCredentialVersion: number | null
+      lastLifecycleEventAt: string | null
+    }
+
+    const users = [
+      {
+        _id: 'u1',
+        email: 'user-1@example.com',
+        role: 'USER',
+        subscriptionTier: 'FREE',
+        isDeleted: false,
+        isBanned: false,
+        createdAt: '2026-03-01T00:00:00.000Z',
+      },
+    ]
+
+    let fleet: MockEdge[] = [
+      {
+        _id: 'edge-pending',
+        name: 'Pending Edge',
+        lifecycleState: 'Pending First Connection',
+        isTelemetryReady: false,
+        availability: { online: false, lastSeenAt: null },
+        trustedUsers: [],
+        createdBy: { _id: 'admin-1', email: 'admin@example.com' },
+        currentOnboardingPackage: {
+          credentialId: 'pkg-pending-v1',
+          status: 'ready',
+          issuedAt: '2026-03-29T09:00:00.000Z',
+          expiresAt: '2026-03-30T09:00:00.000Z',
+          usedAt: null,
+          displayHint: 'Ends with ...PEND',
+        },
+        persistentCredentialVersion: null,
+        lastLifecycleEventAt: '2026-03-29T09:00:00.000Z',
+      },
+      {
+        _id: 'edge-active',
+        name: 'Active Edge',
+        lifecycleState: 'Active',
+        isTelemetryReady: true,
+        availability: { online: true, lastSeenAt: '2026-03-29T10:00:00.000Z' },
+        trustedUsers: [],
+        createdBy: { _id: 'admin-1', email: 'admin@example.com' },
+        currentOnboardingPackage: null,
+        persistentCredentialVersion: 3,
+        lastLifecycleEventAt: '2026-03-29T10:00:00.000Z',
+      },
+      {
+        _id: 'edge-recovery',
+        name: 'Recovery Edge',
+        lifecycleState: 'Re-onboarding Required',
+        isTelemetryReady: false,
+        availability: { online: false, lastSeenAt: null },
+        trustedUsers: [],
+        createdBy: { _id: 'admin-1', email: 'admin@example.com' },
+        currentOnboardingPackage: {
+          credentialId: 'pkg-recovery-v1',
+          status: 'ready',
+          issuedAt: '2026-03-29T10:30:00.000Z',
+          expiresAt: '2026-03-30T10:30:00.000Z',
+          usedAt: null,
+          displayHint: 'Ends with ...RECO',
+        },
+        persistentCredentialVersion: null,
+        lastLifecycleEventAt: '2026-03-29T10:30:00.000Z',
+      },
+      {
+        _id: 'edge-blocked',
+        name: 'Blocked Edge',
+        lifecycleState: 'Blocked',
+        isTelemetryReady: false,
+        availability: { online: false, lastSeenAt: null },
+        trustedUsers: [],
+        createdBy: { _id: 'admin-1', email: 'admin@example.com' },
+        currentOnboardingPackage: {
+          credentialId: 'pkg-blocked-v1',
+          status: 'blocked',
+          issuedAt: '2026-03-29T08:00:00.000Z',
+          expiresAt: '2026-03-30T08:00:00.000Z',
+          usedAt: null,
+          displayHint: 'Ends with ...BLOC',
+        },
+        persistentCredentialVersion: null,
+        lastLifecycleEventAt: '2026-03-29T10:45:00.000Z',
+      },
+    ]
+
+    server.use(
+      http.get('/api/admin/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: fleet,
+        }),
+      ),
+      http.get('/api/admin/users', () =>
+        HttpResponse.json({
+          status: 'success',
+          total: users.length,
+          data: users,
+        }),
+      ),
+      // REST fallback intentionally disagrees with admin availability; page must prefer lifecycle payload.
+      http.get('/api/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: fleet.map((edge) => ({ _id: edge._id, isOnline: !edge.availability.online })),
+        }),
+      ),
+      http.post('/api/edge-servers/:edgeId/trust/revoke', ({ params }) => {
+        const edgeId = String(params.edgeId)
+        const edge = fleet.find((item) => item._id === edgeId)
+        if (!edge) {
+          return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
+        }
+
+        const updated: MockEdge = {
+          ...edge,
+          lifecycleState: 'Re-onboarding Required',
+          isTelemetryReady: false,
+          persistentCredentialVersion: null,
+          lastLifecycleEventAt: '2026-03-29T11:00:00.000Z',
+        }
+        fleet = fleet.map((item) => (item._id === edgeId ? updated : item))
+        return HttpResponse.json({ status: 'success', data: updated })
+      }),
+      http.post('/api/edge-servers/:edgeId/block', ({ params }) => {
+        const edgeId = String(params.edgeId)
+        const edge = fleet.find((item) => item._id === edgeId)
+        if (!edge) {
+          return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
+        }
+
+        const updated: MockEdge = {
+          ...edge,
+          lifecycleState: 'Blocked',
+          isTelemetryReady: false,
+          availability: { online: false, lastSeenAt: edge.availability.lastSeenAt },
+          currentOnboardingPackage: edge.currentOnboardingPackage
+            ? { ...edge.currentOnboardingPackage, status: 'blocked' }
+            : edge.currentOnboardingPackage,
+          lastLifecycleEventAt: '2026-03-29T11:05:00.000Z',
+        }
+        fleet = fleet.map((item) => (item._id === edgeId ? updated : item))
+        return HttpResponse.json({ status: 'success', data: updated })
+      }),
+      http.post('/api/edge-servers/:edgeId/re-enable-onboarding', ({ params }) => {
+        const edgeId = String(params.edgeId)
+        const edge = fleet.find((item) => item._id === edgeId)
+        if (!edge) {
+          return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
+        }
+
+        const updated: MockEdge = {
+          ...edge,
+          lifecycleState: 'Re-onboarding Required',
+          isTelemetryReady: false,
+          lastLifecycleEventAt: '2026-03-29T11:10:00.000Z',
+        }
+        fleet = fleet.map((item) => (item._id === edgeId ? updated : item))
+        return HttpResponse.json({ status: 'success', data: updated })
+      }),
+    )
+
+    const user = userEvent.setup()
+    renderAdminRoute('/admin/edge')
+
+    expect(await screen.findByRole('heading', { name: 'Edge Fleet' })).toBeInTheDocument()
+
+    const activeRow = screen.getByText('Active Edge').closest('tr')
+    expect(activeRow).not.toBeNull()
+    expect(within(activeRow as HTMLTableRowElement).getByText('Active')).toBeInTheDocument()
+    expect(within(activeRow as HTMLTableRowElement).getByText('Online')).toBeInTheDocument()
+
+    const pendingRow = screen.getByText('Pending Edge').closest('tr')
+    expect(pendingRow).not.toBeNull()
+    expect(
+      within(pendingRow as HTMLTableRowElement).getByText('Pending First Connection'),
+    ).toBeInTheDocument()
+
+    const recoveryRow = screen.getByText('Recovery Edge').closest('tr')
+    expect(recoveryRow).not.toBeNull()
+    expect(
+      within(recoveryRow as HTMLTableRowElement).getByText('Re-onboarding Required'),
+    ).toBeInTheDocument()
+
+    const blockedRow = screen.getByText('Blocked Edge').closest('tr')
+    expect(blockedRow).not.toBeNull()
+    expect(within(blockedRow as HTMLTableRowElement).getAllByText('Blocked').length).toBeGreaterThan(0)
+
+    await user.click(
+      within(activeRow as HTMLTableRowElement).getByRole('button', { name: 'Revoke trust' }),
+    )
+
+    await waitFor(() => {
+      const updatedRow = screen.getByText('Active Edge').closest('tr')
+      expect(updatedRow).not.toBeNull()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Re-onboarding Required')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Offline')).toBeInTheDocument()
+    })
+
+    await user.click(
+      within(pendingRow as HTMLTableRowElement).getByRole('button', { name: 'Block edge' }),
+    )
+
+    await waitFor(() => {
+      const updatedRow = screen.getByText('Pending Edge').closest('tr')
+      expect(updatedRow).not.toBeNull()
+      expect(within(updatedRow as HTMLTableRowElement).getAllByText('Blocked').length).toBeGreaterThan(0)
+    })
+
+    await user.click(
+      within(blockedRow as HTMLTableRowElement).getByRole('button', {
+        name: 'Re-enable onboarding',
+      }),
+    )
+
+    await waitFor(() => {
+      const updatedRow = screen.getByText('Blocked Edge').closest('tr')
+      expect(updatedRow).not.toBeNull()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Re-onboarding Required')).toBeInTheDocument()
+    })
+  })
+
   it('keeps assign and revoke flow working on Edge Fleet page', async () => {
     interface MockEdge {
       _id: string
