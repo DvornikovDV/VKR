@@ -646,7 +646,7 @@ describe('Admin Hub routes and pages (T050d)', () => {
     await user.click(
       within(screen.getByText('Existing Edge').closest('tr') as HTMLTableRowElement).getByRole(
         'button',
-        { name: 'Revoke API key' },
+        { name: 'Remove user access' },
       ),
     )
     await user.click(screen.getByRole('button', { name: 'Revoke' }))

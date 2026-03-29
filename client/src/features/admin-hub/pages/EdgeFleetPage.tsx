@@ -350,7 +350,7 @@ export function EdgeFleetPage() {
       setRevokeEdgeId('')
       setRevokeUserId('')
     } catch (revokeError) {
-      setError(normalizeError(revokeError, 'Failed to revoke API key access.'))
+      setError(normalizeError(revokeError, 'Failed to revoke user access.'))
     } finally {
       setIsRevoking(false)
     }
@@ -526,9 +526,19 @@ export function EdgeFleetPage() {
                               {onboardingPackage.displayHint}
                             </p>
                           ) : null}
+                          {typeof edge.persistentCredentialVersion === 'number' ? (
+                            <p>
+                              <span className="text-[#94a3b8]">Persistent credential:</span>{' '}
+                              v{edge.persistentCredentialVersion}
+                            </p>
+                          ) : null}
                         </div>
                       ) : (
-                        <span className="text-[#94a3b8]">Not issued</span>
+                        <span className="text-[#94a3b8]">
+                          {typeof edge.persistentCredentialVersion === 'number'
+                            ? `Persistent credential v${edge.persistentCredentialVersion}`
+                            : 'Not issued'}
+                        </span>
                       )}
                     </td>
                     <td className="px-3 py-3 text-[#cbd5e1]">
@@ -597,7 +607,7 @@ export function EdgeFleetPage() {
                           onClick={() => openRevokeModal(edge)}
                           className="rounded-md border border-[var(--color-danger)]/40 px-2 py-1.5 text-xs text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          Revoke API key
+                          Remove user access
                         </button>
                       </div>
                     </td>
@@ -707,7 +717,7 @@ export function EdgeFleetPage() {
       {revokeOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-            <h2 className="text-base font-semibold text-white">Revoke API Key Access</h2>
+            <h2 className="text-base font-semibold text-white">Remove User Access</h2>
             <p className="mt-1 text-sm text-[#94a3b8]">
               Remove a user from this edge server and revoke their access.
             </p>

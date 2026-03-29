@@ -1,4 +1,9 @@
 import { Schema, model, type Document, type Types } from 'mongoose';
+import {
+    isLegacyEdgeActive,
+    resolveLegacyApiKeyHash,
+    resolveLegacyLastSeenTimestamp,
+} from '../services/edge-legacy-compat.service';
 
 export const EDGE_LIFECYCLE_STATES = [
     'Pending First Connection',
@@ -190,5 +195,177 @@ const EdgeServerSchema = new Schema<IEdgeServer>(
         versionKey: false,
     },
 );
+
+type UpdateContainer = Record<string, unknown>;
+
+function asObject(value: unknown): UpdateContainer | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null;
+    }
+    return value as UpdateContainer;
+}
+
+function asDate(value: unknown): Date | null {
+    if (value instanceof Date) {
+        return value;
+    }
+
+    if (typeof value === 'string') {
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    return null;
+}
+
+function asLifecycleState(value: unknown): EdgeLifecycleState | null {
+    if (typeof value !== 'string') {
+        return null;
+    }
+
+    return (EDGE_LIFECYCLE_STATES as readonly string[]).includes(value)
+        ? (value as EdgeLifecycleState)
+        : null;
+}
+
+function asSecretHashContainer(secretHash: unknown): { secretHash?: string | null } | null {
+    if (typeof secretHash !== 'string') {
+        return null;
+    }
+
+    return { secretHash };
+}
+
+async function synchronizeLegacyCompatibilityInUpdate(
+    context: {
+        model: any;
+        getQuery: () => unknown;
+        getUpdate: () => unknown;
+        setUpdate: (update: any) => void;
+    },
+): Promise<void> {
+    const updateRecord = asObject(context.getUpdate());
+    if (!updateRecord) {
+        return;
+    }
+
+    const setRecord = asObject(updateRecord['$set']);
+    if (!setRecord) {
+        return;
+    }
+
+    type ExistingProjection = {
+        lifecycleState?: EdgeLifecycleState;
+        apiKeyHash?: string;
+        lastSeen?: Date | null;
+        availability?: { lastSeenAt?: Date | null } | null;
+        currentOnboardingPackage?: { secretHash?: string | null } | null;
+        persistentCredential?: { secretHash?: string | null } | null;
+    };
+
+    const query = context.getQuery();
+    const existing = (await context.model
+        .findOne(query)
+        .select(
+            'lifecycleState apiKeyHash lastSeen availability.lastSeenAt currentOnboardingPackage.secretHash persistentCredential.secretHash',
+        )
+        .lean()
+        .exec()) as ExistingProjection | null;
+
+    const lifecycleState = asLifecycleState(setRecord['lifecycleState'] ?? existing?.lifecycleState ?? null);
+
+    if (lifecycleState) {
+        setRecord['isActive'] = isLegacyEdgeActive(lifecycleState);
+    }
+
+    const availabilityPatch = asObject(setRecord['availability']);
+    const availabilityLastSeen = asDate(
+        setRecord['availability.lastSeenAt'] ?? availabilityPatch?.['lastSeenAt'] ?? null,
+    );
+    const legacyLastSeen = asDate(setRecord['lastSeen'] ?? null);
+    const resolvedLastSeenAt = resolveLegacyLastSeenTimestamp({
+        availabilityLastSeenAt: availabilityLastSeen ?? existing?.availability?.lastSeenAt ?? null,
+        lastSeen: legacyLastSeen ?? existing?.lastSeen ?? null,
+    });
+
+    setRecord['availability.lastSeenAt'] = resolvedLastSeenAt;
+    setRecord['lastSeen'] = resolvedLastSeenAt;
+
+    if (lifecycleState) {
+        const currentApiKeyHash =
+            typeof setRecord['apiKeyHash'] === 'string'
+                ? setRecord['apiKeyHash']
+                : typeof existing?.apiKeyHash === 'string'
+                    ? existing.apiKeyHash
+                    : '';
+
+        const onboardingSecretHash =
+            setRecord['currentOnboardingPackage.secretHash'] ??
+            asObject(setRecord['currentOnboardingPackage'])?.['secretHash'] ??
+            existing?.currentOnboardingPackage?.secretHash ??
+            null;
+        const persistentSecretHash =
+            setRecord['persistentCredential.secretHash'] ??
+            asObject(setRecord['persistentCredential'])?.['secretHash'] ??
+            existing?.persistentCredential?.secretHash ??
+            null;
+
+        setRecord['apiKeyHash'] = resolveLegacyApiKeyHash({
+            lifecycleState,
+            apiKeyHash: currentApiKeyHash,
+            currentOnboardingPackage: asSecretHashContainer(onboardingSecretHash),
+            persistentCredential: asSecretHashContainer(persistentSecretHash),
+        });
+    }
+
+    context.setUpdate(updateRecord);
+}
+
+EdgeServerSchema.pre('validate', function syncLegacyCompatibilityFields(next) {
+    const resolvedLastSeenAt = resolveLegacyLastSeenTimestamp({
+        availabilityLastSeenAt: this.availability?.lastSeenAt ?? null,
+        lastSeen: this.lastSeen ?? null,
+    });
+
+    this.availability = {
+        ...(this.availability ?? { online: false, lastSeenAt: null }),
+        lastSeenAt: resolvedLastSeenAt,
+    };
+    this.lastSeen = resolvedLastSeenAt;
+
+    this.isActive = isLegacyEdgeActive(this.lifecycleState);
+    this.apiKeyHash = resolveLegacyApiKeyHash({
+        lifecycleState: this.lifecycleState,
+        availabilityLastSeenAt: this.availability.lastSeenAt,
+        lastSeen: this.lastSeen,
+        apiKeyHash: this.apiKeyHash,
+        currentOnboardingPackage: this.currentOnboardingPackage,
+        persistentCredential: this.persistentCredential,
+    });
+
+    next();
+});
+
+EdgeServerSchema.pre('updateOne', function syncLegacyCompatibilityForUpdateOne(next) {
+    void synchronizeLegacyCompatibilityInUpdate({
+        model: this.model,
+        getQuery: () => this.getQuery(),
+        getUpdate: () => this.getUpdate(),
+        setUpdate: (update) => this.setUpdate(update as any),
+    })
+        .then(() => next())
+        .catch(next);
+});
+
+EdgeServerSchema.pre('findOneAndUpdate', function syncLegacyCompatibilityForFindOneAndUpdate(next) {
+    void synchronizeLegacyCompatibilityInUpdate({
+        model: this.model,
+        getQuery: () => this.getQuery(),
+        getUpdate: () => this.getUpdate(),
+        setUpdate: (update) => this.setUpdate(update as any),
+    })
+        .then(() => next())
+        .catch(next);
+});
 
 export const EdgeServer = model<IEdgeServer>('EdgeServer', EdgeServerSchema);

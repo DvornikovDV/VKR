@@ -670,5 +670,51 @@ describe('Edge onboarding integration contract', () => {
             expect(activationPayload.lifecycleState).toBe('Active');
             reactivatedSocket.disconnect();
         });
+
+        it('T033-1 keeps lifecycle and legacy compatibility fields synchronized for update queries', async () => {
+            const { edgeId, onboardingSecret } = await registerEdge('Edge Legacy Sync Guard');
+            const { socket: onboardingSocket, activationPayload } = await connectOnboardingSocket(
+                edgeId,
+                onboardingSecret,
+            );
+            onboardingSocket.disconnect();
+
+            const canonicalLastSeenAt = new Date('2026-03-29T00:00:00.000Z');
+            const staleLegacyLastSeen = new Date('2020-01-01T00:00:00.000Z');
+
+            await EdgeServer.updateOne(
+                { _id: edgeId },
+                {
+                    $set: {
+                        lifecycleState: 'Blocked',
+                        isActive: true,
+                        'availability.lastSeenAt': canonicalLastSeenAt,
+                        lastSeen: staleLegacyLastSeen,
+                        apiKeyHash: 'plain-mismatch-hash',
+                    },
+                },
+            ).exec();
+
+            const edgeAfterUpdate = await EdgeServer.findById(edgeId).exec();
+            expect(edgeAfterUpdate?.lifecycleState).toBe('Blocked');
+            expect(edgeAfterUpdate?.isActive).toBe(false);
+            expect(edgeAfterUpdate?.lastSeen?.toISOString()).toBe(canonicalLastSeenAt.toISOString());
+            expect(edgeAfterUpdate?.availability.lastSeenAt?.toISOString()).toBe(
+                canonicalLastSeenAt.toISOString(),
+            );
+            await expect(
+                verifyCredentialSecret(
+                    activationPayload.persistentCredential.secret,
+                    edgeAfterUpdate?.apiKeyHash ?? '',
+                ),
+            ).resolves.toBe(true);
+
+            const blockedReconnectError = await connectEdgeExpectError({
+                edgeId,
+                credentialMode: 'persistent',
+                credentialSecret: activationPayload.persistentCredential.secret,
+            });
+            expect(blockedReconnectError).toBe('blocked');
+        });
     });
 });

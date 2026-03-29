@@ -54,6 +54,10 @@ function isPersistedCredentialRecord(value: unknown): value is PersistedCredenti
   )
 }
 
+function isPersistableCredentialRecord(value: unknown): value is PersistedCredentialRecord {
+  return isPersistedCredentialRecord(value) && value.credentialMode === 'persistent'
+}
+
 async function ensureParentDir(filePath: string): Promise<void> {
   const parentDir = path.dirname(filePath)
   await mkdir(parentDir, { recursive: true })
@@ -70,7 +74,7 @@ export function createPersistedCredentialStore(
         const json = await readFile(resolvedPath, 'utf-8')
         const parsed = JSON.parse(json) as unknown
 
-        if (!isPersistedCredentialRecord(parsed)) {
+        if (!isPersistableCredentialRecord(parsed)) {
           throw new Error(`Invalid persisted credential format in ${resolvedPath}`)
         }
 
@@ -85,7 +89,7 @@ export function createPersistedCredentialStore(
     },
 
     async save(record) {
-      if (!isPersistedCredentialRecord(record)) {
+      if (!isPersistableCredentialRecord(record)) {
         throw new Error('Invalid credential record payload')
       }
 

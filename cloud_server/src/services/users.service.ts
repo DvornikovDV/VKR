@@ -147,7 +147,7 @@ async function getUserStats(userId: string): Promise<UserStats> {
 
     const [diagramCount, edgeServerCount] = await Promise.all([
         Diagram.countDocuments({ ownerId: id, isDeleted: { $ne: true } }).exec(),
-        EdgeServer.countDocuments({ trustedUsers: id, isActive: true }).exec(),
+        EdgeServer.countDocuments({ trustedUsers: id, lifecycleState: 'Active' }).exec(),
     ]);
 
     return { diagramCount, edgeServerCount };

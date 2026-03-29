@@ -11,6 +11,10 @@ import {
 import { User } from '../models/User';
 import { Telemetry } from '../models/Telemetry';
 import { AppError } from '../api/middlewares/error.middleware';
+import {
+    isEdgeLifecycleTelemetryReady,
+    resolveLegacyLastSeenTimestamp,
+} from './edge-legacy-compat.service';
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -34,7 +38,23 @@ export const lastSeenRegistry = new Map<string, number>();
  * Updates both the in-memory registry and (asynchronously) the DB `lastSeen` field.
  */
 export function updateLastSeen(edgeId: string): void {
-    lastSeenRegistry.set(edgeId, Date.now());
+    const observedAtMs = Date.now();
+    const observedAt = new Date(observedAtMs);
+    lastSeenRegistry.set(edgeId, observedAtMs);
+
+    void EdgeServer.updateOne(
+        { _id: edgeId },
+        {
+            $set: {
+                'availability.lastSeenAt': observedAt,
+                lastSeen: observedAt,
+            },
+        },
+    )
+        .exec()
+        .catch((error) => {
+            console.error(`[edge-last-seen] Failed to persist heartbeat for edge ${edgeId}:`, error);
+        });
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -85,7 +105,6 @@ type EdgeProjectionInput = {
     name: string;
     lifecycleState: EdgeLifecycleState;
     availability?: EdgeAvailabilitySnapshot;
-    lastSeen?: Date | null;
     trustedUsers?: unknown[];
     createdBy?: unknown;
     currentOnboardingPackage?: EdgeOnboardingPackageMetadata | null;
@@ -98,17 +117,12 @@ function toIdString(id: mongoose.Types.ObjectId | string): string {
 }
 
 function normalizeAvailabilitySnapshot(input: EdgeProjectionInput): EdgeAvailabilitySnapshot {
-    const availability = input.availability;
-    if (availability) {
-        return {
-            online: Boolean(availability.online),
-            lastSeenAt: availability.lastSeenAt ?? null,
-        };
-    }
-
+    const lastSeenAt = resolveLegacyLastSeenTimestamp({
+        availabilityLastSeenAt: input.availability?.lastSeenAt ?? null,
+    });
     return {
-        online: false,
-        lastSeenAt: input.lastSeen ?? null,
+        online: Boolean(input.availability?.online),
+        lastSeenAt,
     };
 }
 
@@ -131,7 +145,7 @@ export function mapEdgeToAdminProjection(input: EdgeProjectionInput): AdminEdgeP
         _id: toIdString(input._id),
         name: input.name,
         lifecycleState: input.lifecycleState,
-        isTelemetryReady: input.lifecycleState === 'Active',
+        isTelemetryReady: isEdgeLifecycleTelemetryReady(input.lifecycleState),
         availability: normalizeAvailabilitySnapshot(input),
         trustedUsers: input.trustedUsers ?? [],
         createdBy: input.createdBy ?? null,
@@ -142,9 +156,9 @@ export function mapEdgeToAdminProjection(input: EdgeProjectionInput): AdminEdgeP
 }
 
 export function mapEdgeToTelemetryReadyProjection(
-    input: Pick<EdgeProjectionInput, '_id' | 'name' | 'lifecycleState' | 'availability' | 'lastSeen'>,
+    input: Pick<EdgeProjectionInput, '_id' | 'name' | 'lifecycleState' | 'availability'>,
 ): TelemetryReadyEdgeProjection | null {
-    if (input.lifecycleState !== 'Active') {
+    if (!isEdgeLifecycleTelemetryReady(input.lifecycleState)) {
         return null;
     }
 
@@ -189,7 +203,7 @@ async function listForUser(userIdStr: string): Promise<TelemetryReadyEdgeProject
         trustedUsers: userId,
         lifecycleState: 'Active',
     })
-        .select('_id name lifecycleState availability lastSeen')
+        .select('_id name lifecycleState availability')
         .lean<Array<Parameters<typeof mapEdgeToTelemetryReadyProjection>[0]>>()
         .exec();
 
@@ -319,7 +333,7 @@ async function pingEdgeServer(
 ): Promise<{ online: boolean; lastSeen: Date | null }> {
     const edgeId = toObjectId(edgeIdStr, 'edgeId');
 
-    const edgeServer = await EdgeServer.findById(edgeId).select('_id lastSeen').exec();
+    const edgeServer = await EdgeServer.findById(edgeId).select('_id availability lastSeen').exec();
     if (!edgeServer) throw new AppError('Edge server not found', 404);
 
     // Prefer in-memory timestamp (more fresh) over persisted DB value
@@ -331,10 +345,15 @@ async function pingEdgeServer(
         return { online, lastSeen: new Date(inMemoryTs) };
     }
 
-    // Fall back to persisted lastSeen (may be stale from previous process)
-    if (edgeServer.lastSeen) {
-        const online = now - edgeServer.lastSeen.getTime() < PING_THRESHOLD_MS;
-        return { online, lastSeen: edgeServer.lastSeen };
+    // Fall back to persisted availability timestamp (legacy lastSeen remains synchronized by model hook).
+    const persistedLastSeen = resolveLegacyLastSeenTimestamp({
+        availabilityLastSeenAt: edgeServer.availability?.lastSeenAt ?? null,
+        lastSeen: edgeServer.lastSeen ?? null,
+    });
+
+    if (persistedLastSeen) {
+        const online = now - persistedLastSeen.getTime() < PING_THRESHOLD_MS;
+        return { online, lastSeen: persistedLastSeen };
     }
 
     return { online: false, lastSeen: null };

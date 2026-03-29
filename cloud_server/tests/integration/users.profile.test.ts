@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { connectDatabase, disconnectDatabase } from '../../src/database/mongoose';
 import { app } from '../../src/app';
+import { EdgeServer } from '../../src/models/EdgeServer';
 import { User } from '../../src/models/User';
 import { AuthService } from '../../src/services/auth.service';
 
@@ -15,6 +16,7 @@ import { AuthService } from '../../src/services/auth.service';
 
 let adminToken: string;
 let userToken: string;
+let userId: string;
 
 beforeAll(async () => {
     await connectDatabase();
@@ -31,6 +33,7 @@ beforeAll(async () => {
     // Setup regular User
     const user = await AuthService.register('profile_test_user@test.com', 'userPass123');
     userToken = user.token;
+    userId = user.user._id.toString();
 });
 
 afterAll(async () => {
@@ -89,6 +92,67 @@ describe('T049b — User Stats', () => {
     it('returns 401 for unauthenticated request', async () => {
         const res = await request(app).get('/api/users/me/stats');
         expect(res.status).toBe(401);
+    });
+
+    it('T033-2 counts only lifecycle Active edges in user stats even when legacy isActive is misleading', async () => {
+        await EdgeServer.deleteMany({ name: /^profile_test_t033_/ }).exec();
+
+        await EdgeServer.create({
+            name: 'profile_test_t033_active_edge',
+            apiKeyHash: 'profile_test_t033_active_hash',
+            lifecycleState: 'Active',
+            trustedUsers: [userId],
+            availability: { online: true, lastSeenAt: new Date('2026-03-29T00:00:00.000Z') },
+            currentOnboardingPackage: {
+                credentialId: 'profile-test-t033-active-onboarding',
+                secretHash: 'profile_test_t033_onboarding_hash',
+                displayHint: 'prof...hash',
+                issuedAt: new Date('2026-03-28T00:00:00.000Z'),
+                expiresAt: new Date('2026-03-29T00:00:00.000Z'),
+                issuedBy: null,
+                status: 'ready',
+                usedAt: null,
+                supersededByCredentialId: null,
+            },
+            persistentCredential: {
+                version: 1,
+                secretHash: 'profile_test_t033_persistent_hash',
+                issuedAt: new Date('2026-03-28T00:30:00.000Z'),
+                lastAcceptedAt: null,
+                revokedAt: null,
+                revocationReason: null,
+            },
+        });
+
+        await EdgeServer.create({
+            name: 'profile_test_t033_reonboarding_edge',
+            apiKeyHash: 'profile_test_t033_reonboarding_hash',
+            lifecycleState: 'Re-onboarding Required',
+            isActive: true,
+            trustedUsers: [userId],
+            availability: { online: false, lastSeenAt: null },
+            currentOnboardingPackage: {
+                credentialId: 'profile-test-t033-reonboarding-onboarding',
+                secretHash: 'profile_test_t033_reonboarding_pkg_hash',
+                displayHint: 'prof...reonb',
+                issuedAt: new Date('2026-03-28T01:00:00.000Z'),
+                expiresAt: new Date('2026-03-29T01:00:00.000Z'),
+                issuedBy: null,
+                status: 'ready',
+                usedAt: null,
+                supersededByCredentialId: null,
+            },
+            persistentCredential: null,
+        });
+
+        const statsResponse = await request(app)
+            .get('/api/users/me/stats')
+            .set('Authorization', `Bearer ${userToken}`);
+
+        expect(statsResponse.status).toBe(200);
+        expect(statsResponse.body.data?.edgeServerCount).toBe(1);
+
+        await EdgeServer.deleteMany({ name: /^profile_test_t033_/ }).exec();
     });
 });
 
