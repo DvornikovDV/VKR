@@ -10,6 +10,7 @@ export const EDGE_NAMESPACE = '/edge';
 
 export type EdgeCredentialMode = 'onboarding' | 'persistent';
 export type EdgeForcedDisconnectReason = 'edge_forced_disconnect' | 'trust_revoked' | 'blocked';
+const EDGE_CREDENTIAL_MODES: readonly EdgeCredentialMode[] = ['onboarding', 'persistent'];
 
 type EdgeAuthPayload = {
     edgeId: string;
@@ -17,7 +18,21 @@ type EdgeAuthPayload = {
     credentialSecret: string;
 };
 
+type AuthenticatedEdgeContext = {
+    edgeId: string;
+    credentialMode: EdgeCredentialMode;
+    lifecycleState: 'Active';
+    edgeActivation: EdgeActivationPayload | null;
+};
+
 const activeEdgeSockets = new Map<string, Set<Socket>>();
+
+function isEdgeCredentialMode(value: unknown): value is EdgeCredentialMode {
+    return (
+        typeof value === 'string' &&
+        (EDGE_CREDENTIAL_MODES as readonly string[]).includes(value)
+    );
+}
 
 function normalizeEdgeAuthPayload(socket: Socket): EdgeAuthPayload | null {
     const auth = socket.handshake.auth as Record<string, unknown> | undefined;
@@ -27,9 +42,7 @@ function normalizeEdgeAuthPayload(socket: Socket): EdgeAuthPayload | null {
     const credentialSecret =
         typeof auth?.['credentialSecret'] === 'string' ? auth['credentialSecret'].trim() : '';
 
-    const hasValidMode = credentialMode === 'onboarding' || credentialMode === 'persistent';
-
-    if (!edgeId || !hasValidMode || !credentialSecret) {
+    if (!edgeId || !isEdgeCredentialMode(credentialMode) || !credentialSecret) {
         return null;
     }
 
@@ -90,6 +103,16 @@ export function resetActiveEdgeSocketsForTests(): void {
     activeEdgeSockets.clear();
 }
 
+function attachAuthenticatedEdgeContext(
+    socket: Socket,
+    context: AuthenticatedEdgeContext,
+): void {
+    socket.data['edgeId'] = context.edgeId;
+    socket.data['credentialMode'] = context.credentialMode;
+    socket.data['lifecycleState'] = context.lifecycleState;
+    socket.data['edgeActivation'] = context.edgeActivation;
+}
+
 async function edgeAuthMiddleware(socket: Socket, next: (err?: Error) => void): Promise<void> {
     const payload = normalizeEdgeAuthPayload(socket);
     if (!payload) {
@@ -109,10 +132,7 @@ async function edgeAuthMiddleware(socket: Socket, next: (err?: Error) => void): 
             return;
         }
 
-        socket.data['edgeId'] = authResult.edgeId;
-        socket.data['credentialMode'] = authResult.credentialMode;
-        socket.data['lifecycleState'] = authResult.lifecycleState;
-        socket.data['edgeActivation'] = authResult.edgeActivation;
+        attachAuthenticatedEdgeContext(socket, authResult);
         next();
     } catch (error) {
         console.error('[edge-auth] Unexpected error during middleware:', error);

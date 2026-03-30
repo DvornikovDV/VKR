@@ -5,7 +5,6 @@ describe('EdgeServer model defaults', () => {
     it('initializes lifecycle-aware defaults for a newly created edge document', () => {
         const edge = new EdgeServer({
             name: 'Edge Model Test',
-            apiKeyHash: 'legacy-hash',
         });
 
         const plain = edge.toObject();

@@ -1,9 +1,4 @@
 import { Schema, model, type Document, type Types } from 'mongoose';
-import {
-    isLegacyEdgeActive,
-    resolveLegacyApiKeyHash,
-    resolveLegacyLastSeenTimestamp,
-} from '../services/edge-legacy-compat.service';
 
 export const EDGE_LIFECYCLE_STATES = [
     'Pending First Connection',
@@ -63,12 +58,8 @@ export interface EdgePersistentCredentialMetadata {
 export interface IEdgeServer extends Document {
     _id: Types.ObjectId;
     name: string;
-    // Legacy field kept for compatibility during migration tasks.
-    apiKeyHash: string;
     trustedUsers: Types.ObjectId[];
     createdBy: Types.ObjectId | null;
-    isActive: boolean;
-    lastSeen: Date | null;
     lifecycleState: EdgeLifecycleState;
     availability: EdgeAvailabilitySnapshot;
     activation: EdgeActivationSnapshot;
@@ -137,10 +128,6 @@ const EdgeServerSchema = new Schema<IEdgeServer>(
             required: [true, 'Edge server name is required'],
             trim: true,
         },
-        apiKeyHash: {
-            type: String,
-            required: [true, 'API key hash is required'],
-        },
         trustedUsers: {
             type: [Schema.Types.ObjectId],
             ref: 'User',
@@ -149,14 +136,6 @@ const EdgeServerSchema = new Schema<IEdgeServer>(
         createdBy: {
             type: Schema.Types.ObjectId,
             ref: 'User',
-            default: null,
-        },
-        isActive: {
-            type: Boolean,
-            default: true,
-        },
-        lastSeen: {
-            type: Date,
             default: null,
         },
         lifecycleState: {
@@ -195,225 +174,5 @@ const EdgeServerSchema = new Schema<IEdgeServer>(
         versionKey: false,
     },
 );
-
-type UpdateContainer = Record<string, unknown>;
-type QueryProjectionChain = {
-    select: (fields: string) => QueryProjectionChain;
-    lean: () => QueryProjectionChain;
-    exec: () => Promise<unknown>;
-};
-
-function asObject(value: unknown): UpdateContainer | null {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) {
-        return null;
-    }
-    return value as UpdateContainer;
-}
-
-function asDate(value: unknown): Date | null {
-    if (value instanceof Date) {
-        return value;
-    }
-
-    if (typeof value === 'string') {
-        const parsed = new Date(value);
-        return Number.isNaN(parsed.getTime()) ? null : parsed;
-    }
-
-    return null;
-}
-
-function asLifecycleState(value: unknown): EdgeLifecycleState | null {
-    if (typeof value !== 'string') {
-        return null;
-    }
-
-    return (EDGE_LIFECYCLE_STATES as readonly string[]).includes(value)
-        ? (value as EdgeLifecycleState)
-        : null;
-}
-
-function asSecretHashContainer(secretHash: unknown): { secretHash?: string | null } | null {
-    if (typeof secretHash !== 'string') {
-        return null;
-    }
-
-    return { secretHash };
-}
-
-function hasOwn(record: UpdateContainer, key: string): boolean {
-    return Object.prototype.hasOwnProperty.call(record, key);
-}
-
-async function synchronizeLegacyCompatibilityInUpdate(
-    context: {
-        model: unknown;
-        getQuery: () => unknown;
-        getUpdate: () => unknown;
-        setUpdate: (update: unknown) => void;
-    },
-): Promise<void> {
-    const updateRecord = asObject(context.getUpdate());
-    if (!updateRecord) {
-        return;
-    }
-
-    const setRecord = asObject(updateRecord['$set']);
-    if (!setRecord) {
-        return;
-    }
-
-    const availabilityPatch = asObject(setRecord['availability']);
-    const touchesAvailabilityLastSeen =
-        hasOwn(setRecord, 'availability.lastSeenAt') ||
-        (availabilityPatch !== null && hasOwn(availabilityPatch, 'lastSeenAt'));
-    const touchesLegacyLastSeen = hasOwn(setRecord, 'lastSeen');
-    const touchesLastSeenFields = touchesAvailabilityLastSeen || touchesLegacyLastSeen;
-
-    if (touchesLastSeenFields) {
-        const availabilityLastSeen = asDate(
-            hasOwn(setRecord, 'availability.lastSeenAt')
-                ? setRecord['availability.lastSeenAt']
-                : availabilityPatch?.['lastSeenAt'],
-        );
-        const legacyLastSeen = asDate(hasOwn(setRecord, 'lastSeen') ? setRecord['lastSeen'] : null);
-        const resolvedLastSeenAt = resolveLegacyLastSeenTimestamp({
-            availabilityLastSeenAt: availabilityLastSeen,
-            lastSeen: legacyLastSeen,
-        });
-
-        setRecord['lastSeen'] = resolvedLastSeenAt;
-        if (availabilityPatch) {
-            availabilityPatch['lastSeenAt'] = resolvedLastSeenAt;
-            setRecord['availability'] = availabilityPatch;
-            delete setRecord['availability.lastSeenAt'];
-        } else {
-            setRecord['availability.lastSeenAt'] = resolvedLastSeenAt;
-        }
-    }
-
-    const onboardingPackagePatch = asObject(setRecord['currentOnboardingPackage']);
-    const persistentCredentialPatch = asObject(setRecord['persistentCredential']);
-    const touchesLifecycleState = hasOwn(setRecord, 'lifecycleState');
-    const touchesApiKeyHash = hasOwn(setRecord, 'apiKeyHash');
-    const touchesOnboardingSecretHash =
-        hasOwn(setRecord, 'currentOnboardingPackage.secretHash') ||
-        (onboardingPackagePatch !== null && hasOwn(onboardingPackagePatch, 'secretHash'));
-    const touchesPersistentSecretHash =
-        hasOwn(setRecord, 'persistentCredential.secretHash') ||
-        (persistentCredentialPatch !== null && hasOwn(persistentCredentialPatch, 'secretHash'));
-    const shouldSyncLegacyCredential =
-        touchesLifecycleState ||
-        touchesApiKeyHash ||
-        touchesOnboardingSecretHash ||
-        touchesPersistentSecretHash;
-
-    if (!shouldSyncLegacyCredential) {
-        context.setUpdate(updateRecord);
-        return;
-    }
-
-    type ExistingProjection = {
-        lifecycleState?: EdgeLifecycleState;
-        apiKeyHash?: string;
-        currentOnboardingPackage?: { secretHash?: string | null } | null;
-        persistentCredential?: { secretHash?: string | null } | null;
-    };
-
-    const query = context.getQuery();
-    const modelRecord = context.model as {
-        findOne: (...args: unknown[]) => QueryProjectionChain;
-    };
-
-    const existing = (await modelRecord
-        .findOne(query)
-        .select(
-            'lifecycleState apiKeyHash currentOnboardingPackage.secretHash persistentCredential.secretHash',
-        )
-        .lean()
-        .exec()) as ExistingProjection | null;
-
-    const lifecycleState = asLifecycleState(setRecord['lifecycleState'] ?? existing?.lifecycleState ?? null);
-
-    if (lifecycleState) {
-        setRecord['isActive'] = isLegacyEdgeActive(lifecycleState);
-    }
-
-    if (lifecycleState) {
-        const currentApiKeyHash =
-            typeof setRecord['apiKeyHash'] === 'string'
-                ? setRecord['apiKeyHash']
-                : typeof existing?.apiKeyHash === 'string'
-                    ? existing.apiKeyHash
-                    : '';
-
-        const onboardingSecretHash =
-            setRecord['currentOnboardingPackage.secretHash'] ??
-            asObject(setRecord['currentOnboardingPackage'])?.['secretHash'] ??
-            existing?.currentOnboardingPackage?.secretHash ??
-            null;
-        const persistentSecretHash =
-            setRecord['persistentCredential.secretHash'] ??
-            asObject(setRecord['persistentCredential'])?.['secretHash'] ??
-            existing?.persistentCredential?.secretHash ??
-            null;
-
-        setRecord['apiKeyHash'] = resolveLegacyApiKeyHash({
-            lifecycleState,
-            apiKeyHash: currentApiKeyHash,
-            currentOnboardingPackage: asSecretHashContainer(onboardingSecretHash),
-            persistentCredential: asSecretHashContainer(persistentSecretHash),
-        });
-    }
-
-    context.setUpdate(updateRecord);
-}
-
-EdgeServerSchema.pre('validate', function syncLegacyCompatibilityFields(next) {
-    const resolvedLastSeenAt = resolveLegacyLastSeenTimestamp({
-        availabilityLastSeenAt: this.availability?.lastSeenAt ?? null,
-        lastSeen: this.lastSeen ?? null,
-    });
-
-    this.availability = {
-        ...(this.availability ?? { online: false, lastSeenAt: null }),
-        lastSeenAt: resolvedLastSeenAt,
-    };
-    this.lastSeen = resolvedLastSeenAt;
-
-    this.isActive = isLegacyEdgeActive(this.lifecycleState);
-    this.apiKeyHash = resolveLegacyApiKeyHash({
-        lifecycleState: this.lifecycleState,
-        availabilityLastSeenAt: this.availability.lastSeenAt,
-        lastSeen: this.lastSeen,
-        apiKeyHash: this.apiKeyHash,
-        currentOnboardingPackage: this.currentOnboardingPackage,
-        persistentCredential: this.persistentCredential,
-    });
-
-    next();
-});
-
-EdgeServerSchema.pre('updateOne', function syncLegacyCompatibilityForUpdateOne(next) {
-    void synchronizeLegacyCompatibilityInUpdate({
-        model: this.model,
-        getQuery: () => this.getQuery(),
-        getUpdate: () => this.getUpdate(),
-        setUpdate: (update) => this.setUpdate(update as Parameters<typeof this.setUpdate>[0]),
-    })
-        .then(() => next())
-        .catch(next);
-});
-
-EdgeServerSchema.pre('findOneAndUpdate', function syncLegacyCompatibilityForFindOneAndUpdate(next) {
-    void synchronizeLegacyCompatibilityInUpdate({
-        model: this.model,
-        getQuery: () => this.getQuery(),
-        getUpdate: () => this.getUpdate(),
-        setUpdate: (update) => this.setUpdate(update as Parameters<typeof this.setUpdate>[0]),
-    })
-        .then(() => next())
-        .catch(next);
-});
 
 export const EdgeServer = model<IEdgeServer>('EdgeServer', EdgeServerSchema);

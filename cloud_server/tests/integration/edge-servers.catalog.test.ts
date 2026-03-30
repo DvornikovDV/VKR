@@ -53,18 +53,30 @@ async function createEdgeServer(name: string): Promise<string> {
     const res = await request(app)
         .post('/api/edge-servers')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ name, apiKeyHash: `hash_${name}` });
+        .send({ name });
 
     expect(res.status).toBe(201);
     return res.body.data?.edge?._id as string;
 }
 
 async function setLifecycleState(edgeId: string, lifecycleState: string): Promise<void> {
+    const persistentCredential =
+        lifecycleState === 'Active'
+            ? {
+                  version: 1,
+                  secretHash: 'edge_catalog_test_persistent_hash',
+                  issuedAt: new Date('2026-03-29T00:00:00.000Z'),
+                  lastAcceptedAt: null,
+                  revokedAt: null,
+                  revocationReason: null,
+              }
+            : null;
+
     await EdgeServer.findByIdAndUpdate(edgeId, {
         $set: {
             lifecycleState,
-            isActive: true,
             availability: { online: false, lastSeenAt: null },
+            persistentCredential,
         },
     }).exec();
 }

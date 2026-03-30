@@ -29,11 +29,7 @@ function isPersistedCredentialRecord(value: unknown): value is PersistedCredenti
   if (!value || typeof value !== 'object') return false
 
   const candidate = value as Record<string, unknown>
-  const credentialMode = candidate['credentialMode']
-  const isOnboarding = credentialMode === 'onboarding'
-  const isPersistent = credentialMode === 'persistent'
-
-  if (!isOnboarding && !isPersistent) return false
+  if (candidate['credentialMode'] !== 'persistent') return false
   if (typeof candidate['edgeId'] !== 'string' || candidate['edgeId'].trim().length === 0) return false
   if (
     typeof candidate['credentialSecret'] !== 'string' ||
@@ -43,33 +39,15 @@ function isPersistedCredentialRecord(value: unknown): value is PersistedCredenti
   }
   if (!isValidIsoDate(candidate['issuedAt'])) return false
 
-  if (isOnboarding) {
-    return candidate['version'] === null && candidate['lifecycleState'] === undefined
-  }
-
   return (
     Number.isInteger(candidate['version']) &&
     Number(candidate['version']) > 0 &&
-    (candidate['lifecycleState'] === undefined || candidate['lifecycleState'] === 'Active')
+    candidate['lifecycleState'] === 'Active'
   )
 }
 
 function isPersistableCredentialRecord(value: unknown): value is PersistedCredentialRecord {
-  return isPersistedCredentialRecord(value) && value.credentialMode === 'persistent'
-}
-
-function isLegacyPersistedOnboardingRecord(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false
-
-  const candidate = value as Record<string, unknown>
-  return (
-    candidate['credentialMode'] === 'onboarding' &&
-    typeof candidate['edgeId'] === 'string' &&
-    candidate['edgeId'].trim().length > 0 &&
-    typeof candidate['credentialSecret'] === 'string' &&
-    candidate['credentialSecret'].trim().length > 0 &&
-    isValidIsoDate(candidate['issuedAt'])
-  )
+  return isPersistedCredentialRecord(value)
 }
 
 async function ensureParentDir(filePath: string): Promise<void> {
@@ -90,10 +68,6 @@ export function createPersistedCredentialStore(
 
         if (isPersistableCredentialRecord(parsed)) {
           return parsed
-        }
-
-        if (isLegacyPersistedOnboardingRecord(parsed)) {
-          return null
         }
 
         throw new Error(`Invalid persisted credential format in ${resolvedPath}`)

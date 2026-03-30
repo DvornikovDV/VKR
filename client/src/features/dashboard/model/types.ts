@@ -1,3 +1,5 @@
+export type { DashboardTrustedEdgeServer } from '@/shared/api/edgeServers'
+
 export type DashboardSelectionSource = 'route-prefill' | 'user-selection' | 'recovery-reset'
 
 export interface DashboardRouteState {
@@ -53,13 +55,6 @@ export interface DashboardBindingProfile {
   widgetBindings: DashboardWidgetBinding[]
   createdAt?: string
   updatedAt?: string
-}
-
-export interface DashboardTrustedEdgeServer {
-  _id: string
-  name: string
-  isActive?: boolean
-  lastSeen?: string | null
 }
 
 export type DashboardRuntimeValue = number | string | boolean | null

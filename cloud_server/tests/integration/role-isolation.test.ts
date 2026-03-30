@@ -108,7 +108,7 @@ describe('Role Isolation — User blocked from ADMIN-only endpoints', () => {
         const res = await request(app)
             .post('/api/edge-servers')
             .set('Authorization', `Bearer ${userToken}`)
-            .send({ name: 'Unauthorized Edge', apiKeyHash: 'somehash' });
+            .send({ name: 'Unauthorized Edge' });
 
         expect(res.status).toBe(403);
     });
@@ -118,9 +118,9 @@ describe('Role Isolation — User blocked from ADMIN-only endpoints', () => {
         const edgeRes = await request(app)
             .post('/api/edge-servers')
             .set('Authorization', `Bearer ${adminToken}`)
-            .send({ name: 'Edge For Guard Test', apiKeyHash: 'hashvalue' });
+            .send({ name: 'Edge For Guard Test' });
         expect(edgeRes.status).toBe(201);
-        const edgeId = edgeRes.body.data._id as string;
+        const edgeId = (edgeRes.body.data?.edge?._id ?? edgeRes.body.data?._id) as string;
 
         const res = await request(app)
             .post(`/api/edge-servers/${edgeId}/bind`)

@@ -50,7 +50,7 @@ async function listEdgeServers(req: AuthRequest, res: Response, next: NextFuncti
 /**
  * POST /api/edge-servers
  * ADMIN only: registers a new edge server.
- * Body: { name: string, apiKeyHash: string }
+ * Body: { name: string }
  */
 async function registerEdgeServer(
     req: AuthRequest,
@@ -129,8 +129,8 @@ async function unbindUserFromEdge(
 
 /**
  * GET /api/edge-servers/:edgeId/ping
- * ADMIN only: checks online state of edge server via in-memory lastSeen < 30s.
- * Returns { online: boolean, lastSeen: Date | null }.
+ * ADMIN only: checks online state of edge server via in-memory lastSeenAt < 30s.
+ * Returns { online: boolean, lastSeenAt: Date | null }.
  */
 async function pingEdgeServer(
     req: AuthRequest,

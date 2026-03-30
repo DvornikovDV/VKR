@@ -8,7 +8,7 @@
  *   T026-4: PRO user can be assigned multiple edge servers
  *   T026-5: Assigning same user twice → 409 Conflict
  *   T026-6: Ping returns { online: false } when edge has never reported
- *   T026-7: Ping returns { online: true } after in-memory lastSeen updated (< 30s)
+ *   T026-7: Ping returns { online: true } after in-memory lastSeenAt updated (< 30s)
  *
  * Also retains T021b service-level quota checks (legacy, for regression).
  */
@@ -47,17 +47,29 @@ async function createEdgeServer(name: string): Promise<string> {
     const res = await request(app)
         .post('/api/edge-servers')
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ name, apiKeyHash: `hash_${name}` });
+        .send({ name });
     expect(res.status).toBe(201);
     return (res.body.data?.edge?._id as string);
 }
 
 async function setLifecycleState(edgeId: string, lifecycleState: string): Promise<void> {
+    const persistentCredential =
+        lifecycleState === 'Active'
+            ? {
+                  version: 1,
+                  secretHash: 'edge_servers_test_persistent_hash',
+                  issuedAt: new Date('2026-03-29T00:00:00.000Z'),
+                  lastAcceptedAt: null,
+                  revokedAt: null,
+                  revocationReason: null,
+              }
+            : null;
+
     await EdgeServer.findByIdAndUpdate(edgeId, {
         $set: {
             lifecycleState,
-            isActive: true,
             availability: { online: false, lastSeenAt: null },
+            persistentCredential,
         },
     }).exec();
 }
@@ -251,7 +263,7 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
 
     // ── T026-6: Ping — cold start (never seen) ────────────────────────────
 
-    it('T026-6: Ping returns { online: false, lastSeen: null } for never-seen edge', async () => {
+    it('T026-6: Ping returns { online: false, lastSeenAt: null } for never-seen edge', async () => {
         const edgeId = await createEdgeServer('EdgeCold');
 
         const res = await request(app)
@@ -260,12 +272,12 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.data.online).toBe(false);
-        expect(res.body.data.lastSeen).toBeNull();
+        expect(res.body.data.lastSeenAt).toBeNull();
     });
 
     // ── T026-7: Ping — online after in-memory update ──────────────────────
 
-    it('T026-7: Ping returns { online: true } after in-memory lastSeen is updated (< 30s)', async () => {
+    it('T026-7: Ping returns { online: true } after in-memory lastSeenAt is updated (< 30s)', async () => {
         const edgeId = await createEdgeServer('EdgeOnline');
 
         // Simulate WebSocket telemetry batch arriving — update in-memory registry
@@ -277,7 +289,7 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.data.online).toBe(true);
-        expect(res.body.data.lastSeen).not.toBeNull();
+        expect(res.body.data.lastSeenAt).not.toBeNull();
     });
 
     // ── Guard tests ───────────────────────────────────────────────────────
@@ -286,7 +298,7 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
         const res = await request(app)
             .post('/api/edge-servers')
             .set('Authorization', `Bearer ${freeUserToken}`)
-            .send({ name: 'Unauthorized', apiKeyHash: 'hash' });
+            .send({ name: 'Unauthorized' });
 
         expect(res.status).toBe(403);
     });

@@ -75,7 +75,14 @@ describe('FullConstructorPage recovery and retry flows', () => {
       http.get('/api/edge-servers', () =>
         HttpResponse.json({
           status: 'success',
-          data: [{ _id: 'edge-1', name: 'Machine #1', isActive: true }],
+          data: [
+            {
+              _id: 'edge-1',
+              name: 'Machine #1',
+              lifecycleState: 'Active',
+              availability: { online: true, lastSeenAt: null },
+            },
+          ],
         }),
       ),
       http.get('/api/edge-servers/:edgeId/catalog', () =>
@@ -147,7 +154,14 @@ describe('FullConstructorPage recovery and retry flows', () => {
       http.get('/api/edge-servers', () =>
         HttpResponse.json({
           status: 'success',
-          data: [{ _id: 'edge-1', name: 'Machine #1', isActive: true }],
+          data: [
+            {
+              _id: 'edge-1',
+              name: 'Machine #1',
+              lifecycleState: 'Active',
+              availability: { online: true, lastSeenAt: null },
+            },
+          ],
         }),
       ),
       http.get('/api/edge-servers/:edgeId/catalog', () =>

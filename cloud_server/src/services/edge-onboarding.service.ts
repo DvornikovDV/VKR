@@ -125,6 +125,21 @@ export type AuthenticateEdgeHandshakeResult =
         code: EdgeAuthRejectionCode;
     };
 
+function isBlockedLifecycleState(lifecycleState: EdgeLifecycleState): boolean {
+    return lifecycleState === 'Blocked';
+}
+
+function canLifecycleAcceptOnboarding(lifecycleState: EdgeLifecycleState): boolean {
+    return (
+        lifecycleState === 'Pending First Connection' ||
+        lifecycleState === 'Re-onboarding Required'
+    );
+}
+
+function canLifecycleAcceptPersistentReconnect(lifecycleState: EdgeLifecycleState): boolean {
+    return lifecycleState === 'Active';
+}
+
 function withActivationDefaults(
     activation?: EdgeActivationSnapshot | null,
 ): EdgeActivationSnapshot {
@@ -149,7 +164,7 @@ function buildDisplayHint(secret: string): string {
 function mapEdgeDocumentToAdminProjection(edge: IEdgeServer): AdminEdgeProjection {
     const availability: EdgeAvailabilitySnapshot = edge.availability ?? {
         online: false,
-        lastSeenAt: edge.lastSeen ?? null,
+        lastSeenAt: null,
     };
 
     return mapEdgeToAdminProjection({
@@ -375,10 +390,7 @@ async function authenticateWithOnboardingCredential(
     credentialSecret: string,
     now: Date,
 ): Promise<AuthenticateEdgeHandshakeResult> {
-    if (
-        edge.lifecycleState !== 'Pending First Connection' &&
-        edge.lifecycleState !== 'Re-onboarding Required'
-    ) {
+    if (!canLifecycleAcceptOnboarding(edge.lifecycleState)) {
         applyCredentialRejectionTransition(edge, now);
         await edge.save();
         await recordActivationRejectedAuditEvent({
@@ -470,8 +482,6 @@ async function authenticateWithOnboardingCredential(
                 lifecycleState: transition.lifecycleState,
                 activation: transition.activation,
                 lastLifecycleEventAt: transition.occurredAt,
-                // Legacy compatibility field remains synchronized with the currently valid credential hash.
-                apiKeyHash: persistentSecretHash,
             },
         },
         { new: true },
@@ -486,7 +496,7 @@ async function authenticateWithOnboardingCredential(
         applyCredentialRejectionTransition(latestEdge, now);
         await latestEdge.save();
 
-        if (latestEdge.lifecycleState === 'Blocked' || !latestEdge.isActive) {
+        if (latestEdge.lifecycleState === 'Blocked') {
             await recordActivationRejectedAuditEvent({
                 edge: latestEdge,
                 credentialMode: 'onboarding',
@@ -565,7 +575,7 @@ async function authenticateWithPersistentCredential(
     credentialSecret: string,
     now: Date,
 ): Promise<AuthenticateEdgeHandshakeResult> {
-    if (edge.lifecycleState !== 'Active') {
+    if (!canLifecycleAcceptPersistentReconnect(edge.lifecycleState)) {
         applyCredentialRejectionTransition(edge, now);
         await edge.save();
         await recordActivationRejectedAuditEvent({
@@ -632,7 +642,7 @@ async function authenticateEdgeHandshake(
 
     const now = input.now ?? new Date();
 
-    if (edge.lifecycleState === 'Blocked' || !edge.isActive) {
+    if (isBlockedLifecycleState(edge.lifecycleState)) {
         await recordActivationRejectedAuditEvent({
             edge,
             credentialMode: input.credentialMode,
@@ -672,8 +682,6 @@ async function registerEdgeServer(
 
     const edge = await EdgeServer.create({
         name,
-        // Legacy compatibility field remains required by schema.
-        apiKeyHash: onboardingSecretHash,
         createdBy: adminObjectId,
         lifecycleState: lifecycleTransition.lifecycleState,
         activation: lifecycleTransition.activation,
@@ -734,8 +742,6 @@ async function resetOnboardingCredentials(
     });
 
     edge.currentOnboardingPackage = onboardingPackage;
-    // Keep legacy credential source in sync until socket handshake fully migrates off apiKeyHash.
-    edge.apiKeyHash = onboardingSecretHash;
     edge.lastLifecycleEventAt = issuedAt;
     await edge.save();
 
@@ -859,8 +865,6 @@ async function blockEdgeServer(edgeId: string, adminId: string): Promise<EdgeLif
         ...(edge.availability ?? { online: false, lastSeenAt: null }),
         online: false,
     };
-    // Legacy compatibility flag remains aligned with lifecycle block semantics.
-    edge.isActive = false;
     await edge.save();
 
     await EdgeOnboardingAuditService.recordBlocked({
@@ -902,8 +906,6 @@ async function reenableEdgeOnboarding(
     edge.lifecycleState = lifecycleTransition.lifecycleState;
     edge.activation = lifecycleTransition.activation;
     edge.lastLifecycleEventAt = lifecycleTransition.occurredAt;
-    // Legacy compatibility flag must permit onboarding handshake after re-enable.
-    edge.isActive = true;
     await edge.save();
 
     await EdgeOnboardingAuditService.recordReenabled({

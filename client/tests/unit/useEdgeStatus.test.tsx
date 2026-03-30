@@ -37,8 +37,6 @@ describe('useEdgeStatus normalization (T034)', () => {
         lifecycleState: 'Active',
         isTelemetryReady: true,
         availability: { online: true, lastSeenAt: null },
-        isActive: true,
-        lastSeen: null,
       },
     ])
 
@@ -65,8 +63,6 @@ describe('useEdgeStatus normalization (T034)', () => {
         currentOnboardingPackage: null,
         persistentCredentialVersion: null,
         lastLifecycleEventAt: null,
-        isActive: true,
-        lastSeen: null,
       },
     ])
 

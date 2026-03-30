@@ -61,7 +61,7 @@ describe('T049a — Admin Global Edge Fleet', () => {
         expect(res.status).toBe(403);
     });
 
-    it('does not expose apiKeyHash in the fleet list', async () => {
+    it('does not expose credential secret fields in the fleet list', async () => {
         const res = await request(app)
             .get('/api/admin/edge-servers')
             .set('Authorization', `Bearer ${adminToken}`);
@@ -69,7 +69,11 @@ describe('T049a — Admin Global Edge Fleet', () => {
         expect(res.status).toBe(200);
         const servers = res.body.data as Array<Record<string, unknown>>;
         servers.forEach((s) => {
-            expect(s['apiKeyHash']).toBeUndefined();
+            expect(s['persistentCredential']).toBeUndefined();
+            expect(s['onboardingSecret']).toBeUndefined();
+            const currentOnboardingPackage =
+                s['currentOnboardingPackage'] as Record<string, unknown> | null | undefined;
+            expect(currentOnboardingPackage?.['secretHash']).toBeUndefined();
         });
     });
 });
@@ -94,12 +98,11 @@ describe('T049b — User Stats', () => {
         expect(res.status).toBe(401);
     });
 
-    it('T033-2 counts only lifecycle Active edges in user stats even when legacy isActive is misleading', async () => {
+    it('T033-2 counts only lifecycle Active edges in user stats even when non-Active edges look available', async () => {
         await EdgeServer.deleteMany({ name: /^profile_test_t033_/ }).exec();
 
         await EdgeServer.create({
             name: 'profile_test_t033_active_edge',
-            apiKeyHash: 'profile_test_t033_active_hash',
             lifecycleState: 'Active',
             trustedUsers: [userId],
             availability: { online: true, lastSeenAt: new Date('2026-03-29T00:00:00.000Z') },
@@ -110,8 +113,8 @@ describe('T049b — User Stats', () => {
                 issuedAt: new Date('2026-03-28T00:00:00.000Z'),
                 expiresAt: new Date('2026-03-29T00:00:00.000Z'),
                 issuedBy: null,
-                status: 'ready',
-                usedAt: null,
+                status: 'used',
+                usedAt: new Date('2026-03-28T00:10:00.000Z'),
                 supersededByCredentialId: null,
             },
             persistentCredential: {
@@ -126,11 +129,9 @@ describe('T049b — User Stats', () => {
 
         await EdgeServer.create({
             name: 'profile_test_t033_reonboarding_edge',
-            apiKeyHash: 'profile_test_t033_reonboarding_hash',
             lifecycleState: 'Re-onboarding Required',
-            isActive: true,
             trustedUsers: [userId],
-            availability: { online: false, lastSeenAt: null },
+            availability: { online: true, lastSeenAt: new Date('2026-03-29T01:00:00.000Z') },
             currentOnboardingPackage: {
                 credentialId: 'profile-test-t033-reonboarding-onboarding',
                 secretHash: 'profile_test_t033_reonboarding_pkg_hash',

@@ -567,16 +567,60 @@ paths:
           description: Unauthorized
     post:
       operationId: createEdgeServer
-      summary: Register a new Edge Server (Admin Only)
+      summary: Register a new Edge Server and disclose its one-time onboarding package (Admin Only)
       security:
         - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
       responses:
         '201':
-          description: Server configured
+          description: Edge registered and onboarding package disclosed once
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JSendSuccess'
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    required:
+                      - edge
+                      - onboardingPackage
+                    properties:
+                      edge:
+                        $ref: '#/components/schemas/AdminEdgeServerRecord'
+                      onboardingPackage:
+                        type: object
+                        required:
+                          - edgeId
+                          - onboardingSecret
+                          - issuedAt
+                          - expiresAt
+                          - instructions
+                        properties:
+                          edgeId:
+                            type: string
+                          onboardingSecret:
+                            type: string
+                          issuedAt:
+                            type: string
+                            format: date-time
+                          expiresAt:
+                            type: string
+                            format: date-time
+                          instructions:
+                            type: string
         '401':
           description: Unauthorized
         '403':
@@ -660,7 +704,7 @@ paths:
     get:
       operationId: pingEdgeServer
       summary: Check Edge Server connectivity status (Admin only)
-      description: Returns online status based on `lastSeen` timestamp from Socket.IO in-memory state (online if lastSeen < 30s ago).
+      description: Returns online status based on canonical `lastSeenAt` from Socket.IO or persisted availability metadata.
       security:
         - bearerAuth: []
       parameters:
@@ -685,7 +729,7 @@ paths:
                     properties:
                       online:
                         type: boolean
-                      lastSeen:
+                      lastSeenAt:
                         type: string
                         format: date-time
         '401':
@@ -811,6 +855,110 @@ components:
           type: string
         label:
           type: string
+    EdgeAvailabilitySnapshot:
+      type: object
+      required:
+        - online
+        - lastSeenAt
+      properties:
+        online:
+          type: boolean
+        lastSeenAt:
+          type: string
+          format: date-time
+          nullable: true
+    EdgeOnboardingPackageSummary:
+      type: object
+      nullable: true
+      properties:
+        credentialId:
+          type: string
+        status:
+          type: string
+          enum: [ready, used, expired, reset, blocked]
+        issuedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        usedAt:
+          type: string
+          format: date-time
+          nullable: true
+        displayHint:
+          type: string
+          nullable: true
+    EdgeServerUserRef:
+      type: object
+      properties:
+        _id:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [ADMIN, USER]
+        subscriptionTier:
+          type: string
+          enum: [FREE, PRO]
+    AdminEdgeServerRecord:
+      type: object
+      required:
+        - _id
+        - name
+        - trustedUsers
+        - createdBy
+        - lifecycleState
+        - isTelemetryReady
+        - availability
+        - currentOnboardingPackage
+        - persistentCredentialVersion
+        - lastLifecycleEventAt
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        trustedUsers:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - $ref: '#/components/schemas/EdgeServerUserRef'
+        createdBy:
+          type: object
+          nullable: true
+          properties:
+            _id:
+              type: string
+            email:
+              type: string
+              format: email
+        lifecycleState:
+          type: string
+          enum:
+            - Pending First Connection
+            - Active
+            - Re-onboarding Required
+            - Blocked
+        isTelemetryReady:
+          type: boolean
+        availability:
+          $ref: '#/components/schemas/EdgeAvailabilitySnapshot'
+        currentOnboardingPackage:
+          $ref: '#/components/schemas/EdgeOnboardingPackageSummary'
+        persistentCredentialVersion:
+          type: integer
+          nullable: true
+        lastLifecycleEventAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
 
   securitySchemes:
     bearerAuth:

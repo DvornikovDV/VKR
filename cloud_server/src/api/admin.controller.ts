@@ -88,7 +88,7 @@ async function updateUserStatus(
 
 /**
  * Returns the global Edge Server fleet with populated trustedUsers and createdBy.
- * Excludes apiKeyHash from the response.
+ * Excludes credential secrets and secret hashes from the response.
  */
 async function listGlobalEdgeServers(
     _req: AuthRequest,

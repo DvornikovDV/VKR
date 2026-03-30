@@ -93,7 +93,14 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
       http.get('/api/edge-servers', () =>
         HttpResponse.json({
           status: 'success',
-          data: [{ _id: 'edge-1', name: 'Machine 1', isActive: true }],
+          data: [
+            {
+              _id: 'edge-1',
+              name: 'Machine 1',
+              lifecycleState: 'Active',
+              availability: { online: true, lastSeenAt: null },
+            },
+          ],
         }),
       ),
       http.get('/api/edge-servers/:edgeId/catalog', ({ params }) =>
@@ -185,7 +192,14 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
       http.get('/api/edge-servers', () =>
         HttpResponse.json({
           status: 'success',
-          data: [{ _id: 'edge-1', name: 'Machine 1', isActive: true }],
+          data: [
+            {
+              _id: 'edge-1',
+              name: 'Machine 1',
+              lifecycleState: 'Active',
+              availability: { online: true, lastSeenAt: null },
+            },
+          ],
         }),
       ),
       http.get('/api/edge-servers/:edgeId/catalog', () =>
@@ -237,7 +251,14 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
       http.get('/api/edge-servers', () =>
         HttpResponse.json({
           status: 'success',
-          data: [{ _id: 'edge-reauth', name: 'Reauth machine', isActive: true }],
+          data: [
+            {
+              _id: 'edge-reauth',
+              name: 'Reauth machine',
+              lifecycleState: 'Active',
+              availability: { online: true, lastSeenAt: null },
+            },
+          ],
         }),
       ),
       http.get('/api/edge-servers/:edgeId/catalog', ({ params }) =>

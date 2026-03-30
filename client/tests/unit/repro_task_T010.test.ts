@@ -17,15 +17,53 @@ vi.mock('@/shared/api/client', () => ({
 describe('repro_task_T010', () => {
   it('exposes lifecycle-aware shared client API methods', async () => {
     const edgeServersApi = await import('@/shared/api/edgeServers')
+    const onboardingDisclosure = {
+      edge: {
+        _id: 'edge-1',
+        name: 'Edge Alpha',
+        trustedUsers: [],
+        createdBy: null,
+        lifecycleState: 'Pending First Connection',
+        isTelemetryReady: false,
+        availability: { online: false, lastSeenAt: null },
+        currentOnboardingPackage: null,
+        persistentCredentialVersion: null,
+        lastLifecycleEventAt: '2026-03-26T10:00:00.000Z',
+      },
+      onboardingPackage: {
+        edgeId: 'edge-1',
+        onboardingSecret: 'first-connection-secret',
+        issuedAt: '2026-03-26T10:00:00.000Z',
+        expiresAt: '2026-03-27T10:00:00.000Z',
+        instructions: 'Use this package once during first edge activation',
+      },
+    }
+    const reonboardingEdge = {
+      _id: 'edge-1',
+      name: 'Edge Alpha',
+      trustedUsers: [],
+      createdBy: null,
+      lifecycleState: 'Re-onboarding Required',
+      isTelemetryReady: false,
+      availability: { online: false, lastSeenAt: null },
+      currentOnboardingPackage: null,
+      persistentCredentialVersion: null,
+      lastLifecycleEventAt: '2026-03-26T10:05:00.000Z',
+    }
+    const blockedEdge = {
+      ...reonboardingEdge,
+      lifecycleState: 'Blocked',
+      lastLifecycleEventAt: '2026-03-26T10:06:00.000Z',
+    }
 
-    apiPost.mockResolvedValueOnce({ edge: { _id: 'edge-1' }, onboardingPackage: { edgeId: 'edge-1' } })
-    apiPost.mockResolvedValueOnce({ edge: { _id: 'edge-1' }, onboardingPackage: { edgeId: 'edge-1' } })
-    apiPost.mockResolvedValueOnce({ _id: 'edge-1', lifecycleState: 'Re-onboarding Required' })
-    apiPost.mockResolvedValueOnce({ _id: 'edge-1', lifecycleState: 'Blocked' })
-    apiPost.mockResolvedValueOnce({ _id: 'edge-1', lifecycleState: 'Re-onboarding Required' })
+    apiPost.mockResolvedValueOnce(onboardingDisclosure)
+    apiPost.mockResolvedValueOnce(onboardingDisclosure)
+    apiPost.mockResolvedValueOnce(reonboardingEdge)
+    apiPost.mockResolvedValueOnce(blockedEdge)
+    apiPost.mockResolvedValueOnce(reonboardingEdge)
 
     await (edgeServersApi as Record<string, (...args: unknown[]) => Promise<unknown>>)
-      .registerEdgeServerWithOnboarding({ name: 'Edge Alpha' })
+      .registerEdgeServer({ name: 'Edge Alpha' })
     await (edgeServersApi as Record<string, (...args: unknown[]) => Promise<unknown>>)
       .resetEdgeOnboardingCredentials('edge-1')
     await (edgeServersApi as Record<string, (...args: unknown[]) => Promise<unknown>>)

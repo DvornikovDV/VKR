@@ -41,7 +41,7 @@ export function mapTrustedEdgeServersToMachineOptions(
     .map((edgeServer) => ({
       edgeServerId: edgeServer._id,
       label: edgeServer.name,
-      isOnline: edgeServer.availability?.online ?? edgeServer.isActive ?? false,
+      isOnline: edgeServer.availability.online,
     }))
     .sort((a, b) => a.label.localeCompare(b.label))
 }

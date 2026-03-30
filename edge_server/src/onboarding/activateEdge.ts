@@ -49,13 +49,7 @@ export async function bootstrapEdgeActivation(
   input: BootstrapEdgeActivationInput = {},
 ): Promise<EdgeActivationBootstrapResult> {
   const store = input.store ?? createDefaultStore()
-  let persisted: PersistedCredentialRecord | null = null
-
-  try {
-    persisted = await store.load()
-  } catch (error) {
-    console.warn('[edge-onboarding] Failed to load persisted credential, falling back to env onboarding:', error)
-  }
+  const persisted = await store.load()
 
   if (persisted) {
     return {

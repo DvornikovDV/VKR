@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -54,7 +54,7 @@ describe('repro_task_T021', () => {
     })
   })
 
-  it('loads legacy persisted persistent credential that has no lifecycleState', async () => {
+  it('rejects persisted credential without canonical lifecycleState', async () => {
     const edgeStore = await import('../../../edge_server/src/onboarding/persistedCredentialStore')
 
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'edge-t021-legacy-'))
@@ -76,19 +76,12 @@ describe('repro_task_T021', () => {
     )
 
     const store = edgeStore.createPersistedCredentialStore(persistedPath)
-    await expect(store.load()).resolves.toMatchObject({
-      edgeId: 'edge-legacy',
-      credentialMode: 'persistent',
-      credentialSecret: 'legacy-secret',
-      version: 1,
-      issuedAt: '2026-03-26T12:00:00.000Z',
-    })
-
-    const savedRaw = await readFile(persistedPath, 'utf-8')
-    expect(savedRaw).toContain('"credentialMode": "persistent"')
+    await expect(store.load()).rejects.toThrow(
+      `Invalid persisted credential format in ${persistedPath}`,
+    )
   })
 
-  it('falls back to env onboarding when legacy onboarding credential is persisted on disk', async () => {
+  it('fails bootstrap when persisted onboarding record is left on disk', async () => {
     const edgeTransport = await import('../../../edge_server/src/transport/cloudSocketClient')
     const edgeStore = await import('../../../edge_server/src/onboarding/persistedCredentialStore')
 
@@ -111,18 +104,13 @@ describe('repro_task_T021', () => {
     )
 
     const store = edgeStore.createPersistedCredentialStore(persistedPath)
-    const bootstrap = await edgeTransport.prepareEdgeRuntimeHandshake({
-      store,
-      edgeId: 'edge-fallback',
-      onboardingSecret: 'env-onboarding-secret',
-      now: () => new Date('2026-03-26T14:00:00.000Z'),
-    })
-
-    expect(bootstrap.credentialSource).toBe('onboarding_env')
-    expect(bootstrap.handshakeAuth).toMatchObject({
-      edgeId: 'edge-fallback',
-      credentialMode: 'onboarding',
-      credentialSecret: 'env-onboarding-secret',
-    })
+    await expect(
+      edgeTransport.prepareEdgeRuntimeHandshake({
+        store,
+        edgeId: 'edge-fallback',
+        onboardingSecret: 'env-onboarding-secret',
+        now: () => new Date('2026-03-26T14:00:00.000Z'),
+      }),
+    ).rejects.toThrow(`Invalid persisted credential format in ${persistedPath}`)
   })
 })

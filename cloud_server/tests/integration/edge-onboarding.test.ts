@@ -387,12 +387,6 @@ describe('Edge onboarding integration contract', () => {
             await expect(
                 verifyCredentialSecret(secondSecret, currentPackage?.secretHash ?? ''),
             ).resolves.toBe(true);
-            await expect(
-                verifyCredentialSecret(firstSecret, afterReset?.apiKeyHash ?? ''),
-            ).resolves.toBe(false);
-            await expect(
-                verifyCredentialSecret(secondSecret, afterReset?.apiKeyHash ?? ''),
-            ).resolves.toBe(true);
         });
     });
 
@@ -671,7 +665,7 @@ describe('Edge onboarding integration contract', () => {
             reactivatedSocket.disconnect();
         });
 
-        it('T033-1 keeps lifecycle and legacy compatibility fields synchronized for update queries', async () => {
+        it('T033-1 keeps canonical lifecycle and credential metadata authoritative for update queries', async () => {
             const { edgeId, onboardingSecret } = await registerEdge('Edge Legacy Sync Guard');
             const { socket: onboardingSocket, activationPayload } = await connectOnboardingSocket(
                 edgeId,
@@ -680,32 +674,28 @@ describe('Edge onboarding integration contract', () => {
             onboardingSocket.disconnect();
 
             const canonicalLastSeenAt = new Date('2026-03-29T00:00:00.000Z');
-            const staleLegacyLastSeen = new Date('2020-01-01T00:00:00.000Z');
 
             await EdgeServer.updateOne(
                 { _id: edgeId },
                 {
                     $set: {
                         lifecycleState: 'Blocked',
-                        isActive: true,
+                        'availability.online': true,
                         'availability.lastSeenAt': canonicalLastSeenAt,
-                        lastSeen: staleLegacyLastSeen,
-                        apiKeyHash: 'plain-mismatch-hash',
                     },
                 },
             ).exec();
 
             const edgeAfterUpdate = await EdgeServer.findById(edgeId).exec();
             expect(edgeAfterUpdate?.lifecycleState).toBe('Blocked');
-            expect(edgeAfterUpdate?.isActive).toBe(false);
-            expect(edgeAfterUpdate?.lastSeen?.toISOString()).toBe(canonicalLastSeenAt.toISOString());
             expect(edgeAfterUpdate?.availability.lastSeenAt?.toISOString()).toBe(
                 canonicalLastSeenAt.toISOString(),
             );
+            expect(edgeAfterUpdate?.availability.online).toBe(true);
             await expect(
                 verifyCredentialSecret(
                     activationPayload.persistentCredential.secret,
-                    edgeAfterUpdate?.apiKeyHash ?? '',
+                    edgeAfterUpdate?.persistentCredential?.secretHash ?? '',
                 ),
             ).resolves.toBe(true);
 
