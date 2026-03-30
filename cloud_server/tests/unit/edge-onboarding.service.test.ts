@@ -142,6 +142,11 @@ describe('edge-onboarding.service', () => {
             name: 'Edge Unit',
             lifecycleState: 'Active',
             availability: { online: true, lastSeenAt: now },
+            persistentCredential: createPersistentCredentialMetadata({
+                secretHash: 'persistent-hash',
+                previousVersion: 0,
+                issuedAt: now,
+            }),
         });
 
         expect(telemetryProjection?.lifecycleState).toBe('Active');

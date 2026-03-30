@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { useEdgeStatus } from '@/shared/hooks/useEdgeStatus'
 import { useTelemetryStore } from '@/shared/store/useTelemetryStore'
@@ -48,6 +48,10 @@ describe('useEdgeStatus normalization (T034)', () => {
 
     expect(result.current.error).toBeNull()
     expect(result.current.isOnline('edge-1')).toBe(true)
+    expect(result.current.getSnapshot('edge-1')).toEqual({
+      online: true,
+      lastSeenAt: null,
+    })
   })
 
   it('prefers websocket edge status over REST fallback status', async () => {
@@ -78,5 +82,53 @@ describe('useEdgeStatus normalization (T034)', () => {
     })
 
     expect(result.current.isOnline('edge-2')).toBe(false)
+    expect(result.current.getSnapshot('edge-2')).toEqual({
+      online: false,
+      lastSeenAt: null,
+    })
+  })
+
+  it('uses trusted scope without probing admin fleet endpoint', async () => {
+    getTrustedEdgeServersMock.mockResolvedValueOnce([
+      {
+        _id: 'edge-3',
+        name: 'Trusted Scope',
+        lifecycleState: 'Active',
+        isTelemetryReady: true,
+        availability: { online: true, lastSeenAt: '2026-03-29T08:00:00.000Z' },
+      },
+    ])
+
+    const { result } = renderHook(() =>
+      useEdgeStatus({ edgeIds: ['edge-3'], scope: 'trusted' }),
+    )
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false)
+    })
+
+    expect(getEdgeServersMock).not.toHaveBeenCalled()
+    expect(result.current.getSnapshot('edge-3')).toEqual({
+      online: true,
+      lastSeenAt: '2026-03-29T08:00:00.000Z',
+    })
+  })
+
+  it('returns unknown snapshot when both REST sources fail', async () => {
+    getEdgeServersMock.mockRejectedValueOnce(new Error('admin down'))
+    getTrustedEdgeServersMock.mockRejectedValueOnce(new Error('trusted down'))
+
+    const { result } = renderHook(() => useEdgeStatus({ edgeIds: ['edge-unknown'] }))
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false)
+    })
+
+    expect(result.current.error).toContain('Failed to refresh edge status')
+    expect(result.current.getSnapshot('edge-unknown')).toEqual({
+      online: null,
+      lastSeenAt: null,
+    })
+    expect(result.current.isOnline('edge-unknown')).toBe(false)
   })
 })

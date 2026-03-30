@@ -3,6 +3,7 @@ import { type RouteObject } from 'react-router-dom'
 import { GalleryPage } from '@/features/user-hub/pages/GalleryPage'
 import { DashboardPage } from '@/features/user-hub/pages/DashboardPage'
 import { UserHubLayout } from '@/features/user-hub/UserHubLayout'
+import { userHubEquipmentRoute } from '@/features/user-hub/routes/userHubEquipmentRoute'
 
 const FullConstructorPage = lazy(async () => {
   const module = await import('@/features/user-hub/pages/FullConstructorPage')
@@ -55,6 +56,7 @@ export const userHubRouteChildren: RouteObject[] = [
         path: 'dashboard',
         element: <DashboardPage />,
       },
+      userHubEquipmentRoute,
       {
         path: '*',
         element: userHubPlaceholderElement,
