@@ -3,11 +3,11 @@ import { apiClient } from '@/shared/api/client'
 export type ProfileRole = 'ADMIN' | 'USER'
 export type ProfileTier = 'FREE' | 'PRO'
 
-export interface ProfileSessionContext {
-  id: string
+interface SelfProfileResponse {
+  _id: string
   email: string
   role: ProfileRole
-  tier: ProfileTier
+  subscriptionTier: ProfileTier
 }
 
 interface UserProfileStatsResponse {
@@ -49,16 +49,18 @@ function resolveTierLimits(tier: ProfileTier): Pick<UserProfileSummary, 'diagram
 }
 
 export async function getProfileSummary(
-  session: ProfileSessionContext,
 ): Promise<UserProfileSummary> {
-  const stats = await apiClient.get<UserProfileStatsResponse>('/users/me/stats')
-  const limits = resolveTierLimits(session.tier)
+  const [profile, stats] = await Promise.all([
+    apiClient.get<SelfProfileResponse>('/users/me'),
+    apiClient.get<UserProfileStatsResponse>('/users/me/stats'),
+  ])
+  const limits = resolveTierLimits(profile.subscriptionTier)
 
   return {
-    id: session.id,
-    email: session.email,
-    role: session.role,
-    tier: session.tier,
+    id: profile._id,
+    email: profile.email,
+    role: profile.role,
+    tier: profile.subscriptionTier,
     diagramsUsed: stats.diagramCount,
     diagramsLimit: limits.diagramsLimit,
     equipmentUsed: stats.edgeServerCount,
@@ -67,5 +69,5 @@ export async function getProfileSummary(
 }
 
 export async function changePassword(payload: ChangePasswordPayload): Promise<void> {
-  await apiClient.post<void>('/users/me/password', payload)
+  await apiClient.patch<void>('/users/me/password', payload)
 }

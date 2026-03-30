@@ -60,8 +60,10 @@ apiRouter.get('/edge-servers/:edgeId/catalog', authMiddleware, requireRole('USER
 apiRouter.get('/edge-servers/:edgeId/ping', authMiddleware, requireRole('ADMIN'), EdgeServersController.pingEdgeServer);
 
 // ── Users (self-service) ──────────────────────────────────────────────────
+apiRouter.get('/users/me', authMiddleware, UsersController.getMe);
 apiRouter.delete('/users/me', authMiddleware, UsersController.deleteMe);
 apiRouter.get('/users/me/stats', authMiddleware, UsersController.getStats);
+apiRouter.patch('/users/me/password', authMiddleware, UsersController.changePassword);
 apiRouter.post('/users/me/password', authMiddleware, UsersController.changePassword);
 
 // ── Admin: User Management ─────────────────────────────────────────────────

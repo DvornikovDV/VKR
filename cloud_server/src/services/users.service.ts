@@ -135,6 +135,39 @@ export interface UserStats {
     edgeServerCount: number;
 }
 
+export interface UserSelfProfile {
+    _id: string;
+    email: string;
+    role: string;
+    subscriptionTier: SubscriptionTier;
+}
+
+/**
+ * Returns the latest persisted self-profile for the authenticated user.
+ * This must not rely on JWT snapshot fields such as subscription tier.
+ *
+ * @param userId User._id as string
+ */
+async function getSelfProfile(userId: string): Promise<UserSelfProfile> {
+    const id = toObjectId(userId, 'userId');
+
+    const user = await User.findOne({ _id: id, isDeleted: { $ne: true } })
+        .select('_id email role subscriptionTier')
+        .lean()
+        .exec();
+
+    if (!user) {
+        throw new AppError('User not found', 404);
+    }
+
+    return {
+        _id: user._id.toString(),
+        email: user.email,
+        role: user.role,
+        subscriptionTier: user.subscriptionTier,
+    };
+}
+
 /**
  * Returns usage statistics for the authenticated user:
  *   - Own diagram count
@@ -192,6 +225,7 @@ export const UsersService = {
     updateUserTier,
     updateUserStatus,
     // US6 User
+    getSelfProfile,
     getUserStats,
     changePassword,
 };

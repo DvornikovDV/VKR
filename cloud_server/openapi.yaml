@@ -767,7 +767,7 @@ paths:
           description: Unauthorized
 
   /api/users/me/password:
-    post:
+    patch:
       operationId: changePassword
       summary: Change user password
       security:
@@ -798,8 +798,71 @@ paths:
           description: Invalid input
         '401':
           description: Unauthorized
+    post:
+      operationId: changePasswordLegacy
+      summary: Change user password (legacy alias)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentPassword
+                - newPassword
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Password updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JSendSuccess'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
 
   /api/users/me:
+    get:
+      operationId: getSelfProfile
+      summary: Get current self profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current persisted user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      _id:
+                        type: string
+                      email:
+                        type: string
+                        format: email
+                      role:
+                        type: string
+                        enum: [ADMIN, USER]
+                      subscriptionTier:
+                        type: string
+                        enum: [FREE, PRO]
+        '401':
+          description: Unauthorized
     delete:
       operationId: deleteUser
       summary: Soft-delete own user account

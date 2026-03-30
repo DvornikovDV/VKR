@@ -1,10 +1,31 @@
 // Users controller — self-service endpoints
-// Routes: DELETE /api/users/me, GET /api/users/me/stats, POST /api/users/me/password
+// Routes: GET /api/users/me, DELETE /api/users/me, GET /api/users/me/stats,
+// PATCH/POST /api/users/me/password
 
 import { type Response, type NextFunction } from 'express';
 import { type AuthRequest } from './middlewares/auth.middleware';
 import { UsersService } from '../services/users.service';
 import { AppError } from './middlewares/error.middleware';
+
+// ── GET /api/users/me ─────────────────────────────────────────────────────
+
+/**
+ * GET /api/users/me
+ * Returns the latest persisted self-profile for the authenticated user.
+ */
+async function getMe(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+        if (!req.user) {
+            next(new AppError('Unauthorized', 401));
+            return;
+        }
+
+        const profile = await UsersService.getSelfProfile(req.user.userId);
+        res.status(200).json({ status: 'success', data: profile });
+    } catch (err) {
+        next(err);
+    }
+}
 
 // ── DELETE /api/users/me ──────────────────────────────────────────────────
 
@@ -51,10 +72,11 @@ async function getStats(req: AuthRequest, res: Response, next: NextFunction): Pr
     }
 }
 
-// ── POST /api/users/me/password ───────────────────────────────────────────
+// ── PATCH /api/users/me/password ──────────────────────────────────────────
 
 /**
- * POST /api/users/me/password
+ * PATCH /api/users/me/password
+ * Also mounted on POST for backward compatibility with older clients.
  * Changes the authenticated user's password.
  * Body: { currentPassword: string, newPassword: string }
  * Validates currentPassword before updating.
@@ -93,4 +115,4 @@ async function changePassword(
 
 // ── Export ────────────────────────────────────────────────────────────────
 
-export const UsersController = { deleteMe, getStats, changePassword };
+export const UsersController = { getMe, deleteMe, getStats, changePassword };
