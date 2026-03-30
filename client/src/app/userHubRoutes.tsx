@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react'
 import { type RouteObject } from 'react-router-dom'
 import { GalleryPage } from '@/features/user-hub/pages/GalleryPage'
 import { DashboardPage } from '@/features/user-hub/pages/DashboardPage'
+import { ProfilePage } from '@/features/user-hub/pages/ProfilePage'
 import { UserHubLayout } from '@/features/user-hub/UserHubLayout'
 import { userHubEquipmentRoute } from '@/features/user-hub/routes/userHubEquipmentRoute'
 
@@ -57,6 +58,10 @@ export const userHubRouteChildren: RouteObject[] = [
         element: <DashboardPage />,
       },
       userHubEquipmentRoute,
+      {
+        path: 'profile',
+        element: <ProfilePage />,
+      },
       {
         path: '*',
         element: userHubPlaceholderElement,
