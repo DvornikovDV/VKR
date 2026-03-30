@@ -43,6 +43,12 @@ describe('GalleryPage', () => {
           ],
         }),
       ),
+      http.get('/api/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
       http.get('/api/diagrams/:id/bindings', ({ params }) => {
         if (params.id === 'd1') {
           return HttpResponse.json({
@@ -79,6 +85,12 @@ describe('GalleryPage', () => {
             { _id: 'd2', name: 'D2', layout: {}, updatedAt: '2026-03-02T00:00:00.000Z' },
             { _id: 'd3', name: 'D3', layout: {}, updatedAt: '2026-03-03T00:00:00.000Z' },
           ],
+        }),
+      ),
+      http.get('/api/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
         }),
       ),
       http.get('/api/diagrams/:id/bindings', () =>

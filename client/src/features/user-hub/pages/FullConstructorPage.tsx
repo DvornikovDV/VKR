@@ -91,6 +91,16 @@ export function FullConstructorPage() {
     () => bindingSets.some((bindingSet) => bindingSet.widgetBindings.length > 0),
     [bindingSets],
   )
+  const activeEdgeServerLabel = useMemo(
+    () =>
+      machines.find((machine) => machine.edgeServerId === activeEdgeServerId)?.label ?? activeEdgeServerId,
+    [activeEdgeServerId, machines],
+  )
+  const showEmptyCatalogGuidance =
+    phase === 'ready' &&
+    Boolean(activeEdgeServerId) &&
+    machines.some((machine) => machine.edgeServerId === activeEdgeServerId) &&
+    deviceCatalog.length === 0
   const hasUnsavedChanges = hasUnsavedChangesFromDirtyState(dirtyState)
   useUnsavedChangesGuard({ hasUnsavedChanges })
 
@@ -270,6 +280,7 @@ export function FullConstructorPage() {
       void (async () => {
         try {
           const nextCatalog = await loadCatalogForMachine(nextEdgeServerId)
+          setDeviceCatalog(nextCatalog)
           runtime.updateCatalog({
             machines,
             deviceCatalog: nextCatalog,
@@ -427,6 +438,13 @@ export function FullConstructorPage() {
         <div className="px-4 pt-3">
           <p className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">
             {layoutRecoveryNotice}
+          </p>
+        </div>
+      )}
+      {showEmptyCatalogGuidance && (
+        <div className="px-4 pt-3">
+          <p className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">
+            {`The selected edge has no telemetry-derived catalog entries yet (${activeEdgeServerLabel ?? 'unknown edge'}). Keep the constructor layout work in progress and return after telemetry arrives to configure bindings.`}
           </p>
         </div>
       )}

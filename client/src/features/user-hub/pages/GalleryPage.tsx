@@ -8,6 +8,7 @@ import {
   type Diagram,
 } from '@/shared/api/diagrams'
 import { deleteBinding, getBindingsByDiagram } from '@/shared/api/bindings'
+import { getTrustedEdgeServers } from '@/shared/api/edgeServers'
 import { useDiagramLimits } from '@/shared/hooks/useDiagramLimits'
 import {
   DiagramCard,
@@ -62,7 +63,20 @@ export function GalleryPage() {
     setIsLoading(true)
 
     try {
-      const diagrams = await getDiagrams()
+      const [diagrams, trustedEdges] = await Promise.all([
+        getDiagrams(),
+        getTrustedEdgeServers().catch(() => []),
+      ])
+      const trustedEdgeMap = new Map(
+        trustedEdges.map((edge) => [
+          edge._id,
+          {
+            name: edge.name,
+            isOnline: edge.availability.online,
+          },
+        ]),
+      )
+
       const cardsWithProfiles = await Promise.all(
         diagrams.map(async (diagram) => {
           try {
@@ -70,8 +84,9 @@ export function GalleryPage() {
             const telemetryProfiles: TelemetryProfileEntry[] = bindings.map((binding) => ({
               telemetryProfileId: binding._id,
               monitoredObjectId: binding.edgeServerId,
-              monitoredObjectName: binding.edgeServerId,
-              isOnline: false,
+              monitoredObjectName:
+                trustedEdgeMap.get(binding.edgeServerId)?.name ?? binding.edgeServerId,
+              isOnline: trustedEdgeMap.get(binding.edgeServerId)?.isOnline ?? false,
             }))
             return toCardModel(diagram, telemetryProfiles)
           } catch {
