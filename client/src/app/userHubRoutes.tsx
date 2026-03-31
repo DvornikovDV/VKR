@@ -1,10 +1,27 @@
 import { Suspense, lazy } from 'react'
 import { type RouteObject } from 'react-router-dom'
-import { GalleryPage } from '@/features/user-hub/pages/GalleryPage'
-import { DashboardPage } from '@/features/user-hub/pages/DashboardPage'
-import { ProfilePage } from '@/features/user-hub/pages/ProfilePage'
-import { UserHubLayout } from '@/features/user-hub/UserHubLayout'
+import { renderLazyRoute } from '@/app/lazyRoute'
 import { userHubEquipmentRoute } from '@/features/user-hub/routes/userHubEquipmentRoute'
+
+const UserHubLayout = lazy(async () => {
+  const module = await import('@/features/user-hub/UserHubLayout')
+  return { default: module.UserHubLayout }
+})
+
+const GalleryPage = lazy(async () => {
+  const module = await import('@/features/user-hub/pages/GalleryPage')
+  return { default: module.GalleryPage }
+})
+
+const DashboardPage = lazy(async () => {
+  const module = await import('@/features/user-hub/pages/DashboardPage')
+  return { default: module.DashboardPage }
+})
+
+const ProfilePage = lazy(async () => {
+  const module = await import('@/features/user-hub/pages/ProfilePage')
+  return { default: module.ProfilePage }
+})
 
 const FullConstructorPage = lazy(async () => {
   const module = await import('@/features/user-hub/pages/FullConstructorPage')
@@ -33,11 +50,11 @@ const userHubPlaceholderElement = (
 
 export const userHubRouteChildren: RouteObject[] = [
   {
-    element: <UserHubLayout />,
+    element: renderLazyRoute(UserHubLayout, 'Loading user hub...'),
     children: [
       {
         index: true,
-        element: <GalleryPage />,
+        element: renderLazyRoute(GalleryPage, 'Loading gallery...'),
       },
       {
         path: 'editor/:id',
@@ -55,12 +72,12 @@ export const userHubRouteChildren: RouteObject[] = [
       },
       {
         path: 'dashboard',
-        element: <DashboardPage />,
+        element: renderLazyRoute(DashboardPage, 'Loading dashboard...'),
       },
       userHubEquipmentRoute,
       {
         path: 'profile',
-        element: <ProfilePage />,
+        element: renderLazyRoute(ProfilePage, 'Loading profile...'),
       },
       {
         path: '*',

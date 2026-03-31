@@ -1,7 +1,13 @@
+import { lazy } from 'react'
 import { type RouteObject } from 'react-router-dom'
-import { MyEquipmentPage } from '@/features/user-hub/pages/MyEquipmentPage'
+import { renderLazyRoute } from '@/app/lazyRoute'
+
+const MyEquipmentPage = lazy(async () => {
+  const module = await import('@/features/user-hub/pages/MyEquipmentPage')
+  return { default: module.MyEquipmentPage }
+})
 
 export const userHubEquipmentRoute: RouteObject = {
   path: 'edge',
-  element: <MyEquipmentPage />,
+  element: renderLazyRoute(MyEquipmentPage, 'Loading equipment...'),
 }

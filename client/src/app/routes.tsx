@@ -1,30 +1,37 @@
-// T012 [US1] - React Router v7: public routes + protected hub shells
-// Route wiring order (per tasks.md):
-//   T012 (public + hub shell) -> T019 (user hub) -> T026 (admin hub) ->
-//   T031 (editors) -> T036 (dashboard) -> T040 (profile/edge)
-//
-// DO NOT add routes here out of order. Each subsequent Task appends to this file.
-
+import { lazy } from 'react'
 import { createBrowserRouter, Navigate } from 'react-router-dom'
-import { LandingPage } from '@/features/public/pages/LandingPage'
-import { LoginPage } from '@/features/auth/pages/LoginPage'
-import { RegisterPage } from '@/features/auth/pages/RegisterPage'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { adminHubRouteChildren } from '@/app/adminHubRoutes'
+import { renderLazyRoute } from '@/app/lazyRoute'
 import { userHubRouteChildren } from '@/app/userHubRoutes'
+
+const LandingPage = lazy(async () => {
+  const module = await import('@/features/public/pages/LandingPage')
+  return { default: module.LandingPage }
+})
+
+const LoginPage = lazy(async () => {
+  const module = await import('@/features/auth/pages/LoginPage')
+  return { default: module.LoginPage }
+})
+
+const RegisterPage = lazy(async () => {
+  const module = await import('@/features/auth/pages/RegisterPage')
+  return { default: module.RegisterPage }
+})
 
 export const router = createBrowserRouter([
   {
     path: '/',
-    element: <LandingPage />,
+    element: renderLazyRoute(LandingPage, 'Loading landing page...'),
   },
   {
     path: '/login',
-    element: <LoginPage />,
+    element: renderLazyRoute(LoginPage, 'Loading sign-in page...'),
   },
   {
     path: '/register',
-    element: <RegisterPage />,
+    element: renderLazyRoute(RegisterPage, 'Loading registration page...'),
   },
 
   {

@@ -1,10 +1,31 @@
 import { Suspense, lazy } from 'react'
 import { type RouteObject } from 'react-router-dom'
-import { AdminHubLayout } from '@/features/admin-hub/AdminHubLayout'
-import { DiagramGalleryPage } from '@/features/admin-hub/pages/DiagramGalleryPage'
-import { EdgeFleetPage } from '@/features/admin-hub/pages/EdgeFleetPage'
-import { OverviewPage } from '@/features/admin-hub/pages/OverviewPage'
-import { UserManagementPage } from '@/features/admin-hub/pages/UserManagementPage'
+import { renderLazyRoute } from '@/app/lazyRoute'
+
+const AdminHubLayout = lazy(async () => {
+  const module = await import('@/features/admin-hub/AdminHubLayout')
+  return { default: module.AdminHubLayout }
+})
+
+const DiagramGalleryPage = lazy(async () => {
+  const module = await import('@/features/admin-hub/pages/DiagramGalleryPage')
+  return { default: module.DiagramGalleryPage }
+})
+
+const EdgeFleetPage = lazy(async () => {
+  const module = await import('@/features/admin-hub/pages/EdgeFleetPage')
+  return { default: module.EdgeFleetPage }
+})
+
+const OverviewPage = lazy(async () => {
+  const module = await import('@/features/admin-hub/pages/OverviewPage')
+  return { default: module.OverviewPage }
+})
+
+const UserManagementPage = lazy(async () => {
+  const module = await import('@/features/admin-hub/pages/UserManagementPage')
+  return { default: module.UserManagementPage }
+})
 
 const ReducedConstructorPage = lazy(async () => {
   const module = await import('@/features/admin-hub/pages/ReducedConstructorPage')
@@ -33,23 +54,23 @@ const adminHubPlaceholderElement = (
 
 export const adminHubRouteChildren: RouteObject[] = [
   {
-    element: <AdminHubLayout />,
+    element: renderLazyRoute(AdminHubLayout, 'Loading admin hub...'),
     children: [
       {
         index: true,
-        element: <OverviewPage />,
+        element: renderLazyRoute(OverviewPage, 'Loading overview...'),
       },
       {
         path: 'edge',
-        element: <EdgeFleetPage />,
+        element: renderLazyRoute(EdgeFleetPage, 'Loading edge fleet...'),
       },
       {
         path: 'users',
-        element: <UserManagementPage />,
+        element: renderLazyRoute(UserManagementPage, 'Loading user management...'),
       },
       {
         path: 'diagrams',
-        element: <DiagramGalleryPage />,
+        element: renderLazyRoute(DiagramGalleryPage, 'Loading diagram gallery...'),
       },
       {
         path: 'editor/:id',
