@@ -1,11 +1,7 @@
 import { Suspense, lazy } from 'react'
 import { type RouteObject } from 'react-router-dom'
 import { renderLazyRoute } from '@/app/lazyRoute'
-
-const AdminHubLayout = lazy(async () => {
-  const module = await import('@/features/admin-hub/AdminHubLayout')
-  return { default: module.AdminHubLayout }
-})
+import { AdminHubLayout } from '@/features/admin-hub/AdminHubLayout'
 
 const DiagramGalleryPage = lazy(async () => {
   const module = await import('@/features/admin-hub/pages/DiagramGalleryPage')
@@ -54,7 +50,7 @@ const adminHubPlaceholderElement = (
 
 export const adminHubRouteChildren: RouteObject[] = [
   {
-    element: renderLazyRoute(AdminHubLayout, 'Loading admin hub...'),
+    element: <AdminHubLayout />,
     children: [
       {
         index: true,

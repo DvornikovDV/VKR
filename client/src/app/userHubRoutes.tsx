@@ -1,12 +1,8 @@
 import { Suspense, lazy } from 'react'
 import { type RouteObject } from 'react-router-dom'
 import { renderLazyRoute } from '@/app/lazyRoute'
+import { UserHubLayout } from '@/features/user-hub/UserHubLayout'
 import { userHubEquipmentRoute } from '@/features/user-hub/routes/userHubEquipmentRoute'
-
-const UserHubLayout = lazy(async () => {
-  const module = await import('@/features/user-hub/UserHubLayout')
-  return { default: module.UserHubLayout }
-})
 
 const GalleryPage = lazy(async () => {
   const module = await import('@/features/user-hub/pages/GalleryPage')
@@ -50,7 +46,7 @@ const userHubPlaceholderElement = (
 
 export const userHubRouteChildren: RouteObject[] = [
   {
-    element: renderLazyRoute(UserHubLayout, 'Loading user hub...'),
+    element: <UserHubLayout />,
     children: [
       {
         index: true,
