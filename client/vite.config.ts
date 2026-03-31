@@ -4,12 +4,17 @@ import tailwindcss from '@tailwindcss/vite'
 import { readFileSync } from 'node:fs'
 import { extname, resolve } from 'path'
 import { fileURLToPath } from 'node:url'
-import type { Plugin } from 'vite'
+import { loadEnv } from 'vite'
+import type { Plugin, ProxyOptions, UserConfig } from 'vite'
 // @ts-ignore Vite tooling helper is authored as plain .mjs.
 import { CONSTRUCTOR_PUBLIC_SOURCE_DIR, cleanLegacyHostedConstructorStagingDir, listHostedConstructorAssetFiles, resolveHostedConstructorSourceFile } from './scripts/hostedConstructorAssetsPipeline.mjs'
 
 const HOSTED_CONSTRUCTOR_PUBLIC_PREFIX = '/constructor/'
 const CLIENT_ROOT_DIR = fileURLToPath(new URL('.', import.meta.url))
+const DEFAULT_DEV_SERVER_PORT = 3000
+const DEFAULT_PROXY_PROTOCOL = 'http'
+const DEFAULT_PROXY_HOST = 'localhost'
+const DEFAULT_PROXY_PORT = '4000'
 
 function toPosixPath(pathValue: string): string {
   return pathValue.replace(/\\/g, '/')
@@ -41,6 +46,55 @@ function getHostedConstructorAssetContentType(filePath: string): string {
 
 function stripQueryAndHash(pathValue: string): string {
   return pathValue.split('#', 1)[0].split('?', 1)[0]
+}
+
+function parsePort(value: string | undefined, fallbackPort: number, envName: string): number {
+  const normalized = value?.trim()
+  if (!normalized) {
+    return fallbackPort
+  }
+
+  if (!/^\d+$/.test(normalized)) {
+    throw new Error(`${envName} must be a numeric port.`)
+  }
+
+  const port = Number(normalized)
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${envName} must be a valid TCP port.`)
+  }
+
+  return port
+}
+
+function getApiProxyTarget(env: Record<string, string>): string {
+  const protocol = (env.VITE_API_PROXY_PROTOCOL ?? DEFAULT_PROXY_PROTOCOL).trim().toLowerCase()
+  if (protocol !== 'http' && protocol !== 'https') {
+    throw new Error('VITE_API_PROXY_PROTOCOL must be either "http" or "https".')
+  }
+
+  const host = (env.VITE_API_PROXY_HOST ?? DEFAULT_PROXY_HOST).trim()
+  if (!host) {
+    throw new Error('VITE_API_PROXY_HOST must not be empty.')
+  }
+
+  const port = parsePort(env.VITE_API_PROXY_PORT, Number(DEFAULT_PROXY_PORT), 'VITE_API_PROXY_PORT')
+  return new URL(`${protocol}://${host}:${port}`).origin
+}
+
+function createProxyConfig(target: string): Record<string, string | ProxyOptions> {
+  return {
+    '/api': {
+      target,
+      changeOrigin: true,
+      secure: false,
+    },
+    '/socket.io': {
+      target,
+      changeOrigin: true,
+      ws: true,
+      secure: false,
+    },
+  }
 }
 
 function hostedConstructorAssetsPlugin(): Plugin {
@@ -122,41 +176,34 @@ function hostedConstructorAssetsPlugin(): Plugin {
   }
 }
 
-export default defineConfig({
-  plugins: [hostedConstructorAssetsPlugin(), react(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@': resolve(CLIENT_ROOT_DIR, 'src'),
-    },
-  },
-  server: {
-    host: '127.0.0.1',
-    port: 3000,
-    strictPort: true,
-    proxy: {
-      '/api': {
-        target: 'http://localhost:4000',
-        changeOrigin: true,
-        secure: false,
-      },
-      '/socket.io': {
-        target: 'http://localhost:4000',
-        changeOrigin: true,
-        ws: true,
-        secure: false,
+export default defineConfig(({ mode }): UserConfig => {
+  const env = loadEnv(mode, CLIENT_ROOT_DIR, 'VITE_')
+  const devServerPort = parsePort(env.VITE_DEV_SERVER_PORT, DEFAULT_DEV_SERVER_PORT, 'VITE_DEV_SERVER_PORT')
+  const apiProxyTarget = getApiProxyTarget(env)
+
+  return {
+    plugins: [hostedConstructorAssetsPlugin(), react(), tailwindcss()],
+    resolve: {
+      alias: {
+        '@': resolve(CLIENT_ROOT_DIR, 'src'),
       },
     },
-  },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: ['./tests/setup.ts'],
-    include: ['tests/**/*.{test,spec}.{ts,tsx}'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'lcov'],
-      include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/main.tsx', 'src/**/*.d.ts'],
+    server: {
+      port: devServerPort,
+      strictPort: true,
+      proxy: createProxyConfig(apiProxyTarget),
     },
-  },
+    test: {
+      globals: true,
+      environment: 'jsdom',
+      setupFiles: ['./tests/setup.ts'],
+      include: ['tests/**/*.{test,spec}.{ts,tsx}'],
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'lcov'],
+        include: ['src/**/*.{ts,tsx}'],
+        exclude: ['src/main.tsx', 'src/**/*.d.ts'],
+      },
+    },
+  }
 })

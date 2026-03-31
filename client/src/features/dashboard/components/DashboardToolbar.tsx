@@ -22,6 +22,10 @@ function fromSelectValue(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function hasOptionWithId<T extends { _id: string }>(options: T[], id: string | null): boolean {
+  return Boolean(id) && options.some((option) => option._id === id)
+}
+
 export function DashboardToolbar({
   diagrams,
   selectedDiagramId,
@@ -32,6 +36,8 @@ export function DashboardToolbar({
   onEdgeChange,
 }: DashboardToolbarProps) {
   const isEdgeDisabled = disabled || !selectedDiagramId || edgeOptions.length === 0
+  const hasSelectedDiagramOption = hasOptionWithId(diagrams, selectedDiagramId)
+  const hasSelectedEdgeOption = hasOptionWithId(edgeOptions, selectedEdgeId)
 
   return (
     <section className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
@@ -46,6 +52,9 @@ export function DashboardToolbar({
             className="rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <option value="">Select diagram</option>
+            {selectedDiagramId && !hasSelectedDiagramOption ?
+              <option value={selectedDiagramId}>Loading selected diagram...</option>
+            : null}
             {diagrams.map((diagram) => (
               <option key={diagram._id} value={diagram._id}>
                 {diagram.name}
@@ -64,6 +73,9 @@ export function DashboardToolbar({
             className="rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <option value="">Select edge server</option>
+            {selectedEdgeId && !hasSelectedEdgeOption ?
+              <option value={selectedEdgeId}>Loading selected edge server...</option>
+            : null}
             {edgeOptions.map((edge) => (
               <option key={edge._id} value={edge._id}>
                 {edge.name}

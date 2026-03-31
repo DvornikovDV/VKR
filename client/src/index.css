@@ -1,68 +1,71 @@
-/* T002 — TailwindCSS 4.2 CSS-first config (no tailwind.config.js)
-   Usage: @import "tailwindcss" is the only required entry point.
-   Custom design tokens are defined below via @theme. */
+/* T002 - TailwindCSS 4 CSS-first config. */
+/* Use @import "tailwindcss" as the single entry point and keep design tokens in @theme. */
 
 @import "tailwindcss";
 
-/* ── Design Tokens (SCADA theme) ────────────────────────────────────────── */
+/* SCADA theme tokens. */
 @theme {
-  /* Typography */
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* Brand palette — cool industrial tones */
-  --color-brand-50:  #eef2ff;
+  --color-brand-50: #eef2ff;
   --color-brand-100: #e0e7ff;
   --color-brand-200: #c7d2fe;
   --color-brand-300: #a5b4fc;
   --color-brand-400: #818cf8;
-  --color-brand-500: #6366f1;   /* primary */
+  --color-brand-500: #6366f1;
   --color-brand-600: #4f46e5;
   --color-brand-700: #4338ca;
   --color-brand-800: #3730a3;
   --color-brand-900: #312e81;
   --color-brand-950: #1e1b4b;
 
-  /* Surface / Background — dark SCADA feel */
-  --color-surface-0:   #0d0f14;   /* page bg */
-  --color-surface-100: #13161d;   /* card */
-  --color-surface-200: #1c2030;   /* elevated card */
-  --color-surface-300: #252a3a;   /* sidebar */
-  --color-surface-400: #2e3448;   /* hover state */
+  --color-surface-0: #0d0f14;
+  --color-surface-100: #13161d;
+  --color-surface-200: #1c2030;
+  --color-surface-300: #252a3a;
+  --color-surface-400: #2e3448;
   --color-surface-border: #323852;
 
-  /* Semantic status */
+  --color-bg-canvas: var(--color-surface-0);
+  --color-bg-card: var(--color-surface-100);
+  --color-bg-elevated: var(--color-surface-200);
+  --color-bg-sidebar: var(--color-surface-300);
+  --color-bg-hover: var(--color-surface-400);
+
+  --color-text-primary: #e2e8f0;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #94a3b8;
+  --color-text-subtle: #64748b;
+  --color-text-faint: #475569;
+
   --color-success: #22c55e;
   --color-warning: #f59e0b;
-  --color-danger:  #ef4444;
-  --color-info:    #38bdf8;
-
-  /* Online / Offline edge indicator */
-  --color-online:  #4ade80;
+  --color-danger: #ef4444;
+  --color-info: #38bdf8;
+  --color-online: #4ade80;
   --color-offline: #f87171;
 
-  /* Spacing extras */
   --spacing-sidebar: 15rem;
-
-  /* Radius */
   --radius-card: 0.75rem;
   --radius-modal: 1rem;
 
-  /* Shadows */
-  --shadow-card:  0 4px 24px 0 rgb(0 0 0 / 0.35);
+  --shadow-card: 0 4px 24px 0 rgb(0 0 0 / 0.35);
   --shadow-modal: 0 8px 48px 0 rgb(0 0 0 / 0.5);
 }
 
-/* ── Base / Reset ───────────────────────────────────────────────────────── */
+/* Base reset. */
 @layer base {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     box-sizing: border-box;
   }
 
   html {
     font-family: var(--font-sans);
-    background-color: var(--color-surface-0);
-    color: #e2e8f0;
+    background-color: var(--color-bg-canvas);
+    color: var(--color-text-primary);
     -webkit-font-smoothing: antialiased;
     scroll-behavior: smooth;
     overscroll-behavior-x: none;
@@ -74,18 +77,26 @@
     overscroll-behavior-x: none;
   }
 
-  /* Focus ring */
   :focus-visible {
     outline: 2px solid var(--color-brand-500);
     outline-offset: 2px;
   }
 
-  /* Scrollbar */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
   }
-  ::-webkit-scrollbar-track  { background: var(--color-surface-100); }
-  ::-webkit-scrollbar-thumb  { background: var(--color-surface-400); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--color-brand-600); }
+
+  ::-webkit-scrollbar-track {
+    background: var(--color-bg-card);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-bg-hover);
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-brand-600);
+  }
 }
