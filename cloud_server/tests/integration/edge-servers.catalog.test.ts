@@ -121,31 +121,31 @@ describe('T061 - Edge catalog integration', () => {
         await Telemetry.insertMany([
             {
                 timestamp: new Date(),
-                metadata: { edgeId, sourceId: 'plc-a', deviceId: 'pump-1' },
+                metadata: { edgeId, deviceId: 'pump-1' },
                 metric: 'temperature',
                 rollup: numericRollup(21.2),
             },
             {
                 timestamp: new Date(),
-                metadata: { edgeId, sourceId: 'plc-a', deviceId: 'pump-1' },
+                metadata: { edgeId, deviceId: 'pump-1' },
                 metric: 'temperature',
                 rollup: numericRollup(21.9),
             },
             {
                 timestamp: new Date(),
-                metadata: { edgeId, sourceId: 'plc-a', deviceId: 'pump-1' },
+                metadata: { edgeId, deviceId: 'pump-1' },
                 metric: 'pressure',
                 rollup: numericRollup(3.2),
             },
             {
                 timestamp: new Date(),
-                metadata: { edgeId, sourceId: '   ', deviceId: 'valve-2' },
+                metadata: { edgeId, deviceId: 'valve-2' },
                 metric: 'state',
                 rollup: booleanRollup(true),
             },
             {
                 timestamp: new Date(),
-                metadata: { edgeId: anotherEdgeId, sourceId: 'x', deviceId: 'y' },
+                metadata: { edgeId: anotherEdgeId, deviceId: 'y' },
                 metric: 'z',
                 rollup: numericRollup(100),
             },
@@ -168,31 +168,27 @@ describe('T061 - Edge catalog integration', () => {
             data: [
                 {
                     edgeServerId: edgeId,
-                    sourceId: null,
-                    deviceId: 'valve-2',
-                    metric: 'state',
-                    label: 'unknown-source / valve-2 / state',
-                },
-                {
-                    edgeServerId: edgeId,
-                    sourceId: 'legacy-plc',
                     deviceId: 'legacy-device',
                     metric: 'legacy-temp',
-                    label: 'legacy-plc / legacy-device / legacy-temp',
+                    label: 'legacy-device / legacy-temp',
                 },
                 {
                     edgeServerId: edgeId,
-                    sourceId: 'plc-a',
                     deviceId: 'pump-1',
                     metric: 'pressure',
-                    label: 'plc-a / pump-1 / pressure',
+                    label: 'pump-1 / pressure',
                 },
                 {
                     edgeServerId: edgeId,
-                    sourceId: 'plc-a',
                     deviceId: 'pump-1',
                     metric: 'temperature',
-                    label: 'plc-a / pump-1 / temperature',
+                    label: 'pump-1 / temperature',
+                },
+                {
+                    edgeServerId: edgeId,
+                    deviceId: 'valve-2',
+                    metric: 'state',
+                    label: 'valve-2 / state',
                 },
             ],
         });
@@ -205,7 +201,7 @@ describe('T061 - Edge catalog integration', () => {
         await Telemetry.insertMany([
             {
                 timestamp: new Date(),
-                metadata: { edgeId, sourceId: 'plc-a', deviceId: 'pump-1' },
+                metadata: { edgeId, deviceId: 'pump-1' },
                 metric: 'temperature',
                 rollup: numericRollup(22),
             },

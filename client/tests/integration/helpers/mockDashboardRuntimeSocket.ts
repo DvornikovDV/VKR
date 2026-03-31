@@ -58,7 +58,6 @@ export function createDashboardTelemetryReadingFixture(
   overrides: Partial<DashboardTelemetryReading> = {},
 ): DashboardTelemetryReading {
   return {
-    sourceId: overrides.sourceId ?? 'source-1',
     deviceId: overrides.deviceId ?? 'pump-1',
     metric: overrides.metric ?? 'temperature',
     last: overrides.last ?? 42.5,

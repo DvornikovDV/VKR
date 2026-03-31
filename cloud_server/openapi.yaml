@@ -670,6 +670,7 @@ paths:
       description: >
         Returns a read-only machine-scoped catalog derived from telemetry already known to Cloud.
         Intended for hosted constructor binding UI. USER must be trusted for the selected edge server.
+        Canonical catalog identity within one edge is `deviceId + metric`.
       security:
         - bearerAuth: []
       parameters:
@@ -909,9 +910,6 @@ components:
       properties:
         edgeServerId:
           type: string
-        sourceId:
-          type: string
-          nullable: true
         deviceId:
           type: string
         metric:

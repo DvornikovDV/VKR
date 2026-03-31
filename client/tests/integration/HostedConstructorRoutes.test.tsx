@@ -109,7 +109,6 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
           data: [
             {
               edgeServerId: String(params.edgeId),
-              sourceId: 'boiler',
               deviceId: 'device-1',
               metric: 'temperature',
               label: 'Boiler temperature',
@@ -267,7 +266,6 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
           data: [
             {
               edgeServerId: String(params.edgeId),
-              sourceId: 'line',
               deviceId: 'device-reauth',
               metric: 'flow',
               label: 'Line flow',

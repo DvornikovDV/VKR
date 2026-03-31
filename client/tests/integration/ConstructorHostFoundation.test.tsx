@@ -105,21 +105,18 @@ describe('Constructor host foundation tasks (T004-T007)', () => {
           data: [
             {
               edgeServerId: String(params.edgeId),
-              sourceId: 'PLC-01',
               deviceId: 'pump-1',
               metric: 'temperature',
-              label: 'PLC-01 / pump-1 / temperature',
+              label: 'pump-1 / temperature',
             },
             {
               edgeServerId: String(params.edgeId),
-              sourceId: 'PLC-01',
               deviceId: 'pump-1',
               metric: 'pressure',
-              label: 'PLC-01 / pump-1 / pressure',
+              label: 'pump-1 / pressure',
             },
             {
               edgeServerId: String(params.edgeId),
-              sourceId: 'PLC-01',
               deviceId: 'pump-1',
               metric: 'temperature',
               label: 'duplicate row should be deduped',
@@ -140,8 +137,8 @@ describe('Constructor host foundation tasks (T004-T007)', () => {
       {
         edgeServerId: 'edge-a',
         deviceId: 'pump-1',
-        deviceLabel: 'PLC-01 / pump-1',
-        deviceType: 'PLC-01',
+        deviceLabel: 'pump-1',
+        deviceType: undefined,
         metrics: [
           { key: 'pressure', label: 'pressure' },
           { key: 'temperature', label: 'temperature' },

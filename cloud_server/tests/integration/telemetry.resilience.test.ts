@@ -88,7 +88,7 @@ describe('T033 — Telemetry DB Failover (US4)', () => {
 
         // Populate the aggregation window with a dummy reading
         TelemetryAggregatorService.ingest('fakeedge001', [
-            { sourceId: 'src1', deviceId: 'dev1', metric: 'temp', value: 42, ts: Date.now() },
+            { deviceId: 'dev1', metric: 'temp', value: 42, ts: Date.now() },
         ]);
 
         expect(TelemetryAggregatorService.windowSize()).toBe(1);
@@ -121,7 +121,6 @@ describe('T033 — Telemetry DB Failover (US4)', () => {
         registerTelemetryHandler(mockSocket, mockIO, EDGE_ID);
 
         const reading = {
-            sourceId: 'sensor_1',
             deviceId: 'device_A',
             metric: 'pressure',
             value: 3.14,
@@ -168,7 +167,7 @@ describe('T033 — Telemetry DB Failover (US4)', () => {
         // Should not throw — no DB calls inside ingest()
         expect(() => {
             TelemetryAggregatorService.ingest('edgeXYZ', [
-                { sourceId: 's', deviceId: 'd', metric: 'm', value: true, ts: Date.now() },
+                { deviceId: 'd', metric: 'm', value: true, ts: Date.now() },
             ]);
         }).not.toThrow();
 

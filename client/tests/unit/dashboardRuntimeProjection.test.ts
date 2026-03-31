@@ -40,28 +40,24 @@ function buildMetricMap(): DashboardMetricValueByBindingKey {
     {},
     [
       {
-        sourceId: 'source-1',
         deviceId: 'pump-1',
         metric: 'temperature',
         last: '48.5',
         ts: 1763895000000,
       },
       {
-        sourceId: 'source-1',
         deviceId: 'pump-1',
         metric: 'status',
         last: 15,
         ts: 1763895000100,
       },
       {
-        sourceId: 'source-1',
         deviceId: 'pump-1',
         metric: 'alarm',
         last: 'false',
         ts: 1763895000200,
       },
       {
-        sourceId: 'source-1',
         deviceId: 'pump-1',
         metric: 'command',
         last: true,

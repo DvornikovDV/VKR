@@ -21,7 +21,6 @@ const runtimeHarness = vi.hoisted(() => {
     onTelemetry?: (event: {
       edgeId: string
       readings: Array<{
-        sourceId: string
         deviceId: string
         metric: string
         last: number | string | boolean | null
@@ -57,7 +56,6 @@ const runtimeHarness = vi.hoisted(() => {
     emitTelemetry: (event: {
       edgeId: string
       readings: Array<{
-        sourceId: string
         deviceId: string
         metric: string
         last: number | string | boolean | null
@@ -238,7 +236,6 @@ describe('DashboardPage (US2)', () => {
         createDashboardTelemetryEventFixture({
           readings: [
             {
-              sourceId: 'source-1',
               deviceId: 'pump-1',
               metric: 'temperature',
               last: 48.7,
@@ -429,21 +426,18 @@ describe('DashboardPage (US3)', () => {
         createDashboardTelemetryEventFixture({
           readings: [
             {
-              sourceId: 'source-1',
               deviceId: 'pump-1',
               metric: 'temperature',
               last: '48.5',
               ts: 1763895000000,
             },
             {
-              sourceId: 'source-1',
               deviceId: 'pump-1',
               metric: 'status',
               last: 15,
               ts: 1763895000001,
             },
             {
-              sourceId: 'source-1',
               deviceId: 'pump-1',
               metric: 'alarm',
               last: 'false',
@@ -511,14 +505,12 @@ describe('DashboardPage (US4)', () => {
         createDashboardTelemetryEventFixture({
           readings: [
             {
-              sourceId: 'source-1',
               deviceId: 'pump-1',
               metric: 'temperature',
               last: 49,
               ts: 1763895000000,
             },
             {
-              sourceId: 'source-1',
               deviceId: 'pump-1',
               metric: 'command-setpoint',
               last: 72,

@@ -27,12 +27,11 @@ export interface ITelemetryDoc {
     timestamp: Date;
     metadata: {
         edgeId: string;
-        sourceId: string;
         deviceId: string;
     };
     metric: string;
     /**
-     * Event-time rollup payload for this edge/source/device/metric bucket.
+     * Event-time rollup payload for this edge/device/metric bucket.
      * Numeric series keep min/max/sum/count/avg/last.
      * Boolean series keep true/false counts and last.
      */
@@ -45,7 +44,6 @@ const TelemetrySchema = new Schema<ITelemetryDoc>({
     timestamp: { type: Date, required: true },
     metadata: {
         edgeId: { type: String, required: true },
-        sourceId: { type: String, required: true },
         deviceId: { type: String, required: true },
     },
     metric: { type: String, required: true },
@@ -63,7 +61,7 @@ const TelemetrySchema = new Schema<ITelemetryDoc>({
  *
  * Schema options:
  *   - timeField:   "timestamp"  (event-time bucket start)
- *   - metaField:   "metadata"   (edge/source/device grouping key)
+ *   - metaField:   "metadata"   (edge/device grouping key)
  *   - granularity: "seconds"    (1-second rollup buckets)
  *
  * TTL:

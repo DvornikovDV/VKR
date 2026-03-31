@@ -360,20 +360,18 @@ async function pingEdgeServer(
 
 export interface EdgeCatalogEntry {
     edgeServerId: string;
-    sourceId: string | null;
     deviceId: string;
     metric: string;
     label: string;
 }
 
-function buildCatalogLabel(sourceId: string | null, deviceId: string, metric: string): string {
-    const sourcePart = sourceId && sourceId.trim().length > 0 ? sourceId : 'unknown-source';
-    return `${sourcePart} / ${deviceId} / ${metric}`;
+function buildCatalogLabel(deviceId: string, metric: string): string {
+    return `${deviceId} / ${metric}`;
 }
 
 /**
  * Returns telemetry-derived catalog entries for a trusted user on one edge server.
- * Catalog is deduplicated by sourceId + deviceId + metric and sorted for stable UI rendering.
+ * Catalog is deduplicated by deviceId + metric and sorted for stable UI rendering.
  */
 async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<EdgeCatalogEntry[]> {
     const edgeId = toObjectId(edgeIdStr, 'edgeId');
@@ -407,7 +405,6 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
     }
 
     const deduplicated = await Telemetry.aggregate<{
-        sourceId?: string | null;
         deviceId: string;
         metric: string;
     }>([
@@ -424,7 +421,6 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
         {
             $group: {
                 _id: {
-                    sourceId: '$metadata.sourceId',
                     deviceId: '$metadata.deviceId',
                     metric: '$metric',
                 },
@@ -433,28 +429,19 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
         {
             $project: {
                 _id: 0,
-                sourceId: '$_id.sourceId',
                 deviceId: '$_id.deviceId',
                 metric: '$_id.metric',
             },
         },
-        { $sort: { sourceId: 1, deviceId: 1, metric: 1 } },
+        { $sort: { deviceId: 1, metric: 1 } },
     ]).exec();
 
-    return deduplicated.map((entry) => {
-        const sourceId =
-            typeof entry.sourceId === 'string' && entry.sourceId.trim().length > 0
-                ? entry.sourceId
-                : null;
-
-        return {
-            edgeServerId: edgeIdStr,
-            sourceId,
-            deviceId: entry.deviceId,
-            metric: entry.metric,
-            label: buildCatalogLabel(sourceId, entry.deviceId, entry.metric),
-        };
-    });
+    return deduplicated.map((entry) => ({
+        edgeServerId: edgeIdStr,
+        deviceId: entry.deviceId,
+        metric: entry.metric,
+        label: buildCatalogLabel(entry.deviceId, entry.metric),
+    }));
 }
 
 export const EdgeServersService = {

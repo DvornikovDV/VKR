@@ -115,7 +115,6 @@ describe('Dashboard foundational helpers (T001-T009)', () => {
       {},
       [
         {
-          sourceId: 'source-1',
           deviceId: 'pump-1',
           metric: 'temperature',
           last: 42.5,
@@ -166,7 +165,6 @@ describe('Dashboard foundational helpers (T001-T009)', () => {
         edgeId: 'edge-1',
         readings: [
           {
-            sourceId: 'source-1',
             deviceId: 'pump-1',
             metric: 'temperature',
             last: 41,

@@ -17,6 +17,10 @@ vi.mock('@/shared/api/client', () => ({
 describe('repro_task_T010', () => {
   it('exposes lifecycle-aware shared client API methods', async () => {
     const edgeServersApi = await import('@/shared/api/edgeServers')
+    const edgeServersApiFns = edgeServersApi as unknown as Record<
+      string,
+      (...args: unknown[]) => Promise<unknown>
+    >
     const onboardingDisclosure = {
       edge: {
         _id: 'edge-1',
@@ -62,16 +66,11 @@ describe('repro_task_T010', () => {
     apiPost.mockResolvedValueOnce(blockedEdge)
     apiPost.mockResolvedValueOnce(reonboardingEdge)
 
-    await (edgeServersApi as Record<string, (...args: unknown[]) => Promise<unknown>>)
-      .registerEdgeServer({ name: 'Edge Alpha' })
-    await (edgeServersApi as Record<string, (...args: unknown[]) => Promise<unknown>>)
-      .resetEdgeOnboardingCredentials('edge-1')
-    await (edgeServersApi as Record<string, (...args: unknown[]) => Promise<unknown>>)
-      .revokeEdgeTrust('edge-1')
-    await (edgeServersApi as Record<string, (...args: unknown[]) => Promise<unknown>>)
-      .blockEdgeServer('edge-1')
-    await (edgeServersApi as Record<string, (...args: unknown[]) => Promise<unknown>>)
-      .reenableEdgeOnboarding('edge-1')
+    await edgeServersApiFns.registerEdgeServer({ name: 'Edge Alpha' })
+    await edgeServersApiFns.resetEdgeOnboardingCredentials('edge-1')
+    await edgeServersApiFns.revokeEdgeTrust('edge-1')
+    await edgeServersApiFns.blockEdgeServer('edge-1')
+    await edgeServersApiFns.reenableEdgeOnboarding('edge-1')
 
     expect(apiPost).toHaveBeenNthCalledWith(1, '/edge-servers', { name: 'Edge Alpha' })
     expect(apiPost).toHaveBeenNthCalledWith(2, '/edge-servers/edge-1/onboarding/reset')

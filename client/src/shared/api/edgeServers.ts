@@ -70,7 +70,6 @@ export type DashboardTrustedEdgeServer = TrustedEdgeServer
 
 export interface EdgeServerCatalogRow {
   edgeServerId: string
-  sourceId?: string | null
   deviceId: string
   metric: string
   label: string

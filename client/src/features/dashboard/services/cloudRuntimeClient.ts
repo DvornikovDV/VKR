@@ -94,7 +94,6 @@ function parseTelemetryReading(payload: unknown): DashboardTelemetryReading | nu
     return null
   }
 
-  const sourceId = toNonEmptyString(payload.sourceId) ?? 'unknown'
   const deviceId = toNonEmptyString(payload.deviceId)
   const metric = toNonEmptyString(payload.metric)
   const runtimeValue = toRuntimeValue(payload.last)
@@ -104,7 +103,6 @@ function parseTelemetryReading(payload: unknown): DashboardTelemetryReading | nu
   }
 
   return {
-    sourceId,
     deviceId,
     metric,
     last: runtimeValue,

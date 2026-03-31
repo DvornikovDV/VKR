@@ -22,9 +22,8 @@ function normalizeString(value: string | null | undefined): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-function buildDeviceLabel(sourceId: string | null | undefined, deviceId: string): string {
-  const normalizedSourceId = normalizeString(sourceId)
-  return normalizedSourceId.length > 0 ? `${normalizedSourceId} / ${deviceId}` : deviceId
+function buildDeviceLabel(deviceId: string): string {
+  return deviceId
 }
 
 function buildMetricOption(metric: string): EditorMetricOption {
@@ -73,8 +72,8 @@ export function mapCatalogRowsToDeviceMetricCatalog(
         const createdEntry: DeviceCatalogAccumulator = {
           edgeServerId: rowEdgeServerId,
           deviceId,
-          deviceLabel: buildDeviceLabel(catalogRow.sourceId, deviceId),
-          deviceType: normalizeString(catalogRow.sourceId) || undefined,
+          deviceLabel: buildDeviceLabel(deviceId),
+          deviceType: undefined,
           metricsByKey: new Map<string, EditorMetricOption>(),
         }
         byDeviceId.set(deviceId, createdEntry)

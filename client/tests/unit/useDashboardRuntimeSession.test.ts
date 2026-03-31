@@ -80,7 +80,6 @@ describe('useDashboardRuntimeSession (T015)', () => {
           edgeId: 'edge-1',
           readings: [
             {
-              sourceId: 'source-1',
               deviceId: 'pump-1',
               metric: 'temperature',
               last: 41.2,
@@ -95,7 +94,6 @@ describe('useDashboardRuntimeSession (T015)', () => {
           edgeId: 'edge-2',
           readings: [
             {
-              sourceId: 'source-2',
               deviceId: 'pump-2',
               metric: 'pressure',
               last: 12,
@@ -144,7 +142,6 @@ describe('useDashboardRuntimeSession (T015)', () => {
         createDashboardTelemetryEventFixture({
           readings: [
             {
-              sourceId: 'source-1',
               deviceId: 'pump-1',
               metric: 'temperature',
               last: 55,

@@ -132,7 +132,6 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
           data: [
             {
               edgeServerId: String(params.edgeId),
-              sourceId: 'boiler',
               deviceId: 'device-1',
               metric: 'temperature',
               label: 'Boiler temperature',

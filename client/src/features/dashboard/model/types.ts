@@ -60,7 +60,6 @@ export interface DashboardBindingProfile {
 export type DashboardRuntimeValue = number | string | boolean | null
 
 export interface DashboardTelemetryReading {
-  sourceId: string
   deviceId: string
   metric: string
   last: DashboardRuntimeValue

@@ -90,7 +90,6 @@ function mockFullConstructorApis(diagramId: string) {
         data: [
           {
             edgeServerId: String(params.edgeId),
-            sourceId: 'boiler',
             deviceId: 'device-1',
             metric: 'temperature',
             label: 'Boiler temperature',

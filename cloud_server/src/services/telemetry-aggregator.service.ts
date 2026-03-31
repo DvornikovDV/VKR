@@ -7,7 +7,6 @@ import {
 } from '../models/Telemetry';
 
 export interface TelemetryReading {
-    sourceId: string;
     deviceId: string;
     metric: string;
     value: number | boolean;
@@ -16,11 +15,10 @@ export interface TelemetryReading {
 
 type ValueKind = 'numeric' | 'boolean';
 
-type BucketKey = `${string}:${string}:${string}:${string}:${number}:${'n' | 'b'}`;
+type BucketKey = `${string}:${string}:${string}:${number}:${'n' | 'b'}`;
 
 interface BaseBucketEntry {
     edgeId: string;
-    sourceId: string;
     deviceId: string;
     metric: string;
     bucketStartMs: number;
@@ -72,7 +70,7 @@ function bucketStart(ts: number): number {
 
 function makeKey(edgeId: string, reading: TelemetryReading, startMs: number): BucketKey {
     const kindSuffix: 'n' | 'b' = typeof reading.value === 'number' ? 'n' : 'b';
-    return `${edgeId}:${reading.sourceId}:${reading.deviceId}:${reading.metric}:${startMs}:${kindSuffix}`;
+    return `${edgeId}:${reading.deviceId}:${reading.metric}:${startMs}:${kindSuffix}`;
 }
 
 export function isTimestampValid(ts: number, nowMs: number = Date.now()): boolean {
@@ -103,7 +101,6 @@ function upsertNumericEntry(
         return {
             kind: 'numeric',
             edgeId,
-            sourceId: reading.sourceId,
             deviceId: reading.deviceId,
             metric: reading.metric,
             bucketStartMs: startMs,
@@ -139,7 +136,6 @@ function upsertBooleanEntry(
         return {
             kind: 'boolean',
             edgeId,
-            sourceId: reading.sourceId,
             deviceId: reading.deviceId,
             metric: reading.metric,
             bucketStartMs: startMs,
@@ -191,7 +187,6 @@ function toTelemetryDoc(entry: BucketEntry): ITelemetryDoc {
         timestamp: new Date(entry.bucketStartMs),
         metadata: {
             edgeId: entry.edgeId,
-            sourceId: entry.sourceId,
             deviceId: entry.deviceId,
         },
         metric: entry.metric,

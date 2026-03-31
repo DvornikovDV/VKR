@@ -9,7 +9,6 @@ export interface TelemetryBatchPayload {
 export interface TelemetryBroadcast {
     edgeId: string;
     readings: Array<{
-        sourceId: string;
         deviceId: string;
         metric: string;
         last: number | boolean;
@@ -34,7 +33,6 @@ export function registerTelemetryHandler(
         const serverTs = Date.now();
 
         const readings = payload.readings.filter((reading) =>
-            typeof reading.sourceId === 'string' && reading.sourceId.length > 0 &&
             typeof reading.deviceId === 'string' && reading.deviceId.length > 0 &&
             typeof reading.metric === 'string' && reading.metric.length > 0 &&
             (typeof reading.value === 'number' || typeof reading.value === 'boolean') &&
@@ -58,7 +56,6 @@ export function registerTelemetryHandler(
         const broadcastPayload: TelemetryBroadcast = {
             edgeId,
             readings: readings.map((reading) => ({
-                sourceId: reading.sourceId,
                 deviceId: reading.deviceId,
                 metric: reading.metric,
                 last: reading.value,

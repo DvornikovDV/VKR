@@ -17,9 +17,9 @@ describe('TelemetryAggregatorService event-time history rollups', () => {
         const baseTs = 1_710_000_000_123;
 
         TelemetryAggregatorService.ingest('edge-a', [
-            { sourceId: 'src', deviceId: 'pump-1', metric: 'temperature', value: 10, ts: baseTs },
-            { sourceId: 'src', deviceId: 'pump-1', metric: 'temperature', value: 15, ts: baseTs + 700 },
-            { sourceId: 'src', deviceId: 'pump-1', metric: 'temperature', value: 7, ts: baseTs + 1_200 },
+            { deviceId: 'pump-1', metric: 'temperature', value: 10, ts: baseTs },
+            { deviceId: 'pump-1', metric: 'temperature', value: 15, ts: baseTs + 700 },
+            { deviceId: 'pump-1', metric: 'temperature', value: 7, ts: baseTs + 1_200 },
         ], baseTs + 1_500);
 
         await TelemetryAggregatorService.drain({ force: true, nowMs: baseTs + 4_000 });
@@ -62,9 +62,9 @@ describe('TelemetryAggregatorService event-time history rollups', () => {
         const ts = 1_710_100_000_000;
 
         TelemetryAggregatorService.ingest('edge-b', [
-            { sourceId: 'src', deviceId: 'valve-2', metric: 'state', value: true, ts },
-            { sourceId: 'src', deviceId: 'valve-2', metric: 'state', value: false, ts: ts + 100 },
-            { sourceId: 'src', deviceId: 'valve-2', metric: 'state', value: true, ts: ts + 200 },
+            { deviceId: 'valve-2', metric: 'state', value: true, ts },
+            { deviceId: 'valve-2', metric: 'state', value: false, ts: ts + 100 },
+            { deviceId: 'valve-2', metric: 'state', value: true, ts: ts + 200 },
         ], ts + 300);
 
         await TelemetryAggregatorService.drain({ force: true, nowMs: ts + 2_000 });
@@ -86,8 +86,8 @@ describe('TelemetryAggregatorService event-time history rollups', () => {
         const insertSpy = vi.spyOn(Telemetry, 'insertMany').mockResolvedValue([] as never);
 
         TelemetryAggregatorService.ingest('edge-c', [
-            { sourceId: 'src', deviceId: 'pump-3', metric: 'pressure', value: 10, ts: 9_100 },
-            { sourceId: 'src', deviceId: 'pump-3', metric: 'pressure', value: 20, ts: 10_100 },
+            { deviceId: 'pump-3', metric: 'pressure', value: 10, ts: 9_100 },
+            { deviceId: 'pump-3', metric: 'pressure', value: 20, ts: 10_100 },
         ], 11_000);
 
         await TelemetryAggregatorService.drain({ nowMs: 12_500 });
@@ -98,9 +98,9 @@ describe('TelemetryAggregatorService event-time history rollups', () => {
 
         TelemetryAggregatorService.ingest('edge-c', [
             // Too-late packet for an already flushed bucket (9000-9999) -> dropped.
-            { sourceId: 'src', deviceId: 'pump-3', metric: 'pressure', value: 999, ts: 9_500 },
+            { deviceId: 'pump-3', metric: 'pressure', value: 999, ts: 9_500 },
             // Slightly late packet for still-open bucket (10000-10999) -> included.
-            { sourceId: 'src', deviceId: 'pump-3', metric: 'pressure', value: 25, ts: 10_050 },
+            { deviceId: 'pump-3', metric: 'pressure', value: 25, ts: 10_050 },
         ], 12_600);
 
         await TelemetryAggregatorService.drain({ force: true, nowMs: 13_000 });
