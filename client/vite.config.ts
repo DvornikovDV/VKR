@@ -11,6 +11,7 @@ import { CONSTRUCTOR_PUBLIC_SOURCE_DIR, cleanLegacyHostedConstructorStagingDir, 
 
 const HOSTED_CONSTRUCTOR_PUBLIC_PREFIX = '/constructor/'
 const CLIENT_ROOT_DIR = fileURLToPath(new URL('.', import.meta.url))
+const DEFAULT_DEV_SERVER_HOST = '127.0.0.1'
 const DEFAULT_DEV_SERVER_PORT = 3000
 const DEFAULT_PROXY_PROTOCOL = 'http'
 const DEFAULT_PROXY_HOST = 'localhost'
@@ -64,6 +65,15 @@ function parsePort(value: string | undefined, fallbackPort: number, envName: str
   }
 
   return port
+}
+
+function getDevServerHost(env: Record<string, string>): string | true {
+  const host = (env.VITE_DEV_SERVER_HOST ?? DEFAULT_DEV_SERVER_HOST).trim()
+  if (!host) {
+    throw new Error('VITE_DEV_SERVER_HOST must not be empty.')
+  }
+
+  return host === '0.0.0.0' ? true : host
 }
 
 function getApiProxyTarget(env: Record<string, string>): string {
@@ -178,6 +188,7 @@ function hostedConstructorAssetsPlugin(): Plugin {
 
 export default defineConfig(({ mode }): UserConfig => {
   const env = loadEnv(mode, CLIENT_ROOT_DIR, 'VITE_')
+  const devServerHost = getDevServerHost(env)
   const devServerPort = parsePort(env.VITE_DEV_SERVER_PORT, DEFAULT_DEV_SERVER_PORT, 'VITE_DEV_SERVER_PORT')
   const apiProxyTarget = getApiProxyTarget(env)
 
@@ -189,6 +200,7 @@ export default defineConfig(({ mode }): UserConfig => {
       },
     },
     server: {
+      host: devServerHost,
       port: devServerPort,
       strictPort: true,
       proxy: createProxyConfig(apiProxyTarget),

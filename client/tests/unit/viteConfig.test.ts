@@ -40,8 +40,24 @@ afterEach(() => {
 })
 
 describe('vite config security hardening', () => {
+  it('uses IPv4 loopback by default for stable local access', () => {
+    const config = resolveViteConfig()
+
+    expect(config.server?.host).toBe('127.0.0.1')
+    expect(config.server?.port).toBe(3000)
+  })
+
+  it('allows explicit dev host override for VPN or LAN access', () => {
+    const config = resolveViteConfig({
+      VITE_DEV_SERVER_HOST: '0.0.0.0',
+    })
+
+    expect(config.server?.host).toBe(true)
+  })
+
   it('builds local proxy settings from validated env values', () => {
     const config = resolveViteConfig({
+      VITE_DEV_SERVER_HOST: '127.0.0.1',
       VITE_DEV_SERVER_PORT: '3100',
       VITE_API_PROXY_PROTOCOL: 'https',
       VITE_API_PROXY_HOST: 'cloud.internal',
