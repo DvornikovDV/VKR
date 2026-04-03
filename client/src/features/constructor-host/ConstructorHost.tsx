@@ -155,19 +155,30 @@ export function ConstructorHost({
   const resolvedMachines = machines ?? EMPTY_MACHINES
   const resolvedCatalog = deviceCatalog ?? EMPTY_CATALOG
 
-  const runtimeConfig = useMemo(
+  const latestCatalogInputRef = useRef({
+    machines: resolvedMachines,
+    deviceCatalog: resolvedCatalog,
+  })
+  const latestActiveEdgeServerIdRef = useRef<string | null>(activeEdgeServerId)
+
+  const bootstrapConfig = useMemo(
     () => ({
       mode,
       initialLayout,
       initialBindings: resolvedBindings,
-      machines: resolvedMachines,
-      deviceCatalog: resolvedCatalog,
-      activeEdgeServerId,
     }),
-    [mode, initialLayout, resolvedBindings, resolvedMachines, resolvedCatalog, activeEdgeServerId],
+    [mode, initialLayout, resolvedBindings],
   )
 
   useEffect(() => {
+    latestCatalogInputRef.current = {
+      machines: resolvedMachines,
+      deviceCatalog: resolvedCatalog,
+    }
+  }, [resolvedMachines, resolvedCatalog])
+
+  useEffect(() => {
+    latestActiveEdgeServerIdRef.current = activeEdgeServerId
     activeMachineRef.current = activeEdgeServerId
   }, [activeEdgeServerId])
 
@@ -202,7 +213,7 @@ export function ConstructorHost({
       instanceRef.current = null
       dirtyStateRef.current = CLEAN_DIRTY_STATE
       setDirtyState(CLEAN_DIRTY_STATE)
-      activeMachineRef.current = runtimeConfig.activeEdgeServerId
+      activeMachineRef.current = latestActiveEdgeServerIdRef.current
 
       try {
         const hostedModule = await loadHostedConstructor()
@@ -212,15 +223,15 @@ export function ConstructorHost({
 
         const instance = await hostedModule.createHostedConstructor({
           container,
-          mode: runtimeConfig.mode,
-          initialLayout: runtimeConfig.initialLayout,
-          initialBindings: runtimeConfig.initialBindings,
-          machines: runtimeConfig.machines,
-          deviceCatalog: runtimeConfig.deviceCatalog,
-          activeEdgeServerId: runtimeConfig.activeEdgeServerId,
+          mode: bootstrapConfig.mode,
+          initialLayout: bootstrapConfig.initialLayout,
+          initialBindings: bootstrapConfig.initialBindings,
+          machines: latestCatalogInputRef.current.machines,
+          deviceCatalog: latestCatalogInputRef.current.deviceCatalog,
+          activeEdgeServerId: latestActiveEdgeServerIdRef.current,
           callbacks: {
             onDirtyStateChange: (state) => {
-              const normalizedState = normalizeDirtyState(state, runtimeConfig.mode)
+              const normalizedState = normalizeDirtyState(state, bootstrapConfig.mode)
               dirtyStateRef.current = normalizedState
               setDirtyState(normalizedState)
               callbacksRef.current.onDirtyStateChange?.(normalizedState)
@@ -246,8 +257,12 @@ export function ConstructorHost({
                 revertTargetMachineRef.current = null
               }
 
+              if (nextMachineId === activeMachineRef.current) {
+                return
+              }
+
               const shouldWarnBeforeMachineSwitch =
-                runtimeConfig.mode === 'full' &&
+                bootstrapConfig.mode === 'full' &&
                 nextMachineId !== activeMachineRef.current &&
                 hasUnsavedChanges(dirtyStateRef.current)
 
@@ -304,7 +319,28 @@ export function ConstructorHost({
       }
       cleanupHostedRuntimeRoots(cleanupContainer)
     }
-  }, [reportFatalError, retryKey, runtimeConfig])
+  }, [bootstrapConfig, reportFatalError, retryKey])
+
+  useEffect(() => {
+    const instance = instanceRef.current
+    if (!instance || phase !== 'ready') {
+      return
+    }
+
+    instance.updateCatalog({
+      machines: resolvedMachines,
+      deviceCatalog: resolvedCatalog,
+    })
+  }, [phase, resolvedCatalog, resolvedMachines])
+
+  useEffect(() => {
+    const instance = instanceRef.current
+    if (!instance || phase !== 'ready') {
+      return
+    }
+
+    instance.setActiveMachine(activeEdgeServerId)
+  }, [activeEdgeServerId, phase])
 
   return (
     <div className={className ?? ''}>

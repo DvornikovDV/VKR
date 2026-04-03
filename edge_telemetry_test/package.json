@@ -1,0 +1,21 @@
+{
+    "name": "edge-telemetry-test",
+    "version": "1.0.0",
+    "description": "Local persistent-credential telemetry smoke client for VKR SCADA cloud /edge namespace",
+    "private": true,
+    "scripts": {
+        "start": "ts-node src/index.ts",
+        "build": "tsc -p tsconfig.json"
+    },
+    "dependencies": {
+        "socket.io-client": "^4.8.3"
+    },
+    "devDependencies": {
+        "@types/node": "^20.12.7",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.4.5"
+    },
+    "engines": {
+        "node": ">=20.0.0"
+    }
+}

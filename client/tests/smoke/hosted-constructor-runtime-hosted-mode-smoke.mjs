@@ -8,11 +8,15 @@ const repoRoot = path.resolve(__dirname, '..', '..', '..')
 const uiControllerModule = await import(
   `${pathToFileURL(path.join(repoRoot, 'constructor', 'public', 'ui-controller.js')).href}?t=${Date.now()}`,
 )
+const bindingsManagerModule = await import(
+  `${pathToFileURL(path.join(repoRoot, 'constructor', 'public', 'bindings-manager.js')).href}?t=${Date.now()}`,
+)
 const fileManagerModule = await import(
   `${pathToFileURL(path.join(repoRoot, 'constructor', 'public', 'file-manager.js')).href}?t=${Date.now()}`,
 )
 
 const { UIController } = uiControllerModule
+const { BindingsManager } = bindingsManagerModule
 const { FileManager } = fileManagerModule
 
 const originalFetch = globalThis.fetch
@@ -51,6 +55,38 @@ if (fetchCalls > 0) {
 
 if (!Array.isArray(hostedControllerContext.bindingsManager.allDevices)) {
   throw new Error('Hosted UIController path must keep bindingsManager.allDevices as an array.')
+}
+
+const scopedBindingsManager = new BindingsManager([])
+scopedBindingsManager.selectMachine('edge-alpha', true)
+
+const updateCatalogContext = {
+  _destroyed: false,
+  hostedMachines: [],
+  hostedDeviceCatalog: [],
+  bindingsManager: scopedBindingsManager,
+  isBindingsEnabled() {
+    return true
+  },
+  mapHostedCatalogToBindingsDevices: UIController.prototype.mapHostedCatalogToBindingsDevices,
+  renderMachineOptions() {},
+}
+
+UIController.prototype.updateCatalog.call(updateCatalogContext, {
+  machines: [{ edgeServerId: 'edge-alpha', label: 'Edge alpha' }],
+  deviceCatalog: [
+    {
+      edgeServerId: 'edge-alpha',
+      deviceId: 'pump-1',
+      deviceLabel: 'Pump 1',
+      deviceType: 'pump',
+      metrics: [{ key: 'temperature', label: 'temperature' }],
+    },
+  ],
+})
+
+if (!scopedBindingsManager.canAssignDevice('pump-1', 'temperature')) {
+  throw new Error('Hosted catalog sync should refresh selected-machine binding availability after updateCatalog().')
 }
 
 let layoutIntentCalls = 0

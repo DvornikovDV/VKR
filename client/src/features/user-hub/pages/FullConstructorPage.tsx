@@ -56,7 +56,6 @@ export function FullConstructorPage() {
   const [phase, setPhase] = useState<PagePhase>('loading')
   const [diagram, setDiagram] = useState<EditorRouteDiagram | null>(null)
   const [machines, setMachines] = useState<EditorMachineOption[]>([])
-  const [initialActiveEdgeServerId, setInitialActiveEdgeServerId] = useState<string | null>(null)
   const [activeEdgeServerId, setActiveEdgeServerId] = useState<string | null>(null)
   const [deviceCatalog, setDeviceCatalog] = useState<EditorDeviceMetricCatalogEntry[]>([])
   const [bindingSets, setBindingSets] = useState<DiagramBindingSetRecord[]>([])
@@ -144,7 +143,7 @@ export function FullConstructorPage() {
 
       const bindingsRecovery = importBindingSetsPayloadWithRecovery(loadedBindingSets)
       const nextMachines = mapTrustedEdgeServersToMachineOptions(trustedEdgeServers)
-      const nextActiveEdgeServerId = nextMachines[0]?.edgeServerId ?? null
+      const nextActiveEdgeServerId = null
       const nextCatalog = await loadCatalogForMachine(nextActiveEdgeServerId)
 
       setDiagram({
@@ -152,7 +151,6 @@ export function FullConstructorPage() {
         layout: normalizedLayout,
       })
       setMachines(nextMachines)
-      setInitialActiveEdgeServerId(nextActiveEdgeServerId)
       setActiveEdgeServerId(nextActiveEdgeServerId)
       setDeviceCatalog(nextCatalog)
       setBindingSets(bindingsRecovery.recoveryError ? [] : bindingsRecovery.bindingSets)
@@ -177,7 +175,6 @@ export function FullConstructorPage() {
     } catch (loadError) {
       setDiagram(null)
       setMachines([])
-      setInitialActiveEdgeServerId(null)
       setActiveEdgeServerId(null)
       setDeviceCatalog([])
       setBindingSets([])
@@ -257,13 +254,9 @@ export function FullConstructorPage() {
       runtimeRef.current = runtime
       saveFlow.registerRuntime(runtime)
 
-      runtime.updateCatalog({
-        machines,
-        deviceCatalog,
-      })
       void syncRuntimeForActiveMachine()
     },
-    [deviceCatalog, machines, saveFlow, syncRuntimeForActiveMachine],
+    [saveFlow, syncRuntimeForActiveMachine],
   )
 
   const handleMachineChange = useCallback(
@@ -495,7 +488,7 @@ export function FullConstructorPage() {
             mode="full"
             initialLayout={diagram.layout}
             machines={machines}
-            activeEdgeServerId={initialActiveEdgeServerId}
+            activeEdgeServerId={activeEdgeServerId}
             deviceCatalog={deviceCatalog}
             onReady={handleRuntimeReady}
             onSaveLayoutIntent={handleSaveLayoutIntent}

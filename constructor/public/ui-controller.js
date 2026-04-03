@@ -1210,6 +1210,13 @@ class UIController {
             this.bindingsManager.allDevices = this.isBindingsEnabled()
                 ? this.mapHostedCatalogToBindingsDevices(this.hostedDeviceCatalog)
                 : [];
+
+            if (!this.isBindingsEnabled() || !this.bindingsManager.selectedMachineId) {
+                this.bindingsManager.availableDeviceMetrics = [];
+                this.bindingsManager.availableDevices = [];
+            } else {
+                this.bindingsManager.selectMachine(this.bindingsManager.selectedMachineId, true);
+            }
         }
 
         this.renderMachineOptions();
@@ -1231,6 +1238,8 @@ class UIController {
 
         if (!machineId) {
             this.bindingsManager.selectedMachineId = null;
+            this.bindingsManager.availableDeviceMetrics = [];
+            this.bindingsManager.availableDevices = [];
             this.fileManager.currentMachineId = null;
             this.emitMachineChange(null);
             return;

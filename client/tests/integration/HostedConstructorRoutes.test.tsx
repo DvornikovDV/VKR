@@ -137,6 +137,7 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
     })
 
     expect(harness.getLastConfig()?.mode).toBe('full')
+    expect(harness.getLastConfig()?.activeEdgeServerId).toBeNull()
   })
 
   it('boots admin editor route and loads hosted runtime in reduced mode', async () => {
