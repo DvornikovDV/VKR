@@ -1,5 +1,5 @@
 import { type Server as IOServer, type Socket } from 'socket.io';
-import { updateLastSeen } from '../../services/edge-servers.service';
+import { markEdgeOffline, updateLastSeen } from '../../services/edge-servers.service';
 import {
     EdgeOnboardingService,
     type EdgeActivationPayload,
@@ -169,7 +169,12 @@ export function registerEdgeNamespace(io: IOServer): void {
         socket.on('disconnect', (reason: string) => {
             untrackActiveEdgeSocket(edgeId, socket);
             console.log(`[edge] Edge disconnected: ${edgeId} - reason: ${reason}`);
-            io.to(edgeId).emit('edge_status', { edgeId, online: false });
+            if (getActiveEdgeSocketCount(edgeId) === 0) {
+                void markEdgeOffline(edgeId).catch((error) => {
+                    console.error(`[edge] Failed to mark edge offline (${edgeId}):`, error);
+                });
+                io.to(edgeId).emit('edge_status', { edgeId, online: false });
+            }
         });
 
         socket.on('error', (err: Error) => {

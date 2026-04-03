@@ -155,7 +155,7 @@ export function EdgeFleetPage() {
   const [isRevoking, setIsRevoking] = useState(false)
 
   const edgeIds = useMemo(() => edgeServers.map((edge) => edge._id), [edgeServers])
-  const { isOnline, refresh: refreshEdgeStatus } = useEdgeStatus({ edgeIds })
+  const { getSnapshot, refresh: refreshEdgeStatus } = useEdgeStatus({ edgeIds, scope: 'admin' })
 
   const assignableUsers = useMemo(
     () => users.filter((user) => user.role === 'USER' && !user.isBanned && !user.isDeleted),
@@ -267,18 +267,8 @@ export function EdgeFleetPage() {
             ? await blockEdgeServer(edgeId)
             : await reenableEdgeOnboarding(edgeId)
 
-      const normalizedUpdated =
-        action === 'revoke'
-          ? {
-              ...updated,
-              availability: {
-                online: false,
-                lastSeenAt: updated.availability?.lastSeenAt ?? null,
-              },
-            }
-          : updated
-
-      setEdgeServers((prev) => prev.map((edge) => (edge._id === edgeId ? normalizedUpdated : edge)))
+      setEdgeServers((prev) => prev.map((edge) => (edge._id === edgeId ? updated : edge)))
+      await refreshEdgeStatus()
     } catch (actionError) {
       const fallback =
         action === 'revoke'
@@ -357,11 +347,12 @@ export function EdgeFleetPage() {
   }
 
   function isEdgeOnline(edge: AdminEdgeServer): boolean {
-    if (edge.availability && typeof edge.availability.online === 'boolean') {
-      return edge.availability.online
+    const snapshot = getSnapshot(edge._id)
+    if (snapshot.online !== null) {
+      return snapshot.online
     }
 
-    return isOnline(edge._id)
+    return edge.availability.online
   }
 
   return (

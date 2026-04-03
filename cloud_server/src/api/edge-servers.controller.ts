@@ -70,9 +70,10 @@ async function registerEdgeServer(
             body.name.trim(),
             adminId,
         );
+        const edge = await EdgeServersService.getAdminEdgeById(result.edge._id.toString());
         const payload: OnboardingActionSuccessPayload = {
-            ...result.edge,
-            edge: result.edge,
+            ...edge,
+            edge,
             onboardingPackage: result.onboardingPackage,
         };
         res.status(201).json({ status: 'success', data: payload });
@@ -100,7 +101,8 @@ async function bindUserToEdge(
             throw new AppError('userId is required', 400);
         }
 
-        const edgeServer = await EdgeServersService.assignUserToEdge(edgeId, body.userId.trim());
+        await EdgeServersService.assignUserToEdge(edgeId, body.userId.trim());
+        const edgeServer = await EdgeServersService.getAdminEdgeById(edgeId);
         res.status(200).json({ status: 'success', data: edgeServer });
     } catch (err) {
         next(err);
@@ -120,7 +122,8 @@ async function unbindUserFromEdge(
         const edgeId = req.params['edgeId'] ?? '';
         const targetUserId = req.params['userId'] ?? '';
 
-        const edgeServer = await EdgeServersService.removeUserFromEdge(edgeId, targetUserId);
+        await EdgeServersService.removeUserFromEdge(edgeId, targetUserId);
+        const edgeServer = await EdgeServersService.getAdminEdgeById(edgeId);
         res.status(200).json({ status: 'success', data: edgeServer });
     } catch (err) {
         next(err);
@@ -183,9 +186,10 @@ async function resetOnboardingCredentials(
         const { userId: adminId } = requireUser(req);
         const edgeId = requireEdgeId(req);
         const result = await EdgeOnboardingService.resetOnboardingCredentials(edgeId, adminId);
+        const edge = await EdgeServersService.getAdminEdgeById(edgeId);
         const payload: OnboardingActionSuccessPayload = {
-            ...result.edge,
-            edge: result.edge,
+            ...edge,
+            edge,
             onboardingPackage: result.onboardingPackage,
         };
         res.status(200).json({ status: 'success', data: payload });
@@ -202,10 +206,12 @@ async function revokeEdgeTrust(
     try {
         const { userId: adminId } = requireUser(req);
         const edgeId = requireEdgeId(req);
-        const result = await EdgeOnboardingService.revokeEdgeTrust(edgeId, adminId);
+        await EdgeOnboardingService.revokeEdgeTrust(edgeId, adminId);
+        const disconnectedSockets = disconnectEdgeSocketsById(edgeId, 'trust_revoked');
+        await EdgeServersService.markEdgeOffline(edgeId);
         const payload: LifecycleActionSuccessPayload = {
-            edge: result.edge,
-            disconnectedSockets: disconnectEdgeSocketsById(edgeId, 'trust_revoked'),
+            edge: await EdgeServersService.getAdminEdgeById(edgeId),
+            disconnectedSockets,
         };
         res.status(200).json({ status: 'success', data: payload.edge });
     } catch (err) {
@@ -221,10 +227,12 @@ async function blockEdgeServer(
     try {
         const { userId: adminId } = requireUser(req);
         const edgeId = requireEdgeId(req);
-        const result = await EdgeOnboardingService.blockEdgeServer(edgeId, adminId);
+        await EdgeOnboardingService.blockEdgeServer(edgeId, adminId);
+        const disconnectedSockets = disconnectEdgeSocketsById(edgeId, 'blocked');
+        await EdgeServersService.markEdgeOffline(edgeId);
         const payload: LifecycleActionSuccessPayload = {
-            edge: result.edge,
-            disconnectedSockets: disconnectEdgeSocketsById(edgeId, 'blocked'),
+            edge: await EdgeServersService.getAdminEdgeById(edgeId),
+            disconnectedSockets,
         };
         res.status(200).json({ status: 'success', data: payload.edge });
     } catch (err) {
@@ -240,8 +248,9 @@ async function reenableEdgeOnboarding(
     try {
         const { userId: adminId } = requireUser(req);
         const edgeId = requireEdgeId(req);
-        const result = await EdgeOnboardingService.reenableEdgeOnboarding(edgeId, adminId);
-        res.status(200).json({ status: 'success', data: result.edge });
+        await EdgeOnboardingService.reenableEdgeOnboarding(edgeId, adminId);
+        const edge = await EdgeServersService.getAdminEdgeById(edgeId);
+        res.status(200).json({ status: 'success', data: edge });
     } catch (err) {
         next(err);
     }

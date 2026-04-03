@@ -173,6 +173,32 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
         expect(res.status).toBe(403);
     });
 
+    it('T026-2b: Admin fleet derives online state from current heartbeat instead of stale stored flag', async () => {
+        const edgeId = await createEdgeServer('EdgeAdminFleetOnline');
+
+        await setLifecycleState(edgeId, 'Active');
+        await EdgeServer.findByIdAndUpdate(edgeId, {
+            $set: {
+                availability: {
+                    online: false,
+                    lastSeenAt: new Date(),
+                },
+            },
+        }).exec();
+        lastSeenRegistry.set(edgeId, Date.now());
+
+        const res = await request(app)
+            .get('/api/admin/edge-servers')
+            .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(res.status).toBe(200);
+        const edge = (res.body.data as Array<{ _id: string; availability: { online: boolean } }>).find(
+            (item) => item._id === edgeId,
+        );
+        expect(edge).toBeTruthy();
+        expect(edge?.availability.online).toBe(true);
+    });
+
     // ── T026-3: FREE quota enforcement (FR-2b) ────────────────────────────
 
     it('T026-3a: FREE user can be assigned their FIRST edge server (200)', async () => {
@@ -259,6 +285,35 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
             .send({ userId: freeUserId });
 
         expect(res.status).toBe(409);
+    });
+
+    it('T026-5b: Bind and unbind return canonical admin projection with populated trusted users', async () => {
+        const edgeId = await createEdgeServer('EdgeProjectionShape');
+
+        const bindRes = await request(app)
+            .post(`/api/edge-servers/${edgeId}/bind`)
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ userId: freeUserId });
+
+        expect(bindRes.status).toBe(200);
+        expect(bindRes.body.data?.trustedUsers).toEqual([
+            expect.objectContaining({
+                _id: freeUserId,
+                email: 'free_user_edge@test.com',
+            }),
+        ]);
+
+        const unbindRes = await request(app)
+            .delete(`/api/edge-servers/${edgeId}/bind/${freeUserId}`)
+            .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(unbindRes.status).toBe(200);
+        expect(unbindRes.body.data?.trustedUsers).toEqual([]);
+        expect(unbindRes.body.data?.createdBy).toEqual(
+            expect.objectContaining({
+                email: 'admin_edge@test.com',
+            }),
+        );
     });
 
     // ── T026-6: Ping — cold start (never seen) ────────────────────────────

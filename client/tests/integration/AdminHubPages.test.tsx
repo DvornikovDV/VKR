@@ -412,6 +412,7 @@ describe('Admin Hub routes and pages (T050d)', () => {
           ...edge,
           lifecycleState: 'Re-onboarding Required',
           isTelemetryReady: false,
+          availability: { online: false, lastSeenAt: edge.availability.lastSeenAt },
           persistentCredentialVersion: null,
           lastLifecycleEventAt: '2026-03-29T11:00:00.000Z',
         }

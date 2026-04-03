@@ -43,6 +43,7 @@ export function updateLastSeen(edgeId: string): void {
         { _id: edgeId },
         {
             $set: {
+                'availability.online': true,
                 'availability.lastSeenAt': observedAt,
             },
         },
@@ -51,6 +52,19 @@ export function updateLastSeen(edgeId: string): void {
         .catch((error) => {
             console.error(`[edge-last-seen] Failed to persist heartbeat for edge ${edgeId}:`, error);
         });
+}
+
+export async function markEdgeOffline(edgeId: string): Promise<void> {
+    lastSeenRegistry.delete(edgeId);
+
+    await EdgeServer.updateOne(
+        { _id: edgeId },
+        {
+            $set: {
+                'availability.online': false,
+            },
+        },
+    ).exec();
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -73,6 +87,38 @@ function asNullableDate(value: Date | null | undefined): Date | null {
 
 function resolveAvailabilityLastSeenAt(value?: Date | null): Date | null {
     return asNullableDate(value);
+}
+
+function isHeartbeatFresh(lastSeenAt: Date | null, nowMs: number): boolean {
+    return Boolean(lastSeenAt && nowMs - lastSeenAt.getTime() < PING_THRESHOLD_MS);
+}
+
+function getCurrentAvailabilitySnapshot(
+    edgeId: string,
+    availability?: EdgeAvailabilitySnapshot,
+    nowMs: number = Date.now(),
+): EdgeAvailabilitySnapshot {
+    const persistedLastSeenAt = resolveAvailabilityLastSeenAt(availability?.lastSeenAt ?? null);
+    const inMemoryTs = lastSeenRegistry.get(edgeId);
+
+    if (inMemoryTs !== undefined && nowMs - inMemoryTs < PING_THRESHOLD_MS) {
+        return {
+            online: true,
+            lastSeenAt: new Date(inMemoryTs),
+        };
+    }
+
+    if (availability?.online === true && isHeartbeatFresh(persistedLastSeenAt, nowMs)) {
+        return {
+            online: true,
+            lastSeenAt: persistedLastSeenAt,
+        };
+    }
+
+    return {
+        online: false,
+        lastSeenAt: persistedLastSeenAt,
+    };
 }
 
 function hasValidPersistentCredential(
@@ -138,11 +184,7 @@ function toIdString(id: mongoose.Types.ObjectId | string): string {
 }
 
 function normalizeAvailabilitySnapshot(input: EdgeProjectionInput): EdgeAvailabilitySnapshot {
-    const lastSeenAt = resolveAvailabilityLastSeenAt(input.availability?.lastSeenAt ?? null);
-    return {
-        online: Boolean(input.availability?.online),
-        lastSeenAt,
-    };
+    return getCurrentAvailabilitySnapshot(toIdString(input._id), input.availability);
 }
 
 function maskOnboardingPackage(
@@ -241,6 +283,22 @@ async function listAllForAdmin(): Promise<AdminEdgeProjection[]> {
     return edgeServers.map((edgeServer) => mapEdgeToAdminProjection(edgeServer));
 }
 
+async function getAdminEdgeById(edgeIdStr: string): Promise<AdminEdgeProjection> {
+    const edgeId = toObjectId(edgeIdStr, 'edgeId');
+    const edgeServer = await EdgeServer.findById(edgeId)
+        .select('-currentOnboardingPackage.secretHash -persistentCredential.secretHash')
+        .populate('trustedUsers', 'email role subscriptionTier')
+        .populate('createdBy', 'email')
+        .lean<Parameters<typeof mapEdgeToAdminProjection>[0] | null>()
+        .exec();
+
+    if (!edgeServer) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    return mapEdgeToAdminProjection(edgeServer);
+}
+
 /**
  * Assigns a user to the trustedUsers list of an EdgeServer.
  * Enforces FREE tier limit of 1 trusted edge server per user (FR-2b).
@@ -335,25 +393,7 @@ async function pingEdgeServer(
     const edgeServer = await EdgeServer.findById(edgeId).select('_id availability').exec();
     if (!edgeServer) throw new AppError('Edge server not found', 404);
 
-    // Prefer in-memory timestamp (more fresh) over persisted DB value
-    const inMemoryTs = lastSeenRegistry.get(edgeIdStr);
-    const now = Date.now();
-
-    if (inMemoryTs !== undefined) {
-        const online = now - inMemoryTs < PING_THRESHOLD_MS;
-        return { online, lastSeenAt: new Date(inMemoryTs) };
-    }
-
-    const persistedLastSeen = resolveAvailabilityLastSeenAt(
-        edgeServer.availability?.lastSeenAt ?? null,
-    );
-
-    if (persistedLastSeen) {
-        const online = now - persistedLastSeen.getTime() < PING_THRESHOLD_MS;
-        return { online, lastSeenAt: persistedLastSeen };
-    }
-
-    return { online: false, lastSeenAt: null };
+    return getCurrentAvailabilitySnapshot(edgeIdStr, edgeServer.availability);
 }
 
 // ── Export ────────────────────────────────────────────────────────────────
@@ -448,9 +488,11 @@ export const EdgeServersService = {
     listForUser,
     listAll,
     listAllForAdmin,
+    getAdminEdgeById,
     assignUserToEdge,
     removeUserFromEdge,
     pingEdgeServer,
+    markEdgeOffline,
     getCatalogForUser,
     mapEdgeToAdminProjection,
     mapEdgeToTelemetryReadyProjection,
