@@ -49,6 +49,20 @@ function resolveBindingPayload(widget) {
   return null;
 }
 
+function extractWidgetSequence(widgetId) {
+  if (typeof widgetId !== 'string') {
+    return null;
+  }
+
+  const match = /^widget_(.+)_(\d+)$/.exec(widgetId);
+  if (!match) {
+    return null;
+  }
+
+  const sequence = Number.parseInt(match[2], 10);
+  return Number.isSafeInteger(sequence) && sequence > 0 ? sequence : null;
+}
+
 export class Widget {
   constructor(config) {
     this.id = config.id;
@@ -111,6 +125,19 @@ export class WidgetManager {
     this.nextWidgetId = 1;
     this.onWidgetSelected = null; // Callback выбора виджета
     this.onWidgetDragEnd = null; // Callback окончания перемещения
+  }
+
+  syncNextWidgetId() {
+    let maxSequence = 0;
+
+    this.widgets.forEach(widget => {
+      const sequence = extractWidgetSequence(widget && widget.id);
+      if (sequence !== null && sequence > maxSequence) {
+        maxSequence = sequence;
+      }
+    });
+
+    this.nextWidgetId = maxSequence + 1;
   }
 
   /** Инициализация нового экземпляра виджета.
@@ -537,6 +564,8 @@ export class WidgetManager {
         this.widgets.push(widget);
       }
     });
+
+    this.syncNextWidgetId();
     console.log(`Imported ${widgetsData.length} widgets`);
   }
 
