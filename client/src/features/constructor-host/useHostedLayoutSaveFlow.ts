@@ -26,6 +26,7 @@ export interface UseHostedLayoutSaveFlowOptions {
 
 export interface HostedLayoutSaveFlow {
   registerRuntime: (instance: HostedConstructorInstance) => void
+  saveLayoutNow: () => Promise<boolean>
   onSaveLayoutIntent: () => void
   onSaveAsIntent: () => void
   saveAsDialog: {
@@ -127,35 +128,39 @@ export function useHostedLayoutSaveFlow({
     }
   }, [diagram, onDiagramChange])
 
-  const onSaveLayoutIntent = useCallback(() => {
+  const saveLayoutNow = useCallback(async (): Promise<boolean> => {
     if (!diagram || isSavingLayout) {
-      return
+      return false
     }
 
     setIsSavingLayout(true)
     setSaveConflictError(null)
 
-    void (async () => {
-      try {
-        const serializedLayout = await getRuntimeLayoutSnapshot()
-        await updateDiagram(diagram._id, {
-          layout: serializedLayout,
-          __v: diagram.__v,
-        })
+    try {
+      const serializedLayout = await getRuntimeLayoutSnapshot()
+      await updateDiagram(diagram._id, {
+        layout: serializedLayout,
+        __v: diagram.__v,
+      })
 
-        await reloadLatestLayout()
-      } catch (error) {
-        if (isApiError(error) && error.status === 409) {
-          setIsSaveConflictOpen(true)
-          return
-        }
-
-        setSaveConflictError(toErrorMessage(error, 'Failed to save diagram layout.'))
-      } finally {
-        setIsSavingLayout(false)
+      await reloadLatestLayout()
+      return true
+    } catch (error) {
+      if (isApiError(error) && error.status === 409) {
+        setIsSaveConflictOpen(true)
+        return false
       }
-    })()
+
+      setSaveConflictError(toErrorMessage(error, 'Failed to save diagram layout.'))
+      return false
+    } finally {
+      setIsSavingLayout(false)
+    }
   }, [diagram, getRuntimeLayoutSnapshot, isSavingLayout, reloadLatestLayout])
+
+  const onSaveLayoutIntent = useCallback(() => {
+    void saveLayoutNow()
+  }, [saveLayoutNow])
 
   const openSaveAsDialog = useCallback(() => {
     setSaveAsError(null)
@@ -205,6 +210,7 @@ export function useHostedLayoutSaveFlow({
 
   return {
     registerRuntime,
+    saveLayoutNow,
     onSaveLayoutIntent,
     onSaveAsIntent,
     saveAsDialog: {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useLocation, useParams } from 'react-router-dom'
 import { ConstructorHost } from '@/features/constructor-host/ConstructorHost'
 import {
   mapCatalogRowsToDeviceMetricCatalog,
@@ -31,6 +31,7 @@ import {
 import { useHostedLayoutSaveFlow } from '@/features/constructor-host/useHostedLayoutSaveFlow'
 import { deleteAllBindings, getBindingsByDiagram, createBinding } from '@/shared/api/bindings'
 import { BindingsInvalidatedModal } from '@/shared/components/BindingsInvalidatedModal'
+import { SaveBindingsRequiresLayoutModal } from '@/shared/components/SaveBindingsRequiresLayoutModal'
 import { SaveAsDialog } from '@/shared/components/SaveAsDialog'
 import { SaveConflictModal } from '@/shared/components/SaveConflictModal'
 import type { EditorRouteDiagram } from '@/shared/api/diagrams'
@@ -49,10 +50,13 @@ function toErrorMessage(error: unknown, fallback: string): string {
 
 export function FullConstructorPage() {
   const { id } = useParams<{ id: string }>()
+  const location = useLocation()
   const runtimeRef = useRef<HostedConstructorInstance | null>(null)
   const isSyncingBindingsBaselineRef = useRef(false)
   const isSavingBindingsRef = useRef(false)
+  const isSavingLayoutThenBindingsRef = useRef(false)
   const isForwardingLayoutSaveIntentRef = useRef(false)
+  const shouldSaveBindingsAfterDestructiveSaveRef = useRef(false)
   const [phase, setPhase] = useState<PagePhase>('loading')
   const [diagram, setDiagram] = useState<EditorRouteDiagram | null>(null)
   const [machines, setMachines] = useState<EditorMachineOption[]>([])
@@ -60,6 +64,7 @@ export function FullConstructorPage() {
   const [deviceCatalog, setDeviceCatalog] = useState<EditorDeviceMetricCatalogEntry[]>([])
   const [bindingSets, setBindingSets] = useState<DiagramBindingSetRecord[]>([])
   const [bindingsSaveError, setBindingsSaveError] = useState<string | null>(null)
+  const [saveBindingsRequiresLayoutModalOpen, setSaveBindingsRequiresLayoutModalOpen] = useState(false)
   const [bindingsInvalidatedModalOpen, setBindingsInvalidatedModalOpen] = useState(false)
   const [isSubmittingDestructiveSave, setIsSubmittingDestructiveSave] = useState(false)
   const [bindingsInvalidatedModalError, setBindingsInvalidatedModalError] = useState<string | null>(null)
@@ -67,6 +72,10 @@ export function FullConstructorPage() {
   const [error, setError] = useState<string | null>(null)
   const [layoutRecoveryNotice, setLayoutRecoveryNotice] = useState<string | null>(null)
   const [canOpenWithEmptyBindings, setCanOpenWithEmptyBindings] = useState(false)
+  const requestedEdgeServerId = useMemo(() => {
+    const candidate = new URLSearchParams(location.search).get('edgeId')
+    return candidate && candidate.trim().length > 0 ? candidate.trim() : null
+  }, [location.search])
 
   const saveFlow = useHostedLayoutSaveFlow({
     diagram,
@@ -117,11 +126,14 @@ export function FullConstructorPage() {
     setLayoutRecoveryNotice(null)
     setCanOpenWithEmptyBindings(false)
     setBindingsSaveError(null)
+    setSaveBindingsRequiresLayoutModalOpen(false)
     setBindingsInvalidatedModalError(null)
     setBindingsInvalidatedModalOpen(false)
     setDirtyState({ layoutDirty: false, bindingsDirty: false })
     isSavingBindingsRef.current = false
+    isSavingLayoutThenBindingsRef.current = false
     isForwardingLayoutSaveIntentRef.current = false
+    shouldSaveBindingsAfterDestructiveSaveRef.current = false
 
     try {
       const [loadedDiagram, trustedEdgeServers, loadedBindingSets] = await Promise.all([
@@ -143,7 +155,11 @@ export function FullConstructorPage() {
 
       const bindingsRecovery = importBindingSetsPayloadWithRecovery(loadedBindingSets)
       const nextMachines = mapTrustedEdgeServersToMachineOptions(trustedEdgeServers)
-      const nextActiveEdgeServerId = null
+      const nextActiveEdgeServerId = nextMachines.some(
+        (machine) => machine.edgeServerId === requestedEdgeServerId,
+      )
+        ? requestedEdgeServerId
+        : null
       const nextCatalog = await loadCatalogForMachine(nextActiveEdgeServerId)
 
       setDiagram({
@@ -199,7 +215,7 @@ export function FullConstructorPage() {
           : 'Failed to load diagram for full constructor mode.',
       )
     }
-  }, [id, loadCatalogForMachine])
+  }, [id, loadCatalogForMachine, requestedEdgeServerId])
 
   useEffect(() => {
     void loadDiagram()
@@ -288,21 +304,21 @@ export function FullConstructorPage() {
     [loadCatalogForMachine, machines],
   )
 
-  const handleSaveBindingsIntent = useCallback(() => {
-    if (!diagram || !activeEdgeServerId || isSavingBindingsRef.current) {
-      return
-    }
+  const persistActiveBindingSet = useCallback(
+    async (options?: { replaceAllExisting?: boolean }): Promise<boolean> => {
+      if (!diagram || !activeEdgeServerId || isSavingBindingsRef.current) {
+        return false
+      }
 
-    const runtime = runtimeRef.current
-    if (!runtime) {
-      setBindingsSaveError('Hosted constructor runtime is not ready yet.')
-      return
-    }
+      const runtime = runtimeRef.current
+      if (!runtime) {
+        setBindingsSaveError('Hosted constructor runtime is not ready yet.')
+        return false
+      }
 
-    isSavingBindingsRef.current = true
-    setBindingsSaveError(null)
+      isSavingBindingsRef.current = true
+      setBindingsSaveError(null)
 
-    void (async () => {
       try {
         const runtimeBindings = await runtime.getBindings()
         const serializedBindings = exportWidgetBindingsPayload(runtimeBindings)
@@ -310,25 +326,88 @@ export function FullConstructorPage() {
           edgeServerId: activeEdgeServerId,
           widgetBindings: serializedBindings,
         })
-        const normalizedSavedSet = importBindingSetsPayload([savedBindingSet])[0]
+        const [normalizedSavedSet] = importBindingSetsPayload([savedBindingSet])
 
-        setBindingSets((previous) => [
-          ...previous.filter((bindingSet) => bindingSet.edgeServerId !== normalizedSavedSet.edgeServerId),
-          normalizedSavedSet,
-        ])
+        if (!normalizedSavedSet) {
+          throw new Error('Saved binding set payload is empty.')
+        }
+
+        if (options?.replaceAllExisting) {
+          setBindingSets([normalizedSavedSet])
+        } else {
+          setBindingSets((previous) => [
+            ...previous.filter((bindingSet) => bindingSet.edgeServerId !== normalizedSavedSet.edgeServerId),
+            normalizedSavedSet,
+          ])
+        }
         setDirtyState((previous) => ({ ...previous, bindingsDirty: false }))
+        return true
       } catch (saveError) {
         if (isBindingsPayloadError(saveError)) {
           setBindingsSaveError(`Invalid bindings payload: ${saveError.message}`)
-          return
+          return false
         }
 
         setBindingsSaveError(toErrorMessage(saveError, 'Failed to save binding set.'))
+        return false
       } finally {
         isSavingBindingsRef.current = false
       }
+    },
+    [activeEdgeServerId, diagram],
+  )
+
+  const handleSaveBindingsIntent = useCallback(() => {
+    if (!diagram || !activeEdgeServerId || isSavingBindingsRef.current || isSavingLayoutThenBindingsRef.current) {
+      return
+    }
+
+    if (dirtyState.layoutDirty) {
+      setSaveBindingsRequiresLayoutModalOpen(true)
+      setBindingsInvalidatedModalError(null)
+      return
+    }
+
+    void (async () => {
+      await persistActiveBindingSet()
     })()
-  }, [activeEdgeServerId, diagram])
+  }, [
+    activeEdgeServerId,
+    diagram,
+    dirtyState.layoutDirty,
+    persistActiveBindingSet,
+  ])
+
+  const handleConfirmSaveLayoutThenBindings = useCallback(() => {
+    if (isSavingLayoutThenBindingsRef.current) {
+      return
+    }
+
+    setSaveBindingsRequiresLayoutModalOpen(false)
+
+    if (hasPersistedBindingSets) {
+      shouldSaveBindingsAfterDestructiveSaveRef.current = true
+      setBindingsInvalidatedModalError(null)
+      setBindingsInvalidatedModalOpen(true)
+      return
+    }
+
+    void (async () => {
+      isSavingLayoutThenBindingsRef.current = true
+
+      try {
+        const layoutSaved = await saveFlow.saveLayoutNow()
+        if (!layoutSaved) {
+          return
+        }
+
+        setDirtyState((previous) => ({ ...previous, layoutDirty: false }))
+        await persistActiveBindingSet()
+      } finally {
+        isSavingLayoutThenBindingsRef.current = false
+      }
+    })()
+  }, [hasPersistedBindingSets, persistActiveBindingSet, saveFlow])
 
   const handleSaveLayoutIntent = useCallback(() => {
     if (isSubmittingDestructiveSave || isForwardingLayoutSaveIntentRef.current) {
@@ -336,11 +415,15 @@ export function FullConstructorPage() {
     }
 
     if (hasPersistedBindingSets) {
+      setSaveBindingsRequiresLayoutModalOpen(false)
+      shouldSaveBindingsAfterDestructiveSaveRef.current = false
       setBindingsInvalidatedModalError(null)
       setBindingsInvalidatedModalOpen(true)
       return
     }
 
+    shouldSaveBindingsAfterDestructiveSaveRef.current = false
+    setSaveBindingsRequiresLayoutModalOpen(false)
     isForwardingLayoutSaveIntentRef.current = true
     saveFlow.onSaveLayoutIntent()
     void Promise.resolve().then(() => {
@@ -353,6 +436,8 @@ export function FullConstructorPage() {
       return
     }
 
+    shouldSaveBindingsAfterDestructiveSaveRef.current = false
+    setSaveBindingsRequiresLayoutModalOpen(false)
     setBindingsInvalidatedModalError(null)
     setBindingsInvalidatedModalOpen(false)
     saveFlow.onSaveAsIntent()
@@ -391,9 +476,19 @@ export function FullConstructorPage() {
           ...latestDiagram,
           layout: latestLayout,
         })
-        setBindingSets([])
-        setDirtyState({ layoutDirty: false, bindingsDirty: false })
         setBindingsInvalidatedModalOpen(false)
+        setBindingSets([])
+
+        const shouldSaveBindingsAfterLayout = shouldSaveBindingsAfterDestructiveSaveRef.current
+        shouldSaveBindingsAfterDestructiveSaveRef.current = false
+        setDirtyState((previous) => ({ ...previous, layoutDirty: false }))
+
+        if (shouldSaveBindingsAfterLayout) {
+          await persistActiveBindingSet({ replaceAllExisting: true })
+          return
+        }
+
+        setDirtyState({ layoutDirty: false, bindingsDirty: false })
       } catch (destructiveSaveError) {
         if (isLayoutPayloadError(destructiveSaveError)) {
           setBindingsInvalidatedModalError(
@@ -413,10 +508,11 @@ export function FullConstructorPage() {
           toErrorMessage(destructiveSaveError, 'Failed to complete destructive save flow.'),
         )
       } finally {
+        shouldSaveBindingsAfterDestructiveSaveRef.current = false
         setIsSubmittingDestructiveSave(false)
       }
     })()
-  }, [diagram, isSubmittingDestructiveSave])
+  }, [diagram, isSubmittingDestructiveSave, persistActiveBindingSet])
 
   return (
     <section className="flex h-full min-h-[calc(100svh-3.5rem)] w-full flex-col" style={{ overscrollBehaviorX: 'none' }}>
@@ -519,6 +615,20 @@ export function FullConstructorPage() {
         onSaveAs={saveFlow.saveConflictModal.onSaveAs}
       />
 
+      <SaveBindingsRequiresLayoutModal
+        open={saveBindingsRequiresLayoutModalOpen}
+        isSubmitting={isSavingLayoutThenBindingsRef.current}
+        onConfirm={handleConfirmSaveLayoutThenBindings}
+        onCancel={() => {
+          if (isSavingLayoutThenBindingsRef.current) {
+            return
+          }
+
+          shouldSaveBindingsAfterDestructiveSaveRef.current = false
+          setSaveBindingsRequiresLayoutModalOpen(false)
+        }}
+      />
+
       <BindingsInvalidatedModal
         open={bindingsInvalidatedModalOpen}
         isSubmitting={isSubmittingDestructiveSave}
@@ -530,6 +640,8 @@ export function FullConstructorPage() {
             return
           }
 
+          shouldSaveBindingsAfterDestructiveSaveRef.current = false
+          setSaveBindingsRequiresLayoutModalOpen(false)
           setBindingsInvalidatedModalError(null)
           setBindingsInvalidatedModalOpen(false)
         }}

@@ -140,6 +140,76 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
     expect(harness.getLastConfig()?.activeEdgeServerId).toBeNull()
   })
 
+  it('prefills the requested machine from edgeId query on user edit-bindings entry', async () => {
+    const harness = createMockHostedConstructorHarness()
+    mockedLoadHostedConstructor.mockResolvedValue(harness.module)
+
+    server.use(
+      http.get('/api/diagrams/:id', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: String(params.id),
+            name: 'Binding Entry Diagram',
+            layout: { widgets: [] },
+            __v: 2,
+          },
+        }),
+      ),
+      http.get('/api/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              _id: 'edge-target',
+              name: 'Target Machine',
+              lifecycleState: 'Active',
+              availability: { online: true, lastSeenAt: null },
+            },
+            {
+              _id: 'edge-other',
+              name: 'Other Machine',
+              lifecycleState: 'Active',
+              availability: { online: false, lastSeenAt: null },
+            },
+          ],
+        }),
+      ),
+      http.get('/api/edge-servers/:edgeId/catalog', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              edgeServerId: String(params.edgeId),
+              deviceId: 'device-1',
+              metric: 'temperature',
+              label: 'Boiler temperature',
+            },
+          ],
+        }),
+      ),
+      http.get('/api/diagrams/:id/bindings', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
+    )
+
+    act(() => {
+      useAuthStore.getState().setSession(userSession)
+    })
+
+    renderRoutes('/hub/editor/diagram-42?edgeId=edge-target')
+
+    await waitFor(() => {
+      expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
+    })
+
+    expect(harness.getLastConfig()?.mode).toBe('full')
+    expect(harness.getLastConfig()?.activeEdgeServerId).toBe('edge-target')
+  })
+
   it('boots admin editor route and loads hosted runtime in reduced mode', async () => {
     const harness = createMockHostedConstructorHarness()
     mockedLoadHostedConstructor.mockResolvedValue(harness.module)

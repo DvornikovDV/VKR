@@ -192,4 +192,242 @@ describe('FullConstructorPage recovery and retry flows', () => {
     })
     expect(screen.queryByText('Unable to open hosted constructor page.')).not.toBeInTheDocument()
   })
+
+  it('saves layout first and then persists bindings when save-bindings is triggered on dirty layout', async () => {
+    const user = userEvent.setup()
+    const harness = createMockHostedConstructorHarness()
+    mockedLoadHostedConstructor.mockResolvedValue(harness.module)
+
+    const callOrder: string[] = []
+    let diagramVersion = 4
+
+    server.use(
+      http.get('/api/diagrams/:id', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: String(params.id),
+            name: 'Chained save diagram',
+            layout: { widgets: [] },
+            __v: diagramVersion,
+          },
+        }),
+      ),
+      http.get('/api/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              _id: 'edge-1',
+              name: 'Machine #1',
+              lifecycleState: 'Active',
+              availability: { online: true, lastSeenAt: null },
+            },
+          ],
+        }),
+      ),
+      http.get('/api/edge-servers/:edgeId/catalog', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
+      http.get('/api/diagrams/:id/bindings', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
+      http.put('/api/diagrams/:id', async ({ request }) => {
+        const payload = (await request.json()) as { __v: number; layout: unknown }
+        expect(payload.__v).toBe(diagramVersion)
+        callOrder.push('put')
+        diagramVersion += 1
+
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: 'diagram-chain-save',
+            name: 'Chained save diagram',
+            layout: payload.layout,
+            __v: diagramVersion,
+          },
+        })
+      }),
+      http.post('/api/diagrams/:id/bindings', async ({ request, params }) => {
+        const payload = (await request.json()) as {
+          edgeServerId: string
+          widgetBindings: Array<{ widgetId: string; deviceId: string; metric: string }>
+        }
+        callOrder.push('post-bindings')
+
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: 'saved-bindings-1',
+            diagramId: String(params.id),
+            edgeServerId: payload.edgeServerId,
+            widgetBindings: payload.widgetBindings,
+          },
+        })
+      }),
+    )
+
+    renderFullPage('/hub/editor/diagram-chain-save?edgeId=edge-1')
+
+    await waitFor(() => {
+      expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
+    })
+
+    await act(async () => {
+      await harness.instance.loadBindings([
+        { widgetId: 'widget-1', deviceId: 'device-1', metric: 'temperature' },
+      ])
+    })
+
+    act(() => {
+      harness.emitDirtyStateChange({ layoutDirty: true, bindingsDirty: true })
+    })
+
+    await waitFor(() => {
+      expect(harness.getLastConfig()?.activeEdgeServerId).toBe('edge-1')
+    })
+
+    act(() => {
+      harness.emitSaveBindingsIntent()
+    })
+
+    expect(await screen.findByText('Save layout before bindings?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save layout and bindings' }))
+
+    await waitFor(() => {
+      expect(callOrder).toEqual(['put', 'post-bindings'])
+    })
+  })
+
+  it('recreates the current binding set after destructive layout save when dirty layout blocks direct binding save', async () => {
+    const user = userEvent.setup()
+    const harness = createMockHostedConstructorHarness()
+    mockedLoadHostedConstructor.mockResolvedValue(harness.module)
+
+    const callOrder: string[] = []
+    let diagramVersion = 7
+
+    server.use(
+      http.get('/api/diagrams/:id', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: String(params.id),
+            name: 'Destructive chained save diagram',
+            layout: { widgets: [{ id: 'widget-1' }] },
+            __v: diagramVersion,
+          },
+        }),
+      ),
+      http.get('/api/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              _id: 'edge-1',
+              name: 'Machine #1',
+              lifecycleState: 'Active',
+              availability: { online: true, lastSeenAt: null },
+            },
+          ],
+        }),
+      ),
+      http.get('/api/edge-servers/:edgeId/catalog', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
+      http.get('/api/diagrams/:id/bindings', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              _id: 'persisted-set',
+              diagramId: 'diagram-destructive-chain',
+              edgeServerId: 'edge-1',
+              widgetBindings: [{ widgetId: 'widget-1', deviceId: 'device-1', metric: 'temperature' }],
+            },
+          ],
+        }),
+      ),
+      http.put('/api/diagrams/:id', async ({ request }) => {
+        const payload = (await request.json()) as { __v: number; layout: unknown }
+        expect(payload.__v).toBe(diagramVersion)
+        callOrder.push('put')
+        diagramVersion += 1
+
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: 'diagram-destructive-chain',
+            name: 'Destructive chained save diagram',
+            layout: payload.layout,
+            __v: diagramVersion,
+          },
+        })
+      }),
+      http.delete('/api/diagrams/:id/bindings', () => {
+        callOrder.push('delete-all')
+        return new HttpResponse(null, { status: 204 })
+      }),
+      http.post('/api/diagrams/:id/bindings', async ({ request, params }) => {
+        const payload = (await request.json()) as {
+          edgeServerId: string
+          widgetBindings: Array<{ widgetId: string; deviceId: string; metric: string }>
+        }
+        callOrder.push('post-bindings')
+
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: 'saved-bindings-2',
+            diagramId: String(params.id),
+            edgeServerId: payload.edgeServerId,
+            widgetBindings: payload.widgetBindings,
+          },
+        })
+      }),
+    )
+
+    renderFullPage('/hub/editor/diagram-destructive-chain?edgeId=edge-1')
+
+    await waitFor(() => {
+      expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
+    })
+
+    await act(async () => {
+      await harness.instance.loadBindings([
+        { widgetId: 'widget-2', deviceId: 'device-2', metric: 'pressure' },
+      ])
+    })
+
+    act(() => {
+      harness.emitDirtyStateChange({ layoutDirty: true, bindingsDirty: true })
+    })
+
+    await waitFor(() => {
+      expect(harness.getLastConfig()?.activeEdgeServerId).toBe('edge-1')
+    })
+
+    act(() => {
+      harness.emitSaveBindingsIntent()
+    })
+
+    expect(await screen.findByText('Save layout before bindings?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Save layout and bindings' }))
+
+    expect(await screen.findByText('Layout save will delete existing bindings.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue destructive save' }))
+
+    await waitFor(() => {
+      expect(callOrder).toEqual(['put', 'delete-all', 'post-bindings'])
+    })
+  })
 })
