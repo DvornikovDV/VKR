@@ -1,0 +1,6 @@
+{
+  "edgeId": "507f1f77bcf86cd799439011",
+  "onboardingSecret": "${EDGE_ONBOARDING_SECRET}",
+  "issuedAt": "2026-04-05T10:00:00.000Z",
+  "expiresAt": "2099-01-01T00:00:00.000Z"
+}

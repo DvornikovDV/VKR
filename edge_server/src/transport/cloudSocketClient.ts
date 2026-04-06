@@ -49,6 +49,7 @@ export type EdgeConnectErrorCode =
   | 'onboarding_package_reused'
   | 'invalid_credential'
   | 'persistent_credential_revoked'
+  | 'edge_auth_internal_error'
 
 function assertPositiveInteger(value: number, label: string): number {
   if (!Number.isInteger(value) || value <= 0) {
@@ -130,7 +131,8 @@ export function isEdgeConnectErrorCode(value: string): value is EdgeConnectError
     value === 'onboarding_package_expired' ||
     value === 'onboarding_package_reused' ||
     value === 'invalid_credential' ||
-    value === 'persistent_credential_revoked'
+    value === 'persistent_credential_revoked' ||
+    value === 'edge_auth_internal_error'
   )
 }
 

@@ -1,0 +1,42 @@
+cloud:
+  url: ${CLOUD_SOCKET_URL}
+  namespace: /edge
+
+stateDir: ./runtime-state
+
+batch:
+  intervalMs: 1000
+  maxReadings: 100
+
+backlog:
+  maxReadings: 1000
+  overflowBehavior: drop_oldest
+
+reconnect:
+  maxAttempts: 10
+  baseDelayMs: 1000
+  maxDelayMs: 30000
+
+adapter:
+  mode: mock-internal
+  endpoint: null
+
+sources:
+  - sourceId: mock-source-1
+    adapterKind: mock
+    enabled: true
+    pollIntervalMs: 1000
+    connection:
+      profile: default
+    devices:
+      - deviceId: pump-1
+        address:
+          node: 1
+        metrics:
+          - metric: pressure
+            valueType: number
+            mapping:
+              register: 40001
+
+logging:
+  level: info

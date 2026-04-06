@@ -1,7 +1,11 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+
+const TEST_FILE_DIR = path.dirname(fileURLToPath(import.meta.url))
+const REPO_ROOT_DIR = path.resolve(TEST_FILE_DIR, '../../..')
 
 describe('repro_task_T021', () => {
   it('prepares onboarding handshake and persists activation credential for reconnect', async () => {
@@ -112,5 +116,50 @@ describe('repro_task_T021', () => {
         now: () => new Date('2026-03-26T14:00:00.000Z'),
       }),
     ).rejects.toThrow(`Invalid persisted credential format in ${persistedPath}`)
+  })
+
+  it('keeps persisted credential fixture expectations aligned with runtime-state contract', async () => {
+    const edgeStore = await import('../../../edge_server/src/onboarding/persistedCredentialStore')
+
+    const runtimeStateContractPath = path.join(
+      REPO_ROOT_DIR,
+      'specs/001-edge-runtime/contracts/runtime-state-files.md',
+    )
+    const validCredentialFixturePath = path.join(
+      REPO_ROOT_DIR,
+      'edge_server/tests/fixtures/runtime/valid/credential.json',
+    )
+    const legacyCredentialFixturePath = path.join(
+      REPO_ROOT_DIR,
+      'edge_server/tests/fixtures/runtime/legacy-onboarding/credential.json',
+    )
+
+    const { readFile } = await import('node:fs/promises')
+    const [runtimeStateContract, validCredentialRaw] = await Promise.all([
+      readFile(runtimeStateContractPath, 'utf8'),
+      readFile(validCredentialFixturePath, 'utf8'),
+    ])
+    const validCredentialFixture = JSON.parse(validCredentialRaw) as Record<string, unknown>
+
+    expect(runtimeStateContract).toContain('credentialMode = persistent')
+    expect(runtimeStateContract).toContain('lifecycleState = Active')
+
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'edge-t021-contract-parity-'))
+    const canonicalPath = path.join(tempDir, 'credential-canonical.json')
+    await writeFile(canonicalPath, `${JSON.stringify(validCredentialFixture, null, 2)}\n`, 'utf-8')
+
+    const canonicalStore = edgeStore.createPersistedCredentialStore(canonicalPath)
+    await expect(canonicalStore.load()).resolves.toMatchObject({
+      credentialMode: 'persistent',
+      lifecycleState: 'Active',
+    })
+
+    const legacyRaw = await readFile(legacyCredentialFixturePath, 'utf8')
+    const legacyFixture = JSON.parse(legacyRaw) as Record<string, unknown>
+    const legacyPath = path.join(tempDir, 'credential-legacy.json')
+    await writeFile(legacyPath, `${JSON.stringify(legacyFixture, null, 2)}\n`, 'utf-8')
+
+    const legacyStore = edgeStore.createPersistedCredentialStore(legacyPath)
+    await expect(legacyStore.load()).rejects.toThrow(`Invalid persisted credential format in ${legacyPath}`)
   })
 })

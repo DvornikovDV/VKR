@@ -1,0 +1,9 @@
+{
+  "edgeId": "507f1f77bcf86cd799439099",
+  "lifecycleState": "Active",
+  "persistentCredential": {
+    "version": 4,
+    "secret": "persistent-secret-fixture-rotated",
+    "issuedAt": "2026-03-26T10:05:00.000Z"
+  }
+}

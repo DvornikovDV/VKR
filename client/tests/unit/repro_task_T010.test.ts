@@ -1,10 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { server } from '../mocks/server'
 import { createEdgeOnboardingApiFixtures, createEdgeOnboardingApiHandlers } from '../mocks/handlers'
 
 const apiGet = vi.fn()
 const apiPost = vi.fn()
 const apiDelete = vi.fn()
+const TEST_FILE_DIR = path.dirname(fileURLToPath(import.meta.url))
+const REPO_ROOT_DIR = path.resolve(TEST_FILE_DIR, '../../..')
 
 vi.mock('@/shared/api/client', () => ({
   apiClient: {
@@ -117,5 +122,44 @@ describe('repro_task_T010', () => {
       issuedAt: '2026-03-26T10:00:00.000Z',
       lifecycleState: 'Active',
     })
+  })
+
+  it('keeps TypeScript connect_error guards aligned with contract authorities', async () => {
+    const runtimeContractPath = path.join(
+      REPO_ROOT_DIR,
+      'specs/001-edge-runtime/contracts/cloud-runtime-contract.md',
+    )
+    const lifecycleContractPath = path.join(
+      REPO_ROOT_DIR,
+      'specs/004-edge-onboarding/contracts/edge-socket-contract.md',
+    )
+
+    const [runtimeContract, lifecycleContract] = await Promise.all([
+      readFile(runtimeContractPath, 'utf8'),
+      readFile(lifecycleContractPath, 'utf8'),
+    ])
+
+    const requiredConnectErrorCodes = [
+      'edge_not_found',
+      'blocked',
+      'onboarding_not_allowed',
+      'onboarding_package_missing',
+      'onboarding_package_expired',
+      'onboarding_package_reused',
+      'invalid_credential',
+      'persistent_credential_revoked',
+      'edge_auth_internal_error',
+    ] as const
+
+    const edgeTransport = await import('../../../edge_server/src/transport/cloudSocketClient')
+    const edgeTransportFns = edgeTransport as unknown as Record<string, (value: string) => boolean>
+
+    for (const code of requiredConnectErrorCodes) {
+      expect(runtimeContract).toContain(code)
+      expect(lifecycleContract).toContain(code)
+      expect(edgeTransportFns.isEdgeConnectErrorCode(code)).toBe(true)
+    }
+
+    expect(edgeTransportFns.isEdgeConnectErrorCode('unexpected_error_code')).toBe(false)
   })
 })
