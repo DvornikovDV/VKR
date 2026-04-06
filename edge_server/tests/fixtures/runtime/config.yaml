@@ -2,24 +2,9 @@ cloud:
   url: ${CLOUD_SOCKET_URL}
   namespace: /edge
 
-stateDir: ./runtime-state
-
 batch:
   intervalMs: 1000
   maxReadings: 100
-
-backlog:
-  maxReadings: 1000
-  overflowBehavior: drop_oldest
-
-reconnect:
-  maxAttempts: 10
-  baseDelayMs: 1000
-  maxDelayMs: 30000
-
-adapter:
-  mode: mock-internal
-  endpoint: null
 
 sources:
   - sourceId: mock-source-1

@@ -9,27 +9,17 @@ import (
 )
 
 const (
-	defaultCloudNamespace     = "/edge"
-	defaultBatchIntervalMs    = 1000
-	defaultBatchMaxReadings   = 100
-	defaultBacklogMaxReadings = 1000
-	defaultBacklogOverflow    = "drop_oldest"
-	defaultReconnectAttempts  = 10
-	defaultReconnectBaseDelay = 1000
-	defaultReconnectMaxDelay  = 30000
-	defaultLoggingLevel       = "info"
-	defaultAdapterMode        = "mock-internal"
+	defaultCloudNamespace   = "/edge"
+	defaultBatchIntervalMs  = 1000
+	defaultBatchMaxReadings = 100
+	defaultLoggingLevel     = "info"
 )
 
 type Config struct {
-	Cloud     CloudConfig               `yaml:"cloud"`
-	StateDir  string                    `yaml:"stateDir"`
-	Batch     BatchConfig               `yaml:"batch"`
-	Backlog   BacklogConfig             `yaml:"backlog"`
-	Reconnect ReconnectConfig           `yaml:"reconnect"`
-	Adapter   AdapterConfig             `yaml:"adapter"`
-	Sources   []PollingSourceDefinition `yaml:"sources"`
-	Logging   LoggingConfig             `yaml:"logging"`
+	Cloud   CloudConfig               `yaml:"cloud"`
+	Batch   BatchConfig               `yaml:"batch"`
+	Sources []PollingSourceDefinition `yaml:"sources"`
+	Logging LoggingConfig             `yaml:"logging"`
 }
 
 type CloudConfig struct {
@@ -40,22 +30,6 @@ type CloudConfig struct {
 type BatchConfig struct {
 	IntervalMs  int `yaml:"intervalMs"`
 	MaxReadings int `yaml:"maxReadings"`
-}
-
-type BacklogConfig struct {
-	MaxReadings      int    `yaml:"maxReadings"`
-	OverflowBehavior string `yaml:"overflowBehavior"`
-}
-
-type ReconnectConfig struct {
-	MaxAttempts int `yaml:"maxAttempts"`
-	BaseDelayMs int `yaml:"baseDelayMs"`
-	MaxDelayMs  int `yaml:"maxDelayMs"`
-}
-
-type AdapterConfig struct {
-	Mode     string  `yaml:"mode"`
-	Endpoint *string `yaml:"endpoint"`
 }
 
 type LoggingConfig struct {
@@ -123,26 +97,8 @@ func (c *Config) applyDefaults() {
 	if c.Batch.MaxReadings == 0 {
 		c.Batch.MaxReadings = defaultBatchMaxReadings
 	}
-	if c.Backlog.MaxReadings == 0 {
-		c.Backlog.MaxReadings = defaultBacklogMaxReadings
-	}
-	if strings.TrimSpace(c.Backlog.OverflowBehavior) == "" {
-		c.Backlog.OverflowBehavior = defaultBacklogOverflow
-	}
-	if c.Reconnect.MaxAttempts == 0 {
-		c.Reconnect.MaxAttempts = defaultReconnectAttempts
-	}
-	if c.Reconnect.BaseDelayMs == 0 {
-		c.Reconnect.BaseDelayMs = defaultReconnectBaseDelay
-	}
-	if c.Reconnect.MaxDelayMs == 0 {
-		c.Reconnect.MaxDelayMs = defaultReconnectMaxDelay
-	}
 	if strings.TrimSpace(c.Logging.Level) == "" {
 		c.Logging.Level = defaultLoggingLevel
-	}
-	if strings.TrimSpace(c.Adapter.Mode) == "" {
-		c.Adapter.Mode = defaultAdapterMode
 	}
 }
 
@@ -153,35 +109,11 @@ func (c Config) validate() error {
 	if c.Cloud.Namespace != defaultCloudNamespace {
 		return fmt.Errorf("cloud.namespace must be %q", defaultCloudNamespace)
 	}
-	if strings.TrimSpace(c.StateDir) == "" {
-		return fmt.Errorf("stateDir is required")
-	}
 	if c.Batch.IntervalMs <= 0 {
 		return fmt.Errorf("batch.intervalMs must be positive")
 	}
 	if c.Batch.MaxReadings <= 0 {
 		return fmt.Errorf("batch.maxReadings must be positive")
-	}
-	if c.Backlog.MaxReadings <= 0 {
-		return fmt.Errorf("backlog.maxReadings must be positive")
-	}
-	if c.Backlog.OverflowBehavior != defaultBacklogOverflow {
-		return fmt.Errorf("backlog.overflowBehavior must be %q", defaultBacklogOverflow)
-	}
-	if c.Reconnect.MaxAttempts <= 0 {
-		return fmt.Errorf("reconnect.maxAttempts must be positive")
-	}
-	if c.Reconnect.BaseDelayMs <= 0 {
-		return fmt.Errorf("reconnect.baseDelayMs must be positive")
-	}
-	if c.Reconnect.MaxDelayMs < c.Reconnect.BaseDelayMs {
-		return fmt.Errorf("reconnect.maxDelayMs must be >= reconnect.baseDelayMs")
-	}
-	if c.Adapter.Mode != "mock-internal" && c.Adapter.Mode != "worker-process" {
-		return fmt.Errorf("adapter.mode must be mock-internal or worker-process")
-	}
-	if c.Adapter.Mode == "worker-process" && (c.Adapter.Endpoint == nil || strings.TrimSpace(*c.Adapter.Endpoint) == "") {
-		return fmt.Errorf("adapter.endpoint is required when adapter.mode is worker-process")
 	}
 	if c.Logging.Level != "debug" && c.Logging.Level != "info" && c.Logging.Level != "warn" && c.Logging.Level != "error" {
 		return fmt.Errorf("logging.level must be one of debug, info, warn, error")

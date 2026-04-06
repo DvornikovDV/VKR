@@ -29,11 +29,10 @@ func TestRuntimeSmokeFixtureContracts(t *testing.T) {
 
 	configText := string(configBytes)
 	requiredConfigSnippets := []string{
+		"namespace: /edge",
 		"intervalMs: 1000",
 		"maxReadings: 100",
-		"maxReadings: 1000",
-		"overflowBehavior: drop_oldest",
-		"mode: mock-internal",
+		"level: info",
 	}
 	for _, snippet := range requiredConfigSnippets {
 		if !strings.Contains(configText, snippet) {

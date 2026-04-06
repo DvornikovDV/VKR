@@ -42,5 +42,6 @@ type Transport interface {
 	OnEdgeDisconnect(handler func(any))
 	OnConnect(handler func() error)
 	OnConnectError(handler func(error))
+	// OnDisconnect receives ordinary Socket.IO disconnect reasons (e.g. transport close).
 	OnDisconnect(handler func(string))
 }

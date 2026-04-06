@@ -14,8 +14,6 @@ func TestLoadFromFileParsesAndAppliesDefaults(t *testing.T) {
 cloud:
   url: ${CLOUD_SOCKET_URL}
 
-stateDir: ./state
-
 sources:
   - sourceId: source-1
     adapterKind: mock
@@ -53,15 +51,6 @@ sources:
 	if cfg.Batch.IntervalMs != 1000 || cfg.Batch.MaxReadings != 100 {
 		t.Fatalf("unexpected batch defaults: %+v", cfg.Batch)
 	}
-	if cfg.Backlog.MaxReadings != 1000 || cfg.Backlog.OverflowBehavior != "drop_oldest" {
-		t.Fatalf("unexpected backlog defaults: %+v", cfg.Backlog)
-	}
-	if cfg.Reconnect.MaxAttempts != 10 || cfg.Reconnect.BaseDelayMs != 1000 || cfg.Reconnect.MaxDelayMs != 30000 {
-		t.Fatalf("unexpected reconnect defaults: %+v", cfg.Reconnect)
-	}
-	if cfg.Adapter.Mode != "mock-internal" {
-		t.Fatalf("expected default adapter mode mock-internal, got %q", cfg.Adapter.Mode)
-	}
 	if cfg.Logging.Level != "info" {
 		t.Fatalf("expected default logging level info, got %q", cfg.Logging.Level)
 	}
@@ -92,18 +81,13 @@ func TestParseRejectsInvalidOperatorConfig(t *testing.T) {
 			errSnippet: "valueType must be number or boolean",
 		},
 		{
-			name:       "worker process requires endpoint",
-			body:       strings.Replace(base, "mode: mock-internal", "mode: worker-process", 1),
-			errSnippet: "adapter.endpoint is required",
-		},
-		{
 			name:       "cloud namespace must match contract",
 			body:       strings.Replace(base, "namespace: /edge", "namespace: /custom", 1),
 			errSnippet: "cloud.namespace must be",
 		},
 		{
 			name:       "unknown field in operator config is rejected",
-			body:       strings.Replace(base, "stateDir: ./state", "stateDir: ./state\nunknownSetting: true", 1),
+			body:       strings.Replace(base, "batch:", "unknownSetting: true\n\nbatch:", 1),
 			errSnippet: "field unknownSetting not found",
 		},
 	}
@@ -179,24 +163,9 @@ cloud:
   url: ${CLOUD_SOCKET_URL}
   namespace: /edge
 
-stateDir: ./state
-
 batch:
   intervalMs: 1000
   maxReadings: 100
-
-backlog:
-  maxReadings: 1000
-  overflowBehavior: drop_oldest
-
-reconnect:
-  maxAttempts: 5
-  baseDelayMs: 1000
-  maxDelayMs: 5000
-
-adapter:
-  mode: mock-internal
-  endpoint: null
 
 sources:
   - sourceId: source-1

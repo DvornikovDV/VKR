@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 type SocketIOClientConfig struct {
@@ -27,6 +28,8 @@ type SocketIOClient struct {
 	expectedEdgeID string
 	transport      Transport
 	handlers       LifecycleHandlers
+	mu             sync.Mutex
+	pendingEdgeDis *EdgeDisconnect
 }
 
 func NewSocketIOClient(cfg SocketIOClientConfig) (*SocketIOClient, error) {
@@ -69,6 +72,7 @@ func (c *SocketIOClient) RegisterLifecycleHandlers(handlers LifecycleHandlers) e
 			c.reportProtocolError("edge_disconnect", err)
 			return
 		}
+		c.setPendingEdgeDisconnect(event)
 		if c.handlers.OnDisconnect == nil {
 			return
 		}
@@ -79,6 +83,13 @@ func (c *SocketIOClient) RegisterLifecycleHandlers(handlers LifecycleHandlers) e
 			return
 		}
 		c.handlers.OnConnectError(NormalizeConnectError(err))
+	})
+	c.transport.OnDisconnect(func(reason string) {
+		if c.handlers.OnDisconnect == nil {
+			return
+		}
+
+		c.handlers.OnDisconnect(c.normalizeOrdinaryDisconnect(reason))
 	})
 
 	return nil
@@ -102,14 +113,46 @@ func (c *SocketIOClient) Connect(ctx context.Context, auth HandshakeAuth) error 
 	if auth.EdgeID != c.expectedEdgeID {
 		return fmt.Errorf("handshake edgeId %q does not match expected edgeId %q", auth.EdgeID, c.expectedEdgeID)
 	}
+	c.clearPendingEdgeDisconnect()
 
 	return c.transport.Connect(ctx, auth)
 }
 
 func (c *SocketIOClient) Disconnect() error {
+	c.clearPendingEdgeDisconnect()
 	return c.transport.Disconnect()
 }
 
 func (c *SocketIOClient) EmitTelemetry(payload map[string]any) error {
 	return c.transport.Emit("telemetry", payload)
+}
+
+func (c *SocketIOClient) setPendingEdgeDisconnect(event EdgeDisconnect) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	copy := event
+	c.pendingEdgeDis = &copy
+}
+
+func (c *SocketIOClient) clearPendingEdgeDisconnect() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.pendingEdgeDis = nil
+}
+
+func (c *SocketIOClient) normalizeOrdinaryDisconnect(reason string) EdgeDisconnect {
+	normalized := NormalizeSocketDisconnect(reason, c.expectedEdgeID)
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if normalized.Reason == DisconnectReasonForced && c.pendingEdgeDis != nil {
+		normalized.EdgeID = c.pendingEdgeDis.EdgeID
+		normalized.Reason = c.pendingEdgeDis.Reason
+	}
+
+	c.pendingEdgeDis = nil
+	return normalized
 }

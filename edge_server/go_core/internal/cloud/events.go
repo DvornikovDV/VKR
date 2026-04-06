@@ -61,6 +61,12 @@ var knownDisconnectReasons = map[DisconnectReason]struct{}{
 	DisconnectReasonClientRequested: {},
 }
 
+var ordinarySocketDisconnectReasonMap = map[string]DisconnectReason{
+	"io client disconnect":        DisconnectReasonClientRequested,
+	"client namespace disconnect": DisconnectReasonClientRequested,
+	"client_requested":            DisconnectReasonClientRequested,
+}
+
 type EdgeActivation struct {
 	EdgeID               string
 	LifecycleState       string
@@ -162,6 +168,15 @@ func ParseEdgeDisconnect(payload any, expectedEdgeID string) (EdgeDisconnect, er
 	}, nil
 }
 
+func NormalizeSocketDisconnect(reason string, expectedEdgeID string) EdgeDisconnect {
+	normalizedReason := normalizeSocketDisconnectReason(reason)
+
+	return EdgeDisconnect{
+		EdgeID: strings.TrimSpace(expectedEdgeID),
+		Reason: normalizedReason,
+	}
+}
+
 func NormalizeConnectError(err error) ConnectErrorCode {
 	if err == nil {
 		return ConnectErrorInvalidCredential
@@ -191,6 +206,20 @@ func parseConnectErrorCode(message string) (ConnectErrorCode, bool) {
 	}
 
 	return "", false
+}
+
+func normalizeSocketDisconnectReason(reason string) DisconnectReason {
+	normalized := strings.ToLower(strings.TrimSpace(reason))
+	if mapped, ok := ordinarySocketDisconnectReasonMap[normalized]; ok {
+		return mapped
+	}
+
+	typed := DisconnectReason(normalized)
+	if _, ok := knownDisconnectReasons[typed]; ok {
+		return typed
+	}
+
+	return DisconnectReasonForced
 }
 
 func parseRequiredString(raw map[string]any, key string) (string, error) {

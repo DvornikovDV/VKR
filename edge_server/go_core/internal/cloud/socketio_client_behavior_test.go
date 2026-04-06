@@ -174,3 +174,93 @@ func TestParseEdgeActivationRejectsMismatchedEdgeID(t *testing.T) {
 		t.Fatal("expected edgeId mismatch to be rejected")
 	}
 }
+
+func TestSocketLifecycleNormalizationHandlesOrdinaryDisconnect(t *testing.T) {
+	transport := &inMemoryTransport{}
+	client, err := NewSocketIOClient(SocketIOClientConfig{
+		ExpectedEdgeID: "edge-1",
+		Transport:      transport,
+	})
+	if err != nil {
+		t.Fatalf("create socket client: %v", err)
+	}
+
+	var disconnects []EdgeDisconnect
+	if err := client.RegisterLifecycleHandlers(LifecycleHandlers{
+		OnDisconnect: func(event EdgeDisconnect) {
+			disconnects = append(disconnects, event)
+		},
+	}); err != nil {
+		t.Fatalf("register handlers: %v", err)
+	}
+
+	if err := client.Connect(context.Background(), HandshakeAuth{
+		EdgeID:           "edge-1",
+		CredentialMode:   CredentialModePersistent,
+		CredentialSecret: "persist-secret",
+	}); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	transport.onDisconnect("transport close")
+	if len(disconnects) != 1 {
+		t.Fatalf("expected 1 normalized disconnect callback, got %d", len(disconnects))
+	}
+	if disconnects[0].EdgeID != "edge-1" || disconnects[0].Reason != DisconnectReasonForced {
+		t.Fatalf("expected ordinary disconnect to normalize to edge_forced_disconnect, got %+v", disconnects[0])
+	}
+
+	if err := transport.Disconnect(); err != nil {
+		t.Fatalf("transport disconnect: %v", err)
+	}
+	if len(disconnects) != 2 {
+		t.Fatalf("expected 2 normalized disconnect callbacks, got %d", len(disconnects))
+	}
+	if disconnects[1].Reason != DisconnectReasonClientRequested {
+		t.Fatalf("expected explicit client disconnect to normalize to client_requested, got %+v", disconnects[1])
+	}
+}
+
+func TestSocketLifecycleNormalizationPreservesLifecycleReasonAcrossOrdinaryDisconnect(t *testing.T) {
+	transport := &inMemoryTransport{}
+	client, err := NewSocketIOClient(SocketIOClientConfig{
+		ExpectedEdgeID: "edge-1",
+		Transport:      transport,
+	})
+	if err != nil {
+		t.Fatalf("create socket client: %v", err)
+	}
+
+	var disconnects []EdgeDisconnect
+	if err := client.RegisterLifecycleHandlers(LifecycleHandlers{
+		OnDisconnect: func(event EdgeDisconnect) {
+			disconnects = append(disconnects, event)
+		},
+	}); err != nil {
+		t.Fatalf("register handlers: %v", err)
+	}
+
+	if err := client.Connect(context.Background(), HandshakeAuth{
+		EdgeID:           "edge-1",
+		CredentialMode:   CredentialModePersistent,
+		CredentialSecret: "persist-secret",
+	}); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	transport.edgeDisconnect(map[string]any{
+		"edgeId": "edge-1",
+		"reason": "trust_revoked",
+	})
+	transport.onDisconnect("io server disconnect")
+
+	if len(disconnects) != 2 {
+		t.Fatalf("expected 2 disconnect callbacks, got %d", len(disconnects))
+	}
+	if disconnects[0].Reason != DisconnectReasonTrustRevoked {
+		t.Fatalf("expected lifecycle disconnect reason trust_revoked, got %+v", disconnects[0])
+	}
+	if disconnects[1].Reason != DisconnectReasonTrustRevoked {
+		t.Fatalf("expected ordinary disconnect after lifecycle event to preserve trust_revoked, got %+v", disconnects[1])
+	}
+}
