@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -35,6 +36,8 @@ type JSONLogger struct {
 	now           func() time.Time
 	mu            sync.Mutex
 }
+
+const redactedSecretValue = "[REDACTED]"
 
 func NewJSONLogger(cfg JSONLoggerConfig) *JSONLogger {
 	writer := cfg.Writer
@@ -75,7 +78,7 @@ func (l *JSONLogger) Log(level LogLevel, message string, fields map[string]any) 
 	if l.epochProvider != nil {
 		entry["sessionEpoch"] = l.epochProvider.Current()
 	}
-	for key, value := range fields {
+	for key, value := range sanitizeFields(fields) {
 		entry[key] = value
 	}
 
@@ -88,6 +91,38 @@ func (l *JSONLogger) Log(level LogLevel, message string, fields map[string]any) 
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	_, _ = l.writer.Write(payload)
+}
+
+func sanitizeFields(fields map[string]any) map[string]any {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	sanitized := make(map[string]any, len(fields))
+	for key, value := range fields {
+		if isSensitiveField(key) {
+			sanitized[key] = redactedSecretValue
+			continue
+		}
+		sanitized[key] = value
+	}
+
+	return sanitized
+}
+
+func isSensitiveField(key string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(key))
+	if normalized == "" {
+		return false
+	}
+
+	if normalized == "credentialsecret" ||
+		normalized == "persistentcredentialsecret" ||
+		normalized == "onboardingsecret" {
+		return true
+	}
+
+	return strings.Contains(normalized, "secret")
 }
 
 func shouldLog(level LogLevel, minLevel LogLevel) bool {

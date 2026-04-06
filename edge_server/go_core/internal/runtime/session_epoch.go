@@ -3,8 +3,9 @@ package runtime
 import "sync"
 
 type SessionEpochTracker struct {
-	mu      sync.RWMutex
-	current uint64
+	mu         sync.RWMutex
+	lastIssued uint64
+	active     uint64
 }
 
 func NewSessionEpochTracker() *SessionEpochTracker {
@@ -15,15 +16,16 @@ func (t *SessionEpochTracker) Next() uint64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	t.current++
-	return t.current
+	t.lastIssued++
+	t.active = t.lastIssued
+	return t.active
 }
 
 func (t *SessionEpochTracker) Current() uint64 {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 
-	return t.current
+	return t.active
 }
 
 func (t *SessionEpochTracker) IsActive(epoch uint64) bool {
@@ -32,4 +34,11 @@ func (t *SessionEpochTracker) IsActive(epoch uint64) bool {
 	}
 
 	return t.Current() == epoch
+}
+
+func (t *SessionEpochTracker) Invalidate() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.active = 0
 }

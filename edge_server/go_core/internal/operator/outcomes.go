@@ -16,9 +16,14 @@ func MapConnectError(code cloud.ConnectErrorCode) RuntimeOutcome {
 			TrustMode:      "blocked",
 			OperatorAction: "require_operator_reenable",
 		}
-	case cloud.ConnectErrorPersistentCredentialRevoked:
+	case cloud.ConnectErrorInvalidCredential,
+		cloud.ConnectErrorOnboardingNotAllowed,
+		cloud.ConnectErrorOnboardingPackageMissing,
+		cloud.ConnectErrorOnboardingPackageExpired,
+		cloud.ConnectErrorOnboardingPackageReused,
+		cloud.ConnectErrorPersistentCredentialRevoked:
 		return RuntimeOutcome{
-			Code:           "persistent_credential_revoked",
+			Code:           string(code),
 			TrustMode:      "re_onboarding_required",
 			OperatorAction: "require_re_onboarding",
 		}
@@ -36,7 +41,7 @@ func MapDisconnectReason(reason cloud.DisconnectReason) RuntimeOutcome {
 	case cloud.DisconnectReasonTrustRevoked:
 		return RuntimeOutcome{
 			Code:           "trust_revoked",
-			TrustMode:      "recovery_needed",
+			TrustMode:      "re_onboarding_required",
 			OperatorAction: "require_re_onboarding",
 		}
 	case cloud.DisconnectReasonBlocked:
@@ -45,11 +50,17 @@ func MapDisconnectReason(reason cloud.DisconnectReason) RuntimeOutcome {
 			TrustMode:      "blocked",
 			OperatorAction: "require_operator_reenable",
 		}
+	case cloud.DisconnectReasonForced, cloud.DisconnectReasonClientRequested:
+		return RuntimeOutcome{
+			Code:           string(reason),
+			TrustMode:      "disconnected",
+			OperatorAction: "retry_connection",
+		}
 	default:
 		return RuntimeOutcome{
 			Code:           string(reason),
-			TrustMode:      "recovery_needed",
-			OperatorAction: "retry_or_recover",
+			TrustMode:      "disconnected",
+			OperatorAction: "retry_connection",
 		}
 	}
 }
