@@ -1,0 +1,46 @@
+package cloud
+
+import (
+	"context"
+	"fmt"
+	"strings"
+)
+
+type CredentialMode string
+
+const (
+	CredentialModeOnboarding CredentialMode = "onboarding"
+	CredentialModePersistent CredentialMode = "persistent"
+)
+
+type HandshakeAuth struct {
+	EdgeID           string
+	CredentialMode   CredentialMode
+	CredentialSecret string
+}
+
+func (a HandshakeAuth) Validate() error {
+	if strings.TrimSpace(a.EdgeID) == "" {
+		return fmt.Errorf("handshake.edgeId is required")
+	}
+	if a.CredentialMode != CredentialModeOnboarding && a.CredentialMode != CredentialModePersistent {
+		return fmt.Errorf("handshake.credentialMode must be onboarding or persistent")
+	}
+	if strings.TrimSpace(a.CredentialSecret) == "" {
+		return fmt.Errorf("handshake.credentialSecret is required")
+	}
+
+	return nil
+}
+
+type Transport interface {
+	Connect(ctx context.Context, auth HandshakeAuth) error
+	Disconnect() error
+	Emit(event string, payload any) error
+
+	OnEdgeActivation(handler func(any))
+	OnEdgeDisconnect(handler func(any))
+	OnConnect(handler func() error)
+	OnConnectError(handler func(error))
+	OnDisconnect(handler func(string))
+}

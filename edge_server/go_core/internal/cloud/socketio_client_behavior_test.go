@@ -1,0 +1,176 @@
+package cloud
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+)
+
+type inMemoryTransport struct {
+	onConnect      func() error
+	onDisconnect   func(reason string)
+	onConnectErr   func(error)
+	edgeActivation func(any)
+	edgeDisconnect func(any)
+	connected      bool
+}
+
+func (t *inMemoryTransport) Connect(_ context.Context, _ HandshakeAuth) error {
+	t.connected = true
+	if t.onConnect != nil {
+		return t.onConnect()
+	}
+	return nil
+}
+
+func (t *inMemoryTransport) Disconnect() error {
+	t.connected = false
+	if t.onDisconnect != nil {
+		t.onDisconnect("client_requested")
+	}
+	return nil
+}
+
+func (t *inMemoryTransport) Emit(_ string, _ any) error {
+	if !t.connected {
+		return errors.New("transport is not connected")
+	}
+	return nil
+}
+
+func (t *inMemoryTransport) OnEdgeActivation(handler func(any)) {
+	t.edgeActivation = handler
+}
+
+func (t *inMemoryTransport) OnEdgeDisconnect(handler func(any)) {
+	t.edgeDisconnect = handler
+}
+
+func (t *inMemoryTransport) OnConnect(handler func() error) {
+	t.onConnect = handler
+}
+
+func (t *inMemoryTransport) OnConnectError(handler func(error)) {
+	t.onConnectErr = handler
+}
+
+func (t *inMemoryTransport) OnDisconnect(handler func(string)) {
+	t.onDisconnect = handler
+}
+
+func TestSocketLifecycleNormalization(t *testing.T) {
+	transport := &inMemoryTransport{}
+	client, err := NewSocketIOClient(SocketIOClientConfig{
+		ExpectedEdgeID: "edge-1",
+		Transport:      transport,
+	})
+	if err != nil {
+		t.Fatalf("create socket client: %v", err)
+	}
+
+	var gotActivation EdgeActivation
+	var gotDisconnect EdgeDisconnect
+	var gotError ConnectErrorCode
+	var gotProtocolError ProtocolError
+	handlers := LifecycleHandlers{
+		OnActivation: func(event EdgeActivation) {
+			gotActivation = event
+		},
+		OnDisconnect: func(event EdgeDisconnect) {
+			gotDisconnect = event
+		},
+		OnConnectError: func(code ConnectErrorCode) {
+			gotError = code
+		},
+		OnProtocolError: func(err ProtocolError) {
+			gotProtocolError = err
+		},
+	}
+
+	if err := client.RegisterLifecycleHandlers(handlers); err != nil {
+		t.Fatalf("register handlers: %v", err)
+	}
+
+	if err := client.Connect(
+		context.Background(),
+		HandshakeAuth{
+			EdgeID:           "edge-1",
+			CredentialMode:   CredentialModeOnboarding,
+			CredentialSecret: "onboarding-secret",
+		},
+	); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	transport.edgeActivation(map[string]any{
+		"edgeId":         "edge-1",
+		"lifecycleState": "Active",
+		"persistentCredential": map[string]any{
+			"version":  2,
+			"secret":   "persist-secret",
+			"issuedAt": "2026-04-06T10:00:00Z",
+		},
+	})
+	if gotActivation.EdgeID != "edge-1" {
+		t.Fatalf("expected normalized activation edgeId, got %+v", gotActivation)
+	}
+	if gotActivation.PersistentCredential.Version != 2 {
+		t.Fatalf("expected activation version=2, got %+v", gotActivation)
+	}
+	if gotActivation.PersistentCredential.IssuedAt.IsZero() {
+		t.Fatalf("expected parsed issuedAt timestamp, got %+v", gotActivation)
+	}
+
+	transport.edgeDisconnect(map[string]any{
+		"edgeId": "edge-1",
+		"reason": "trust_revoked",
+	})
+	if gotDisconnect.Reason != DisconnectReasonTrustRevoked {
+		t.Fatalf("expected normalized disconnect reason trust_revoked, got %+v", gotDisconnect)
+	}
+
+	transport.onConnectErr(errors.New("persistent_credential_revoked"))
+	if gotError != ConnectErrorPersistentCredentialRevoked {
+		t.Fatalf("expected normalized connect_error code, got %q", gotError)
+	}
+
+	transport.onConnectErr(fmt.Errorf("socket connect_error: %w", errors.New("blocked")))
+	if gotError != ConnectErrorBlocked {
+		t.Fatalf("expected wrapped connect_error to normalize to blocked, got %q", gotError)
+	}
+
+	transport.onConnectErr(errors.New("unknown"))
+	if gotError != ConnectErrorInvalidCredential {
+		t.Fatalf("expected unknown connect_error to normalize to invalid_credential, got %q", gotError)
+	}
+
+	transport.edgeActivation(map[string]any{
+		"edgeId":         "wrong-edge",
+		"lifecycleState": "Active",
+		"persistentCredential": map[string]any{
+			"version":  1,
+			"secret":   "persist-secret",
+			"issuedAt": "2026-04-06T10:00:00Z",
+		},
+	})
+	if gotProtocolError.Event != "edge_activation" || gotProtocolError.Err == nil {
+		t.Fatalf("expected protocol error callback for invalid activation payload, got %+v", gotProtocolError)
+	}
+}
+
+func TestParseEdgeActivationRejectsMismatchedEdgeID(t *testing.T) {
+	_, err := ParseEdgeActivation(map[string]any{
+		"edgeId":         "edge-2",
+		"lifecycleState": "Active",
+		"persistentCredential": map[string]any{
+			"version":  1,
+			"secret":   "secret",
+			"issuedAt": time.Now().UTC().Format(time.RFC3339),
+		},
+	}, "edge-1")
+	if err == nil {
+		t.Fatal("expected edgeId mismatch to be rejected")
+	}
+}

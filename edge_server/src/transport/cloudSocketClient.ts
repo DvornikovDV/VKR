@@ -2,13 +2,7 @@ import { ENV } from '../config/env'
 import type {
   EdgeCredentialMode,
   PersistedCredentialRecord,
-  PersistedCredentialStore,
 } from '../onboarding/persistedCredentialStore'
-import type {
-  BootstrapEdgeActivationInput,
-  EdgeActivationBootstrapResult,
-  PersistActivationEventInput,
-} from '../onboarding/activateEdge'
 
 export interface EdgeHandshakeAuthPayload {
   edgeId: string
@@ -62,6 +56,14 @@ function assertNonEmpty(value: string, label: string): string {
   const trimmed = value.trim()
   if (!trimmed) {
     throw new Error(`${label} must be a non-empty string`)
+  }
+  return trimmed
+}
+
+function requireConfiguredString(value: string | undefined, envKey: string): string {
+  const trimmed = value?.trim()
+  if (!trimmed) {
+    throw new Error(`${envKey} must be configured for edge runtime transport examples`)
   }
   return trimmed
 }
@@ -136,33 +138,11 @@ export function isEdgeConnectErrorCode(value: string): value is EdgeConnectError
   )
 }
 
-export interface PrepareEdgeRuntimeHandshakeInput extends BootstrapEdgeActivationInput {
-  store?: PersistedCredentialStore
-}
-
-export interface ApplyEdgeActivationEventInput extends PersistActivationEventInput {
-  store?: PersistedCredentialStore
-}
-
-export async function prepareEdgeRuntimeHandshake(
-  input: PrepareEdgeRuntimeHandshakeInput = {},
-): Promise<EdgeActivationBootstrapResult> {
-  const activationModule = await import('../onboarding/activateEdge')
-  return activationModule.bootstrapEdgeActivation(input)
-}
-
-export async function applyEdgeActivationEvent(
-  input: ApplyEdgeActivationEventInput,
-): Promise<PersistedCredentialRecord> {
-  const activationModule = await import('../onboarding/activateEdge')
-  return activationModule.persistActivationCredentialFromEvent(input)
-}
-
 export function buildCloudSocketClientOptions(
   overrides: Partial<CloudSocketClientOptions> = {},
 ): CloudSocketClientOptions {
   return {
-    cloudUrl: overrides.cloudUrl ?? ENV.CLOUD_SOCKET_URL,
+    cloudUrl: overrides.cloudUrl ?? requireConfiguredString(ENV.CLOUD_SOCKET_URL, 'CLOUD_SOCKET_URL'),
     namespace: overrides.namespace ?? ENV.EDGE_SOCKET_NAMESPACE,
     connectTimeoutMs: overrides.connectTimeoutMs ?? ENV.EDGE_CONNECT_TIMEOUT_MS,
     reconnect: {

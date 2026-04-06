@@ -43,7 +43,7 @@ function optionalNonEmptyString(key: string, fallback: string): string {
 
 export const ENV = {
   NODE_ENV: process.env['NODE_ENV'] ?? 'development',
-  CLOUD_SOCKET_URL: optionalNonEmptyString('CLOUD_SOCKET_URL', 'http://localhost:4000'),
+  CLOUD_SOCKET_URL: optionalTrimmedString('CLOUD_SOCKET_URL'),
   EDGE_SOCKET_NAMESPACE: optionalNonEmptyString('EDGE_SOCKET_NAMESPACE', '/edge'),
   EDGE_ID: optionalTrimmedString('EDGE_ID'),
   EDGE_ONBOARDING_SECRET: optionalTrimmedString('EDGE_ONBOARDING_SECRET'),

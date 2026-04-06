@@ -21,6 +21,6 @@ These fixtures freeze the minimum local credential and activation payload shapes
 
 ## Derivation notes
 
-- `valid/credential.json` matches the accepted persistent record shape exercised by `client/tests/unit/repro_task_T021.test.ts`.
+- `valid/credential.json` matches the accepted persistent record shape exercised by `client/tests/unit/edgeActivationCredentialBehavior.test.ts`.
 - `legacy-onboarding/credential.json` matches the onboarding-shaped record that the same regression rejects.
 - `wrong-edge-id/edge_activation.json` matches the activation payload shape validated by `edge_server/src/onboarding/activateEdge.ts`, except for the intentionally mismatched `edgeId`.

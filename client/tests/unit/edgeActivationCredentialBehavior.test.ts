@@ -7,16 +7,16 @@ import { describe, expect, it } from 'vitest'
 const TEST_FILE_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT_DIR = path.resolve(TEST_FILE_DIR, '../../..')
 
-describe('repro_task_T021', () => {
+describe('edge activation credential behavior', () => {
   it('prepares onboarding handshake and persists activation credential for reconnect', async () => {
-    const edgeTransport = await import('../../../edge_server/src/transport/cloudSocketClient')
+    const edgeBootstrap = await import('../../../edge_server/src/onboarding/activateEdge')
     const edgeStore = await import('../../../edge_server/src/onboarding/persistedCredentialStore')
 
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'edge-t021-'))
     const persistedPath = path.join(tempDir, 'credential.json')
     const store = edgeStore.createPersistedCredentialStore(persistedPath)
 
-    const bootstrap = await edgeTransport.prepareEdgeRuntimeHandshake({
+    const bootstrap = await edgeBootstrap.bootstrapEdgeActivation({
       store,
       edgeId: 'edge-t021',
       onboardingSecret: 'onboarding-secret-t021',
@@ -30,7 +30,7 @@ describe('repro_task_T021', () => {
       credentialSecret: 'onboarding-secret-t021',
     })
 
-    const persisted = await edgeTransport.applyEdgeActivationEvent({
+    const persisted = await edgeBootstrap.persistActivationCredentialFromEvent({
       store,
       expectedEdgeId: 'edge-t021',
       payload: {
@@ -47,7 +47,7 @@ describe('repro_task_T021', () => {
     expect(persisted.credentialMode).toBe('persistent')
     expect(persisted.version).toBe(3)
 
-    const reconnect = await edgeTransport.prepareEdgeRuntimeHandshake({
+    const reconnect = await edgeBootstrap.bootstrapEdgeActivation({
       store,
     })
     expect(reconnect.credentialSource).toBe('persisted')
@@ -86,7 +86,7 @@ describe('repro_task_T021', () => {
   })
 
   it('fails bootstrap when persisted onboarding record is left on disk', async () => {
-    const edgeTransport = await import('../../../edge_server/src/transport/cloudSocketClient')
+    const edgeBootstrap = await import('../../../edge_server/src/onboarding/activateEdge')
     const edgeStore = await import('../../../edge_server/src/onboarding/persistedCredentialStore')
 
     const tempDir = await mkdtemp(path.join(os.tmpdir(), 'edge-t021-onboarding-legacy-'))
@@ -109,7 +109,7 @@ describe('repro_task_T021', () => {
 
     const store = edgeStore.createPersistedCredentialStore(persistedPath)
     await expect(
-      edgeTransport.prepareEdgeRuntimeHandshake({
+      edgeBootstrap.bootstrapEdgeActivation({
         store,
         edgeId: 'edge-fallback',
         onboardingSecret: 'env-onboarding-secret',
