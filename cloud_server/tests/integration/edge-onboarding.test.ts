@@ -110,6 +110,8 @@ async function connectEdgeSocket(auth: {
     edgeId: string;
     credentialMode: 'onboarding' | 'persistent';
     credentialSecret: string;
+}, options?: {
+    onEdgeActivation?: (payload: unknown) => void;
 }): Promise<ClientSocket> {
     return new Promise<ClientSocket>((resolve, reject) => {
         const socket = trackSocket(
@@ -122,6 +124,10 @@ async function connectEdgeSocket(auth: {
                 timeout: 3000,
             }),
         );
+
+        if (options?.onEdgeActivation) {
+            socket.on('edge_activation', options.onEdgeActivation);
+        }
 
         const timer = setTimeout(() => {
             socket.close();
@@ -511,6 +517,57 @@ describe('Edge onboarding integration contract', () => {
                 credentialSecret: onboardingSecret,
             });
             expect(wrongPersistentError).toBe('invalid_credential');
+
+            persistentSocket.disconnect();
+        });
+
+        it('T012-1 keeps fresh-process startup untrusted by rejecting reused onboarding secret while lifecycle is Active', async () => {
+            const { edgeId, onboardingSecret } = await registerEdge('Edge T012 Active Onboarding Reuse');
+            const { socket: onboardingSocket } = await connectOnboardingSocket(edgeId, onboardingSecret);
+            onboardingSocket.disconnect();
+
+            const reusedOnboardingError = await connectEdgeExpectError({
+                edgeId,
+                credentialMode: 'onboarding',
+                credentialSecret: onboardingSecret,
+            });
+            expect(reusedOnboardingError).toBe('onboarding_not_allowed');
+        });
+
+        it('T012-2 keeps persistent reconnect activation-silent and credential-stable', async () => {
+            const { edgeId, onboardingSecret } = await registerEdge('Edge T012 Persistent Stability');
+            const { socket: onboardingSocket, activationPayload } = await connectOnboardingSocket(
+                edgeId,
+                onboardingSecret,
+            );
+            onboardingSocket.disconnect();
+
+            const beforeReconnect = await EdgeServer.findById(edgeId).lean().exec();
+            const activationEvents: unknown[] = [];
+            const persistentSocket = await connectEdgeSocket(
+                {
+                    edgeId,
+                    credentialMode: 'persistent',
+                    credentialSecret: activationPayload.persistentCredential.secret,
+                },
+                {
+                    onEdgeActivation: (payload) => {
+                        activationEvents.push(payload);
+                    },
+                },
+            );
+
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            expect(activationEvents).toHaveLength(0);
+
+            const afterReconnect = await EdgeServer.findById(edgeId).lean().exec();
+            expect(afterReconnect?.persistentCredential?.version).toBe(
+                beforeReconnect?.persistentCredential?.version,
+            );
+            expect(afterReconnect?.persistentCredential?.secretHash).toBe(
+                beforeReconnect?.persistentCredential?.secretHash,
+            );
+            expect(afterReconnect?.persistentCredential?.lastAcceptedAt).toBeInstanceOf(Date);
 
             persistentSocket.disconnect();
         });

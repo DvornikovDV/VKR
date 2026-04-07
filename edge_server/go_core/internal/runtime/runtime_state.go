@@ -76,6 +76,27 @@ func (s *RuntimeState) ActivateTrustedSession(edgeID string, persistentSecret st
 	return nil
 }
 
+func (s *RuntimeState) MarkOnboardingCandidate(edgeID string) error {
+	normalizedEdgeID := strings.TrimSpace(edgeID)
+	if normalizedEdgeID == "" {
+		return fmt.Errorf("edgeID is required")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.epochs.Invalidate()
+	s.session.EdgeID = normalizedEdgeID
+	s.session.CredentialMode = CredentialModeOnboarding
+	s.session.PersistentCredentialSecret = nil
+	s.session.Trusted = false
+	s.session.Connected = false
+	s.session.SessionEpoch = 0
+	s.session.LastReason = nil
+
+	return nil
+}
+
 func (s *RuntimeState) MarkDisconnected(reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

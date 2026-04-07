@@ -84,6 +84,17 @@ type EdgeDisconnect struct {
 	Reason DisconnectReason
 }
 
+func (a EdgeActivation) PersistentReconnectAuth() (HandshakeAuth, error) {
+	if strings.TrimSpace(a.EdgeID) == "" {
+		return HandshakeAuth{}, fmt.Errorf("edge activation edgeId is required")
+	}
+	if strings.TrimSpace(a.LifecycleState) != "Active" {
+		return HandshakeAuth{}, fmt.Errorf("edge activation lifecycleState must be Active")
+	}
+
+	return BuildPersistentHandshakeAuth(a.EdgeID, a.PersistentCredential.Secret)
+}
+
 func ParseEdgeActivation(payload any, expectedEdgeID string) (EdgeActivation, error) {
 	raw, ok := payload.(map[string]any)
 	if !ok {

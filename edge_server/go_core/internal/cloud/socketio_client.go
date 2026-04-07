@@ -107,15 +107,16 @@ func (c *SocketIOClient) reportProtocolError(event string, err error) {
 }
 
 func (c *SocketIOClient) Connect(ctx context.Context, auth HandshakeAuth) error {
-	if err := auth.Validate(); err != nil {
+	normalizedAuth, err := BuildHandshakeAuth(auth.EdgeID, auth.CredentialMode, auth.CredentialSecret)
+	if err != nil {
 		return err
 	}
-	if auth.EdgeID != c.expectedEdgeID {
-		return fmt.Errorf("handshake edgeId %q does not match expected edgeId %q", auth.EdgeID, c.expectedEdgeID)
+	if normalizedAuth.EdgeID != c.expectedEdgeID {
+		return fmt.Errorf("handshake edgeId %q does not match expected edgeId %q", normalizedAuth.EdgeID, c.expectedEdgeID)
 	}
 	c.clearPendingEdgeDisconnect()
 
-	return c.transport.Connect(ctx, auth)
+	return c.transport.Connect(ctx, normalizedAuth)
 }
 
 func (c *SocketIOClient) Disconnect() error {
@@ -125,6 +126,22 @@ func (c *SocketIOClient) Disconnect() error {
 
 func (c *SocketIOClient) EmitTelemetry(payload map[string]any) error {
 	return c.transport.Emit("telemetry", payload)
+}
+
+func (c *SocketIOClient) BuildPersistentReconnectAuth(event EdgeActivation) (HandshakeAuth, error) {
+	auth, err := event.PersistentReconnectAuth()
+	if err != nil {
+		return HandshakeAuth{}, err
+	}
+	if auth.EdgeID != c.expectedEdgeID {
+		return HandshakeAuth{}, fmt.Errorf(
+			"activation edgeId %q does not match expected edgeId %q",
+			auth.EdgeID,
+			c.expectedEdgeID,
+		)
+	}
+
+	return auth, nil
 }
 
 func (c *SocketIOClient) setPendingEdgeDisconnect(event EdgeDisconnect) {

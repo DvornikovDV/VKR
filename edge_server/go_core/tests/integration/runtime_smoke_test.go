@@ -2,11 +2,15 @@ package integration
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"edge_server/go_core/internal/cloud"
+	"edge_server/go_core/internal/runtime"
 )
 
 type onboardingPackageFixture struct {
@@ -70,5 +74,49 @@ func TestRuntimeSmokeFixtureContracts(t *testing.T) {
 	}
 	if !expiresAt.After(issuedAt) {
 		t.Fatal("expiresAt must be after issuedAt")
+	}
+}
+
+func TestRuntimeSmokeOnboardingOperatorInputBootstrap(t *testing.T) {
+	t.Setenv("EDGE_ONBOARDING_SECRET", "smoke-onboarding-secret")
+	onboardingPath := runtimeFixturePath(t, "onboarding-package.json")
+
+	pkg, err := runtime.LoadOnboardingPackageFromFile(onboardingPath)
+	if err != nil {
+		t.Fatalf("load onboarding package fixture: %v", err)
+	}
+
+	runner := runtime.New()
+	bootstrap := runtime.NewBootstrapSession(runner)
+	if err := bootstrap.Bootstrap(runtime.BootstrapInput{
+		OnboardingPackagePath: onboardingPath,
+	}); err != nil {
+		t.Fatalf("bootstrap runtime from operator onboarding package: %v", err)
+	}
+
+	auth, err := bootstrap.BuildHandshakeAuth()
+	if err != nil {
+		t.Fatalf("build startup handshake auth: %v", err)
+	}
+	if auth.EdgeID != pkg.EdgeID {
+		t.Fatalf("expected startup edgeId %q from onboarding package, got %q", pkg.EdgeID, auth.EdgeID)
+	}
+	if auth.CredentialMode != cloud.CredentialModeOnboarding {
+		t.Fatalf("expected startup credential mode onboarding, got %q", auth.CredentialMode)
+	}
+	if auth.CredentialSecret != pkg.OnboardingSecret {
+		t.Fatalf("expected startup onboarding secret from operator input, got %q", auth.CredentialSecret)
+	}
+}
+
+func TestRuntimeSmokeFixtureDoesNotRequirePersistedRuntimeStateFiles(t *testing.T) {
+	for _, fileName := range []string{"credential.json", "runtime-state.json", "status.json"} {
+		_, err := os.Stat(runtimeFixturePath(t, fileName))
+		if err == nil {
+			t.Fatalf("fixture set must not require machine-written runtime state file %q", fileName)
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("inspect fixture %q: %v", fileName, err)
+		}
 	}
 }

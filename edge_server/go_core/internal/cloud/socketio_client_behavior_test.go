@@ -175,6 +175,57 @@ func TestParseEdgeActivationRejectsMismatchedEdgeID(t *testing.T) {
 	}
 }
 
+func TestBuildHandshakeAuthNormalizesInput(t *testing.T) {
+	auth, err := BuildOnboardingHandshakeAuth(" edge-1 ", " onboarding-secret ")
+	if err != nil {
+		t.Fatalf("build onboarding auth: %v", err)
+	}
+	if auth.EdgeID != "edge-1" {
+		t.Fatalf("expected trimmed edgeId, got %q", auth.EdgeID)
+	}
+	if auth.CredentialMode != CredentialModeOnboarding {
+		t.Fatalf("expected onboarding mode, got %q", auth.CredentialMode)
+	}
+
+	persistent, err := BuildPersistentHandshakeAuth("edge-1", " persist-secret ")
+	if err != nil {
+		t.Fatalf("build persistent auth: %v", err)
+	}
+	if persistent.CredentialSecret != "persist-secret" {
+		t.Fatalf("expected trimmed persistent secret, got %q", persistent.CredentialSecret)
+	}
+}
+
+func TestSocketClientBuildsPersistentReconnectAuthFromActivation(t *testing.T) {
+	transport := &inMemoryTransport{}
+	client, err := NewSocketIOClient(SocketIOClientConfig{
+		ExpectedEdgeID: "edge-1",
+		Transport:      transport,
+	})
+	if err != nil {
+		t.Fatalf("create socket client: %v", err)
+	}
+
+	auth, err := client.BuildPersistentReconnectAuth(EdgeActivation{
+		EdgeID:         "edge-1",
+		LifecycleState: "Active",
+		PersistentCredential: PersistentCredential{
+			Version:  1,
+			Secret:   "persist-secret",
+			IssuedAt: time.Now().UTC(),
+		},
+	})
+	if err != nil {
+		t.Fatalf("build persistent reconnect auth from activation: %v", err)
+	}
+	if auth.CredentialMode != CredentialModePersistent {
+		t.Fatalf("expected persistent reconnect auth mode, got %q", auth.CredentialMode)
+	}
+	if auth.CredentialSecret != "persist-secret" {
+		t.Fatalf("expected persistent reconnect auth secret, got %q", auth.CredentialSecret)
+	}
+}
+
 func TestSocketLifecycleNormalizationHandlesOrdinaryDisconnect(t *testing.T) {
 	transport := &inMemoryTransport{}
 	client, err := NewSocketIOClient(SocketIOClientConfig{

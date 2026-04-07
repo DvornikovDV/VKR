@@ -151,4 +151,23 @@ describe('edge-onboarding.service', () => {
 
         expect(telemetryProjection?.lifecycleState).toBe('Active');
     });
+
+    it('T012-3 keeps lifecycle state stable on activation rejection while recording rejection timestamp', () => {
+        const now = new Date('2026-04-06T10:00:00.000Z');
+        const rejection = applyLifecycleTransition({
+            lifecycleState: 'Active',
+            reason: 'activation_rejected',
+            at: now,
+            activation: {
+                firstActivatedAt: new Date('2026-04-05T00:00:00.000Z'),
+                lastActivatedAt: new Date('2026-04-06T09:00:00.000Z'),
+                lastRejectedAt: null,
+            },
+        });
+
+        expect(rejection.lifecycleState).toBe('Active');
+        expect(rejection.activation.firstActivatedAt?.toISOString()).toBe('2026-04-05T00:00:00.000Z');
+        expect(rejection.activation.lastActivatedAt?.toISOString()).toBe('2026-04-06T09:00:00.000Z');
+        expect(rejection.activation.lastRejectedAt?.toISOString()).toBe(now.toISOString());
+    });
 });
