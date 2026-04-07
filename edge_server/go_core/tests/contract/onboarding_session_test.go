@@ -97,3 +97,94 @@ func TestReproTaskT011OnboardingSessionLifecycle(t *testing.T) {
 		t.Fatalf("expected fresh process startup to require operator onboarding input again, got %q", freshAuth.CredentialSecret)
 	}
 }
+
+func TestReproTaskT011bConsumedOnboardingDoesNotCreateFutureTrustPathWithoutFreshOperatorInput(t *testing.T) {
+	t.Setenv("EDGE_ONBOARDING_SECRET", "stale-onboarding-secret")
+	onboardingPath := onboardingFixturePath(t, "onboarding-package.json")
+
+	firstProcess := runtime.New()
+	firstSession := runtime.NewBootstrapSession(firstProcess)
+	if err := firstSession.Bootstrap(runtime.BootstrapInput{
+		OnboardingPackagePath: onboardingPath,
+	}); err != nil {
+		t.Fatalf("bootstrap first process from operator onboarding input: %v", err)
+	}
+
+	if err := firstSession.HandleEdgeActivation(cloud.EdgeActivation{
+		EdgeID:         "507f1f77bcf86cd799439011",
+		LifecycleState: "Active",
+		PersistentCredential: cloud.PersistentCredential{
+			Version:  1,
+			Secret:   "persistent-secret-v1",
+			IssuedAt: time.Date(2026, time.April, 6, 10, 0, 0, 0, time.UTC),
+		},
+	}); err != nil {
+		t.Fatalf("handle edge activation: %v", err)
+	}
+
+	firstProcess.MarkUntrusted("trust_revoked", true)
+
+	if _, err := firstSession.BuildHandshakeAuth(); err == nil {
+		t.Fatal("expected consumed onboarding package to be unusable after trust loss without fresh operator input")
+	}
+}
+
+func TestReproTaskT014bOnboardingTimestampsAreOptionalAndValidatedOnlyWhenPresent(t *testing.T) {
+	t.Setenv("EDGE_ONBOARDING_SECRET", "optional-ts-secret")
+
+	testCases := []struct {
+		name    string
+		rawJSON string
+		wantErr bool
+	}{
+		{
+			name: "accepts onboarding package without issuedAt and expiresAt",
+			rawJSON: `{
+				"edgeId": "507f1f77bcf86cd799439011",
+				"onboardingSecret": "${EDGE_ONBOARDING_SECRET}"
+			}`,
+			wantErr: false,
+		},
+		{
+			name: "accepts onboarding package with issuedAt only",
+			rawJSON: `{
+				"edgeId": "507f1f77bcf86cd799439011",
+				"onboardingSecret": "${EDGE_ONBOARDING_SECRET}",
+				"issuedAt": "2026-04-07T09:00:00Z"
+			}`,
+			wantErr: false,
+		},
+		{
+			name: "accepts onboarding package with expiresAt only",
+			rawJSON: `{
+				"edgeId": "507f1f77bcf86cd799439011",
+				"onboardingSecret": "${EDGE_ONBOARDING_SECRET}",
+				"expiresAt": "2026-04-07T10:00:00Z"
+			}`,
+			wantErr: false,
+		},
+		{
+			name: "rejects onboarding package when both timestamps are present but inconsistent",
+			rawJSON: `{
+				"edgeId": "507f1f77bcf86cd799439011",
+				"onboardingSecret": "${EDGE_ONBOARDING_SECRET}",
+				"issuedAt": "2026-04-07T10:00:00Z",
+				"expiresAt": "2026-04-07T09:00:00Z"
+			}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := runtime.ParseOnboardingPackage([]byte(tc.rawJSON))
+			if tc.wantErr && err == nil {
+				t.Fatal("expected onboarding package parse to fail")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected onboarding package parse to succeed, got error: %v", err)
+			}
+		})
+	}
+}

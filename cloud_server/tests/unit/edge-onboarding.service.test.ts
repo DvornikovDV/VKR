@@ -170,4 +170,46 @@ describe('edge-onboarding.service', () => {
         expect(rejection.activation.lastActivatedAt?.toISOString()).toBe('2026-04-06T09:00:00.000Z');
         expect(rejection.activation.lastRejectedAt?.toISOString()).toBe(now.toISOString());
     });
+
+    it('T012b-1 keeps trust-loss and rejected reconnect outside any telemetry-ready future path', () => {
+        const revokedAt = new Date('2026-04-07T09:00:00.000Z');
+        const afterTrustRevoked = applyLifecycleTransition({
+            lifecycleState: 'Active',
+            reason: 'trust_revoked',
+            at: revokedAt,
+            activation: {
+                firstActivatedAt: new Date('2026-04-06T09:00:00.000Z'),
+                lastActivatedAt: new Date('2026-04-07T08:30:00.000Z'),
+                lastRejectedAt: null,
+            },
+        });
+
+        expect(afterTrustRevoked.lifecycleState).toBe('Re-onboarding Required');
+
+        const afterRejectedReconnect = applyLifecycleTransition({
+            lifecycleState: afterTrustRevoked.lifecycleState,
+            reason: 'activation_rejected',
+            at: new Date('2026-04-07T09:05:00.000Z'),
+            activation: afterTrustRevoked.activation,
+        });
+
+        expect(afterRejectedReconnect.lifecycleState).toBe('Re-onboarding Required');
+        expect(afterRejectedReconnect.activation.lastRejectedAt?.toISOString()).toBe(
+            '2026-04-07T09:05:00.000Z',
+        );
+
+        const telemetryProjection = mapEdgeToTelemetryReadyProjection({
+            _id: new Types.ObjectId(),
+            name: 'Edge Trust Loss',
+            lifecycleState: afterRejectedReconnect.lifecycleState,
+            availability: { online: false, lastSeenAt: null },
+            persistentCredential: createPersistentCredentialMetadata({
+                secretHash: 'persistent-hash',
+                previousVersion: 0,
+                issuedAt: revokedAt,
+            }),
+        });
+
+        expect(telemetryProjection).toBeNull();
+    });
 });

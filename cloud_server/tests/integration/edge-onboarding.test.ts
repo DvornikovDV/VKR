@@ -616,6 +616,61 @@ describe('Edge onboarding integration contract', () => {
             expect(reconnectError).toBe('persistent_credential_revoked');
         });
 
+        it('T012b-1 requires a newly issued onboarding package after trust loss and rejected reconnect attempts', async () => {
+            const { edgeId, onboardingSecret } = await registerEdge('Edge Future Trust Path Guard');
+            const { socket: onboardingSocket, activationPayload } = await connectOnboardingSocket(
+                edgeId,
+                onboardingSecret,
+            );
+            onboardingSocket.disconnect();
+
+            const revokeResponse = await request(app)
+                .post(`/api/edge-servers/${edgeId}/trust/revoke`)
+                .set('Authorization', `Bearer ${adminToken}`)
+                .send({});
+
+            expect(revokeResponse.status).toBe(200);
+            expect(revokeResponse.body.data?.lifecycleState).toBe('Re-onboarding Required');
+
+            const rejectedPersistentReconnect = await connectEdgeExpectError({
+                edgeId,
+                credentialMode: 'persistent',
+                credentialSecret: activationPayload.persistentCredential.secret,
+            });
+            expect(rejectedPersistentReconnect).toBe('persistent_credential_revoked');
+
+            const staleOnboardingBeforeReset = await connectEdgeExpectError({
+                edgeId,
+                credentialMode: 'onboarding',
+                credentialSecret: onboardingSecret,
+            });
+            expect(staleOnboardingBeforeReset).toBe('onboarding_package_reused');
+
+            const resetResponse = await request(app)
+                .post(`/api/edge-servers/${edgeId}/onboarding/reset`)
+                .set('Authorization', `Bearer ${adminToken}`)
+                .send({});
+
+            expect(resetResponse.status).toBe(200);
+            const renewedOnboardingSecret = resetResponse.body.data?.onboardingPackage
+                ?.onboardingSecret as string;
+            expect(typeof renewedOnboardingSecret).toBe('string');
+            expect(renewedOnboardingSecret).not.toBe(onboardingSecret);
+
+            const staleOnboardingAfterReset = await connectEdgeExpectError({
+                edgeId,
+                credentialMode: 'onboarding',
+                credentialSecret: onboardingSecret,
+            });
+            expect(staleOnboardingAfterReset).toBe('invalid_credential');
+
+            const { socket: reactivatedSocket, activationPayload: renewedActivation } =
+                await connectOnboardingSocket(edgeId, renewedOnboardingSecret);
+
+            expect(renewedActivation.lifecycleState).toBe('Active');
+            reactivatedSocket.disconnect();
+        });
+
         it('T023-2 blocks edge, disconnects active session, and rejects onboarding plus persistent credentials', async () => {
             const { edgeId, onboardingSecret } = await registerEdge('Edge Block Flow');
             const { socket: onboardingSocket, activationPayload } = await connectOnboardingSocket(

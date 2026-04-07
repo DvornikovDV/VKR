@@ -5,7 +5,9 @@ import (
 	"flag"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"edge_server/go_core/internal/runtime"
 )
@@ -38,7 +40,10 @@ func main() {
 		log.Printf("edge runtime started without onboarding package input; session remains untrusted until onboarding succeeds")
 	}
 
-	if err := runner.Run(context.Background()); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := runner.Run(ctx); err != nil {
 		log.Fatalf("edge runtime failed: %v", err)
 	}
 }

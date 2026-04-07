@@ -1,11 +1,14 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"edge_server/go_core/internal/cloud"
 )
+
+var ErrAuthPathUnavailable = errors.New("runtime auth path is unavailable")
 
 type BootstrapInput struct {
 	OnboardingPackagePath string
@@ -18,9 +21,15 @@ type BootstrapSession struct {
 }
 
 func NewBootstrapSession(runner *Runner) *BootstrapSession {
-	return &BootstrapSession{
+	session := &BootstrapSession{
 		runner: runner,
 	}
+
+	if runner != nil {
+		runner.attachBootstrapSession(session)
+	}
+
+	return session
 }
 
 func (s *BootstrapSession) Bootstrap(input BootstrapInput) error {
@@ -56,7 +65,7 @@ func (s *BootstrapSession) BuildHandshakeAuth() (cloud.HandshakeAuth, error) {
 	}
 
 	if s.onboarding == nil {
-		return cloud.HandshakeAuth{}, fmt.Errorf("onboarding package is required before handshake")
+		return cloud.HandshakeAuth{}, fmt.Errorf("%w: onboarding package is required before handshake", ErrAuthPathUnavailable)
 	}
 
 	auth, err := cloud.BuildOnboardingHandshakeAuth(s.onboarding.EdgeID, s.onboarding.OnboardingSecret)
@@ -86,7 +95,14 @@ func (s *BootstrapSession) HandleEdgeActivation(event cloud.EdgeActivation) erro
 		)
 	}
 
-	return s.runner.ActivateTrustedSession(event.EdgeID, event.PersistentCredential.Secret)
+	if err := s.runner.ActivateTrustedSession(event.EdgeID, event.PersistentCredential.Secret); err != nil {
+		return err
+	}
+
+	// A successful activation consumes operator onboarding input in this session.
+	s.onboarding = nil
+
+	return nil
 }
 
 func loadOnboardingFromInput(input BootstrapInput) (OnboardingPackage, error) {

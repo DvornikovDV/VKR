@@ -11,8 +11,8 @@ import (
 type OnboardingPackage struct {
 	EdgeID           string
 	OnboardingSecret string
-	IssuedAt         time.Time
-	ExpiresAt        time.Time
+	IssuedAt         *time.Time
+	ExpiresAt        *time.Time
 }
 
 type onboardingPackageJSON struct {
@@ -54,31 +54,38 @@ func ParseOnboardingPackage(raw []byte) (OnboardingPackage, error) {
 		return OnboardingPackage{}, fmt.Errorf("onboarding package onboardingSecret is required")
 	}
 
-	issuedAtRaw := strings.TrimSpace(payload.IssuedAt)
-	if issuedAtRaw == "" {
-		return OnboardingPackage{}, fmt.Errorf("onboarding package issuedAt is required")
-	}
-	issuedAt, err := time.Parse(time.RFC3339, issuedAtRaw)
+	issuedAt, err := parseOptionalRFC3339(payload.IssuedAt, "issuedAt")
 	if err != nil {
-		return OnboardingPackage{}, fmt.Errorf("onboarding package issuedAt must be RFC3339: %w", err)
+		return OnboardingPackage{}, fmt.Errorf("onboarding package %w", err)
 	}
 
-	expiresAtRaw := strings.TrimSpace(payload.ExpiresAt)
-	if expiresAtRaw == "" {
-		return OnboardingPackage{}, fmt.Errorf("onboarding package expiresAt is required")
-	}
-	expiresAt, err := time.Parse(time.RFC3339, expiresAtRaw)
+	expiresAt, err := parseOptionalRFC3339(payload.ExpiresAt, "expiresAt")
 	if err != nil {
-		return OnboardingPackage{}, fmt.Errorf("onboarding package expiresAt must be RFC3339: %w", err)
+		return OnboardingPackage{}, fmt.Errorf("onboarding package %w", err)
 	}
-	if !expiresAt.After(issuedAt) {
+	if issuedAt != nil && expiresAt != nil && !expiresAt.After(*issuedAt) {
 		return OnboardingPackage{}, fmt.Errorf("onboarding package expiresAt must be after issuedAt")
 	}
 
 	return OnboardingPackage{
 		EdgeID:           edgeID,
 		OnboardingSecret: onboardingSecret,
-		IssuedAt:         issuedAt.UTC(),
-		ExpiresAt:        expiresAt.UTC(),
+		IssuedAt:         issuedAt,
+		ExpiresAt:        expiresAt,
 	}, nil
+}
+
+func parseOptionalRFC3339(raw string, fieldName string) (*time.Time, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+
+	parsed, err := time.Parse(time.RFC3339, trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be RFC3339: %w", fieldName, err)
+	}
+
+	normalized := parsed.UTC()
+	return &normalized, nil
 }

@@ -84,6 +84,14 @@ type EdgeDisconnect struct {
 	Reason DisconnectReason
 }
 
+func (d EdgeDisconnect) RequiresCredentialReset() bool {
+	return d.Reason == DisconnectReasonTrustRevoked || d.Reason == DisconnectReasonBlocked
+}
+
+func (d EdgeDisconnect) AllowsReconnectAttempt() bool {
+	return d.Reason != DisconnectReasonClientRequested
+}
+
 func (a EdgeActivation) PersistentReconnectAuth() (HandshakeAuth, error) {
 	if strings.TrimSpace(a.EdgeID) == "" {
 		return HandshakeAuth{}, fmt.Errorf("edge activation edgeId is required")
