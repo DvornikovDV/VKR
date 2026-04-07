@@ -9,15 +9,39 @@ import (
 	"strings"
 	"syscall"
 
+	"edge_server/go_core/internal/cloud"
+	"edge_server/go_core/internal/config"
 	"edge_server/go_core/internal/runtime"
 )
 
 func main() {
+	configPathFlag := flag.String("config", "", "Path to operator-provided runtime config YAML")
 	onboardingPathFlag := flag.String("onboarding-package", "", "Path to operator-provided onboarding package JSON")
 	onboardingJSONFlag := flag.String("onboarding-package-json", "", "Inline operator-provided onboarding package JSON")
 	flag.Parse()
 
-	runner := runtime.New()
+	configPath := firstNonEmpty(
+		*configPathFlag,
+		os.Getenv("EDGE_CONFIG_PATH"),
+	)
+	if strings.TrimSpace(configPath) == "" {
+		log.Fatalf("edge runtime requires --config or EDGE_CONFIG_PATH to construct the cloud transport")
+	}
+
+	cfg, err := config.LoadFromFile(configPath)
+	if err != nil {
+		log.Fatalf("edge runtime config load failed: %v", err)
+	}
+
+	transport, err := cloud.NewWebSocketTransport(cloud.WebSocketTransportConfig{
+		CloudURL:  cfg.Cloud.URL,
+		Namespace: cfg.Cloud.Namespace,
+	})
+	if err != nil {
+		log.Fatalf("edge runtime transport setup failed: %v", err)
+	}
+
+	runner := runtime.NewWithTransport(transport)
 	bootstrap := runtime.NewBootstrapSession(runner)
 
 	bootstrapInput := runtime.BootstrapInput{
@@ -36,8 +60,6 @@ func main() {
 		if err := bootstrap.Bootstrap(bootstrapInput); err != nil {
 			log.Fatalf("edge runtime bootstrap failed: %v", err)
 		}
-	} else {
-		log.Printf("edge runtime started without onboarding package input; session remains untrusted until onboarding succeeds")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

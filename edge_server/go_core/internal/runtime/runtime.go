@@ -4,26 +4,42 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
-	"time"
 
 	"edge_server/go_core/internal/cloud"
 )
 
 type Runner struct {
-	state             *RuntimeState
-	mu                sync.RWMutex
-	bootstrap         *BootstrapSession
-	transport         cloud.Transport
-	authRetryInterval time.Duration
+	state     *RuntimeState
+	mu        sync.RWMutex
+	bootstrap *BootstrapSession
+	transport cloud.Transport
 }
 
 func New() *Runner {
 	return &Runner{
-		state:             NewRuntimeState(),
-		transport:         newInProcessTransport(),
-		authRetryInterval: 100 * time.Millisecond,
+		state: NewRuntimeState(),
 	}
+}
+
+func NewWithTransport(transport cloud.Transport) *Runner {
+	runner := New()
+	runner.transport = transport
+	return runner
+}
+
+var ErrCloudTransportUnavailable = errors.New("cloud transport is not configured")
+
+func NewMissingAuthPathError(lastReason *string) error {
+	if lastReason != nil && strings.TrimSpace(*lastReason) != "" {
+		return fmt.Errorf(
+			"runtime has no valid current auth path after %s; restart with fresh operator onboarding input",
+			strings.TrimSpace(*lastReason),
+		)
+	}
+
+	return fmt.Errorf("runtime has no valid current auth path; restart with fresh operator onboarding input")
 }
 
 func (r *Runner) StateSnapshot() SessionStateSnapshot {
@@ -46,16 +62,6 @@ func (r *Runner) TelemetryAllowed() bool {
 	return r.state.TelemetryAllowed()
 }
 
-func (r *Runner) SetCloudTransport(transport cloud.Transport) {
-	if r == nil || transport == nil {
-		return
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.transport = transport
-}
-
 func (r *Runner) attachBootstrapSession(session *BootstrapSession) {
 	if r == nil {
 		return
@@ -73,14 +79,14 @@ func (r *Runner) currentBootstrapSession() *BootstrapSession {
 	return r.bootstrap
 }
 
-func (r *Runner) currentTransport() cloud.Transport {
+func (r *Runner) currentTransport() (cloud.Transport, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	if r.transport == nil {
-		return newInProcessTransport()
+		return nil, ErrCloudTransportUnavailable
 	}
-	return r.transport
+	return r.transport, nil
 }
 
 func (r *Runner) Run(ctx context.Context) error {
@@ -94,13 +100,16 @@ func (r *Runner) Run(ctx context.Context) error {
 		return nil
 	}
 
-	transport := r.currentTransport()
-	reconnectRequested := make(chan struct{}, 1)
+	transport, err := r.currentTransport()
+	if err != nil {
+		return err
+	}
 
 	var (
 		client       *cloud.SocketIOClient
 		expectedEdge string
 	)
+	lifecycleEvents := make(chan string, 8)
 
 	for {
 		select {
@@ -115,13 +124,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		auth, err := bootstrap.BuildHandshakeAuth()
 		if err != nil {
 			if errors.Is(err, ErrAuthPathUnavailable) {
-				if err := waitForRetry(ctx, r.authRetryInterval); err != nil {
-					if client != nil {
-						_ = client.Disconnect()
-					}
-					return nil
-				}
-				continue
+				return NewMissingAuthPathError(r.state.Snapshot().LastReason)
 			}
 
 			return fmt.Errorf("build runtime handshake auth: %w", err)
@@ -141,8 +144,10 @@ func (r *Runner) Run(ctx context.Context) error {
 				OnActivation: func(event cloud.EdgeActivation) {
 					if err := bootstrap.HandleEdgeActivation(event); err != nil {
 						r.MarkUntrusted("activation_rejected", true)
-						signalReconnect(reconnectRequested)
+						signalLifecycleEvent(lifecycleEvents, "activation_rejected")
+						return
 					}
+					signalLifecycleEvent(lifecycleEvents, "activation")
 				},
 				OnDisconnect: func(event cloud.EdgeDisconnect) {
 					reason := string(event.Reason)
@@ -153,142 +158,48 @@ func (r *Runner) Run(ctx context.Context) error {
 						r.MarkDisconnected(reason)
 					}
 
-					if event.AllowsReconnectAttempt() {
-						signalReconnect(reconnectRequested)
-					}
+					signalLifecycleEvent(lifecycleEvents, "disconnect")
 				},
-				OnConnectError: func(code cloud.ConnectErrorCode) {
-					r.MarkUntrusted(string(code), true)
-					signalReconnect(reconnectRequested)
-				},
+				OnConnectError: func(code cloud.ConnectErrorCode) {},
 				OnProtocolError: func(protocolErr cloud.ProtocolError) {
 					r.MarkUntrusted(protocolErr.Event, true)
-					signalReconnect(reconnectRequested)
+					signalLifecycleEvent(lifecycleEvents, "protocol_error")
 				},
 			}); err != nil {
 				return fmt.Errorf("register lifecycle handlers: %w", err)
 			}
 		}
 
-		drainSignal(reconnectRequested)
 		if err := client.Connect(ctx, auth); err != nil {
-			r.MarkUntrusted(string(cloud.NormalizeConnectError(err)), true)
-			if err := waitForRetry(ctx, r.authRetryInterval); err != nil {
+			var connectErr cloud.ConnectError
+			if errors.As(err, &connectErr) {
+				r.MarkUntrusted(string(connectErr.Code), true)
+				continue
+			}
+
+			return fmt.Errorf("connect runtime to cloud transport: %w", err)
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
 				_ = client.Disconnect()
 				return nil
+			case event := <-lifecycleEvents:
+				if event == "activation" {
+					continue
+				}
+				goto nextAttempt
 			}
-			continue
 		}
 
-		select {
-		case <-ctx.Done():
-			_ = client.Disconnect()
-			return nil
-		case <-reconnectRequested:
-		}
+	nextAttempt:
 	}
 }
 
-func waitForRetry(ctx context.Context, retryInterval time.Duration) error {
-	if retryInterval <= 0 {
-		retryInterval = 100 * time.Millisecond
-	}
-
-	timer := time.NewTimer(retryInterval)
-	defer timer.Stop()
-
+func signalLifecycleEvent(ch chan string, event string) {
 	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
-		return nil
-	}
-}
-
-func signalReconnect(ch chan struct{}) {
-	select {
-	case ch <- struct{}{}:
+	case ch <- event:
 	default:
 	}
-}
-
-func drainSignal(ch chan struct{}) {
-	for {
-		select {
-		case <-ch:
-		default:
-			return
-		}
-	}
-}
-
-type inProcessTransport struct {
-	mu               sync.RWMutex
-	onEdgeActivation func(any)
-	onEdgeDisconnect func(any)
-	onConnect        func() error
-	onConnectError   func(error)
-	onDisconnect     func(string)
-}
-
-func newInProcessTransport() *inProcessTransport {
-	return &inProcessTransport{}
-}
-
-func (t *inProcessTransport) Connect(_ context.Context, _ cloud.HandshakeAuth) error {
-	t.mu.RLock()
-	handler := t.onConnect
-	t.mu.RUnlock()
-
-	if handler != nil {
-		return handler()
-	}
-
-	return nil
-}
-
-func (t *inProcessTransport) Disconnect() error {
-	t.mu.RLock()
-	handler := t.onDisconnect
-	t.mu.RUnlock()
-
-	if handler != nil {
-		handler("client_requested")
-	}
-
-	return nil
-}
-
-func (t *inProcessTransport) Emit(_ string, _ any) error {
-	return nil
-}
-
-func (t *inProcessTransport) OnEdgeActivation(handler func(any)) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.onEdgeActivation = handler
-}
-
-func (t *inProcessTransport) OnEdgeDisconnect(handler func(any)) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.onEdgeDisconnect = handler
-}
-
-func (t *inProcessTransport) OnConnect(handler func() error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.onConnect = handler
-}
-
-func (t *inProcessTransport) OnConnectError(handler func(error)) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.onConnectError = handler
-}
-
-func (t *inProcessTransport) OnDisconnect(handler func(string)) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.onDisconnect = handler
 }

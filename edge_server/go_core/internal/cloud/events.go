@@ -84,6 +84,23 @@ type EdgeDisconnect struct {
 	Reason DisconnectReason
 }
 
+type ConnectError struct {
+	Code ConnectErrorCode
+}
+
+func (e ConnectError) Error() string {
+	return string(e.Code)
+}
+
+func NewConnectError(message string) error {
+	code, ok := parseConnectErrorCode(message)
+	if !ok {
+		return errors.New(strings.TrimSpace(message))
+	}
+
+	return ConnectError{Code: code}
+}
+
 func (d EdgeDisconnect) RequiresCredentialReset() bool {
 	return d.Reason == DisconnectReasonTrustRevoked || d.Reason == DisconnectReasonBlocked
 }
@@ -202,6 +219,10 @@ func NormalizeConnectError(err error) ConnectErrorCode {
 	}
 
 	for current := err; current != nil; current = errors.Unwrap(current) {
+		var typed ConnectError
+		if errors.As(current, &typed) {
+			return typed.Code
+		}
 		code, ok := parseConnectErrorCode(current.Error())
 		if ok {
 			return code

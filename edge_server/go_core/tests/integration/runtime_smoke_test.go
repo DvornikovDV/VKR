@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 
 	"edge_server/go_core/internal/cloud"
 	"edge_server/go_core/internal/runtime"
@@ -125,218 +130,144 @@ func TestRuntimeSmokeFixtureDoesNotRequirePersistedRuntimeStateFiles(t *testing.
 	}
 }
 
-type scriptedLifecycleTransport struct {
-	mu              sync.Mutex
-	connectAttempts []cloud.HandshakeAuth
-	connectEvents   chan cloud.HandshakeAuth
-	disconnectSeen  chan struct{}
-	rejectSeen      chan struct{}
-	disconnectOnce  sync.Once
-	rejectOnce      sync.Once
+type fakeSocketIOServer struct {
+	t *testing.T
 
-	onEdgeActivation func(payload any)
-	onEdgeDisconnect func(payload any)
-	onConnect        func() error
-	onConnectError   func(err error)
-	onDisconnect     func(reason string)
+	mu               sync.Mutex
+	authAttempts     []cloud.HandshakeAuth
+	authEvents       chan cloud.HandshakeAuth
+	persistentError  string
+	persistentSecret string
+
+	server *httptest.Server
 }
 
-func newScriptedLifecycleTransport() *scriptedLifecycleTransport {
-	return &scriptedLifecycleTransport{
-		connectEvents:  make(chan cloud.HandshakeAuth, 8),
-		disconnectSeen: make(chan struct{}, 1),
-		rejectSeen:     make(chan struct{}, 1),
-	}
-}
+func newFakeSocketIOServer(t *testing.T) *fakeSocketIOServer {
+	t.Helper()
 
-func (t *scriptedLifecycleTransport) Connect(_ context.Context, auth cloud.HandshakeAuth) error {
-	if err := auth.Validate(); err != nil {
-		return err
+	srv := &fakeSocketIOServer{
+		t:                t,
+		authEvents:       make(chan cloud.HandshakeAuth, 8),
+		persistentError:  string(cloud.ConnectErrorPersistentCredentialRevoked),
+		persistentSecret: "persistent-from-activation",
 	}
 
-	t.mu.Lock()
-	t.connectAttempts = append(t.connectAttempts, auth)
-	t.mu.Unlock()
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(_ *http.Request) bool { return true },
+	}
 
-	t.connectEvents <- auth
-
-	if t.onConnect != nil {
-		if err := t.onConnect(); err != nil {
-			return err
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/socket.io/" {
+			http.NotFound(w, r)
+			return
 		}
-	}
 
-	switch auth.CredentialMode {
-	case cloud.CredentialModeOnboarding:
-		go func(edgeID string) {
-			time.Sleep(25 * time.Millisecond)
-			if t.onEdgeActivation != nil {
-				t.onEdgeActivation(map[string]any{
-					"edgeId":         edgeID,
-					"lifecycleState": "Active",
-					"persistentCredential": map[string]any{
-						"version":  2,
-						"secret":   "persistent-from-activation",
-						"issuedAt": "2026-04-07T10:00:00Z",
-					},
-				})
-			}
-
-			time.Sleep(25 * time.Millisecond)
-			if t.onDisconnect != nil {
-				t.onDisconnect("transport close")
-			}
-			t.disconnectOnce.Do(func() {
-				t.disconnectSeen <- struct{}{}
-			})
-		}(auth.EdgeID)
-	case cloud.CredentialModePersistent:
-		go func() {
-			time.Sleep(25 * time.Millisecond)
-			if t.onConnectError != nil {
-				t.onConnectError(errors.New("persistent_credential_revoked"))
-			}
-			t.rejectOnce.Do(func() {
-				t.rejectSeen <- struct{}{}
-			})
-		}()
-	}
-
-	return nil
-}
-
-func (t *scriptedLifecycleTransport) Disconnect() error {
-	if t.onDisconnect != nil {
-		t.onDisconnect("client_requested")
-	}
-
-	return nil
-}
-
-func (t *scriptedLifecycleTransport) Emit(_ string, _ any) error {
-	return nil
-}
-
-func (t *scriptedLifecycleTransport) OnEdgeActivation(handler func(any)) {
-	t.onEdgeActivation = handler
-}
-
-func (t *scriptedLifecycleTransport) OnEdgeDisconnect(handler func(any)) {
-	t.onEdgeDisconnect = handler
-}
-
-func (t *scriptedLifecycleTransport) OnConnect(handler func() error) {
-	t.onConnect = handler
-}
-
-func (t *scriptedLifecycleTransport) OnConnectError(handler func(error)) {
-	t.onConnectError = handler
-}
-
-func (t *scriptedLifecycleTransport) OnDisconnect(handler func(string)) {
-	t.onDisconnect = handler
-}
-
-func TestReproTaskT016bRunnerRunExecutesHandshakeLifecycleAndReconnectPath(t *testing.T) {
-	t.Setenv("EDGE_ONBOARDING_SECRET", "smoke-run-secret")
-	onboardingPath := runtimeFixturePath(t, "onboarding-package.json")
-
-	runner := runtime.New()
-	transport := newScriptedLifecycleTransport()
-	runner.SetCloudTransport(transport)
-
-	bootstrap := runtime.NewBootstrapSession(runner)
-	if err := bootstrap.Bootstrap(runtime.BootstrapInput{
-		OnboardingPackagePath: onboardingPath,
-	}); err != nil {
-		t.Fatalf("bootstrap runtime from operator onboarding package: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	runDone := make(chan error, 1)
-	go func() {
-		runDone <- runner.Run(ctx)
-	}()
-
-	firstAttempt := <-transport.connectEvents
-	if firstAttempt.CredentialMode != cloud.CredentialModeOnboarding {
-		t.Fatalf("expected first runtime connect to use onboarding mode, got %q", firstAttempt.CredentialMode)
-	}
-
-	select {
-	case <-transport.disconnectSeen:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for ordinary socket disconnect in runtime loop")
-	}
-
-	snapshotAfterDisconnect := runner.StateSnapshot()
-	if snapshotAfterDisconnect.Trusted {
-		t.Fatalf("expected ordinary socket disconnect to stop trusted execution immediately, got %+v", snapshotAfterDisconnect)
-	}
-	if snapshotAfterDisconnect.Connected {
-		t.Fatalf("expected ordinary socket disconnect to clear connected state, got %+v", snapshotAfterDisconnect)
-	}
-
-	secondAttempt := <-transport.connectEvents
-	if secondAttempt.CredentialMode != cloud.CredentialModePersistent {
-		t.Fatalf("expected reconnect attempt to use persistent credential mode, got %q", secondAttempt.CredentialMode)
-	}
-	if secondAttempt.CredentialSecret != "persistent-from-activation" {
-		t.Fatalf(
-			"expected reconnect attempt to reuse persistent credential from activation, got %q",
-			secondAttempt.CredentialSecret,
-		)
-	}
-
-	select {
-	case <-transport.rejectSeen:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for rejected reconnect signal in runtime loop")
-	}
-
-	snapshotAfterRejectedReconnect := runner.StateSnapshot()
-	if snapshotAfterRejectedReconnect.Trusted {
-		t.Fatalf(
-			"expected rejected reconnect to keep runtime untrusted, got %+v",
-			snapshotAfterRejectedReconnect,
-		)
-	}
-	if snapshotAfterRejectedReconnect.CredentialMode != runtime.CredentialModeNone {
-		t.Fatalf(
-			"expected rejected reconnect to clear credential mode to none, got %q",
-			snapshotAfterRejectedReconnect.CredentialMode,
-		)
-	}
-	if snapshotAfterRejectedReconnect.PersistentCredentialSecret != nil {
-		t.Fatalf(
-			"expected rejected reconnect to clear persistent credential secret, got %v",
-			snapshotAfterRejectedReconnect.PersistentCredentialSecret,
-		)
-	}
-
-	cancel()
-
-	select {
-	case err := <-runDone:
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			t.Fatalf("runner run returned unexpected error: %v", err)
+			return
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for runner shutdown after context cancellation")
+		defer conn.Close()
+
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(`0{"sid":"test-sid","upgrades":[],"pingInterval":25000,"pingTimeout":20000,"maxPayload":1000000}`)); err != nil {
+			return
+		}
+
+		_, rawMessage, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		auth, err := parseNamespaceConnectMessage(rawMessage)
+		if err != nil {
+			t.Errorf("parse namespace connect message: %v", err)
+			return
+		}
+
+		srv.mu.Lock()
+		srv.authAttempts = append(srv.authAttempts, auth)
+		attempt := len(srv.authAttempts)
+		srv.mu.Unlock()
+
+		srv.authEvents <- auth
+
+		switch attempt {
+		case 1:
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(`40/edge,{"sid":"edge-socket-1"}`)); err != nil {
+				return
+			}
+
+			activationMessage := fmt.Sprintf(
+				`42/edge,["edge_activation",{"edgeId":%q,"lifecycleState":"Active","persistentCredential":{"version":1,"secret":%q,"issuedAt":"2026-04-07T10:00:00Z"}}]`,
+				auth.EdgeID,
+				srv.persistentSecret,
+			)
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(activationMessage)); err != nil {
+				return
+			}
+
+			time.Sleep(50 * time.Millisecond)
+			_ = conn.Close()
+		case 2:
+			connectErrorMessage := fmt.Sprintf(`44/edge,{"message":%q}`, srv.persistentError)
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(connectErrorMessage)); err != nil {
+				return
+			}
+			time.Sleep(25 * time.Millisecond)
+		default:
+			t.Errorf("unexpected connect attempt #%d with auth %+v", attempt, auth)
+		}
+	})
+
+	srv.server = httptest.NewServer(handler)
+	return srv
+}
+
+func (s *fakeSocketIOServer) Close() {
+	if s.server != nil {
+		s.server.Close()
 	}
 }
 
-func TestReproTaskT011bRealRuntimeEntryPointDoesNotExitImmediatelyAfterBootstrap(t *testing.T) {
+func (s *fakeSocketIOServer) URL() string {
+	return s.server.URL
+}
+
+func (s *fakeSocketIOServer) WaitForAttempt(t *testing.T, timeout time.Duration) cloud.HandshakeAuth {
+	t.Helper()
+
+	select {
+	case auth := <-s.authEvents:
+		return auth
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for runtime handshake attempt")
+		return cloud.HandshakeAuth{}
+	}
+}
+
+func parseNamespaceConnectMessage(raw []byte) (cloud.HandshakeAuth, error) {
+	message := string(raw)
+	if !strings.HasPrefix(message, "40/edge,") {
+		return cloud.HandshakeAuth{}, fmt.Errorf("expected namespace connect packet, got %q", message)
+	}
+
+	var payload struct {
+		EdgeID           string               `json:"edgeId"`
+		CredentialMode   cloud.CredentialMode `json:"credentialMode"`
+		CredentialSecret string               `json:"credentialSecret"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(message, "40/edge,")), &payload); err != nil {
+		return cloud.HandshakeAuth{}, fmt.Errorf("parse namespace connect payload: %w", err)
+	}
+
+	return cloud.BuildHandshakeAuth(payload.EdgeID, payload.CredentialMode, payload.CredentialSecret)
+}
+
+func buildRuntimeBinary(t *testing.T) string {
+	t.Helper()
+
 	goCoreRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatalf("resolve go_core root: %v", err)
-	}
-
-	onboardingPath, err := filepath.Abs(runtimeFixturePath(t, "onboarding-package.json"))
-	if err != nil {
-		t.Fatalf("resolve onboarding fixture path: %v", err)
 	}
 
 	binaryPath := filepath.Join(t.TempDir(), "edge-runtime-test.exe")
@@ -347,47 +278,96 @@ func TestReproTaskT011bRealRuntimeEntryPointDoesNotExitImmediatelyAfterBootstrap
 		t.Fatalf("build edge runtime binary: %v\n%s", err, string(buildOutput))
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	return binaryPath
+}
+
+func writeRuntimeConfigFixture(t *testing.T, cloudURL string) string {
+	t.Helper()
+
+	configFixturePath := runtimeFixturePath(t, "config.yaml")
+	configBytes, err := os.ReadFile(configFixturePath)
+	if err != nil {
+		t.Fatalf("read config fixture: %v", err)
+	}
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, configBytes, 0o600); err != nil {
+		t.Fatalf("write temp config fixture: %v", err)
+	}
+
+	t.Setenv("CLOUD_SOCKET_URL", cloudURL)
+	return configPath
+}
+
+func TestReproTaskT016bProductionMainEntrypointUsesRealCloudTransportLifecycle(t *testing.T) {
+	socketServer := newFakeSocketIOServer(t)
+	defer socketServer.Close()
+
+	binaryPath := buildRuntimeBinary(t)
+	configPath := writeRuntimeConfigFixture(t, socketServer.URL())
+
+	onboardingPath := runtimeFixturePath(t, "onboarding-package.json")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	runCmd := exec.CommandContext(ctx, binaryPath)
-	runCmd.Dir = goCoreRoot
-	runCmd.Env = append(
-		os.Environ(),
-		"EDGE_ONBOARDING_SECRET=smoke-run-secret",
-		"EDGE_ONBOARDING_PACKAGE_PATH="+onboardingPath,
-	)
+	cmd := exec.CommandContext(ctx, binaryPath, "--config", configPath, "--onboarding-package", onboardingPath)
+	cmd.Env = append(os.Environ(), "EDGE_ONBOARDING_SECRET=smoke-run-secret", "CLOUD_SOCKET_URL="+socketServer.URL())
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	runCmd.Stdout = &stdout
-	runCmd.Stderr = &stderr
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 
-	if err := runCmd.Start(); err != nil {
+	if err := cmd.Start(); err != nil {
 		t.Fatalf("start edge runtime binary: %v", err)
 	}
 
-	done := make(chan error, 1)
-	go func() {
-		done <- runCmd.Wait()
-	}()
-
-	select {
-	case err := <-done:
-		t.Fatalf(
-			"expected real runtime entrypoint to stay alive past bootstrap, but it exited early: %v\nstdout:\n%s\nstderr:\n%s",
-			err,
-			stdout.String(),
-			stderr.String(),
-		)
-	case <-time.After(300 * time.Millisecond):
+	firstAttempt := socketServer.WaitForAttempt(t, 2*time.Second)
+	if firstAttempt.CredentialMode != cloud.CredentialModeOnboarding {
+		t.Fatalf("expected first production connect attempt to use onboarding mode, got %q", firstAttempt.CredentialMode)
 	}
 
-	cancel()
+	secondAttempt := socketServer.WaitForAttempt(t, 2*time.Second)
+	if secondAttempt.CredentialMode != cloud.CredentialModePersistent {
+		t.Fatalf("expected same-process reconnect to use persistent credential mode, got %q", secondAttempt.CredentialMode)
+	}
+	if secondAttempt.CredentialSecret != socketServer.persistentSecret {
+		t.Fatalf(
+			"expected reconnect attempt to reuse persistent credential from activation, got %q",
+			secondAttempt.CredentialSecret,
+		)
+	}
 
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("timed out waiting for edge runtime process shutdown after cancellation")
+	err := cmd.Wait()
+	if err == nil {
+		t.Fatalf("expected runtime to fail fast after rejected reconnect with no valid auth path\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "fresh operator onboarding input") {
+		t.Fatalf("expected operator-facing fail-fast error about fresh onboarding input, got stderr:\n%s", stderr.String())
+	}
+}
+
+func TestReproTaskT016bProductionMainEntrypointFailsFastWithoutValidAuthPath(t *testing.T) {
+	binaryPath := buildRuntimeBinary(t)
+	configPath := writeRuntimeConfigFixture(t, "http://127.0.0.1:65535")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binaryPath, "--config", configPath)
+	cmd.Env = append(os.Environ(), "CLOUD_SOCKET_URL=http://127.0.0.1:65535")
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err == nil {
+		t.Fatalf("expected runtime without any valid auth path to fail fast\nstdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "no valid current auth path") {
+		t.Fatalf("expected clear fail-fast auth-path error, got stderr:\n%s", stderr.String())
 	}
 }
