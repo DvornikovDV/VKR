@@ -64,3 +64,23 @@ func MapDisconnectReason(reason cloud.DisconnectReason) RuntimeOutcome {
 		}
 	}
 }
+
+func MapTelemetryDiscardState(trusted bool, connected bool) (RuntimeOutcome, bool) {
+	if trusted && connected {
+		return RuntimeOutcome{}, false
+	}
+
+	if !connected {
+		return RuntimeOutcome{
+			Code:           "telemetry_discarded_disconnected",
+			TrustMode:      "disconnected",
+			OperatorAction: "retry_connection",
+		}, true
+	}
+
+	return RuntimeOutcome{
+		Code:           "telemetry_discarded_untrusted",
+		TrustMode:      "re_onboarding_required",
+		OperatorAction: "require_re_onboarding",
+	}, true
+}

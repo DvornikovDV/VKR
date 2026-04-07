@@ -12,6 +12,7 @@ import (
 	"edge_server/go_core/internal/cloud"
 	"edge_server/go_core/internal/config"
 	"edge_server/go_core/internal/runtime"
+	"edge_server/go_core/internal/runtimeapp"
 )
 
 func main() {
@@ -41,8 +42,15 @@ func main() {
 		log.Fatalf("edge runtime transport setup failed: %v", err)
 	}
 
-	runner := runtime.NewWithTransport(transport)
-	bootstrap := runtime.NewBootstrapSession(runner)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	process, err := runtimeapp.New(ctx, cfg, transport)
+	if err != nil {
+		log.Fatalf("edge runtime app setup failed: %v", err)
+	}
+	runner := process.Runner
+	bootstrap := process.Bootstrap
 
 	bootstrapInput := runtime.BootstrapInput{
 		OnboardingPackagePath: firstNonEmpty(
@@ -61,9 +69,6 @@ func main() {
 			log.Fatalf("edge runtime bootstrap failed: %v", err)
 		}
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	if err := runner.Run(ctx); err != nil {
 		log.Fatalf("edge runtime failed: %v", err)

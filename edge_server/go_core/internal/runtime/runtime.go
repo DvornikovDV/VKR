@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"edge_server/go_core/internal/cloud"
+	"edge_server/go_core/internal/source"
 )
 
 type Runner struct {
@@ -15,6 +16,7 @@ type Runner struct {
 	mu        sync.RWMutex
 	bootstrap *BootstrapSession
 	transport cloud.Transport
+	telemetry *TelemetryPipeline
 }
 
 func New() *Runner {
@@ -52,10 +54,16 @@ func (r *Runner) ActivateTrustedSession(edgeID string, persistentSecret string) 
 
 func (r *Runner) MarkDisconnected(reason string) {
 	r.state.MarkDisconnected(reason)
+	if telemetry := r.currentTelemetryPipeline(); telemetry != nil {
+		telemetry.Reset()
+	}
 }
 
 func (r *Runner) MarkUntrusted(reason string, clearCredential bool) {
 	r.state.MarkUntrusted(reason, clearCredential)
+	if telemetry := r.currentTelemetryPipeline(); telemetry != nil {
+		telemetry.Reset()
+	}
 }
 
 func (r *Runner) TelemetryAllowed() bool {
@@ -87,6 +95,60 @@ func (r *Runner) currentTransport() (cloud.Transport, error) {
 		return nil, ErrCloudTransportUnavailable
 	}
 	return r.transport, nil
+}
+
+func (r *Runner) currentTelemetryPipeline() *TelemetryPipeline {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.telemetry
+}
+
+func (r *Runner) BindTelemetryReadings(
+	ctx context.Context,
+	readings <-chan source.Reading,
+	intervalMs int,
+	maxReadings int,
+) error {
+	if ctx == nil {
+		return errors.New("telemetry context is required")
+	}
+	if readings == nil {
+		return errors.New("telemetry readings channel is required")
+	}
+
+	transport, err := r.currentTransport()
+	if err != nil {
+		return err
+	}
+
+	client, err := cloud.NewTelemetryClient(transport)
+	if err != nil {
+		return fmt.Errorf("create telemetry client: %w", err)
+	}
+
+	pipeline, err := NewTelemetryPipeline(TelemetryPipelineConfig{
+		Readings:      readings,
+		IntervalMs:    intervalMs,
+		MaxReadings:   maxReadings,
+		Client:        client,
+		StateSnapshot: r.StateSnapshot,
+	})
+	if err != nil {
+		return fmt.Errorf("create telemetry pipeline: %w", err)
+	}
+
+	r.mu.Lock()
+	if r.telemetry != nil {
+		r.mu.Unlock()
+		return errors.New("runtime telemetry path is already bound")
+	}
+	r.telemetry = pipeline
+	r.mu.Unlock()
+
+	go pipeline.Run(ctx)
+
+	return nil
 }
 
 func (r *Runner) Run(ctx context.Context) error {

@@ -71,6 +71,20 @@ func TestOutcomeMappingFromCloudSignals(t *testing.T) {
 			wantTrust:  "disconnected",
 			wantAction: "retry_connection",
 		},
+		{
+			name:       "telemetry discard while disconnected maps to disconnected trust mode",
+			got:        telemetryDiscardOutcome(t, false, false),
+			wantCode:   "telemetry_discarded_disconnected",
+			wantTrust:  "disconnected",
+			wantAction: "retry_connection",
+		},
+		{
+			name:       "telemetry discard while untrusted maps to re-onboarding-required trust mode",
+			got:        telemetryDiscardOutcome(t, false, true),
+			wantCode:   "telemetry_discarded_untrusted",
+			wantTrust:  "re_onboarding_required",
+			wantAction: "require_re_onboarding",
+		},
 	}
 
 	for _, tc := range cases {
@@ -86,6 +100,17 @@ func TestOutcomeMappingFromCloudSignals(t *testing.T) {
 			}
 		})
 	}
+}
+
+func telemetryDiscardOutcome(t *testing.T, trusted bool, connected bool) RuntimeOutcome {
+	t.Helper()
+
+	outcome, discard := MapTelemetryDiscardState(trusted, connected)
+	if !discard {
+		t.Fatal("expected telemetry state to require discard")
+	}
+
+	return outcome
 }
 
 func TestStructuredLoggerIncludesEpochAndOutcome(t *testing.T) {
