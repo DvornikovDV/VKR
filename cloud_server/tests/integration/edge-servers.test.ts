@@ -12,15 +12,19 @@
  *
  * Also retains T021b service-level quota checks (legacy, for regression).
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { type AddressInfo } from 'node:net';
+import { io as createSocketClient, type Socket as ClientSocket } from 'socket.io-client';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
 
 import { connectDatabase, disconnectDatabase } from '../../src/database/mongoose';
-import { app } from '../../src/app';
+import { app, server } from '../../src/app';
 import { User } from '../../src/models/User';
 import { EdgeServer } from '../../src/models/EdgeServer';
 import { AuthService } from '../../src/services/auth.service';
 import { lastSeenRegistry } from '../../src/services/edge-servers.service';
+import { EDGE_NAMESPACE } from '../../src/socket/events/edge';
+import { disconnectEdgeSocketsById } from '../../src/socket/io';
 
 // ── Test state ────────────────────────────────────────────────────────────
 
@@ -33,6 +37,19 @@ let proUserToken: string;
 let proUserId: string;
 
 let otherUserToken: string;
+let edgeSocketUrl = '';
+let startedSocketServer = false;
+const activeClientSockets = new Set<ClientSocket>();
+
+type EdgeActivationPayload = {
+    edgeId: string;
+    lifecycleState: 'Active';
+    persistentCredential: {
+        version: number;
+        secret: string;
+        issuedAt: string;
+    };
+};
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -43,6 +60,50 @@ async function createAdminUser(email: string): Promise<string> {
     return adminTok;
 }
 
+async function ensureServerListening(): Promise<string> {
+    startedSocketServer = !server.listening;
+    if (!server.listening) {
+        await new Promise<void>((resolve, reject) => {
+            server.listen(0, '127.0.0.1', () => resolve());
+            server.once('error', reject);
+        });
+    }
+
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+        throw new Error('HTTP server address is unavailable for edge socket integration tests');
+    }
+
+    return `http://127.0.0.1:${(address as AddressInfo).port}`;
+}
+
+function trackSocket(socket: ClientSocket): ClientSocket {
+    activeClientSockets.add(socket);
+    return socket;
+}
+
+async function closeSocket(socket: ClientSocket): Promise<void> {
+    if (socket.disconnected) {
+        socket.close();
+        return;
+    }
+
+    await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => resolve(), 300);
+        socket.once('disconnect', () => {
+            clearTimeout(timer);
+            resolve();
+        });
+        socket.disconnect();
+    });
+}
+
+async function cleanupClientSockets(): Promise<void> {
+    const sockets = Array.from(activeClientSockets);
+    activeClientSockets.clear();
+    await Promise.all(sockets.map((socket) => closeSocket(socket)));
+}
+
 async function createEdgeServer(name: string): Promise<string> {
     const res = await request(app)
         .post('/api/edge-servers')
@@ -50,6 +111,103 @@ async function createEdgeServer(name: string): Promise<string> {
         .send({ name });
     expect(res.status).toBe(201);
     return (res.body.data?.edge?._id as string);
+}
+
+async function registerEdgeWithOnboarding(name: string): Promise<{ edgeId: string; onboardingSecret: string }> {
+    const res = await request(app)
+        .post('/api/edge-servers')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ name });
+
+    expect(res.status).toBe(201);
+    return {
+        edgeId: res.body.data?.edge?._id as string,
+        onboardingSecret: res.body.data?.onboardingPackage?.onboardingSecret as string,
+    };
+}
+
+async function connectOnboardingSocket(
+    edgeId: string,
+    onboardingSecret: string,
+): Promise<{ socket: ClientSocket; activationPayload: EdgeActivationPayload }> {
+    return new Promise((resolve, reject) => {
+        const socket = trackSocket(
+            createSocketClient(`${edgeSocketUrl}${EDGE_NAMESPACE}`, {
+                auth: {
+                    edgeId,
+                    credentialMode: 'onboarding',
+                    credentialSecret: onboardingSecret,
+                },
+                transports: ['websocket'],
+                reconnection: false,
+                forceNew: true,
+                autoConnect: false,
+                timeout: 3000,
+            }),
+        );
+
+        let connected = false;
+        let activationPayload: EdgeActivationPayload | null = null;
+        const timer = setTimeout(() => {
+            socket.close();
+            reject(new Error('edge_activation_timeout'));
+        }, 3500);
+
+        const maybeResolve = () => {
+            if (!connected || !activationPayload) return;
+            clearTimeout(timer);
+            resolve({ socket, activationPayload });
+        };
+
+        socket.once('connect', () => {
+            connected = true;
+            maybeResolve();
+        });
+
+        socket.once('edge_activation', (payload: unknown) => {
+            activationPayload = payload as EdgeActivationPayload;
+            maybeResolve();
+        });
+
+        socket.once('connect_error', (error) => {
+            clearTimeout(timer);
+            socket.close();
+            reject(error);
+        });
+
+        socket.connect();
+    });
+}
+
+async function waitForForcedDisconnect(
+    socket: ClientSocket,
+): Promise<{ edgeReason: string | null; disconnectReason: string }> {
+    return new Promise((resolve, reject) => {
+        let edgeReason: string | null = null;
+
+        const timer = setTimeout(() => {
+            reject(new Error('edge_forced_disconnect_timeout'));
+        }, 4000);
+
+        socket.once('edge_disconnect', (payload: unknown) => {
+            if (
+                payload &&
+                typeof payload === 'object' &&
+                'reason' in payload &&
+                typeof (payload as { reason?: unknown }).reason === 'string'
+            ) {
+                edgeReason = (payload as { reason: string }).reason;
+            }
+        });
+
+        socket.once('disconnect', (reason) => {
+            clearTimeout(timer);
+            resolve({
+                edgeReason,
+                disconnectReason: reason,
+            });
+        });
+    });
 }
 
 async function setLifecycleState(edgeId: string, lifecycleState: string): Promise<void> {
@@ -80,6 +238,7 @@ beforeAll(async () => {
     await connectDatabase();
     await User.deleteMany({});
     await EdgeServer.deleteMany({});
+    edgeSocketUrl = await ensureServerListening();
 
     // Admin
     adminToken = await createAdminUser('admin_edge@test.com');
@@ -101,8 +260,20 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+    await cleanupClientSockets();
     await User.deleteMany({});
     await EdgeServer.deleteMany({});
+    if (startedSocketServer && server.listening) {
+        await new Promise<void>((resolve, reject) => {
+            server.close((error) => {
+                if (error) {
+                    reject(error);
+                    return;
+                }
+                resolve();
+            });
+        });
+    }
     await disconnectDatabase();
 });
 
@@ -110,6 +281,10 @@ beforeEach(async () => {
     await EdgeServer.deleteMany({});
     lastSeenRegistry.clear();
     vi.clearAllMocks();
+});
+
+afterEach(async () => {
+    await cleanupClientSockets();
 });
 
 // ── T026 Tests ────────────────────────────────────────────────────────────
@@ -197,6 +372,58 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
         );
         expect(edge).toBeTruthy();
         expect(edge?.availability.online).toBe(true);
+    });
+
+    it('T029-3 generic forced disconnect keeps admin and user fleet projections telemetry-ready but offline', async () => {
+        const { edgeId, onboardingSecret } = await registerEdgeWithOnboarding(
+            'Edge Forced Disconnect Projection',
+        );
+
+        await request(app)
+            .post(`/api/edge-servers/${edgeId}/bind`)
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ userId: freeUserId })
+            .expect(200);
+
+        const { socket } = await connectOnboardingSocket(edgeId, onboardingSecret);
+
+        const disconnectWait = waitForForcedDisconnect(socket);
+        expect(disconnectEdgeSocketsById(edgeId)).toBe(1);
+
+        const disconnected = await disconnectWait;
+        expect(disconnected.edgeReason).toBe('edge_forced_disconnect');
+        expect(disconnected.disconnectReason).toBe('io server disconnect');
+
+        const adminRes = await request(app)
+            .get('/api/admin/edge-servers')
+            .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(adminRes.status).toBe(200);
+        const adminEdge = (
+            adminRes.body.data as Array<{
+                _id: string;
+                lifecycleState: string;
+                isTelemetryReady: boolean;
+                availability: { online: boolean };
+            }>
+        ).find((item) => item._id === edgeId);
+        expect(adminEdge).toBeTruthy();
+        expect(adminEdge?.lifecycleState).toBe('Active');
+        expect(adminEdge?.isTelemetryReady).toBe(true);
+        expect(adminEdge?.availability.online).toBe(false);
+
+        const userRes = await request(app)
+            .get('/api/edge-servers')
+            .set('Authorization', `Bearer ${freeUserToken}`);
+
+        expect(userRes.status).toBe(200);
+        expect(userRes.body.data).toEqual([
+            expect.objectContaining({
+                _id: edgeId,
+                lifecycleState: 'Active',
+                availability: expect.objectContaining({ online: false }),
+            }),
+        ]);
     });
 
     // ── T026-3: FREE quota enforcement (FR-2b) ────────────────────────────

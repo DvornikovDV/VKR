@@ -230,6 +230,75 @@ func (t *telemetryCaptureTransport) AssertNoPayload(tst *testing.T, timeout time
 	}
 }
 
+func TestReproTaskT018RuntimeOwnedTelemetryPathDropsPreRecoveryPendingReadings(t *testing.T) {
+	t.Setenv("CLOUD_SOCKET_URL", "wss://cloud.example.test")
+
+	cfg, err := config.LoadFromFile(runtimeFixturePath(t, "config.yaml"))
+	if err != nil {
+		t.Fatalf("load runtime config fixture: %v", err)
+	}
+	cfg.Batch.IntervalMs = 1000
+	cfg.Batch.MaxReadings = 2
+
+	transport := newTelemetryCaptureTransport()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	process, err := runtimeapp.New(ctx, cfg, transport)
+	if err != nil {
+		t.Fatalf("construct production runtime app: %v", err)
+	}
+
+	if err := process.Runner.ActivateTrustedSession("edge-telemetry-1", "persistent-secret-1"); err != nil {
+		t.Fatalf("activate initial trusted session: %v", err)
+	}
+
+	control, err := process.Sources.MockControl("mock-source-1")
+	if err != nil {
+		t.Fatalf("get mock control through production runtime app: %v", err)
+	}
+
+	if err := control.EmitReading(source.RawReading{
+		DeviceID: "pump-1",
+		Metric:   "pressure",
+		Value:    18.75,
+		TS:       3001,
+	}); err != nil {
+		t.Fatalf("emit pre-recovery reading through manager boundary: %v", err)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	process.Runner.MarkDisconnected("transport_closed")
+
+	if err := process.Runner.ActivateTrustedSession("edge-telemetry-1", "persistent-secret-2"); err != nil {
+		t.Fatalf("activate recovered trusted session: %v", err)
+	}
+
+	if err := control.EmitReading(source.RawReading{
+		DeviceID: "pump-2",
+		Metric:   "pressure",
+		Value:    19.75,
+		TS:       3002,
+	}); err != nil {
+		t.Fatalf("emit recovered reading through manager boundary: %v", err)
+	}
+	if err := control.EmitReading(source.RawReading{
+		DeviceID: "pump-3",
+		Metric:   "running",
+		Value:    true,
+		TS:       3003,
+	}); err != nil {
+		t.Fatalf("emit second recovered reading through manager boundary: %v", err)
+	}
+
+	assertCanonicalTelemetryPayload(t, transport.WaitForPayload(t, time.Second), []map[string]any{
+		{"deviceId": "pump-2", "metric": "pressure", "value": 19.75, "ts": 3002},
+		{"deviceId": "pump-3", "metric": "running", "value": true, "ts": 3003},
+	})
+}
+
 type telemetrySocketIOServer struct {
 	t *testing.T
 
@@ -411,6 +480,175 @@ func (s *telemetrySocketIOServer) AssertNoPayload(t *testing.T, timeout time.Dur
 	case payload := <-s.telemetry:
 		t.Fatalf("expected no telemetry payload, got %s", payload)
 	case <-time.After(timeout):
+	}
+}
+
+type trustRecoverySocketIOServer struct {
+	t *testing.T
+
+	server *httptest.Server
+
+	authEvents      chan cloud.HandshakeAuth
+	telemetry       chan string
+	allowPersistent chan struct{}
+}
+
+func newTrustRecoverySocketIOServer(t *testing.T) *trustRecoverySocketIOServer {
+	t.Helper()
+
+	srv := &trustRecoverySocketIOServer{
+		t:               t,
+		authEvents:      make(chan cloud.HandshakeAuth, 8),
+		telemetry:       make(chan string, 8),
+		allowPersistent: make(chan struct{}, 1),
+	}
+
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(_ *http.Request) bool { return true },
+	}
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/socket.io/" {
+			http.NotFound(w, r)
+			return
+		}
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(`0{"sid":"test-sid","upgrades":[],"pingInterval":25000,"pingTimeout":20000,"maxPayload":1000000}`)); err != nil {
+			return
+		}
+
+		_, rawMessage, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		auth, err := parseNamespaceConnectMessage(rawMessage)
+		if err != nil {
+			t.Errorf("parse namespace connect message: %v", err)
+			return
+		}
+		srv.authEvents <- auth
+
+		if auth.CredentialMode == cloud.CredentialModeOnboarding {
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(`40/edge,{"sid":"edge-socket-1"}`)); err != nil {
+				return
+			}
+
+			activationMessage := fmt.Sprintf(
+				`42/edge,["edge_activation",{"edgeId":%q,"lifecycleState":"Active","persistentCredential":{"version":1,"secret":"persistent-from-activation","issuedAt":"2026-04-07T10:00:00Z"}}]`,
+				auth.EdgeID,
+			)
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(activationMessage)); err != nil {
+				return
+			}
+		} else {
+			<-srv.allowPersistent
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(`40/edge,{"sid":"edge-socket-2"}`)); err != nil {
+				return
+			}
+		}
+
+		for {
+			messageType, payload, err := conn.ReadMessage()
+			if err != nil {
+				return
+			}
+			if messageType != websocket.TextMessage {
+				continue
+			}
+			if !isNamespaceEventForTest(string(payload), "/edge") {
+				continue
+			}
+
+			eventName, eventPayload, err := parseNamespaceEventForTest(string(payload), "/edge")
+			if err != nil {
+				t.Errorf("parse namespace event: %v", err)
+				return
+			}
+			if eventName != "telemetry" {
+				continue
+			}
+
+			encoded, err := json.Marshal(eventPayload)
+			if err != nil {
+				t.Errorf("encode telemetry payload: %v", err)
+				return
+			}
+			srv.telemetry <- string(encoded)
+
+			if auth.CredentialMode == cloud.CredentialModeOnboarding {
+				message := fmt.Sprintf(
+					`42/edge,["edge_disconnect",{"edgeId":%q,"reason":%q}]`,
+					auth.EdgeID,
+					string(cloud.DisconnectReasonForced),
+				)
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(message)); err != nil {
+					return
+				}
+				_ = conn.WriteMessage(websocket.TextMessage, []byte(`41/edge,`))
+				return
+			}
+		}
+	})
+
+	srv.server = httptest.NewServer(handler)
+	return srv
+}
+
+func (s *trustRecoverySocketIOServer) Close() {
+	if s.server != nil {
+		s.server.Close()
+	}
+}
+
+func (s *trustRecoverySocketIOServer) URL() string {
+	return s.server.URL
+}
+
+func (s *trustRecoverySocketIOServer) WaitForAttempt(t *testing.T, timeout time.Duration) cloud.HandshakeAuth {
+	t.Helper()
+
+	select {
+	case auth := <-s.authEvents:
+		return auth
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for runtime handshake attempt")
+		return cloud.HandshakeAuth{}
+	}
+}
+
+func (s *trustRecoverySocketIOServer) WaitForPayload(t *testing.T, timeout time.Duration) string {
+	t.Helper()
+
+	select {
+	case payload := <-s.telemetry:
+		return payload
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for telemetry payload")
+		return ""
+	}
+}
+
+func (s *trustRecoverySocketIOServer) AssertNoPayload(t *testing.T, timeout time.Duration) {
+	t.Helper()
+
+	select {
+	case payload := <-s.telemetry:
+		t.Fatalf("expected no telemetry payload, got %s", payload)
+	case <-time.After(timeout):
+	}
+}
+
+func (s *trustRecoverySocketIOServer) AllowPersistentConnect() {
+	select {
+	case s.allowPersistent <- struct{}{}:
+	default:
 	}
 }
 
@@ -631,4 +869,132 @@ func TestReproTaskT018ProductionRuntimeTelemetryPathBatchesCanonicalPayloadsAndD
 	}
 
 	server.AssertNoPayload(t, 3*time.Duration(cfg.Batch.IntervalMs)*time.Millisecond)
+}
+
+func TestT030ProductionRuntimeResumesTelemetryOnlyAfterAcceptedFutureTrustPath(t *testing.T) {
+	t.Setenv("CLOUD_SOCKET_URL", "wss://cloud.example.test")
+	t.Setenv("EDGE_ONBOARDING_SECRET", "telemetry-recovery-secret")
+
+	cfg, err := config.LoadFromFile(runtimeFixturePath(t, "config.yaml"))
+	if err != nil {
+		t.Fatalf("load runtime config fixture: %v", err)
+	}
+	cfg.Batch.IntervalMs = 40
+	cfg.Batch.MaxReadings = 2
+
+	server := newTrustRecoverySocketIOServer(t)
+	defer server.Close()
+
+	transport, err := cloud.NewWebSocketTransport(cloud.WebSocketTransportConfig{
+		CloudURL:  server.URL(),
+		Namespace: cfg.Cloud.Namespace,
+	})
+	if err != nil {
+		t.Fatalf("create websocket transport: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	process, err := runtimeapp.New(ctx, cfg, transport)
+	if err != nil {
+		t.Fatalf("construct production runtime app: %v", err)
+	}
+
+	if err := process.Bootstrap.Bootstrap(runtime.BootstrapInput{
+		OnboardingPackagePath: runtimeFixturePath(t, "onboarding-package.json"),
+	}); err != nil {
+		t.Fatalf("bootstrap runtime app: %v", err)
+	}
+
+	control, err := process.Sources.MockControl("mock-source-1")
+	if err != nil {
+		t.Fatalf("get mock control: %v", err)
+	}
+
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- process.Runner.Run(ctx)
+	}()
+
+	firstAttempt := server.WaitForAttempt(t, 2*time.Second)
+	if firstAttempt.CredentialMode != cloud.CredentialModeOnboarding {
+		t.Fatalf("expected onboarding first attempt, got %q", firstAttempt.CredentialMode)
+	}
+
+	waitForTrustedSession(t, process, 2*time.Second)
+
+	if err := control.EmitReading(source.RawReading{
+		DeviceID: "pump-1",
+		Metric:   "pressure",
+		Value:    18.5,
+		TS:       4001,
+	}); err != nil {
+		t.Fatalf("emit trusted reading: %v", err)
+	}
+	if err := control.EmitReading(source.RawReading{
+		DeviceID: "pump-2",
+		Metric:   "running",
+		Value:    true,
+		TS:       4002,
+	}); err != nil {
+		t.Fatalf("emit second trusted reading: %v", err)
+	}
+
+	assertCanonicalTelemetryPayload(t, server.WaitForPayload(t, time.Second), []map[string]any{
+		{"deviceId": "pump-1", "metric": "pressure", "value": 18.5, "ts": 4001},
+		{"deviceId": "pump-2", "metric": "running", "value": true, "ts": 4002},
+	})
+
+	waitForTelemetryStop(t, process, 2*time.Second)
+
+	secondAttempt := server.WaitForAttempt(t, 2*time.Second)
+	if secondAttempt.CredentialMode != cloud.CredentialModePersistent {
+		t.Fatalf("expected persistent reconnect attempt, got %q", secondAttempt.CredentialMode)
+	}
+
+	if err := control.EmitReading(source.RawReading{
+		DeviceID: "pump-1",
+		Metric:   "pressure",
+		Value:    19.5,
+		TS:       4003,
+	}); err != nil {
+		t.Fatalf("emit disconnected reading: %v", err)
+	}
+	server.AssertNoPayload(t, 150*time.Millisecond)
+
+	server.AllowPersistentConnect()
+	waitForTrustedSession(t, process, 2*time.Second)
+
+	if err := control.EmitReading(source.RawReading{
+		DeviceID: "pump-1",
+		Metric:   "pressure",
+		Value:    20.5,
+		TS:       4004,
+	}); err != nil {
+		t.Fatalf("emit reconnected reading: %v", err)
+	}
+	if err := control.EmitReading(source.RawReading{
+		DeviceID: "pump-2",
+		Metric:   "running",
+		Value:    false,
+		TS:       4005,
+	}); err != nil {
+		t.Fatalf("emit second reconnected reading: %v", err)
+	}
+
+	assertCanonicalTelemetryPayload(t, server.WaitForPayload(t, time.Second), []map[string]any{
+		{"deviceId": "pump-1", "metric": "pressure", "value": 20.5, "ts": 4004},
+		{"deviceId": "pump-2", "metric": "running", "value": false, "ts": 4005},
+	})
+
+	cancel()
+	select {
+	case err := <-runErr:
+		if err != nil {
+			t.Fatalf("expected clean runtime shutdown, got %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for runtime shutdown")
+	}
 }

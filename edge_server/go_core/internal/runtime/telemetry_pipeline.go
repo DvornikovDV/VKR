@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"edge_server/go_core/internal/cloud"
+	"edge_server/go_core/internal/operator"
 	"edge_server/go_core/internal/source"
 )
 
@@ -72,22 +73,24 @@ func (p *TelemetryPipeline) Run(ctx context.Context) {
 		case <-p.resetCh:
 			p.batcher.Reset()
 		case <-ticker.C:
-			if p.mustDiscardReadings() {
+			snapshot, eligible := p.eligibleSnapshot()
+			if !eligible {
 				p.batcher.Reset()
 				continue
 			}
-			p.flush()
+			p.flush(snapshot)
 		case reading, ok := <-readings:
 			if !ok {
 				return
 			}
 
-			if p.mustDiscardReadings() {
+			snapshot, eligible := p.eligibleSnapshot()
+			if !eligible {
 				continue
 			}
 
-			if p.batcher.Add(reading) {
-				p.flush()
+			if p.batcher.Add(snapshot.SessionEpoch, reading) {
+				p.flush(snapshot)
 			}
 		}
 	}
@@ -104,17 +107,31 @@ func (p *TelemetryPipeline) Reset() {
 	}
 }
 
-func (p *TelemetryPipeline) mustDiscardReadings() bool {
+func (p *TelemetryPipeline) eligibleSnapshot() (SessionStateSnapshot, bool) {
 	snapshot := p.stateSnapshot()
-	return !snapshot.Trusted || !snapshot.Connected
+	_, discard := operator.MapTelemetryDiscardState(snapshot.Trusted, snapshot.Connected)
+	if discard || snapshot.SessionEpoch == 0 {
+		return snapshot, false
+	}
+
+	return snapshot, true
 }
 
-func (p *TelemetryPipeline) flush() {
+func (p *TelemetryPipeline) flush(snapshot SessionStateSnapshot) {
 	if !p.batcher.HasPending() {
 		return
 	}
 
-	pending := p.batcher.Snapshot()
+	if !p.batcher.Matches(snapshot.SessionEpoch) {
+		p.batcher.Reset()
+		return
+	}
+
+	pending := p.batcher.Snapshot(snapshot.SessionEpoch)
+	if len(pending) == 0 {
+		return
+	}
+
 	if err := p.client.EmitReadings(pending); err != nil {
 		return
 	}

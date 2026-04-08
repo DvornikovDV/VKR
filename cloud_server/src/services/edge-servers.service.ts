@@ -121,21 +121,28 @@ function getCurrentAvailabilitySnapshot(
     };
 }
 
-function hasValidPersistentCredential(
-    persistentCredential?: EdgePersistentCredentialMetadata | null,
+function hasUsablePersistentCredential(
+    persistentCredential: EdgePersistentCredentialMetadata | null | undefined,
+    options?: { requireSecretHash?: boolean },
 ): boolean {
+    const requireSecretHash = options?.requireSecretHash ?? true;
+
     return Boolean(
         persistentCredential &&
             Number.isInteger(persistentCredential.version) &&
             persistentCredential.version > 0 &&
-            typeof persistentCredential.secretHash === 'string' &&
-            persistentCredential.secretHash.trim().length > 0 &&
+            (!requireSecretHash ||
+                (typeof persistentCredential.secretHash === 'string' &&
+                    persistentCredential.secretHash.trim().length > 0)) &&
             persistentCredential.revokedAt === null,
     );
 }
 
 function isTelemetryReadyEdge(input: Pick<EdgeProjectionInput, 'lifecycleState' | 'persistentCredential'>): boolean {
-    return input.lifecycleState === 'Active' && hasValidPersistentCredential(input.persistentCredential);
+    return (
+        input.lifecycleState === 'Active' &&
+        hasUsablePersistentCredential(input.persistentCredential, { requireSecretHash: false })
+    );
 }
 
 type AdminProjectionOnboardingPackage = {
@@ -439,7 +446,7 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
 
     if (
         edgeServer.lifecycleState !== 'Active' ||
-        !hasValidPersistentCredential(edgeServer.persistentCredential ?? null)
+        !hasUsablePersistentCredential(edgeServer.persistentCredential ?? null)
     ) {
         throw new AppError('Edge server is not telemetry-ready (Active lifecycle required)', 409);
     }

@@ -49,7 +49,15 @@ func (r *Runner) StateSnapshot() SessionStateSnapshot {
 }
 
 func (r *Runner) ActivateTrustedSession(edgeID string, persistentSecret string) error {
-	return r.state.ActivateTrustedSession(edgeID, persistentSecret)
+	if err := r.state.ActivateTrustedSession(edgeID, persistentSecret); err != nil {
+		return err
+	}
+
+	if telemetry := r.currentTelemetryPipeline(); telemetry != nil {
+		telemetry.Reset()
+	}
+
+	return nil
 }
 
 func (r *Runner) MarkDisconnected(reason string) {
@@ -172,6 +180,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		expectedEdge string
 	)
 	lifecycleEvents := make(chan string, 8)
+	sessionFlow := newTrustSessionFlow(r)
 
 	for {
 		select {
@@ -212,17 +221,13 @@ func (r *Runner) Run(ctx context.Context) error {
 					signalLifecycleEvent(lifecycleEvents, "activation")
 				},
 				OnDisconnect: func(event cloud.EdgeDisconnect) {
-					reason := string(event.Reason)
-
-					if event.RequiresCredentialReset() {
-						r.MarkUntrusted(reason, true)
-					} else {
-						r.MarkDisconnected(reason)
+					if sessionFlow.HandleDisconnect(event) {
+						signalLifecycleEvent(lifecycleEvents, "disconnect")
 					}
-
-					signalLifecycleEvent(lifecycleEvents, "disconnect")
 				},
-				OnConnectError: func(code cloud.ConnectErrorCode) {},
+				OnConnectError: func(code cloud.ConnectErrorCode) {
+					sessionFlow.HandleConnectError(code)
+				},
 				OnProtocolError: func(protocolErr cloud.ProtocolError) {
 					r.MarkUntrusted(protocolErr.Event, true)
 					signalLifecycleEvent(lifecycleEvents, "protocol_error")
@@ -235,11 +240,13 @@ func (r *Runner) Run(ctx context.Context) error {
 		if err := client.Connect(ctx, auth); err != nil {
 			var connectErr cloud.ConnectError
 			if errors.As(err, &connectErr) {
-				r.MarkUntrusted(string(connectErr.Code), true)
 				continue
 			}
 
 			return fmt.Errorf("connect runtime to cloud transport: %w", err)
+		}
+		if err := sessionFlow.HandleSuccessfulConnect(auth); err != nil {
+			return fmt.Errorf("promote runtime session after connect: %w", err)
 		}
 
 		for {

@@ -10,6 +10,7 @@ import { User } from '../../src/models/User';
 import { AuthService } from '../../src/services/auth.service';
 import { verifyCredentialSecret } from '../../src/services/edge-onboarding.service';
 import { EDGE_NAMESPACE } from '../../src/socket/events/edge';
+import { disconnectEdgeSocketsById } from '../../src/socket/io';
 
 let adminToken = '';
 let edgeSocketUrl = '';
@@ -574,6 +575,36 @@ describe('Edge onboarding integration contract', () => {
     });
 
     describe('US3 lifecycle recovery and blocking flows', () => {
+        it('T029-1 emits edge_disconnect { reason: edge_forced_disconnect }, disconnects the active socket, and keeps the edge telemetry-ready', async () => {
+            const { edgeId, onboardingSecret } = await registerEdge('Edge Forced Disconnect');
+            const { socket } = await connectOnboardingSocket(edgeId, onboardingSecret);
+
+            const disconnectWait = waitForForcedDisconnect(socket);
+            expect(disconnectEdgeSocketsById(edgeId)).toBe(1);
+
+            const disconnected = await disconnectWait;
+            expect(disconnected.edgeReason).toBe('edge_forced_disconnect');
+            expect(disconnected.disconnectReason).toBe('io server disconnect');
+
+            const adminFleet = await request(app)
+                .get('/api/admin/edge-servers')
+                .set('Authorization', `Bearer ${adminToken}`);
+
+            expect(adminFleet.status).toBe(200);
+            const adminEdge = (adminFleet.body.data as Array<Record<string, unknown>>).find(
+                (edge) => edge['_id'] === edgeId,
+            );
+            expect(adminEdge?.['lifecycleState']).toBe('Active');
+            expect(adminEdge?.['isTelemetryReady']).toBe(true);
+            expect(
+                (adminEdge?.['availability'] as { online?: boolean } | undefined)?.online,
+            ).toBe(false);
+
+            const edgeAfterDisconnect = await EdgeServer.findById(edgeId).lean().exec();
+            expect(edgeAfterDisconnect?.lifecycleState).toBe('Active');
+            expect(edgeAfterDisconnect?.availability.online).toBe(false);
+        });
+
         it('T023-1 revokes trust, disconnects active persistent session, and rejects old persistent credential', async () => {
             const { edgeId, onboardingSecret } = await registerEdge('Edge Trust Revoke');
             const { socket: onboardingSocket, activationPayload } = await connectOnboardingSocket(
@@ -775,6 +806,76 @@ describe('Edge onboarding integration contract', () => {
 
             expect(activationPayload.lifecycleState).toBe('Active');
             reactivatedSocket.disconnect();
+        });
+
+        it('T029-2 re-enable-onboarding keeps blocked and superseded secrets unusable until explicit reset issues a fresh package', async () => {
+            const { edgeId, onboardingSecret: firstSecret } = await registerEdge(
+                'Edge Re-enable Unusable Secrets',
+            );
+
+            const firstReset = await request(app)
+                .post(`/api/edge-servers/${edgeId}/onboarding/reset`)
+                .set('Authorization', `Bearer ${adminToken}`)
+                .send({});
+
+            expect(firstReset.status).toBe(200);
+            const blockedSecret = firstReset.body.data?.onboardingPackage?.onboardingSecret as string;
+
+            await request(app)
+                .post(`/api/edge-servers/${edgeId}/block`)
+                .set('Authorization', `Bearer ${adminToken}`)
+                .send({})
+                .expect(200);
+
+            const reenableResponse = await request(app)
+                .post(`/api/edge-servers/${edgeId}/re-enable-onboarding`)
+                .set('Authorization', `Bearer ${adminToken}`)
+                .send({});
+
+            expect(reenableResponse.status).toBe(200);
+            expect(reenableResponse.body.data?.lifecycleState).toBe('Re-onboarding Required');
+            expect(reenableResponse.body.data?.isTelemetryReady).toBe(false);
+            expect(reenableResponse.body.data?.onboardingPackage).toBeUndefined();
+
+            const supersededBeforeReset = await connectEdgeExpectError({
+                edgeId,
+                credentialMode: 'onboarding',
+                credentialSecret: firstSecret,
+            });
+            expect(supersededBeforeReset).toBe('blocked');
+
+            const blockedBeforeReset = await connectEdgeExpectError({
+                edgeId,
+                credentialMode: 'onboarding',
+                credentialSecret: blockedSecret,
+            });
+            expect(blockedBeforeReset).toBe('blocked');
+
+            const secondReset = await request(app)
+                .post(`/api/edge-servers/${edgeId}/onboarding/reset`)
+                .set('Authorization', `Bearer ${adminToken}`)
+                .send({});
+
+            expect(secondReset.status).toBe(200);
+            const freshSecret = secondReset.body.data?.onboardingPackage?.onboardingSecret as string;
+
+            const supersededAfterReset = await connectEdgeExpectError({
+                edgeId,
+                credentialMode: 'onboarding',
+                credentialSecret: firstSecret,
+            });
+            expect(supersededAfterReset).toBe('invalid_credential');
+
+            const blockedAfterReset = await connectEdgeExpectError({
+                edgeId,
+                credentialMode: 'onboarding',
+                credentialSecret: blockedSecret,
+            });
+            expect(blockedAfterReset).toBe('invalid_credential');
+
+            const { activationPayload, socket } = await connectOnboardingSocket(edgeId, freshSecret);
+            expect(activationPayload.lifecycleState).toBe('Active');
+            socket.disconnect();
         });
 
         it('T033-1 keeps canonical lifecycle and credential metadata authoritative for update queries', async () => {
