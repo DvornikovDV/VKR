@@ -388,7 +388,7 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
         const { socket } = await connectOnboardingSocket(edgeId, onboardingSecret);
 
         const disconnectWait = waitForForcedDisconnect(socket);
-        expect(disconnectEdgeSocketsById(edgeId)).toBe(1);
+        await expect(disconnectEdgeSocketsById(edgeId)).resolves.toBe(1);
 
         const disconnected = await disconnectWait;
         expect(disconnected.edgeReason).toBe('edge_forced_disconnect');

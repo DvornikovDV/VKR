@@ -207,8 +207,7 @@ async function revokeEdgeTrust(
         const { userId: adminId } = requireUser(req);
         const edgeId = requireEdgeId(req);
         await EdgeOnboardingService.revokeEdgeTrust(edgeId, adminId);
-        const disconnectedSockets = disconnectEdgeSocketsById(edgeId, 'trust_revoked');
-        await EdgeServersService.markEdgeOffline(edgeId);
+        const disconnectedSockets = await disconnectEdgeSocketsById(edgeId, 'trust_revoked');
         const payload: LifecycleActionSuccessPayload = {
             edge: await EdgeServersService.getAdminEdgeById(edgeId),
             disconnectedSockets,
@@ -228,8 +227,7 @@ async function blockEdgeServer(
         const { userId: adminId } = requireUser(req);
         const edgeId = requireEdgeId(req);
         await EdgeOnboardingService.blockEdgeServer(edgeId, adminId);
-        const disconnectedSockets = disconnectEdgeSocketsById(edgeId, 'blocked');
-        await EdgeServersService.markEdgeOffline(edgeId);
+        const disconnectedSockets = await disconnectEdgeSocketsById(edgeId, 'blocked');
         const payload: LifecycleActionSuccessPayload = {
             edge: await EdgeServersService.getAdminEdgeById(edgeId),
             disconnectedSockets,

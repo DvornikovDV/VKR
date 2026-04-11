@@ -89,3 +89,25 @@ func parseOptionalRFC3339(raw string, fieldName string) (*time.Time, error) {
 	normalized := parsed.UTC()
 	return &normalized, nil
 }
+
+func sameOnboardingCredential(left OnboardingPackage, right OnboardingPackage) bool {
+	return left.EdgeID == right.EdgeID && left.OnboardingSecret == right.OnboardingSecret
+}
+
+func cloneOnboardingPackage(value OnboardingPackage) OnboardingPackage {
+	return OnboardingPackage{
+		EdgeID:           value.EdgeID,
+		OnboardingSecret: value.OnboardingSecret,
+		IssuedAt:         cloneTimePointer(value.IssuedAt),
+		ExpiresAt:        cloneTimePointer(value.ExpiresAt),
+	}
+}
+
+func cloneTimePointer(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+
+	copy := value.UTC()
+	return &copy
+}

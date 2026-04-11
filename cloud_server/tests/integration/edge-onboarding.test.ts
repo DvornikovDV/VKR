@@ -580,7 +580,7 @@ describe('Edge onboarding integration contract', () => {
             const { socket } = await connectOnboardingSocket(edgeId, onboardingSecret);
 
             const disconnectWait = waitForForcedDisconnect(socket);
-            expect(disconnectEdgeSocketsById(edgeId)).toBe(1);
+            await expect(disconnectEdgeSocketsById(edgeId)).resolves.toBe(1);
 
             const disconnected = await disconnectWait;
             expect(disconnected.edgeReason).toBe('edge_forced_disconnect');
@@ -836,6 +836,13 @@ describe('Edge onboarding integration contract', () => {
             expect(reenableResponse.body.data?.lifecycleState).toBe('Re-onboarding Required');
             expect(reenableResponse.body.data?.isTelemetryReady).toBe(false);
             expect(reenableResponse.body.data?.onboardingPackage).toBeUndefined();
+
+            const edgeAfterReenable = await EdgeServer.findById(edgeId).lean().exec();
+            expect(edgeAfterReenable?.lifecycleState).toBe('Re-onboarding Required');
+            expect(edgeAfterReenable?.currentOnboardingPackage?.credentialId).toBe(
+                firstReset.body.data?.edge?.currentOnboardingPackage?.credentialId,
+            );
+            expect(edgeAfterReenable?.currentOnboardingPackage?.status).toBe('blocked');
 
             const supersededBeforeReset = await connectEdgeExpectError({
                 edgeId,

@@ -13,6 +13,9 @@ const (
 	defaultBatchIntervalMs  = 1000
 	defaultBatchMaxReadings = 100
 	defaultLoggingLevel     = "info"
+
+	// DefaultFreshOnboardingInputWaitMs bounds in-process waiting for newly supplied onboarding input.
+	DefaultFreshOnboardingInputWaitMs = 3000
 )
 
 type Config struct {

@@ -5,7 +5,7 @@
 It is intentionally limited:
 
 - persistent credential only
-- fixed in-code telemetry set
+- mock telemetry fallback or serial input only
 - no onboarding flow
 - no inventory sync
 - no device catalog sync
@@ -21,6 +21,10 @@ It is intentionally limited:
 
 - `TELEMETRY_INTERVAL_MS` (default: `500`)
 - `EDGE_NAME` (log label only; does not rename the cloud edge document)
+- `SERIAL_PORT_PATH` (for example `COM3`; when set, runtime reads Arduino from COM instead of mock data)
+- `SERIAL_BAUD_RATE` (default: `115200`)
+- `SERIAL_DEVICE_ID` (default: `arduino-uno-01`)
+- `SERIAL_INCLUDE_HUMIDITY` (default: `true`)
 
 `CLOUD_SOCKET_URL` should point to the cloud base URL such as `http://localhost:4000`.
 The runtime appends `/edge` automatically if it is not already present.
@@ -65,13 +69,33 @@ $env:TELEMETRY_INTERVAL_MS='1500'
 $env:EDGE_NAME='Local Telemetry Smoke Edge'
 ```
 
+Run from Arduino over COM:
+
+```powershell
+$env:SERIAL_PORT_PATH='COM3'
+$env:SERIAL_BAUD_RATE='115200'
+$env:SERIAL_DEVICE_ID='arduino-uno-01'
+$env:SERIAL_INCLUDE_HUMIDITY='true'
+npm start
+```
+
+Supported Arduino line formats:
+
+- JSON per line, for example `{"temperature":24,"humidity":55}`
+- existing `SimpleDHT` sample line, for example `Sample OK: 24 *C, 55 H`
+
+When humidity forwarding is enabled, the runtime emits two metrics for the same device:
+
+- `deviceId=arduino-uno-01`, `metric=temperature`
+- `deviceId=arduino-uno-01`, `metric=humidity`
+
 ## Smoke flow
 
 1. Start the cloud server with MongoDB available.
 2. Run the dedicated seed script and copy the printed `edgeId` and plaintext `secret`.
 3. Start `edge_telemetry_test`.
 4. Confirm a successful `connect` log.
-5. Confirm periodic telemetry batch logs.
+5. Confirm periodic telemetry logs or serial forward logs.
 6. Optionally open the existing dashboard flow for a trusted user and subscribe to the same edge.
 
 ## Notes

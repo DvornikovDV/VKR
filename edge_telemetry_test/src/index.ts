@@ -1,5 +1,10 @@
 import { io, type Socket } from 'socket.io-client';
 import { loadConfig, maskSecret } from './config';
+import {
+    buildSerialReadings,
+    createSerialTelemetrySource,
+    type SerialSample,
+} from './serialTelemetry';
 
 type TelemetryValue = number | boolean;
 
@@ -23,6 +28,7 @@ const config = loadConfig();
 
 let telemetryTimer: NodeJS.Timeout | null = null;
 let tick = 0;
+let serialSource: ReturnType<typeof createSerialTelemetrySource> | null = null;
 
 function asErrorMessage(error: unknown): string {
     if (error instanceof Error && error.message.trim().length > 0) {
@@ -40,6 +46,19 @@ function stopTelemetryLoop(): void {
     clearInterval(telemetryTimer);
     telemetryTimer = null;
     console.log('[edge-telemetry-test] Telemetry loop stopped');
+}
+
+async function stopRuntimeSources(): Promise<void> {
+    stopTelemetryLoop();
+
+    if (!serialSource) {
+        return;
+    }
+
+    const source = serialSource;
+    serialSource = null;
+    await source.stop();
+    console.log('[edge-telemetry-test] Serial source stopped');
 }
 
 function buildTelemetryBatch(nextTick: number, baseTs: number): TelemetryBatchPayload {
@@ -90,6 +109,28 @@ function emitTelemetry(socket: Socket): void {
     );
 }
 
+function emitSerialSample(socket: Socket, sample: SerialSample): void {
+    const payload = {
+        readings: buildSerialReadings(
+            {
+                portPath: config.serialPortPath ?? '',
+                baudRate: config.serialBaudRate,
+                deviceId: config.serialDeviceId,
+                includeHumidity: config.serialIncludeHumidity,
+            },
+            sample,
+            Date.now(),
+        ),
+    };
+
+    socket.emit('telemetry', payload);
+    console.log(
+        `[edge-telemetry-test] Forwarded serial sample (${payload.readings
+            .map((reading) => `${reading.metric}=${reading.value}`)
+            .join(', ')})`,
+    );
+}
+
 function startTelemetryLoop(socket: Socket): void {
     stopTelemetryLoop();
     emitTelemetry(socket);
@@ -101,8 +142,44 @@ function startTelemetryLoop(socket: Socket): void {
     );
 }
 
-function shutdown(socket: Socket, exitCode = 0): void {
-    stopTelemetryLoop();
+async function startSerialTelemetry(socket: Socket): Promise<void> {
+    if (!config.serialPortPath) {
+        return;
+    }
+
+    await stopRuntimeSources();
+
+    serialSource = createSerialTelemetrySource({
+        portPath: config.serialPortPath,
+        baudRate: config.serialBaudRate,
+        deviceId: config.serialDeviceId,
+        includeHumidity: config.serialIncludeHumidity,
+    });
+
+    await serialSource.start((sample) => {
+        if (!socket.connected) {
+            return;
+        }
+
+        emitSerialSample(socket, sample);
+    });
+
+    console.log(
+        `[edge-telemetry-test] Serial source started (${config.serialPortPath} @ ${config.serialBaudRate})`,
+    );
+}
+
+async function startRuntimeSources(socket: Socket): Promise<void> {
+    if (config.serialPortPath) {
+        await startSerialTelemetry(socket);
+        return;
+    }
+
+    startTelemetryLoop(socket);
+}
+
+async function shutdown(socket: Socket, exitCode = 0): Promise<void> {
+    await stopRuntimeSources();
 
     if (socket.connected) {
         socket.disconnect();
@@ -124,7 +201,7 @@ function handleEdgeDisconnect(socket: Socket, payload: EdgeDisconnectPayload): v
     console.error(
         `[edge-telemetry-test] Cloud requested edge disconnect for ${edgeId}: ${reason}`,
     );
-    stopTelemetryLoop();
+    void stopRuntimeSources();
     socket.disconnect();
 }
 
@@ -135,6 +212,13 @@ function main(): void {
     console.log(
         `[edge-telemetry-test] Persistent credential: ${maskSecret(config.edgePersistentSecret)}`,
     );
+    if (config.serialPortPath) {
+        console.log(
+            `[edge-telemetry-test] Runtime source: serial (${config.serialPortPath} @ ${config.serialBaudRate})`,
+        );
+    } else {
+        console.log('[edge-telemetry-test] Runtime source: mock telemetry');
+    }
 
     const socket = io(config.cloudSocketUrl, {
         autoConnect: false,
@@ -149,17 +233,21 @@ function main(): void {
 
     socket.on('connect', () => {
         console.log(`[edge-telemetry-test] Connected to cloud as socket ${socket.id}`);
-        startTelemetryLoop(socket);
+        void startRuntimeSources(socket).catch((error: unknown) => {
+            console.error(`[edge-telemetry-test] Failed to start runtime source: ${asErrorMessage(error)}`);
+            process.exitCode = 1;
+            socket.disconnect();
+        });
     });
 
     socket.on('connect_error', (error: unknown) => {
-        stopTelemetryLoop();
+        void stopRuntimeSources();
         console.error(`[edge-telemetry-test] Connect error: ${asErrorMessage(error)}`);
         process.exitCode = 1;
     });
 
     socket.on('disconnect', (reason: string) => {
-        stopTelemetryLoop();
+        void stopRuntimeSources();
         console.warn(`[edge-telemetry-test] Disconnected: ${reason}`);
     });
 
@@ -169,12 +257,12 @@ function main(): void {
 
     process.on('SIGINT', () => {
         console.log('[edge-telemetry-test] SIGINT received');
-        shutdown(socket, 0);
+        void shutdown(socket, 0);
     });
 
     process.on('SIGTERM', () => {
         console.log('[edge-telemetry-test] SIGTERM received');
-        shutdown(socket, 0);
+        void shutdown(socket, 0);
     });
 
     socket.connect();

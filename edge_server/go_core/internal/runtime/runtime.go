@@ -195,7 +195,19 @@ func (r *Runner) Run(ctx context.Context) error {
 		auth, err := bootstrap.BuildHandshakeAuth()
 		if err != nil {
 			if errors.Is(err, ErrAuthPathUnavailable) {
-				return NewMissingAuthPathError(r.state.Snapshot().LastReason)
+				snapshot := r.state.Snapshot()
+				if waitErr := bootstrap.WaitForFreshOnboardingInput(ctx, snapshot.LastReason); waitErr == nil {
+					continue
+				}
+
+				if ctx.Err() != nil {
+					if client != nil {
+						_ = client.Disconnect()
+					}
+					return nil
+				}
+
+				return NewMissingAuthPathError(snapshot.LastReason)
 			}
 
 			return fmt.Errorf("build runtime handshake auth: %w", err)

@@ -1,6 +1,7 @@
 import { type Server as HttpServer } from 'http';
 import { Server, type Socket } from 'socket.io';
 import { ENV } from '../config/env';
+import { markEdgeOffline } from '../services/edge-servers.service';
 import { TelemetryAggregatorService } from '../services/telemetry-aggregator.service';
 import { jwtSocketMiddleware } from './auth';
 import {
@@ -63,11 +64,16 @@ export function getIO(): Server {
     return _io;
 }
 
-export function disconnectEdgeSocketsById(
+export async function disconnectEdgeSocketsById(
     edgeId: string,
     reason?: EdgeForcedDisconnectReason,
-): number {
-    return disconnectEdgeSockets(edgeId, reason);
+): Promise<number> {
+    const disconnectedSockets = disconnectEdgeSockets(edgeId, reason);
+    if (disconnectedSockets > 0) {
+        await markEdgeOffline(edgeId);
+    }
+
+    return disconnectedSockets;
 }
 
 export function getConnectedEdgeSocketCount(edgeId?: string): number {
