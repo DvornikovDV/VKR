@@ -6,6 +6,7 @@ import { disconnectEdgeSocketsById } from '../socket/io';
 import type {
     AdminEdgeServerRecord,
     EdgeCredentialIssueData,
+    EdgeStatusRecord,
     UserEdgeServerRecord,
 } from '../types';
 
@@ -31,9 +32,19 @@ type EdgeBindSuccessResponse = {
     data: AdminEdgeServerRecord;
 };
 
+type AdminEdgeFleetSuccessResponse = {
+    status: 'success';
+    data: AdminEdgeServerRecord[];
+};
+
 type EdgeCredentialIssueResponse = {
     status: 'success';
     data: EdgeCredentialIssueData;
+};
+
+type EdgeStatusSuccessResponse = {
+    status: 'success';
+    data: EdgeStatusRecord;
 };
 
 type EdgeBlockSuccessResponse = {
@@ -48,6 +59,23 @@ async function listEdgeServers(req: AuthRequest, res: Response, next: NextFuncti
         const { userId } = requireUser(req);
         const userEdges = await EdgeServersService.listForUser(userId);
         const payload: EdgeListSuccessResponse = { status: 'success', data: userEdges };
+        res.status(200).json(payload);
+    } catch (err) {
+        next(err);
+    }
+}
+
+async function listAdminEdgeServers(
+    _req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+): Promise<void> {
+    try {
+        const fleetProjection = await EdgeServersService.listAllForAdmin();
+        const payload: AdminEdgeFleetSuccessResponse = {
+            status: 'success',
+            data: fleetProjection,
+        };
         res.status(200).json(payload);
     } catch (err) {
         next(err);
@@ -121,9 +149,10 @@ async function pingEdgeServer(
     next: NextFunction,
 ): Promise<void> {
     try {
-        const edgeId = req.params['edgeId'] ?? '';
+        const edgeId = requireEdgeId(req);
         const result = await EdgeServersService.pingEdgeServer(edgeId);
-        res.status(200).json({ status: 'success', data: result });
+        const payload: EdgeStatusSuccessResponse = { status: 'success', data: result };
+        res.status(200).json(payload);
     } catch (err) {
         next(err);
     }
@@ -153,25 +182,24 @@ function requireEdgeId(req: AuthRequest): string {
     return edgeId;
 }
 
-async function resetOnboardingCredentials(
-    _req: AuthRequest,
-    _res: Response,
+async function rotateEdgeCredential(
+    req: AuthRequest,
+    res: Response,
     next: NextFunction,
 ): Promise<void> {
     try {
-        throw new AppError('Legacy onboarding reset flow removed; use rotate-credential', 410);
-    } catch (err) {
-        next(err);
-    }
-}
-
-async function revokeEdgeTrust(
-    _req: AuthRequest,
-    _res: Response,
-    next: NextFunction,
-): Promise<void> {
-    try {
-        throw new AppError('Legacy trust-revoke flow removed; use rotate-credential or block', 410);
+        const { userId: adminId } = requireUser(req);
+        const edgeId = requireEdgeId(req);
+        const result = await EdgeServersService.rotateEdgeCredential(edgeId, adminId);
+        await disconnectEdgeSocketsById(edgeId, 'credential_rotated');
+        const payload: EdgeCredentialIssueResponse = {
+            status: 'success',
+            data: {
+                ...result,
+                edge: await EdgeServersService.getAdminEdgeById(edgeId),
+            },
+        };
+        res.status(200).json(payload);
     } catch (err) {
         next(err);
     }
@@ -195,13 +223,17 @@ async function blockEdgeServer(
     }
 }
 
-async function reenableEdgeOnboarding(
-    _req: AuthRequest,
-    _res: Response,
+async function unblockEdgeServer(
+    req: AuthRequest,
+    res: Response,
     next: NextFunction,
 ): Promise<void> {
     try {
-        throw new AppError('Legacy re-enable onboarding flow removed; use unblock', 410);
+        const { userId: adminId } = requireUser(req);
+        const edgeId = requireEdgeId(req);
+        const result = await EdgeServersService.unblockEdgeServer(edgeId, adminId);
+        const payload: EdgeCredentialIssueResponse = { status: 'success', data: result };
+        res.status(200).json(payload);
     } catch (err) {
         next(err);
     }
@@ -209,13 +241,13 @@ async function reenableEdgeOnboarding(
 
 export const EdgeServersController = {
     listEdgeServers,
+    listAdminEdgeServers,
     registerEdgeServer,
     bindUserToEdge,
     unbindUserFromEdge,
     pingEdgeServer,
     getEdgeServerCatalog,
-    resetOnboardingCredentials,
-    revokeEdgeTrust,
+    rotateEdgeCredential,
     blockEdgeServer,
-    reenableEdgeOnboarding,
+    unblockEdgeServer,
 };

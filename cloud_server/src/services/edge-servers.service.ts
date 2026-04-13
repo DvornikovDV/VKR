@@ -12,6 +12,7 @@ import { AppError } from '../api/middlewares/error.middleware';
 import type {
     AdminEdgeServerRecord,
     EdgeAvailabilityRecord,
+    EdgeStatusRecord,
     EdgeServerCreatedByRef,
     EdgeServerUserRef,
     EdgeCredentialIssueData,
@@ -170,6 +171,7 @@ type EdgeProjectionInput = {
 
 export type AdminEdgeProjection = AdminEdgeServerRecord;
 export type TelemetryReadyEdgeProjection = UserEdgeServerRecord;
+export type AdminEdgeStatusProjection = EdgeStatusRecord;
 
 function resolveCreatedAt(input: EdgeProjectionInput): Date {
     return asNullableDate(input.createdAt) ?? asNullableDate(input.lastLifecycleEventAt) ?? new Date(0);
@@ -281,6 +283,15 @@ export function mapEdgeToTelemetryReadyProjection(
     return mapEdgeToUserProjection(input);
 }
 
+export function mapEdgeToStatusProjection(input: EdgeProjectionInput): AdminEdgeStatusProjection {
+    const edgeId = toIdString(input._id);
+
+    return {
+        lifecycleState: requireCanonicalLifecycleState(input.lifecycleState, edgeId),
+        availability: normalizeAvailabilitySnapshot(input),
+    };
+}
+
 async function listForUser(userIdStr: string): Promise<UserEdgeServerRecord[]> {
     const userId = toObjectId(userIdStr, 'userId');
     const edgeServers = await EdgeServer.find({
@@ -387,12 +398,15 @@ async function removeUserFromEdge(edgeIdStr: string, targetUserIdStr: string): P
 
 async function pingEdgeServer(
     edgeIdStr: string,
-): Promise<{ online: boolean; lastSeenAt: Date | null }> {
+): Promise<AdminEdgeStatusProjection> {
     const edgeId = toObjectId(edgeIdStr, 'edgeId');
-    const edgeServer = await EdgeServer.findById(edgeId).select('_id availability').exec();
+    const edgeServer = await EdgeServer.findById(edgeId)
+        .select('_id lifecycleState availability')
+        .lean<EdgeProjectionInput | null>()
+        .exec();
     if (!edgeServer) throw new AppError('Edge server not found', 404);
 
-    return getCurrentAvailabilitySnapshot(edgeIdStr, edgeServer.availability);
+    return mapEdgeToStatusProjection(edgeServer);
 }
 
 function toAggregateState(edge: IEdgeServer): EdgeLifecycleAggregateState {
@@ -637,4 +651,5 @@ export const EdgeServersService = {
     mapEdgeToAdminProjection,
     mapEdgeToUserProjection,
     mapEdgeToTelemetryReadyProjection,
+    mapEdgeToStatusProjection,
 };

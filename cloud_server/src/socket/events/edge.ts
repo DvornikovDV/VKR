@@ -9,7 +9,7 @@ import { registerTelemetryHandler } from './telemetry';
 export const EDGE_NAMESPACE = '/edge';
 
 export type EdgeCredentialMode = 'onboarding' | 'persistent';
-export type EdgeForcedDisconnectReason = 'edge_forced_disconnect' | 'trust_revoked' | 'blocked';
+export type EdgeForcedDisconnectReason = 'edge_forced_disconnect' | 'credential_rotated' | 'blocked';
 const EDGE_CREDENTIAL_MODES: readonly EdgeCredentialMode[] = ['onboarding', 'persistent'];
 
 type EdgeAuthPayload = {

@@ -3,6 +3,11 @@ export interface EdgeAvailabilityRecord {
     lastSeenAt: string | null;
 }
 
+export interface EdgeStatusRecord {
+    lifecycleState: 'Active' | 'Blocked';
+    availability: EdgeAvailabilityRecord;
+}
+
 export interface EdgeServerUserRef {
     _id: string;
     email?: string;
