@@ -3,37 +3,36 @@ import {
     EdgeServer,
     type EdgeAvailabilitySnapshot,
     type EdgeLifecycleState,
-    type EdgeOnboardingPackageMetadata,
     type EdgePersistentCredentialMetadata,
     type IEdgeServer,
-    type OnboardingPackageStatus,
 } from '../models/EdgeServer';
 import { User } from '../models/User';
 import { Telemetry } from '../models/Telemetry';
 import { AppError } from '../api/middlewares/error.middleware';
+import type {
+    AdminEdgeServerRecord,
+    EdgeAvailabilityRecord,
+    EdgeServerCreatedByRef,
+    EdgeServerUserRef,
+    EdgeCredentialIssueData,
+    UserEdgeServerRecord,
+} from '../types';
+import {
+    blockEdgeAggregate,
+    generatePersistentCredentialSecret,
+    hashPersistentCredentialSecret,
+    registerEdgeAggregate,
+    rotateEdgeCredentialAggregate,
+    unblockEdgeAggregate,
+    type EdgeLifecycleAggregateState,
+} from './edge-lifecycle.domain';
 
-// ── Constants ─────────────────────────────────────────────────────────────
-
-/** Max trusted edge servers for FREE tier (FR-2b). */
 export const FREE_EDGE_SERVER_QUOTA = 1;
 
-/** Online threshold: edge is considered online if the latest heartbeat is recent enough. */
 const PING_THRESHOLD_MS = 3_000;
 
-// ── In-memory last-seen registry ──────────────────────────────────────────
-
-/**
- * In-memory map: edgeId (string) → timestamp (ms) of the last telemetry batch.
- * Updated by the WebSocket telemetry handler (T031/T032) via `updateLastSeen`.
- * Not persisted — resets on process restart. Used only for ping checks.
- */
 export const lastSeenRegistry = new Map<string, number>();
 
-/**
- * Called by the WebSocket edge handler when a telemetry batch arrives.
- * Updates in-memory registry and persists only canonical availability timestamp.
- * The persisted timestamp lives in canonical `availability.lastSeenAt`.
- */
 export function updateLastSeen(edgeId: string): void {
     const observedAtMs = Date.now();
     const observedAt = new Date(observedAtMs);
@@ -67,8 +66,6 @@ export async function markEdgeOffline(edgeId: string): Promise<void> {
     ).exec();
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-
 function toObjectId(id: string, label: string): mongoose.Types.ObjectId {
     if (!mongoose.isValidObjectId(id)) {
         throw new AppError(`Invalid ${label}`, 400);
@@ -76,17 +73,39 @@ function toObjectId(id: string, label: string): mongoose.Types.ObjectId {
     return new mongoose.Types.ObjectId(id);
 }
 
-/** Counts how many trusted edge servers a user is already assigned to. */
+function toIdString(id: mongoose.Types.ObjectId | string): string {
+    return typeof id === 'string' ? id : id.toString();
+}
+
+function requireCanonicalLifecycleState(
+    lifecycleState: string | undefined,
+    edgeId: string,
+): 'Active' | 'Blocked' {
+    if (lifecycleState === 'Active' || lifecycleState === 'Blocked') {
+        return lifecycleState;
+    }
+
+    throw new AppError(
+        `Edge ${edgeId} has unsupported lifecycle state "${lifecycleState ?? 'undefined'}"; remove stale legacy edge records from the database.`,
+        500,
+    );
+}
+
+async function ensureAdminExists(adminIdStr: string): Promise<mongoose.Types.ObjectId> {
+    const adminId = toObjectId(adminIdStr, 'adminId');
+    const admin = await User.findById(adminId).select('_id').lean().exec();
+    if (!admin) {
+        throw new AppError('Admin user not found', 404);
+    }
+    return adminId;
+}
+
 async function countUserEdgeServers(userId: mongoose.Types.ObjectId): Promise<number> {
     return EdgeServer.countDocuments({ trustedUsers: userId }).exec();
 }
 
 function asNullableDate(value: Date | null | undefined): Date | null {
     return value instanceof Date ? value : null;
-}
-
-function resolveAvailabilityLastSeenAt(value?: Date | null): Date | null {
-    return asNullableDate(value);
 }
 
 function isHeartbeatFresh(lastSeenAt: Date | null, nowMs: number): boolean {
@@ -98,7 +117,7 @@ function getCurrentAvailabilitySnapshot(
     availability?: EdgeAvailabilitySnapshot,
     nowMs: number = Date.now(),
 ): EdgeAvailabilitySnapshot {
-    const persistedLastSeenAt = resolveAvailabilityLastSeenAt(availability?.lastSeenAt ?? null);
+    const persistedLastSeenAt = asNullableDate(availability?.lastSeenAt ?? null);
     const inMemoryTs = lastSeenRegistry.get(edgeId);
 
     if (inMemoryTs !== undefined && nowMs - inMemoryTs < PING_THRESHOLD_MS) {
@@ -121,7 +140,7 @@ function getCurrentAvailabilitySnapshot(
     };
 }
 
-function hasUsablePersistentCredential(
+function hasCurrentPersistentCredential(
     persistentCredential: EdgePersistentCredentialMetadata | null | undefined,
     options?: { requireSecretHash?: boolean },
 ): boolean {
@@ -133,158 +152,159 @@ function hasUsablePersistentCredential(
             persistentCredential.version > 0 &&
             (!requireSecretHash ||
                 (typeof persistentCredential.secretHash === 'string' &&
-                    persistentCredential.secretHash.trim().length > 0)) &&
-            persistentCredential.revokedAt === null,
+                    persistentCredential.secretHash.trim().length > 0)),
     );
-}
-
-function isTelemetryReadyEdge(input: Pick<EdgeProjectionInput, 'lifecycleState' | 'persistentCredential'>): boolean {
-    return (
-        input.lifecycleState === 'Active' &&
-        hasUsablePersistentCredential(input.persistentCredential, { requireSecretHash: false })
-    );
-}
-
-type AdminProjectionOnboardingPackage = {
-    credentialId: string;
-    status: OnboardingPackageStatus;
-    issuedAt: Date;
-    expiresAt: Date;
-    usedAt: Date | null;
-    displayHint: string | null;
-};
-
-export interface AdminEdgeProjection {
-    _id: string;
-    name: string;
-    lifecycleState: EdgeLifecycleState;
-    isTelemetryReady: boolean;
-    availability: EdgeAvailabilitySnapshot;
-    trustedUsers: unknown[];
-    createdBy: unknown | null;
-    currentOnboardingPackage: AdminProjectionOnboardingPackage | null;
-    persistentCredentialVersion: number | null;
-    lastLifecycleEventAt: Date | null;
-}
-
-export interface TelemetryReadyEdgeProjection {
-    _id: string;
-    name: string;
-    lifecycleState: 'Active';
-    availability: EdgeAvailabilitySnapshot;
 }
 
 type EdgeProjectionInput = {
     _id: mongoose.Types.ObjectId | string;
     name: string;
-    lifecycleState: EdgeLifecycleState;
+    lifecycleState: string | undefined;
     availability?: EdgeAvailabilitySnapshot;
     trustedUsers?: unknown[];
     createdBy?: unknown;
-    currentOnboardingPackage?: EdgeOnboardingPackageMetadata | null;
     persistentCredential?: EdgePersistentCredentialMetadata | null;
     lastLifecycleEventAt?: Date | null;
+    createdAt?: Date | null;
 };
 
-function toIdString(id: mongoose.Types.ObjectId | string): string {
-    return typeof id === 'string' ? id : id.toString();
+export type AdminEdgeProjection = AdminEdgeServerRecord;
+export type TelemetryReadyEdgeProjection = UserEdgeServerRecord;
+
+function resolveCreatedAt(input: EdgeProjectionInput): Date {
+    return asNullableDate(input.createdAt) ?? asNullableDate(input.lastLifecycleEventAt) ?? new Date(0);
 }
 
-function normalizeAvailabilitySnapshot(input: EdgeProjectionInput): EdgeAvailabilitySnapshot {
-    return getCurrentAvailabilitySnapshot(toIdString(input._id), input.availability);
+function toIsoString(value: Date | null): string | null {
+    return value ? value.toISOString() : null;
 }
 
-function maskOnboardingPackage(
-    pkg?: EdgeOnboardingPackageMetadata | null,
-): AdminProjectionOnboardingPackage | null {
-    if (!pkg) return null;
+function normalizeAvailabilitySnapshot(input: EdgeProjectionInput): EdgeAvailabilityRecord {
+    const availability = getCurrentAvailabilitySnapshot(toIdString(input._id), input.availability);
+
     return {
-        credentialId: pkg.credentialId,
-        status: pkg.status,
-        issuedAt: pkg.issuedAt,
-        expiresAt: pkg.expiresAt,
-        usedAt: pkg.usedAt ?? null,
-        displayHint: pkg.displayHint ?? null,
+        online: availability.online,
+        lastSeenAt: toIsoString(availability.lastSeenAt),
     };
 }
 
+function mapTrustedUserRef(input: unknown): string | EdgeServerUserRef {
+    if (typeof input === 'string') {
+        return input;
+    }
+
+    if (input instanceof mongoose.Types.ObjectId) {
+        return input.toString();
+    }
+
+    if (input && typeof input === 'object' && '_id' in input) {
+        const candidate = input as {
+            _id: mongoose.Types.ObjectId | string;
+            email?: unknown;
+            role?: unknown;
+            subscriptionTier?: unknown;
+        };
+        const mapped: EdgeServerUserRef = {
+            _id: toIdString(candidate._id),
+        };
+
+        if (typeof candidate.email === 'string') {
+            mapped.email = candidate.email;
+        }
+        if (candidate.role === 'ADMIN' || candidate.role === 'USER') {
+            mapped.role = candidate.role;
+        }
+        if (candidate.subscriptionTier === 'FREE' || candidate.subscriptionTier === 'PRO') {
+            mapped.subscriptionTier = candidate.subscriptionTier;
+        }
+
+        return mapped;
+    }
+
+    throw new AppError('Unsupported trustedUsers projection shape', 500);
+}
+
+function mapCreatedByRef(input: unknown): EdgeServerCreatedByRef | null {
+    if (input === null || input === undefined) {
+        return null;
+    }
+
+    if (typeof input === 'string' || input instanceof mongoose.Types.ObjectId) {
+        return { _id: toIdString(input) };
+    }
+
+    if (input && typeof input === 'object' && '_id' in input) {
+        const candidate = input as {
+            _id: mongoose.Types.ObjectId | string;
+            email?: unknown;
+        };
+        return {
+            _id: toIdString(candidate._id),
+            ...(typeof candidate.email === 'string' ? { email: candidate.email } : {}),
+        };
+    }
+
+    throw new AppError('Unsupported createdBy projection shape', 500);
+}
+
 export function mapEdgeToAdminProjection(input: EdgeProjectionInput): AdminEdgeProjection {
+    const edgeId = toIdString(input._id);
+
     return {
-        _id: toIdString(input._id),
+        _id: edgeId,
         name: input.name,
-        lifecycleState: input.lifecycleState,
-        isTelemetryReady: isTelemetryReadyEdge(input),
+        trustedUsers: (input.trustedUsers ?? []).map((trustedUser) => mapTrustedUserRef(trustedUser)),
+        createdBy: mapCreatedByRef(input.createdBy),
+        lifecycleState: requireCanonicalLifecycleState(input.lifecycleState, edgeId),
         availability: normalizeAvailabilitySnapshot(input),
-        trustedUsers: input.trustedUsers ?? [],
-        createdBy: input.createdBy ?? null,
-        currentOnboardingPackage: maskOnboardingPackage(input.currentOnboardingPackage),
         persistentCredentialVersion: input.persistentCredential?.version ?? null,
-        lastLifecycleEventAt: input.lastLifecycleEventAt ?? null,
+        lastLifecycleEventAt: toIsoString(asNullableDate(input.lastLifecycleEventAt)),
+        createdAt: resolveCreatedAt(input).toISOString(),
+    };
+}
+
+export function mapEdgeToUserProjection(input: EdgeProjectionInput): UserEdgeServerRecord {
+    const edgeId = toIdString(input._id);
+
+    return {
+        _id: edgeId,
+        name: input.name,
+        lifecycleState: requireCanonicalLifecycleState(input.lifecycleState, edgeId),
+        availability: normalizeAvailabilitySnapshot(input),
+        createdAt: resolveCreatedAt(input).toISOString(),
     };
 }
 
 export function mapEdgeToTelemetryReadyProjection(
-    input: Pick<EdgeProjectionInput, '_id' | 'name' | 'lifecycleState' | 'availability' | 'persistentCredential'>,
-): TelemetryReadyEdgeProjection | null {
-    if (!isTelemetryReadyEdge(input)) {
-        return null;
-    }
-
-    return {
-        _id: toIdString(input._id),
-        name: input.name,
-        lifecycleState: 'Active',
-        availability: normalizeAvailabilitySnapshot(input),
-    };
+    input: EdgeProjectionInput,
+): TelemetryReadyEdgeProjection {
+    return mapEdgeToUserProjection(input);
 }
 
-// ── Service methods ───────────────────────────────────────────────────────
-
-/**
- * Returns all EdgeServers where the given userId is in trustedUsers.
- * Regular users only see telemetry-ready trusted servers.
- */
-async function listForUser(userIdStr: string): Promise<TelemetryReadyEdgeProjection[]> {
+async function listForUser(userIdStr: string): Promise<UserEdgeServerRecord[]> {
     const userId = toObjectId(userIdStr, 'userId');
     const edgeServers = await EdgeServer.find({
         trustedUsers: userId,
-        lifecycleState: 'Active',
-        'persistentCredential.version': { $gte: 1 },
-        'persistentCredential.secretHash': { $exists: true, $type: 'string' },
-        'persistentCredential.revokedAt': null,
     })
-        .select('_id name lifecycleState availability persistentCredential.version persistentCredential.revokedAt persistentCredential.secretHash')
-        .lean<Array<Parameters<typeof mapEdgeToTelemetryReadyProjection>[0]>>()
+        .select('_id name lifecycleState availability createdAt')
+        .sort({ createdAt: 1 })
+        .lean<Array<EdgeProjectionInput>>()
         .exec();
 
-    const projections: TelemetryReadyEdgeProjection[] = [];
-    for (const edgeServer of edgeServers) {
-        const projection = mapEdgeToTelemetryReadyProjection(edgeServer);
-        if (projection) {
-            projections.push(projection);
-        }
-    }
-
-    return projections;
+    return edgeServers.map((edgeServer) => mapEdgeToUserProjection(edgeServer));
 }
 
-/**
- * Returns all EdgeServers (internal use — no population).
- */
 async function listAll(): Promise<IEdgeServer[]> {
     return EdgeServer.find().exec();
 }
 
-/**
- * Returns Admin Fleet projection with masked onboarding metadata.
- * Secret hashes are excluded at query level and never exposed by mapping.
- */
 async function listAllForAdmin(): Promise<AdminEdgeProjection[]> {
     const edgeServers = await EdgeServer.find()
-        .select('-currentOnboardingPackage.secretHash -persistentCredential.secretHash')
+        .select('-persistentCredential.secretHash')
         .populate('trustedUsers', 'email role subscriptionTier')
         .populate('createdBy', 'email')
-        .lean<Array<Parameters<typeof mapEdgeToAdminProjection>[0]>>()
+        .sort({ createdAt: 1 })
+        .lean<Array<EdgeProjectionInput>>()
         .exec();
 
     return edgeServers.map((edgeServer) => mapEdgeToAdminProjection(edgeServer));
@@ -293,10 +313,10 @@ async function listAllForAdmin(): Promise<AdminEdgeProjection[]> {
 async function getAdminEdgeById(edgeIdStr: string): Promise<AdminEdgeProjection> {
     const edgeId = toObjectId(edgeIdStr, 'edgeId');
     const edgeServer = await EdgeServer.findById(edgeId)
-        .select('-currentOnboardingPackage.secretHash -persistentCredential.secretHash')
+        .select('-persistentCredential.secretHash')
         .populate('trustedUsers', 'email role subscriptionTier')
         .populate('createdBy', 'email')
-        .lean<Parameters<typeof mapEdgeToAdminProjection>[0] | null>()
+        .lean<EdgeProjectionInput | null>()
         .exec();
 
     if (!edgeServer) {
@@ -306,13 +326,6 @@ async function getAdminEdgeById(edgeIdStr: string): Promise<AdminEdgeProjection>
     return mapEdgeToAdminProjection(edgeServer);
 }
 
-/**
- * Assigns a user to the trustedUsers list of an EdgeServer.
- * Enforces FREE tier limit of 1 trusted edge server per user (FR-2b).
- *
- * @param edgeIdStr   EdgeServer._id as string
- * @param targetUserIdStr  User._id to add
- */
 async function assignUserToEdge(edgeIdStr: string, targetUserIdStr: string): Promise<IEdgeServer> {
     const edgeId = toObjectId(edgeIdStr, 'edgeId');
     const targetUserId = toObjectId(targetUserIdStr, 'targetUserId');
@@ -325,13 +338,11 @@ async function assignUserToEdge(edgeIdStr: string, targetUserIdStr: string): Pro
     if (!edgeServer) throw new AppError('Edge server not found', 404);
     if (!targetUser) throw new AppError('User not found', 404);
 
-    // Check if user is already in trustedUsers
     const alreadyTrusted = edgeServer.trustedUsers.some((uid) => uid.equals(targetUserId));
     if (alreadyTrusted) {
         throw new AppError('User is already assigned to this edge server', 409);
     }
 
-    // Enforce FREE tier quota (FR-2b): FREE user ≤ 1 trusted edge server
     if (targetUser.subscriptionTier === 'FREE') {
         const currentCount = await countUserEdgeServers(targetUserId);
         if (currentCount >= FREE_EDGE_SERVER_QUOTA) {
@@ -342,7 +353,6 @@ async function assignUserToEdge(edgeIdStr: string, targetUserIdStr: string): Pro
         }
     }
 
-    // Atomic $addToSet prevents race conditions on concurrent bind requests
     const updated = await EdgeServer.findByIdAndUpdate(
         edgeId,
         { $addToSet: { trustedUsers: targetUserId } },
@@ -353,17 +363,10 @@ async function assignUserToEdge(edgeIdStr: string, targetUserIdStr: string): Pro
     return updated;
 }
 
-/**
- * Removes a user from the trustedUsers list of an EdgeServer.
- *
- * @param edgeIdStr       EdgeServer._id as string
- * @param targetUserIdStr User._id to remove
- */
 async function removeUserFromEdge(edgeIdStr: string, targetUserIdStr: string): Promise<IEdgeServer> {
     const edgeId = toObjectId(edgeIdStr, 'edgeId');
     const targetUserId = toObjectId(targetUserIdStr, 'targetUserId');
 
-    // Verify user is actually assigned before attempting removal
     const edgeServerCheck = await EdgeServer.findById(edgeId).select('trustedUsers').lean().exec();
     if (!edgeServerCheck) throw new AppError('Edge server not found', 404);
 
@@ -372,7 +375,6 @@ async function removeUserFromEdge(edgeIdStr: string, targetUserIdStr: string): P
         throw new AppError('User is not assigned to this edge server', 404);
     }
 
-    // Atomic $pull prevents race conditions on concurrent unbind requests
     const updated = await EdgeServer.findByIdAndUpdate(
         edgeId,
         { $pull: { trustedUsers: targetUserId } },
@@ -383,27 +385,164 @@ async function removeUserFromEdge(edgeIdStr: string, targetUserIdStr: string): P
     return updated;
 }
 
-/**
- * Ping check: returns online state and last seen timestamp.
- *
- * Uses in-memory `lastSeenRegistry` (updated by WebSocket handler) to avoid
- * HTTP round-trips to the edge device. Edge is considered online if its last
- * heartbeat arrived less than PING_THRESHOLD_MS (30s) ago.
- *
- * @param edgeIdStr  EdgeServer._id as string
- */
 async function pingEdgeServer(
     edgeIdStr: string,
 ): Promise<{ online: boolean; lastSeenAt: Date | null }> {
     const edgeId = toObjectId(edgeIdStr, 'edgeId');
-
     const edgeServer = await EdgeServer.findById(edgeId).select('_id availability').exec();
     if (!edgeServer) throw new AppError('Edge server not found', 404);
 
     return getCurrentAvailabilitySnapshot(edgeIdStr, edgeServer.availability);
 }
 
-// ── Export ────────────────────────────────────────────────────────────────
+function toAggregateState(edge: IEdgeServer): EdgeLifecycleAggregateState {
+    const edgeId = edge._id.toString();
+
+    return {
+        lifecycleState: requireCanonicalLifecycleState(edge.lifecycleState, edgeId),
+        availability: edge.availability ?? { online: false, lastSeenAt: null },
+        persistentCredential: edge.persistentCredential ?? null,
+        lastLifecycleEventAt: asNullableDate(edge.lastLifecycleEventAt),
+    };
+}
+
+function applyAggregateState(edge: IEdgeServer, next: EdgeLifecycleAggregateState): void {
+    edge.lifecycleState = next.lifecycleState;
+    edge.availability = next.availability;
+    edge.persistentCredential = next.persistentCredential;
+    edge.lastLifecycleEventAt = next.lastLifecycleEventAt;
+}
+
+async function registerEdgeServer(name: string, adminIdStr: string): Promise<EdgeCredentialIssueData> {
+    const adminId = await ensureAdminExists(adminIdStr);
+    const now = new Date();
+    const initialSecret = generatePersistentCredentialSecret();
+    const initialSecretHash = await hashPersistentCredentialSecret(initialSecret);
+    const aggregate = registerEdgeAggregate({
+        secretHash: initialSecretHash,
+        now,
+    });
+
+    const edge = await EdgeServer.create({
+        name,
+        createdBy: adminId,
+        trustedUsers: [],
+        lifecycleState: aggregate.lifecycleState,
+        availability: aggregate.availability,
+        persistentCredential: aggregate.persistentCredential,
+        lastLifecycleEventAt: aggregate.lastLifecycleEventAt,
+    });
+
+    return {
+        edge: mapEdgeToAdminProjection(edge.toObject() as EdgeProjectionInput),
+        persistentCredential: {
+            edgeId: edge._id.toString(),
+            credentialSecret: initialSecret,
+            version: aggregate.persistentCredential?.version ?? 1,
+            issuedAt: now.toISOString(),
+            instructions:
+                'Use this secret as the edge runtime persistent credential for trusted connects and reconnects.',
+        },
+    };
+}
+
+async function rotateEdgeCredential(edgeIdStr: string, adminIdStr: string): Promise<EdgeCredentialIssueData> {
+    await ensureAdminExists(adminIdStr);
+    const edgeId = toObjectId(edgeIdStr, 'edgeId');
+    const edge = await EdgeServer.findById(edgeId).exec();
+
+    if (!edge) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    if (requireCanonicalLifecycleState(edge.lifecycleState, edge._id.toString()) !== 'Active') {
+        throw new AppError('Only Active edge servers can rotate credentials', 409);
+    }
+
+    const now = new Date();
+    const nextSecret = generatePersistentCredentialSecret();
+    const nextSecretHash = await hashPersistentCredentialSecret(nextSecret);
+    const aggregate = rotateEdgeCredentialAggregate(toAggregateState(edge), {
+        nextSecretHash,
+        now,
+    });
+
+    applyAggregateState(edge, aggregate);
+    await edge.save();
+
+    return {
+        edge: mapEdgeToAdminProjection(edge.toObject() as EdgeProjectionInput),
+        persistentCredential: {
+            edgeId: edge._id.toString(),
+            credentialSecret: nextSecret,
+            version: aggregate.persistentCredential?.version ?? 1,
+            issuedAt: now.toISOString(),
+            instructions:
+                'Use this secret as the edge runtime persistent credential for trusted connects and reconnects.',
+        },
+    };
+}
+
+async function blockEdgeServer(edgeIdStr: string, adminIdStr: string): Promise<{ edge: AdminEdgeProjection }> {
+    await ensureAdminExists(adminIdStr);
+    const edgeId = toObjectId(edgeIdStr, 'edgeId');
+    const edge = await EdgeServer.findById(edgeId).exec();
+
+    if (!edge) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    if (requireCanonicalLifecycleState(edge.lifecycleState, edge._id.toString()) === 'Blocked') {
+        throw new AppError('Edge server is already blocked', 409);
+    }
+
+    const aggregate = blockEdgeAggregate(toAggregateState(edge), {
+        now: new Date(),
+    });
+    applyAggregateState(edge, aggregate);
+    await edge.save();
+
+    return {
+        edge: mapEdgeToAdminProjection(edge.toObject() as EdgeProjectionInput),
+    };
+}
+
+async function unblockEdgeServer(edgeIdStr: string, adminIdStr: string): Promise<EdgeCredentialIssueData> {
+    await ensureAdminExists(adminIdStr);
+    const edgeId = toObjectId(edgeIdStr, 'edgeId');
+    const edge = await EdgeServer.findById(edgeId).exec();
+
+    if (!edge) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    if (requireCanonicalLifecycleState(edge.lifecycleState, edge._id.toString()) !== 'Blocked') {
+        throw new AppError('Only blocked edge servers can be unblocked', 409);
+    }
+
+    const now = new Date();
+    const nextSecret = generatePersistentCredentialSecret();
+    const nextSecretHash = await hashPersistentCredentialSecret(nextSecret);
+    const aggregate = unblockEdgeAggregate(toAggregateState(edge), {
+        nextSecretHash,
+        now,
+    });
+
+    applyAggregateState(edge, aggregate);
+    await edge.save();
+
+    return {
+        edge: mapEdgeToAdminProjection(edge.toObject() as EdgeProjectionInput),
+        persistentCredential: {
+            edgeId: edge._id.toString(),
+            credentialSecret: nextSecret,
+            version: aggregate.persistentCredential?.version ?? 1,
+            issuedAt: now.toISOString(),
+            instructions:
+                'Use this secret as the edge runtime persistent credential for trusted connects and reconnects.',
+        },
+    };
+}
 
 export interface EdgeCatalogEntry {
     edgeServerId: string;
@@ -416,23 +555,17 @@ function buildCatalogLabel(deviceId: string, metric: string): string {
     return `${deviceId} / ${metric}`;
 }
 
-/**
- * Returns telemetry-derived catalog entries for a trusted user on one edge server.
- * Catalog is deduplicated by deviceId + metric and sorted for stable UI rendering.
- */
 async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<EdgeCatalogEntry[]> {
     const edgeId = toObjectId(edgeIdStr, 'edgeId');
     const userId = toObjectId(userIdStr, 'userId');
 
     const edgeServer = await EdgeServer.findById(edgeId)
-        .select(
-            'trustedUsers lifecycleState persistentCredential.version persistentCredential.revokedAt persistentCredential.secretHash',
-        )
+        .select('trustedUsers lifecycleState persistentCredential')
         .lean<{
             trustedUsers: mongoose.Types.ObjectId[];
             lifecycleState: EdgeLifecycleState;
             persistentCredential?: EdgePersistentCredentialMetadata | null;
-        }>()
+        } | null>()
         .exec();
 
     if (!edgeServer) {
@@ -445,8 +578,8 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
     }
 
     if (
-        edgeServer.lifecycleState !== 'Active' ||
-        !hasUsablePersistentCredential(edgeServer.persistentCredential ?? null)
+        requireCanonicalLifecycleState(edgeServer.lifecycleState, edgeIdStr) !== 'Active' ||
+        !hasCurrentPersistentCredential(edgeServer.persistentCredential ?? null)
     ) {
         throw new AppError('Edge server is not telemetry-ready (Active lifecycle required)', 409);
     }
@@ -458,11 +591,7 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
         {
             $match: {
                 'metadata.edgeId': edgeIdStr,
-                $or: [
-                    { rollup: { $exists: true } },
-                    // Compatibility with legacy telemetry documents before one-time reset.
-                    { value: { $exists: true } },
-                ],
+                $or: [{ rollup: { $exists: true } }, { value: { $exists: true } }],
             },
         },
         {
@@ -496,11 +625,16 @@ export const EdgeServersService = {
     listAll,
     listAllForAdmin,
     getAdminEdgeById,
+    registerEdgeServer,
+    rotateEdgeCredential,
+    blockEdgeServer,
+    unblockEdgeServer,
     assignUserToEdge,
     removeUserFromEdge,
     pingEdgeServer,
     markEdgeOffline,
     getCatalogForUser,
     mapEdgeToAdminProjection,
+    mapEdgeToUserProjection,
     mapEdgeToTelemetryReadyProjection,
 };

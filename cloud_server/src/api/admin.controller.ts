@@ -1,25 +1,17 @@
 // T045 — Admin-only API controller
 // Routes: GET /api/admin/users, PATCH /api/admin/users/:id/tier,
-//          PATCH /api/admin/users/:id/status, GET /api/admin/edge-servers
+//         PATCH /api/admin/users/:id/status, GET /api/admin/edge-servers
 //
 // All routes MUST be protected by both authMiddleware and requireRole('ADMIN').
 
 import { type Response, type NextFunction } from 'express';
 import { type AuthRequest } from './middlewares/auth.middleware';
 import { UsersService } from '../services/users.service';
-import {
-    EdgeServersService,
-    type AdminEdgeProjection,
-} from '../services/edge-servers.service';
+import { EdgeServersService } from '../services/edge-servers.service';
 import { AppError } from './middlewares/error.middleware';
 import type { SubscriptionTier } from '../models/User';
+import type { AdminEdgeServerRecord } from '../types';
 
-// ── GET /api/admin/users ──────────────────────────────────────────────────
-
-/**
- * Returns a paginated list of all Users.
- * Optional query params: page, limit, search (substring match on email).
- */
 async function listUsers(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const page = parseInt(String(req.query['page'] ?? '1'), 10) || 1;
@@ -33,12 +25,6 @@ async function listUsers(req: AuthRequest, res: Response, next: NextFunction): P
     }
 }
 
-// ── PATCH /api/admin/users/:id/tier ───────────────────────────────────────
-
-/**
- * Updates a user's subscription tier.
- * Body: { tier: 'FREE' | 'PRO' }
- */
 async function updateUserTier(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const targetId = req.params['id'] ?? '';
@@ -55,12 +41,6 @@ async function updateUserTier(req: AuthRequest, res: Response, next: NextFunctio
     }
 }
 
-// ── PATCH /api/admin/users/:id/status ─────────────────────────────────────
-
-/**
- * Bans or unbans a user account.
- * Body: { isBanned: boolean }
- */
 async function updateUserStatus(
     req: AuthRequest,
     res: Response,
@@ -84,26 +64,18 @@ async function updateUserStatus(
     }
 }
 
-// ── GET /api/admin/edge-servers ───────────────────────────────────────────
-
-/**
- * Returns the global Edge Server fleet with populated trustedUsers and createdBy.
- * Excludes credential secrets and secret hashes from the response.
- */
 async function listGlobalEdgeServers(
     _req: AuthRequest,
     res: Response,
     next: NextFunction,
 ): Promise<void> {
     try {
-        const fleetProjection: AdminEdgeProjection[] = await EdgeServersService.listAllForAdmin();
+        const fleetProjection: AdminEdgeServerRecord[] = await EdgeServersService.listAllForAdmin();
         res.status(200).json({ status: 'success', data: fleetProjection });
     } catch (err) {
         next(err);
     }
 }
-
-// ── Export ────────────────────────────────────────────────────────────────
 
 export const AdminController = {
     listUsers,

@@ -104,19 +104,11 @@ export async function seedEdgeTelemetryTest(
                 createdBy: null,
                 lifecycleState: 'Active',
                 availability: { online: false, lastSeenAt: null },
-                activation: {
-                    firstActivatedAt: now,
-                    lastActivatedAt: now,
-                    lastRejectedAt: null,
-                },
-                currentOnboardingPackage: null,
                 persistentCredential: {
                     version: 1,
                     secretHash,
                     issuedAt: now,
                     lastAcceptedAt: null,
-                    revokedAt: null,
-                    revocationReason: null,
                 },
                 lastLifecycleEventAt: now,
             });
@@ -145,7 +137,6 @@ export async function seedEdgeTelemetryTest(
         const persistentCredential = existingEdge.persistentCredential;
         const hasReusableCredential = Boolean(
             persistentCredential &&
-                persistentCredential.revokedAt === null &&
                 await EdgeOnboardingService.verifyCredentialSecret(
                     credentialSecret,
                     persistentCredential.secretHash,
@@ -154,7 +145,6 @@ export async function seedEdgeTelemetryTest(
         const needsRepair =
             existingEdge.name !== DEFAULT_EDGE_NAME ||
             existingEdge.lifecycleState !== 'Active' ||
-            existingEdge.currentOnboardingPackage !== null ||
             existingEdge.createdBy !== null ||
             nextTrustedUsers.length !== existingEdge.trustedUsers.length ||
             !hasReusableCredential;
@@ -168,19 +158,11 @@ export async function seedEdgeTelemetryTest(
                 online: false,
                 lastSeenAt: existingEdge.availability?.lastSeenAt ?? null,
             };
-            existingEdge.activation = {
-                firstActivatedAt: existingEdge.activation?.firstActivatedAt ?? now,
-                lastActivatedAt: existingEdge.activation?.lastActivatedAt ?? now,
-                lastRejectedAt: existingEdge.activation?.lastRejectedAt ?? null,
-            };
-            existingEdge.currentOnboardingPackage = null;
             existingEdge.persistentCredential = {
                 version: persistentCredential?.version ?? 1,
                 secretHash: nextSecretHash,
                 issuedAt: persistentCredential?.issuedAt ?? now,
                 lastAcceptedAt: persistentCredential?.lastAcceptedAt ?? null,
-                revokedAt: null,
-                revocationReason: null,
             };
             existingEdge.lastLifecycleEventAt = existingEdge.lastLifecycleEventAt ?? now;
             await existingEdge.save();

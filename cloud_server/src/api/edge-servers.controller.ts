@@ -1,13 +1,14 @@
 import { type Response, type NextFunction } from 'express';
 import { type AuthRequest } from './middlewares/auth.middleware';
 import { EdgeServersService, type EdgeCatalogEntry } from '../services/edge-servers.service';
-import { EdgeOnboardingService } from '../services/edge-onboarding.service';
 import { AppError } from './middlewares/error.middleware';
 import { disconnectEdgeSocketsById } from '../socket/io';
+import type {
+    AdminEdgeServerRecord,
+    EdgeCredentialIssueData,
+    UserEdgeServerRecord,
+} from '../types';
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-/** Extracts and validates userId from req.user; throws 401 if missing. */
 function requireUser(req: AuthRequest): { userId: string; role: string } {
     if (!req.user) {
         throw new AppError('Authentication required', 401);
@@ -20,38 +21,39 @@ type EdgeCatalogSuccessResponse = {
     data: EdgeCatalogEntry[];
 };
 
-type OnboardingActionSuccessPayload = {
-    edge: unknown;
-    onboardingPackage: unknown;
+type EdgeListSuccessResponse = {
+    status: 'success';
+    data: UserEdgeServerRecord[];
 };
 
-type LifecycleActionSuccessPayload = {
-    edge: unknown;
-    disconnectedSockets: number;
+type EdgeBindSuccessResponse = {
+    status: 'success';
+    data: AdminEdgeServerRecord;
 };
 
-// ── Handlers ──────────────────────────────────────────────────────────────
+type EdgeCredentialIssueResponse = {
+    status: 'success';
+    data: EdgeCredentialIssueData;
+};
 
-/**
- * GET /api/edge-servers
- * USER only: returns telemetry-ready edge servers where the user is trusted.
- * Admin fleet is served by GET /api/admin/edge-servers (AdminController).
- */
+type EdgeBlockSuccessResponse = {
+    status: 'success';
+    data: {
+        edge: AdminEdgeServerRecord;
+    };
+};
+
 async function listEdgeServers(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const { userId } = requireUser(req);
-        const telemetryReadyEdges = await EdgeServersService.listForUser(userId);
-        res.status(200).json({ status: 'success', data: telemetryReadyEdges });
+        const userEdges = await EdgeServersService.listForUser(userId);
+        const payload: EdgeListSuccessResponse = { status: 'success', data: userEdges };
+        res.status(200).json(payload);
     } catch (err) {
         next(err);
     }
 }
 
-/**
- * POST /api/edge-servers
- * ADMIN only: registers a new edge server.
- * Body: { name: string }
- */
 async function registerEdgeServer(
     req: AuthRequest,
     res: Response,
@@ -65,29 +67,14 @@ async function registerEdgeServer(
         }
 
         const { userId: adminId } = requireUser(req);
-
-        const result = await EdgeOnboardingService.registerEdgeServer(
-            body.name.trim(),
-            adminId,
-        );
-        const edge = await EdgeServersService.getAdminEdgeById(result.edge._id.toString());
-        const payload: OnboardingActionSuccessPayload = {
-            ...edge,
-            edge,
-            onboardingPackage: result.onboardingPackage,
-        };
-        res.status(201).json({ status: 'success', data: payload });
+        const result = await EdgeServersService.registerEdgeServer(body.name.trim(), adminId);
+        const payload: EdgeCredentialIssueResponse = { status: 'success', data: result };
+        res.status(201).json(payload);
     } catch (err) {
         next(err);
     }
 }
 
-/**
- * POST /api/edge-servers/:edgeId/bind
- * ADMIN only: assigns a user to an edge server's trustedUsers.
- * Body: { userId: string }
- * Enforces FREE tier quota (FR-2b) inside the service.
- */
 async function bindUserToEdge(
     req: AuthRequest,
     res: Response,
@@ -103,16 +90,13 @@ async function bindUserToEdge(
 
         await EdgeServersService.assignUserToEdge(edgeId, body.userId.trim());
         const edgeServer = await EdgeServersService.getAdminEdgeById(edgeId);
-        res.status(200).json({ status: 'success', data: edgeServer });
+        const payload: EdgeBindSuccessResponse = { status: 'success', data: edgeServer };
+        res.status(200).json(payload);
     } catch (err) {
         next(err);
     }
 }
 
-/**
- * DELETE /api/edge-servers/:edgeId/bind/:userId
- * ADMIN only: removes a user from edge server's trustedUsers.
- */
 async function unbindUserFromEdge(
     req: AuthRequest,
     res: Response,
@@ -124,17 +108,13 @@ async function unbindUserFromEdge(
 
         await EdgeServersService.removeUserFromEdge(edgeId, targetUserId);
         const edgeServer = await EdgeServersService.getAdminEdgeById(edgeId);
-        res.status(200).json({ status: 'success', data: edgeServer });
+        const payload: EdgeBindSuccessResponse = { status: 'success', data: edgeServer };
+        res.status(200).json(payload);
     } catch (err) {
         next(err);
     }
 }
 
-/**
- * GET /api/edge-servers/:edgeId/ping
- * ADMIN only: checks online state of edge server via in-memory lastSeenAt < 30s.
- * Returns { online: boolean, lastSeenAt: Date | null }.
- */
 async function pingEdgeServer(
     req: AuthRequest,
     res: Response,
@@ -149,10 +129,6 @@ async function pingEdgeServer(
     }
 }
 
-/**
- * GET /api/edge-servers/:edgeId/catalog
- * USER only: returns telemetry-derived catalog for a trusted Active edge server.
- */
 async function getEdgeServerCatalog(
     req: AuthRequest,
     res: Response,
@@ -178,41 +154,24 @@ function requireEdgeId(req: AuthRequest): string {
 }
 
 async function resetOnboardingCredentials(
-    req: AuthRequest,
-    res: Response,
+    _req: AuthRequest,
+    _res: Response,
     next: NextFunction,
 ): Promise<void> {
     try {
-        const { userId: adminId } = requireUser(req);
-        const edgeId = requireEdgeId(req);
-        const result = await EdgeOnboardingService.resetOnboardingCredentials(edgeId, adminId);
-        const edge = await EdgeServersService.getAdminEdgeById(edgeId);
-        const payload: OnboardingActionSuccessPayload = {
-            ...edge,
-            edge,
-            onboardingPackage: result.onboardingPackage,
-        };
-        res.status(200).json({ status: 'success', data: payload });
+        throw new AppError('Legacy onboarding reset flow removed; use rotate-credential', 410);
     } catch (err) {
         next(err);
     }
 }
 
 async function revokeEdgeTrust(
-    req: AuthRequest,
-    res: Response,
+    _req: AuthRequest,
+    _res: Response,
     next: NextFunction,
 ): Promise<void> {
     try {
-        const { userId: adminId } = requireUser(req);
-        const edgeId = requireEdgeId(req);
-        await EdgeOnboardingService.revokeEdgeTrust(edgeId, adminId);
-        const disconnectedSockets = await disconnectEdgeSocketsById(edgeId, 'trust_revoked');
-        const payload: LifecycleActionSuccessPayload = {
-            edge: await EdgeServersService.getAdminEdgeById(edgeId),
-            disconnectedSockets,
-        };
-        res.status(200).json({ status: 'success', data: payload.edge });
+        throw new AppError('Legacy trust-revoke flow removed; use rotate-credential or block', 410);
     } catch (err) {
         next(err);
     }
@@ -226,35 +185,27 @@ async function blockEdgeServer(
     try {
         const { userId: adminId } = requireUser(req);
         const edgeId = requireEdgeId(req);
-        await EdgeOnboardingService.blockEdgeServer(edgeId, adminId);
-        const disconnectedSockets = await disconnectEdgeSocketsById(edgeId, 'blocked');
-        const payload: LifecycleActionSuccessPayload = {
-            edge: await EdgeServersService.getAdminEdgeById(edgeId),
-            disconnectedSockets,
-        };
-        res.status(200).json({ status: 'success', data: payload.edge });
+        await EdgeServersService.blockEdgeServer(edgeId, adminId);
+        await disconnectEdgeSocketsById(edgeId, 'blocked');
+        const edge = await EdgeServersService.getAdminEdgeById(edgeId);
+        const payload: EdgeBlockSuccessResponse = { status: 'success', data: { edge } };
+        res.status(200).json(payload);
     } catch (err) {
         next(err);
     }
 }
 
 async function reenableEdgeOnboarding(
-    req: AuthRequest,
-    res: Response,
+    _req: AuthRequest,
+    _res: Response,
     next: NextFunction,
 ): Promise<void> {
     try {
-        const { userId: adminId } = requireUser(req);
-        const edgeId = requireEdgeId(req);
-        await EdgeOnboardingService.reenableEdgeOnboarding(edgeId, adminId);
-        const edge = await EdgeServersService.getAdminEdgeById(edgeId);
-        res.status(200).json({ status: 'success', data: edge });
+        throw new AppError('Legacy re-enable onboarding flow removed; use unblock', 410);
     } catch (err) {
         next(err);
     }
 }
-
-// ── Export ────────────────────────────────────────────────────────────────
 
 export const EdgeServersController = {
     listEdgeServers,

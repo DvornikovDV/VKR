@@ -5,13 +5,10 @@ import { AppError } from '../api/middlewares/error.middleware';
 import { ENV } from '../config/env';
 import {
     EdgeServer,
-    type EdgeActivationSnapshot,
     type EdgeAvailabilitySnapshot,
     type EdgeLifecycleState,
-    type EdgeOnboardingPackageMetadata,
     type EdgePersistentCredentialMetadata,
     type IEdgeServer,
-    type OnboardingPackageStatus,
 } from '../models/EdgeServer';
 import { EdgeOnboardingAuditService } from './edge-onboarding-audit.service';
 import {
@@ -44,6 +41,49 @@ export type EdgeAuthRejectionCode =
     | 'invalid_credential'
     | 'persistent_credential_revoked';
 
+type LegacyOnboardingLifecycleState =
+    | EdgeLifecycleState
+    | 'Pending First Connection'
+    | 'Re-onboarding Required';
+
+type OnboardingPackageStatus = 'ready' | 'used' | 'expired' | 'reset' | 'blocked';
+
+interface EdgeActivationSnapshot {
+    firstActivatedAt: Date | null;
+    lastActivatedAt: Date | null;
+    lastRejectedAt: Date | null;
+}
+
+interface EdgeOnboardingPackageMetadata {
+    credentialId: string;
+    secretHash: string;
+    displayHint: string | null;
+    issuedAt: Date;
+    expiresAt: Date;
+    issuedBy: Types.ObjectId | null;
+    status: OnboardingPackageStatus;
+    usedAt: Date | null;
+    supersededByCredentialId: string | null;
+}
+
+interface LegacyPersistentCredentialMetadata extends EdgePersistentCredentialMetadata {
+    revokedAt: Date | null;
+    revocationReason: 'recovery' | 'block' | 'rotate' | null;
+}
+
+type LegacyOnboardingEdgeServer = Omit<IEdgeServer, 'lifecycleState' | 'persistentCredential'> & {
+    lifecycleState: LegacyOnboardingLifecycleState;
+    activation: EdgeActivationSnapshot;
+    currentOnboardingPackage: EdgeOnboardingPackageMetadata | null;
+    persistentCredential: LegacyPersistentCredentialMetadata | null;
+};
+
+function asLegacyOnboardingEdge(edge: IEdgeServer): LegacyOnboardingEdgeServer;
+function asLegacyOnboardingEdge(edge: IEdgeServer | null): LegacyOnboardingEdgeServer | null;
+function asLegacyOnboardingEdge(edge: IEdgeServer | null): LegacyOnboardingEdgeServer | null {
+    return edge as LegacyOnboardingEdgeServer | null;
+}
+
 interface CreateOnboardingPackageMetadataInput {
     issuedBy: Types.ObjectId | null;
     secretHash: string;
@@ -61,19 +101,19 @@ interface CreatePersistentCredentialMetadataInput {
 
 interface RotatePersistentCredentialMetadataInput {
     nextSecretHash: string;
-    previousCredential?: EdgePersistentCredentialMetadata | null;
+    previousCredential?: LegacyPersistentCredentialMetadata | null;
     issuedAt?: Date;
 }
 
 interface ApplyLifecycleTransitionInput {
-    lifecycleState: EdgeLifecycleState;
+    lifecycleState: LegacyOnboardingLifecycleState;
     reason: LifecycleTransitionReason;
     at?: Date;
     activation?: EdgeActivationSnapshot | null;
 }
 
 interface LifecycleTransitionResult {
-    lifecycleState: EdgeLifecycleState;
+    lifecycleState: LegacyOnboardingLifecycleState;
     activation: EdgeActivationSnapshot;
     occurredAt: Date;
 }
@@ -125,18 +165,20 @@ export type AuthenticateEdgeHandshakeResult =
         code: EdgeAuthRejectionCode;
     };
 
-function isBlockedLifecycleState(lifecycleState: EdgeLifecycleState): boolean {
+function isBlockedLifecycleState(lifecycleState: LegacyOnboardingLifecycleState): boolean {
     return lifecycleState === 'Blocked';
 }
 
-function canLifecycleAcceptOnboarding(lifecycleState: EdgeLifecycleState): boolean {
+function canLifecycleAcceptOnboarding(lifecycleState: LegacyOnboardingLifecycleState): boolean {
     return (
         lifecycleState === 'Pending First Connection' ||
         lifecycleState === 'Re-onboarding Required'
     );
 }
 
-function canLifecycleAcceptPersistentReconnect(lifecycleState: EdgeLifecycleState): boolean {
+function canLifecycleAcceptPersistentReconnect(
+    lifecycleState: LegacyOnboardingLifecycleState,
+): boolean {
     return lifecycleState === 'Active';
 }
 
@@ -161,7 +203,7 @@ function buildDisplayHint(secret: string): string {
     return secret.length <= 8 ? secret : `${secret.slice(0, 4)}...${secret.slice(-4)}`;
 }
 
-function mapEdgeDocumentToAdminProjection(edge: IEdgeServer): AdminEdgeProjection {
+function mapEdgeDocumentToAdminProjection(edge: LegacyOnboardingEdgeServer): AdminEdgeProjection {
     const availability: EdgeAvailabilitySnapshot = edge.availability ?? {
         online: false,
         lastSeenAt: null,
@@ -174,7 +216,6 @@ function mapEdgeDocumentToAdminProjection(edge: IEdgeServer): AdminEdgeProjectio
         availability,
         trustedUsers: edge.trustedUsers,
         createdBy: edge.createdBy,
-        currentOnboardingPackage: edge.currentOnboardingPackage,
         persistentCredential: edge.persistentCredential,
         lastLifecycleEventAt: edge.lastLifecycleEventAt,
     });
@@ -242,7 +283,7 @@ export function createOnboardingPackageMetadata(
 
 export function createPersistentCredentialMetadata(
     input: CreatePersistentCredentialMetadataInput,
-): EdgePersistentCredentialMetadata {
+): LegacyPersistentCredentialMetadata {
     return {
         version: (input.previousVersion ?? 0) + 1,
         secretHash: input.secretHash,
@@ -255,7 +296,7 @@ export function createPersistentCredentialMetadata(
 
 export function rotatePersistentCredentialMetadata(
     input: RotatePersistentCredentialMetadataInput,
-): EdgePersistentCredentialMetadata {
+): LegacyPersistentCredentialMetadata {
     return createPersistentCredentialMetadata({
         secretHash: input.nextSecretHash,
         previousVersion: input.previousCredential?.version ?? null,
@@ -338,7 +379,7 @@ export function applyLifecycleTransition(
     }
 }
 
-function applyCredentialRejectionTransition(edge: IEdgeServer, at: Date): void {
+function applyCredentialRejectionTransition(edge: LegacyOnboardingEdgeServer, at: Date): void {
     const transition = applyLifecycleTransition({
         lifecycleState: edge.lifecycleState,
         reason: 'activation_rejected',
@@ -350,7 +391,7 @@ function applyCredentialRejectionTransition(edge: IEdgeServer, at: Date): void {
 }
 
 async function recordActivationRejectedAuditEvent(input: {
-    edge: IEdgeServer;
+    edge: LegacyOnboardingEdgeServer;
     credentialMode: CredentialSecretKind;
     code: EdgeAuthRejectionCode;
     now: Date;
@@ -386,7 +427,7 @@ function toOnboardingRejectionCode(status: OnboardingPackageStatus): EdgeAuthRej
 }
 
 async function authenticateWithOnboardingCredential(
-    edge: IEdgeServer,
+    edge: LegacyOnboardingEdgeServer,
     credentialSecret: string,
     now: Date,
 ): Promise<AuthenticateEdgeHandshakeResult> {
@@ -465,7 +506,7 @@ async function authenticateWithOnboardingCredential(
         activation: edge.activation,
     });
 
-    const activatedEdge = await EdgeServer.findOneAndUpdate(
+    const activatedEdge = asLegacyOnboardingEdge(await EdgeServer.findOneAndUpdate(
         {
             _id: edge._id,
             lifecycleState: { $in: ['Pending First Connection', 'Re-onboarding Required'] },
@@ -485,10 +526,10 @@ async function authenticateWithOnboardingCredential(
             },
         },
         { new: true },
-    ).exec();
+    ).exec());
 
     if (!activatedEdge) {
-        const latestEdge = await EdgeServer.findById(edge._id).exec();
+        const latestEdge = asLegacyOnboardingEdge(await EdgeServer.findById(edge._id).exec());
         if (!latestEdge) {
             return { ok: false, code: 'edge_not_found' };
         }
@@ -571,7 +612,7 @@ async function authenticateWithOnboardingCredential(
 }
 
 async function authenticateWithPersistentCredential(
-    edge: IEdgeServer,
+    edge: LegacyOnboardingEdgeServer,
     credentialSecret: string,
     now: Date,
 ): Promise<AuthenticateEdgeHandshakeResult> {
@@ -635,7 +676,7 @@ async function authenticateEdgeHandshake(
         return { ok: false, code: 'edge_not_found' };
     }
 
-    const edge = await EdgeServer.findById(input.edgeId).exec();
+    const edge = asLegacyOnboardingEdge(await EdgeServer.findById(input.edgeId).exec());
     if (!edge) {
         return { ok: false, code: 'edge_not_found' };
     }
@@ -680,7 +721,7 @@ async function registerEdgeServer(
         at: issuedAt,
     });
 
-    const edge = await EdgeServer.create({
+    const edge = asLegacyOnboardingEdge(await EdgeServer.create({
         name,
         createdBy: adminObjectId,
         lifecycleState: lifecycleTransition.lifecycleState,
@@ -689,7 +730,7 @@ async function registerEdgeServer(
         currentOnboardingPackage: onboardingPackage,
         persistentCredential: null,
         lastLifecycleEventAt: lifecycleTransition.occurredAt,
-    });
+    }));
 
     const edgeId = edge._id.toString();
     await EdgeOnboardingAuditService.recordRegistered({
@@ -720,7 +761,7 @@ async function resetOnboardingCredentials(
 ): Promise<OnboardingPackageActionResult> {
     const adminObjectId = toObjectId(adminId, 'adminId');
     const edgeObjectId = toObjectId(edgeId, 'edgeId');
-    const edge = await EdgeServer.findById(edgeObjectId).exec();
+    const edge = asLegacyOnboardingEdge(await EdgeServer.findById(edgeObjectId).exec());
 
     if (!edge) {
         throw new AppError('Edge server not found', 404);
@@ -761,10 +802,10 @@ async function resetOnboardingCredentials(
 }
 
 function revokePersistentCredentialForReason(
-    persistentCredential: EdgePersistentCredentialMetadata | null,
+    persistentCredential: LegacyPersistentCredentialMetadata | null,
     revokedAt: Date,
     reason: 'recovery' | 'block',
-): EdgePersistentCredentialMetadata | null {
+): LegacyPersistentCredentialMetadata | null {
     if (!persistentCredential) {
         return null;
     }
@@ -791,7 +832,7 @@ function applyBlockToOnboardingPackage(
 
 async function revokeEdgeTrust(edgeId: string, adminId: string): Promise<EdgeLifecycleActionResult> {
     const edgeObjectId = toObjectId(edgeId, 'edgeId');
-    const edge = await EdgeServer.findById(edgeObjectId).exec();
+    const edge = asLegacyOnboardingEdge(await EdgeServer.findById(edgeObjectId).exec());
 
     if (!edge) {
         throw new AppError('Edge server not found', 404);
@@ -834,7 +875,7 @@ async function revokeEdgeTrust(edgeId: string, adminId: string): Promise<EdgeLif
 
 async function blockEdgeServer(edgeId: string, adminId: string): Promise<EdgeLifecycleActionResult> {
     const edgeObjectId = toObjectId(edgeId, 'edgeId');
-    const edge = await EdgeServer.findById(edgeObjectId).exec();
+    const edge = asLegacyOnboardingEdge(await EdgeServer.findById(edgeObjectId).exec());
 
     if (!edge) {
         throw new AppError('Edge server not found', 404);
@@ -885,7 +926,7 @@ async function reenableEdgeOnboarding(
     adminId: string,
 ): Promise<EdgeLifecycleActionResult> {
     const edgeObjectId = toObjectId(edgeId, 'edgeId');
-    const edge = await EdgeServer.findById(edgeObjectId).exec();
+    const edge = asLegacyOnboardingEdge(await EdgeServer.findById(edgeObjectId).exec());
 
     if (!edge) {
         throw new AppError('Edge server not found', 404);

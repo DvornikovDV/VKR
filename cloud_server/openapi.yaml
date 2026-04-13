@@ -200,7 +200,7 @@ paths:
                   data:
                     type: array
                     items:
-                      type: object
+                      $ref: '#/components/schemas/AdminEdgeServerRecord'
         '401':
           description: Unauthorized
         '403':
@@ -562,12 +562,12 @@ paths:
                   data:
                     type: array
                     items:
-                      type: object
+                      $ref: '#/components/schemas/UserEdgeServerRecord'
         '401':
           description: Unauthorized
     post:
       operationId: createEdgeServer
-      summary: Register a new Edge Server and disclose its one-time onboarding package (Admin Only)
+      summary: Register a new Edge Server and disclose its first persistent credential (Admin Only)
       security:
         - bearerAuth: []
       requestBody:
@@ -583,44 +583,11 @@ paths:
                   type: string
       responses:
         '201':
-          description: Edge registered and onboarding package disclosed once
+          description: Edge registered in Active lifecycle state and first persistent credential disclosed once
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: success
-                  data:
-                    type: object
-                    required:
-                      - edge
-                      - onboardingPackage
-                    properties:
-                      edge:
-                        $ref: '#/components/schemas/AdminEdgeServerRecord'
-                      onboardingPackage:
-                        type: object
-                        required:
-                          - edgeId
-                          - onboardingSecret
-                          - issuedAt
-                          - expiresAt
-                          - instructions
-                        properties:
-                          edgeId:
-                            type: string
-                          onboardingSecret:
-                            type: string
-                          issuedAt:
-                            type: string
-                            format: date-time
-                          expiresAt:
-                            type: string
-                            format: date-time
-                          instructions:
-                            type: string
+                $ref: '#/components/schemas/EdgeCredentialIssueResponse'
         '401':
           description: Unauthorized
         '403':
@@ -663,6 +630,111 @@ paths:
         '404':
           description: Not found
 
+  /api/edge-servers/{edgeId}/rotate-credential:
+    post:
+      operationId: rotateEdgeServerCredential
+      summary: Rotate the current persistent credential for an edge (Admin Only)
+      description: >
+        Keeps the edge in lifecycle state `Active`, invalidates the previous credential immediately,
+        and disconnects any active trusted runtime session. The new credential is disclosed once in
+        the response.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Persistent credential rotated and disclosed once
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdgeCredentialIssueResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge Server not found
+        '409':
+          description: Edge lifecycle does not allow credential rotation
+
+  /api/edge-servers/{edgeId}/block:
+    post:
+      operationId: blockEdgeServer
+      summary: Block an edge and revoke current trusted runtime access (Admin Only)
+      description: >
+        Moves the edge to lifecycle state `Blocked`, invalidates current trusted access immediately,
+        and disconnects any active trusted runtime session.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Edge blocked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    required:
+                      - edge
+                    properties:
+                      edge:
+                        $ref: '#/components/schemas/AdminEdgeServerRecord'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge Server not found
+        '409':
+          description: Edge is already blocked
+
+  /api/edge-servers/{edgeId}/unblock:
+    post:
+      operationId: unblockEdgeServer
+      summary: Unblock an edge and disclose a fresh persistent credential (Admin Only)
+      description: >
+        Returns the edge to lifecycle state `Active` and issues a fresh persistent credential that is
+        disclosed once in the response.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Edge unblocked and fresh credential disclosed once
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdgeCredentialIssueResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge Server not found
+        '409':
+          description: Edge is not currently blocked
+
   /api/edge-servers/{edgeId}/catalog:
     get:
       operationId: getEdgeServerCatalog
@@ -704,8 +776,10 @@ paths:
   /api/edge-servers/{edgeId}/ping:
     get:
       operationId: pingEdgeServer
-      summary: Check Edge Server connectivity status (Admin only)
-      description: Returns online status based on canonical `lastSeenAt` from Socket.IO or persisted availability metadata.
+      summary: Check Edge Server lifecycle and availability snapshot (Admin only)
+      description: >
+        Returns cloud-projected availability derived from canonical `lastSeenAt` together with the
+        current lifecycle state. Availability and lifecycle are separate concepts.
       security:
         - bearerAuth: []
       parameters:
@@ -726,13 +800,7 @@ paths:
                     type: string
                     example: success
                   data:
-                    type: object
-                    properties:
-                      online:
-                        type: boolean
-                      lastSeenAt:
-                        type: string
-                        format: date-time
+                    $ref: '#/components/schemas/EdgeStatusSnapshot'
         '401':
           description: Unauthorized
         '403':
@@ -928,28 +996,54 @@ components:
           type: string
           format: date-time
           nullable: true
-    EdgeOnboardingPackageSummary:
+    EdgeStatusSnapshot:
       type: object
-      nullable: true
+      required:
+        - lifecycleState
+        - availability
       properties:
-        credentialId:
+        lifecycleState:
           type: string
-        status:
+          enum: [Active, Blocked]
+        availability:
+          $ref: '#/components/schemas/EdgeAvailabilitySnapshot'
+    EdgePersistentCredentialDisclosure:
+      type: object
+      required:
+        - edgeId
+        - credentialSecret
+        - version
+        - issuedAt
+        - instructions
+      properties:
+        edgeId:
           type: string
-          enum: [ready, used, expired, reset, blocked]
+        credentialSecret:
+          type: string
+        version:
+          type: integer
         issuedAt:
           type: string
           format: date-time
-        expiresAt:
+        instructions:
           type: string
-          format: date-time
-        usedAt:
+          example: Use this secret as the edge runtime persistent credential for trusted connects and reconnects.
+    EdgeCredentialIssueResponse:
+      type: object
+      properties:
+        status:
           type: string
-          format: date-time
-          nullable: true
-        displayHint:
-          type: string
-          nullable: true
+          example: success
+        data:
+          type: object
+          required:
+            - edge
+            - persistentCredential
+          properties:
+            edge:
+              $ref: '#/components/schemas/AdminEdgeServerRecord'
+            persistentCredential:
+              $ref: '#/components/schemas/EdgePersistentCredentialDisclosure'
     EdgeServerUserRef:
       type: object
       properties:
@@ -972,9 +1066,7 @@ components:
         - trustedUsers
         - createdBy
         - lifecycleState
-        - isTelemetryReady
         - availability
-        - currentOnboardingPackage
         - persistentCredentialVersion
         - lastLifecycleEventAt
       properties:
@@ -1000,16 +1092,10 @@ components:
         lifecycleState:
           type: string
           enum:
-            - Pending First Connection
             - Active
-            - Re-onboarding Required
             - Blocked
-        isTelemetryReady:
-          type: boolean
         availability:
           $ref: '#/components/schemas/EdgeAvailabilitySnapshot'
-        currentOnboardingPackage:
-          $ref: '#/components/schemas/EdgeOnboardingPackageSummary'
         persistentCredentialVersion:
           type: integer
           nullable: true
@@ -1017,6 +1103,28 @@ components:
           type: string
           format: date-time
           nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    UserEdgeServerRecord:
+      type: object
+      required:
+        - _id
+        - name
+        - lifecycleState
+        - availability
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        lifecycleState:
+          type: string
+          enum:
+            - Active
+            - Blocked
+        availability:
+          $ref: '#/components/schemas/EdgeAvailabilitySnapshot'
         createdAt:
           type: string
           format: date-time
