@@ -54,7 +54,8 @@ function makeMockIO() {
 function makeMockSocket(edgeId: string): Socket {
     const handlers = new Map<string, (payload: unknown) => void>();
     return {
-        data: { edgeId },
+        connected: true,
+        data: { edgeId, trustedEdgeSession: true },
         on: (event: string, handler: (payload: unknown) => void) => {
             handlers.set(event, handler);
         },

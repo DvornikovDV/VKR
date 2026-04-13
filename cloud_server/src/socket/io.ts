@@ -71,6 +71,9 @@ export async function disconnectEdgeSocketsById(
     const disconnectedSockets = disconnectEdgeSockets(edgeId, reason);
     if (disconnectedSockets > 0) {
         await markEdgeOffline(edgeId);
+        if (_io) {
+            _io.to(edgeId).emit('edge_status', { edgeId, online: false });
+        }
     }
 
     return disconnectedSockets;

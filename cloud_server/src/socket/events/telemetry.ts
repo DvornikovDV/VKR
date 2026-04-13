@@ -1,6 +1,7 @@
 import { type Socket, type Server as IOServer } from 'socket.io';
 import { TelemetryAggregatorService, type TelemetryReading } from '../../services/telemetry-aggregator.service';
 import { updateLastSeen } from '../../services/edge-servers.service';
+import { isTrustedEdgeSocket } from './edge-runtime-session';
 
 export interface TelemetryBatchPayload {
     readings?: TelemetryReading[];
@@ -25,6 +26,11 @@ export function registerTelemetryHandler(
     let onlineNotified = false;
 
     socket.on('telemetry', (payload: TelemetryBatchPayload) => {
+        if (!isTrustedEdgeSocket(socket, edgeId)) {
+            console.warn(`[telemetry] Ignored payload from untrusted edge session ${edgeId}`);
+            return;
+        }
+
         if (!payload || !Array.isArray(payload.readings) || payload.readings.length === 0) {
             console.warn(`[telemetry] Empty or invalid payload from edge ${edgeId}`);
             return;

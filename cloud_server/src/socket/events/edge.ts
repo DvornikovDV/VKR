@@ -1,62 +1,30 @@
 import { type Server as IOServer, type Socket } from 'socket.io';
-import { markEdgeOffline, updateLastSeen } from '../../services/edge-servers.service';
+import { markEdgeOffline } from '../../services/edge-servers.service';
+import { authenticatePersistentEdgeRuntime } from './edge-runtime-auth';
 import {
-    EdgeOnboardingService,
-    type EdgeActivationPayload,
-} from '../../services/edge-onboarding.service';
+    attachAuthenticatedEdgeContext,
+    markTrustedSessionLost,
+    shouldSkipOfflineTransition,
+} from './edge-runtime-session';
 import { registerTelemetryHandler } from './telemetry';
 
 export const EDGE_NAMESPACE = '/edge';
 
-export type EdgeCredentialMode = 'onboarding' | 'persistent';
 export type EdgeForcedDisconnectReason = 'edge_forced_disconnect' | 'credential_rotated' | 'blocked';
-const EDGE_CREDENTIAL_MODES: readonly EdgeCredentialMode[] = ['onboarding', 'persistent'];
-
-type EdgeAuthPayload = {
-    edgeId: string;
-    credentialMode: EdgeCredentialMode;
-    credentialSecret: string;
-};
-
-type AuthenticatedEdgeContext = {
-    edgeId: string;
-    credentialMode: EdgeCredentialMode;
-    lifecycleState: 'Active';
-    edgeActivation: EdgeActivationPayload | null;
-};
 
 const activeEdgeSockets = new Map<string, Set<Socket>>();
-
-function isEdgeCredentialMode(value: unknown): value is EdgeCredentialMode {
-    return (
-        typeof value === 'string' &&
-        (EDGE_CREDENTIAL_MODES as readonly string[]).includes(value)
-    );
-}
-
-function normalizeEdgeAuthPayload(socket: Socket): EdgeAuthPayload | null {
-    const auth = socket.handshake.auth as Record<string, unknown> | undefined;
-
-    const edgeId = typeof auth?.['edgeId'] === 'string' ? auth['edgeId'].trim() : '';
-    const credentialMode = auth?.['credentialMode'];
-    const credentialSecret =
-        typeof auth?.['credentialSecret'] === 'string' ? auth['credentialSecret'].trim() : '';
-
-    if (!edgeId || !isEdgeCredentialMode(credentialMode) || !credentialSecret) {
-        return null;
-    }
-
-    return {
-        edgeId,
-        credentialMode,
-        credentialSecret,
-    };
-}
+const pendingAuthenticatedEdgeSockets = new Map<string, Set<Socket>>();
 
 function trackActiveEdgeSocket(edgeId: string, socket: Socket): void {
     const socketsForEdge = activeEdgeSockets.get(edgeId) ?? new Set<Socket>();
     socketsForEdge.add(socket);
     activeEdgeSockets.set(edgeId, socketsForEdge);
+}
+
+function trackPendingAuthenticatedEdgeSocket(edgeId: string, socket: Socket): void {
+    const socketsForEdge = pendingAuthenticatedEdgeSockets.get(edgeId) ?? new Set<Socket>();
+    socketsForEdge.add(socket);
+    pendingAuthenticatedEdgeSockets.set(edgeId, socketsForEdge);
 }
 
 function untrackActiveEdgeSocket(edgeId: string, socket: Socket): void {
@@ -67,6 +35,35 @@ function untrackActiveEdgeSocket(edgeId: string, socket: Socket): void {
     if (socketsForEdge.size === 0) {
         activeEdgeSockets.delete(edgeId);
     }
+}
+
+function untrackPendingAuthenticatedEdgeSocket(edgeId: string, socket: Socket): void {
+    const socketsForEdge = pendingAuthenticatedEdgeSockets.get(edgeId);
+    if (!socketsForEdge) return;
+
+    socketsForEdge.delete(socket);
+    if (socketsForEdge.size === 0) {
+        pendingAuthenticatedEdgeSockets.delete(edgeId);
+    }
+}
+
+function promoteAuthenticatedEdgeSocket(edgeId: string, socket: Socket): void {
+    untrackPendingAuthenticatedEdgeSocket(edgeId, socket);
+    trackActiveEdgeSocket(edgeId, socket);
+}
+
+function getTrackedEdgeSockets(edgeId: string): Socket[] {
+    const trackedSockets = new Set<Socket>();
+
+    for (const socket of activeEdgeSockets.get(edgeId) ?? []) {
+        trackedSockets.add(socket);
+    }
+
+    for (const socket of pendingAuthenticatedEdgeSockets.get(edgeId) ?? []) {
+        trackedSockets.add(socket);
+    }
+
+    return Array.from(trackedSockets);
 }
 
 export function getActiveEdgeSocketCount(edgeId?: string): number {
@@ -85,13 +82,14 @@ export function disconnectEdgeSockets(
     edgeId: string,
     reason: EdgeForcedDisconnectReason = 'edge_forced_disconnect',
 ): number {
-    const socketsForEdge = activeEdgeSockets.get(edgeId);
-    if (!socketsForEdge || socketsForEdge.size === 0) {
+    const sockets = getTrackedEdgeSockets(edgeId);
+    if (sockets.length === 0) {
         return 0;
     }
 
-    const sockets = Array.from(socketsForEdge);
     for (const socket of sockets) {
+        markTrustedSessionLost(socket, { skipOfflineTransition: true });
+        untrackPendingAuthenticatedEdgeSocket(edgeId, socket);
         socket.emit('edge_disconnect', { edgeId, reason });
         socket.disconnect(true);
     }
@@ -101,38 +99,22 @@ export function disconnectEdgeSockets(
 
 export function resetActiveEdgeSocketsForTests(): void {
     activeEdgeSockets.clear();
-}
-
-function attachAuthenticatedEdgeContext(
-    socket: Socket,
-    context: AuthenticatedEdgeContext,
-): void {
-    socket.data['edgeId'] = context.edgeId;
-    socket.data['credentialMode'] = context.credentialMode;
-    socket.data['lifecycleState'] = context.lifecycleState;
-    socket.data['edgeActivation'] = context.edgeActivation;
+    pendingAuthenticatedEdgeSockets.clear();
 }
 
 async function edgeAuthMiddleware(socket: Socket, next: (err?: Error) => void): Promise<void> {
-    const payload = normalizeEdgeAuthPayload(socket);
-    if (!payload) {
-        next(new Error('invalid_credential'));
-        return;
-    }
-
     try {
-        const authResult = await EdgeOnboardingService.authenticateEdgeHandshake({
-            edgeId: payload.edgeId,
-            credentialMode: payload.credentialMode,
-            credentialSecret: payload.credentialSecret,
-        });
-
+        const authResult = await authenticatePersistentEdgeRuntime(socket);
         if (!authResult.ok) {
             next(new Error(authResult.code));
             return;
         }
 
-        attachAuthenticatedEdgeContext(socket, authResult);
+        attachAuthenticatedEdgeContext(socket, authResult.context);
+        trackPendingAuthenticatedEdgeSocket(authResult.context.edgeId, socket);
+        socket.once('disconnect', () => {
+            untrackPendingAuthenticatedEdgeSocket(authResult.context.edgeId, socket);
+        });
         next();
     } catch (error) {
         console.error('[edge-auth] Unexpected error during middleware:', error);
@@ -154,22 +136,21 @@ export function registerEdgeNamespace(io: IOServer): void {
             return;
         }
 
-        trackActiveEdgeSocket(edgeId, socket);
-        console.log(`[edge] Edge connected: ${edgeId} (socket: ${socket.id})`);
-
-        const edgeActivation = socket.data['edgeActivation'] as EdgeActivationPayload | null | undefined;
-        if (edgeActivation) {
-            socket.emit('edge_activation', edgeActivation);
-            socket.data['edgeActivation'] = null;
+        if (socket.disconnected) {
+            untrackPendingAuthenticatedEdgeSocket(edgeId, socket);
+            return;
         }
 
-        updateLastSeen(edgeId);
+        promoteAuthenticatedEdgeSocket(edgeId, socket);
+        console.log(`[edge] Edge connected: ${edgeId} (socket: ${socket.id})`);
+
         registerTelemetryHandler(socket, io, edgeId);
 
         socket.on('disconnect', (reason: string) => {
             untrackActiveEdgeSocket(edgeId, socket);
+            markTrustedSessionLost(socket);
             console.log(`[edge] Edge disconnected: ${edgeId} - reason: ${reason}`);
-            if (getActiveEdgeSocketCount(edgeId) === 0) {
+            if (getActiveEdgeSocketCount(edgeId) === 0 && !shouldSkipOfflineTransition(socket)) {
                 void markEdgeOffline(edgeId).catch((error) => {
                     console.error(`[edge] Failed to mark edge offline (${edgeId}):`, error);
                 });
