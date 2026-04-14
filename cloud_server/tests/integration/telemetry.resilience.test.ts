@@ -1,41 +1,26 @@
-/**
- * T033 — Telemetry DB Failover Integration Test (US4).
- *
- * Verifies the core resilience requirement:
- *   "DB bulk-write failures MUST NOT disrupt real-time telemetry
- *    broadcasts to dashboard clients."
- *
- * Strategy:
- *   1. Spy on TelemetryAggregatorService.drain() — the method that calls
- *      Telemetry.insertMany(). We mock Telemetry.insertMany to throw.
- *   2. Directly call TelemetryAggregatorService.ingest() to populate the
- *      aggregation window (simulates an edge push).
- *   3. Call drain() manually — it should catch the DB error internally and
- *      NOT re-throw.
- *   4. For the broadcast path: invoke registerTelemetryHandler directly with
- *      a mock io, prove that io.to().emit() is called even when insertMany
- *      is mocked to throw.
- *
- * Why no real Socket.IO server?
- *   Spinning up a full Socket.IO + MongoDB server in a unit-style integration
- *   test introduces unacceptable flakiness (port conflicts, timing issues).
- *   The broadcast path is COMPLETELY DECOUPLED from the DB path at the
- *   source-code level (see telemetry.ts T032). We test each path independently:
- *   - DB path: drain() swallows errors → verified via spy + mock
- *   - Broadcast path: io.to().emit() — verified via mock io instance
- *
- * This matches the spec requirement: "DB-ошибки не блокируют" (DB errors
- * must not block). The test confirms this at the call-graph level.
- */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TelemetryAggregatorService } from '../../src/services/telemetry-aggregator.service';
+import { type Socket, type Server as IOServer } from 'socket.io';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { connectDatabase, disconnectDatabase } from '../../src/database/mongoose';
+import { EdgeServer } from '../../src/models/EdgeServer';
 import { Telemetry } from '../../src/models/Telemetry';
-import { registerTelemetryHandler } from '../../src/socket/events/telemetry';
-import type { Server as IOServer, Socket } from 'socket.io';
+import { User } from '../../src/models/User';
+import { lastSeenRegistry } from '../../src/services/edge-servers.service';
+import { TelemetryAggregatorService } from '../../src/services/telemetry-aggregator.service';
+import { type TelemetryBroadcast, registerTelemetryHandler } from '../../src/socket/events/telemetry';
+import {
+    bindEdgeToUser,
+    cleanupClientSockets,
+    connectDashboardSocket,
+    connectEdgeSocket,
+    createAdminSession,
+    createUserSession,
+    ensureServerListening,
+    expectNoEvent,
+    registerEdge,
+    stopServerIfStarted,
+    waitForEvent,
+} from './edge-socket.helpers';
 
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-/** Minimal fake Socket.IO server that records emit calls. */
 function makeMockIO() {
     const emitCalls: Array<{ room: string; event: string; payload: unknown }> = [];
 
@@ -50,26 +35,44 @@ function makeMockIO() {
     return { mockIO, emitCalls };
 }
 
-/** Minimal fake Socket that has event registration support. */
-function makeMockSocket(edgeId: string): Socket {
+function makeMockSocket(edgeId: string): Socket & { _trigger: (event: string, payload: unknown) => void } {
     const handlers = new Map<string, (payload: unknown) => void>();
+
     return {
         connected: true,
         data: { edgeId, trustedEdgeSession: true },
         on: (event: string, handler: (payload: unknown) => void) => {
             handlers.set(event, handler);
         },
-        // Helper to trigger a registered event (used in tests)
         _trigger: (event: string, payload: unknown) => {
-            const h = handlers.get(event);
-            if (h) h(payload);
+            handlers.get(event)?.(payload);
         },
-    } as unknown as Socket & { _trigger: (e: string, p: unknown) => void };
+    } as unknown as Socket & { _trigger: (event: string, payload: unknown) => void };
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────
+async function waitForPersistedEdge(
+    edgeId: string,
+    predicate: (edge: { lifecycleState: string; availability?: { online?: boolean; lastSeenAt?: Date | null } }) => boolean,
+    timeoutMs = 2500,
+): Promise<{ lifecycleState: string; availability?: { online?: boolean; lastSeenAt?: Date | null } }> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const edge = await EdgeServer.findById(edgeId)
+            .select('lifecycleState availability')
+            .lean<{ lifecycleState: string; availability?: { online?: boolean; lastSeenAt?: Date | null } } | null>()
+            .exec();
 
-describe('T033 — Telemetry DB Failover (US4)', () => {
+        if (edge && predicate(edge)) {
+            return edge;
+        }
+
+        await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+
+    throw new Error(`edge_state_timeout:${edgeId}`);
+}
+
+describe('T033 - Telemetry DB failover', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         TelemetryAggregatorService.resetForTests();
@@ -79,69 +82,45 @@ describe('T033 — Telemetry DB Failover (US4)', () => {
         vi.restoreAllMocks();
     });
 
-    // ── T033-1: DB failure does not throw from drain() ────────────────────
-
-    it('T033-1: drain() catches Telemetry.insertMany error — does not propagate', async () => {
-        // Mock insertMany to simulate a DB failure
+    it('T033-1: drain catches Telemetry.insertMany error and does not rethrow', async () => {
         vi.spyOn(Telemetry, 'insertMany').mockRejectedValueOnce(
             new Error('MongoNetworkError: connection timed out'),
         );
 
-        // Populate the aggregation window with a dummy reading
         TelemetryAggregatorService.ingest('fakeedge001', [
             { deviceId: 'dev1', metric: 'temp', value: 42, ts: Date.now() },
         ]);
 
         expect(TelemetryAggregatorService.windowSize()).toBe(1);
-
-        // drain() MUST NOT throw even though insertMany throws
         await expect(TelemetryAggregatorService.drain({ force: true })).resolves.toBeUndefined();
-
-        // Window should have been cleared regardless of DB failure
         expect(TelemetryAggregatorService.windowSize()).toBe(0);
-
-        // Confirm insertMany was actually called (not skipped)
         expect(Telemetry.insertMany).toHaveBeenCalledOnce();
     });
 
-    // ── T033-2: Broadcast reaches dashboards despite DB failure ───────────
-
-    it('T033-2: broadcast fires BEFORE ingest; io.to().emit() called even if insertMany mocked to throw', async () => {
-        // Mock insertMany to throw for any subsequent drain call
+    it('T033-2: broadcast reaches dashboards before drain path even when DB writes fail', async () => {
         vi.spyOn(Telemetry, 'insertMany').mockRejectedValue(
             new Error('MongoServerError: write failed'),
         );
 
-        const EDGE_ID = 'deadbeef00000000000cafef';
+        const edgeId = 'deadbeef00000000000cafef';
         const { mockIO, emitCalls } = makeMockIO();
-        const mockSocket = makeMockSocket(EDGE_ID) as Socket & {
-            _trigger: (e: string, p: unknown) => void;
-        };
+        const mockSocket = makeMockSocket(edgeId);
 
-        // Register the telemetry handler (T032)
-        registerTelemetryHandler(mockSocket, mockIO, EDGE_ID);
+        registerTelemetryHandler(mockSocket, mockIO, edgeId);
 
-        const reading = {
-            deviceId: 'device_A',
-            metric: 'pressure',
-            value: 3.14,
-            ts: Date.now(),
-        };
+        mockSocket._trigger('telemetry', {
+            readings: [
+                {
+                    deviceId: 'device_A',
+                    metric: 'pressure',
+                    value: 3.14,
+                    ts: Date.now(),
+                },
+            ],
+        });
 
-        // Simulate an edge telemetry batch arriving
-        mockSocket._trigger('telemetry', { readings: [reading] });
-
-        // ── ASSERT: two broadcasts on first batch ─────────────────────────
-        // Variant A: first valid batch emits edge_status{online:true} THEN telemetry
         expect(emitCalls).toHaveLength(2);
-
-        // First emit: edge_status — Online notification
-        expect(emitCalls[0]?.room).toBe(EDGE_ID);
         expect(emitCalls[0]?.event).toBe('edge_status');
-        expect((emitCalls[0]?.payload as { online: boolean }).online).toBe(true);
-
-        // Second emit: telemetry broadcast
-        expect(emitCalls[1]?.room).toBe(EDGE_ID);
         expect(emitCalls[1]?.event).toBe('telemetry');
 
         const broadcastPayload = emitCalls[1]?.payload as {
@@ -149,30 +128,162 @@ describe('T033 — Telemetry DB Failover (US4)', () => {
             readings: Array<{ metric: string; last: number }>;
         };
 
-        expect(broadcastPayload.edgeId).toBe(EDGE_ID);
+        expect(broadcastPayload.edgeId).toBe(edgeId);
         expect(broadcastPayload.readings).toHaveLength(1);
         expect(broadcastPayload.readings[0]?.metric).toBe('pressure');
         expect(broadcastPayload.readings[0]?.last).toBe(3.14);
 
-        // ── ASSERT: drain does not throw despite DB failure ───────────────
-        // Manually drain to trigger the (mocked) failed insertMany
         await expect(TelemetryAggregatorService.drain()).resolves.toBeUndefined();
     });
 
-    // ── T033-3: Ingest does not require DB — pure in-memory ──────────────
-
-    it('T033-3: ingest() is synchronous and has no DB dependency', () => {
-        // Even if DB is completely unavailable, ingest() must be safe to call
+    it('T033-3: ingest remains an in-memory operation without DB dependency', () => {
         vi.spyOn(Telemetry, 'insertMany').mockRejectedValue(new Error('DB unavailable'));
 
-        // Should not throw — no DB calls inside ingest()
         expect(() => {
             TelemetryAggregatorService.ingest('edgeXYZ', [
                 { deviceId: 'd', metric: 'm', value: true, ts: Date.now() },
             ]);
         }).not.toThrow();
 
-        // Window should contain 1 entry
         expect(TelemetryAggregatorService.windowSize()).toBeGreaterThan(0);
+    });
+});
+
+describe('T087 - Telemetry continuity under lifecycle model', () => {
+    let socketBaseUrl = '';
+    let startedSocketServer = false;
+    const activeSockets = new Set<import('socket.io-client').Socket>();
+
+    beforeAll(async () => {
+        await connectDatabase();
+        const listening = await ensureServerListening();
+        socketBaseUrl = listening.socketBaseUrl;
+        startedSocketServer = listening.startedSocketServer;
+    });
+
+    afterAll(async () => {
+        await cleanupClientSockets(activeSockets);
+        await Promise.all([Telemetry.deleteMany({}), EdgeServer.deleteMany({}), User.deleteMany({})]);
+        await stopServerIfStarted(startedSocketServer);
+        await disconnectDatabase();
+    });
+
+    beforeEach(async () => {
+        await cleanupClientSockets(activeSockets);
+        await Promise.all([Telemetry.deleteMany({}), EdgeServer.deleteMany({}), User.deleteMany({})]);
+        lastSeenRegistry.clear();
+    });
+
+    afterEach(async () => {
+        await cleanupClientSockets(activeSockets);
+    });
+
+    it('keeps lifecycle unchanged on normal disconnect while availability transitions to offline', async () => {
+        const { adminToken } = await createAdminSession('telemetry_resilience_disconnect_admin@test.com');
+        const { userId, userToken } = await createUserSession('telemetry_resilience_disconnect_user@test.com');
+        const registered = await registerEdge(adminToken, 'Telemetry Continuity Edge');
+        await bindEdgeToUser(adminToken, registered.edgeId, userId);
+
+        const dashboardSocket = await connectDashboardSocket(
+            socketBaseUrl,
+            activeSockets,
+            userToken,
+            registered.edgeId,
+        );
+        const edgeSocket = await connectEdgeSocket(socketBaseUrl, activeSockets, {
+            edgeId: registered.edgeId,
+            credentialSecret: registered.credentialSecret,
+        });
+
+        const onlineEvent = waitForEvent<{ edgeId: string; online: boolean }>(dashboardSocket, 'edge_status');
+        const telemetryEvent = waitForEvent<TelemetryBroadcast>(dashboardSocket, 'telemetry');
+
+        edgeSocket.emit('telemetry', {
+            readings: [
+                { deviceId: 'sensor-01', metric: 'temperature', value: 17.4, ts: Date.now() },
+            ],
+        });
+
+        await expect(onlineEvent).resolves.toEqual({ edgeId: registered.edgeId, online: true });
+        await expect(telemetryEvent).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                readings: [expect.objectContaining({ deviceId: 'sensor-01', metric: 'temperature' })],
+            }),
+        );
+
+        const offlineEvent = waitForEvent<{ edgeId: string; online: boolean }>(dashboardSocket, 'edge_status');
+        edgeSocket.disconnect();
+
+        await expect(offlineEvent).resolves.toEqual({ edgeId: registered.edgeId, online: false });
+
+        const persisted = await waitForPersistedEdge(
+            registered.edgeId,
+            (edge) => edge.lifecycleState === 'Active' && edge.availability?.online === false,
+        );
+        expect(persisted.lifecycleState).toBe('Active');
+        expect(persisted.availability?.online).toBe(false);
+        expect(persisted.availability?.lastSeenAt).not.toBeNull();
+    });
+
+    it('keeps trusted session alive during partial source degradation and forwards unaffected telemetry', async () => {
+        const { adminToken } = await createAdminSession('telemetry_resilience_partial_admin@test.com');
+        const { userId, userToken } = await createUserSession('telemetry_resilience_partial_user@test.com');
+        const registered = await registerEdge(adminToken, 'Telemetry Partial Degradation Edge');
+        await bindEdgeToUser(adminToken, registered.edgeId, userId);
+
+        const dashboardSocket = await connectDashboardSocket(
+            socketBaseUrl,
+            activeSockets,
+            userToken,
+            registered.edgeId,
+        );
+        const edgeSocket = await connectEdgeSocket(socketBaseUrl, activeSockets, {
+            edgeId: registered.edgeId,
+            credentialSecret: registered.credentialSecret,
+        });
+
+        const firstOnline = waitForEvent<{ edgeId: string; online: boolean }>(dashboardSocket, 'edge_status');
+        const firstTelemetry = waitForEvent<TelemetryBroadcast>(dashboardSocket, 'telemetry');
+        edgeSocket.emit('telemetry', {
+            readings: [
+                { deviceId: 'pump-01', metric: 'pressure', value: 3.2, ts: Date.now() },
+                { deviceId: 'pump-01', metric: '', value: 10, ts: Date.now() },
+                { deviceId: 'pump-02', metric: 'temperature', value: 7.1, ts: Date.now() + 20_000 },
+            ],
+        });
+
+        await expect(firstOnline).resolves.toEqual({ edgeId: registered.edgeId, online: true });
+        await expect(firstTelemetry).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                readings: [expect.objectContaining({ deviceId: 'pump-01', metric: 'pressure', last: 3.2 })],
+            }),
+        );
+
+        const secondTelemetry = waitForEvent<TelemetryBroadcast>(dashboardSocket, 'telemetry');
+        edgeSocket.emit('telemetry', {
+            readings: [
+                { deviceId: 'pump-01', metric: 'pressure', value: 3.4, ts: Date.now() },
+                { deviceId: '', metric: 'pressure', value: 4.1, ts: Date.now() },
+            ],
+        });
+
+        await expect(secondTelemetry).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                readings: [expect.objectContaining({ deviceId: 'pump-01', metric: 'pressure', last: 3.4 })],
+            }),
+        );
+
+        expect(edgeSocket.connected).toBe(true);
+        await expect(expectNoEvent(edgeSocket, 'edge_disconnect', 300)).resolves.toBeUndefined();
+
+        const persisted = await waitForPersistedEdge(
+            registered.edgeId,
+            (edge) => edge.lifecycleState === 'Active' && edge.availability?.online === true,
+        );
+        expect(persisted.lifecycleState).toBe('Active');
+        expect(persisted.availability?.online).toBe(true);
     });
 });

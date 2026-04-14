@@ -40,7 +40,7 @@ export function updateLastSeen(edgeId: string): void {
     lastSeenRegistry.set(edgeId, observedAtMs);
 
     void EdgeServer.updateOne(
-        { _id: edgeId },
+        { _id: edgeId, lifecycleState: 'Active' },
         {
             $set: {
                 'availability.online': true,
@@ -49,6 +49,11 @@ export function updateLastSeen(edgeId: string): void {
         },
     )
         .exec()
+        .then((result) => {
+            if (result.matchedCount === 0) {
+                lastSeenRegistry.delete(edgeId);
+            }
+        })
         .catch((error) => {
             console.error(`[edge-last-seen] Failed to persist heartbeat for edge ${edgeId}:`, error);
         });
@@ -113,13 +118,39 @@ function isHeartbeatFresh(lastSeenAt: Date | null, nowMs: number): boolean {
     return Boolean(lastSeenAt && nowMs - lastSeenAt.getTime() < PING_THRESHOLD_MS);
 }
 
+function resolveLatestLastSeenAt(
+    persistedLastSeenAt: Date | null,
+    inMemoryTs: number | undefined,
+): Date | null {
+    if (inMemoryTs === undefined) {
+        return persistedLastSeenAt;
+    }
+
+    const inMemoryLastSeenAt = new Date(inMemoryTs);
+    if (!persistedLastSeenAt || inMemoryLastSeenAt.getTime() > persistedLastSeenAt.getTime()) {
+        return inMemoryLastSeenAt;
+    }
+
+    return persistedLastSeenAt;
+}
+
 function getCurrentAvailabilitySnapshot(
     edgeId: string,
+    lifecycleState: string | undefined,
     availability?: EdgeAvailabilitySnapshot,
     nowMs: number = Date.now(),
 ): EdgeAvailabilitySnapshot {
+    const canonicalLifecycleState = requireCanonicalLifecycleState(lifecycleState, edgeId);
     const persistedLastSeenAt = asNullableDate(availability?.lastSeenAt ?? null);
     const inMemoryTs = lastSeenRegistry.get(edgeId);
+    const latestLastSeenAt = resolveLatestLastSeenAt(persistedLastSeenAt, inMemoryTs);
+
+    if (canonicalLifecycleState === 'Blocked') {
+        return {
+            online: false,
+            lastSeenAt: latestLastSeenAt,
+        };
+    }
 
     if (inMemoryTs !== undefined && nowMs - inMemoryTs < PING_THRESHOLD_MS) {
         return {
@@ -137,7 +168,7 @@ function getCurrentAvailabilitySnapshot(
 
     return {
         online: false,
-        lastSeenAt: persistedLastSeenAt,
+        lastSeenAt: latestLastSeenAt,
     };
 }
 
@@ -182,7 +213,11 @@ function toIsoString(value: Date | null): string | null {
 }
 
 function normalizeAvailabilitySnapshot(input: EdgeProjectionInput): EdgeAvailabilityRecord {
-    const availability = getCurrentAvailabilitySnapshot(toIdString(input._id), input.availability);
+    const availability = getCurrentAvailabilitySnapshot(
+        toIdString(input._id),
+        input.lifecycleState,
+        input.availability,
+    );
 
     return {
         online: availability.online,
@@ -605,6 +640,8 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
         {
             $match: {
                 'metadata.edgeId': edgeIdStr,
+                'metadata.deviceId': { $type: 'string', $ne: '' },
+                metric: { $type: 'string', $ne: '' },
                 $or: [{ rollup: { $exists: true } }, { value: { $exists: true } }],
             },
         },

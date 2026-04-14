@@ -39,12 +39,7 @@ export function registerTelemetryHandler(
         const serverTs = Date.now();
 
         const readings = payload.readings.filter((reading) =>
-            typeof reading.deviceId === 'string' && reading.deviceId.length > 0 &&
-            typeof reading.metric === 'string' && reading.metric.length > 0 &&
-            (typeof reading.value === 'number' || typeof reading.value === 'boolean') &&
-            typeof reading.ts === 'number' &&
-            Number.isFinite(reading.ts) &&
-            TelemetryAggregatorService.isTimestampValid(reading.ts, serverTs),
+            TelemetryAggregatorService.isReadingValid(reading, serverTs),
         );
 
         if (readings.length === 0) {

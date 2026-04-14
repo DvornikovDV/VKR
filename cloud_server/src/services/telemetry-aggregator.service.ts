@@ -73,6 +73,14 @@ function makeKey(edgeId: string, reading: TelemetryReading, startMs: number): Bu
     return `${edgeId}:${reading.deviceId}:${reading.metric}:${startMs}:${kindSuffix}`;
 }
 
+function isNonEmptyString(value: unknown): value is string {
+    return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isTelemetryValue(value: unknown): value is number | boolean {
+    return typeof value === 'number' || typeof value === 'boolean';
+}
+
 export function isTimestampValid(ts: number, nowMs: number = Date.now()): boolean {
     if (!Number.isFinite(ts) || ts <= 0) {
         return false;
@@ -87,6 +95,27 @@ export function isTimestampValid(ts: number, nowMs: number = Date.now()): boolea
     }
 
     return true;
+}
+
+export function isReadingValid(reading: unknown, nowMs: number = Date.now()): reading is TelemetryReading {
+    if (!reading || typeof reading !== 'object') {
+        return false;
+    }
+
+    const candidate = reading as Partial<TelemetryReading>;
+    if (!isNonEmptyString(candidate.deviceId) || !isNonEmptyString(candidate.metric)) {
+        return false;
+    }
+
+    if (!isTelemetryValue(candidate.value)) {
+        return false;
+    }
+
+    if (typeof candidate.ts !== 'number' || !Number.isFinite(candidate.ts)) {
+        return false;
+    }
+
+    return isTimestampValid(candidate.ts, nowMs);
 }
 
 function upsertNumericEntry(
@@ -210,9 +239,9 @@ function computeFlushWatermark(nowMs: number, force: boolean): number {
 
 function ingest(edgeId: string, readings: TelemetryReading[], nowMs: number = Date.now()): void {
     for (const reading of readings) {
-        if (!isTimestampValid(reading.ts, nowMs)) {
+        if (!isReadingValid(reading, nowMs)) {
             console.warn(
-                `[TelemetryAggregator] Dropping reading with invalid ts (${reading.ts}) for edge ${edgeId}`,
+                `[TelemetryAggregator] Dropping malformed reading for edge ${edgeId}`,
             );
             continue;
         }
@@ -324,6 +353,7 @@ export const TelemetryAggregatorService = {
     ingest,
     drain,
     isTimestampValid,
+    isReadingValid,
     startDrainLoop,
     stopDrainLoop,
     windowSize,
