@@ -58,7 +58,7 @@ function normalizeEdgeHandshakePayload(
         return null;
     }
 
-    // Do not keep backward compatibility with the legacy onboarding auth shape.
+    // Do not keep backward compatibility with removed legacy auth payload fields.
     if (Object.prototype.hasOwnProperty.call(auth ?? {}, 'credentialMode')) {
         return null;
     }
@@ -78,7 +78,7 @@ export async function authenticatePersistentEdgeRuntime(
     }
 
     if (!mongoose.isValidObjectId(payload.edgeId)) {
-        return { ok: false, code: 'edge_not_found' };
+        return { ok: false, code: 'invalid_credential' };
     }
 
     const edge = await loadEdgeHandshakeDocument(payload.edgeId).exec();

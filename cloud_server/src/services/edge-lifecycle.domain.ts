@@ -53,6 +53,13 @@ export async function hashPersistentCredentialSecret(
     return bcrypt.hash(plainSecret, rounds);
 }
 
+export async function verifyPersistentCredentialSecret(
+    plainSecret: string,
+    secretHash: string,
+): Promise<boolean> {
+    return bcrypt.compare(plainSecret, secretHash);
+}
+
 export function createPersistentCredentialMetadata(
     input: CreatePersistentCredentialMetadataInput,
 ): EdgePersistentCredentialMetadata {

@@ -38,20 +38,24 @@ export function registerTelemetryHandler(
 
         const serverTs = Date.now();
 
-        const readings = payload.readings.filter((reading) =>
-            TelemetryAggregatorService.isReadingValid(reading, serverTs),
-        );
+        const readings = payload.readings
+            .map((reading) => TelemetryAggregatorService.normalizeReading(reading, serverTs))
+            .filter((reading): reading is TelemetryReading => reading !== null);
 
         if (readings.length === 0) {
             console.warn(`[telemetry] All readings from edge ${edgeId} failed validation`);
             return;
         }
 
-        updateLastSeen(edgeId);
+        const observedAt = updateLastSeen(edgeId, new Date(serverTs));
 
         if (!onlineNotified) {
             onlineNotified = true;
-            io.to(edgeId).emit('edge_status', { edgeId, online: true });
+            io.to(edgeId).emit('edge_status', {
+                edgeId,
+                online: true,
+                lastSeenAt: observedAt.toISOString(),
+            });
         }
 
         const broadcastPayload: TelemetryBroadcast = {

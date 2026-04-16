@@ -120,4 +120,52 @@ describe('TelemetryAggregatorService event-time history rollups', () => {
             expect(secondDrainDocs[0].rollup.last).toBe(20);
         }
     });
+
+    it('keeps distinct metric streams for one device when metric contains allowed delimiter characters', async () => {
+        const insertSpy = vi.spyOn(Telemetry, 'insertMany').mockResolvedValue([] as never);
+        const ts = 1_711_000_000_100;
+
+        TelemetryAggregatorService.ingest('edge-delimiter', [
+            { deviceId: 'pump-1', metric: 'temperature:inlet', value: 1, ts },
+            { deviceId: 'pump-1', metric: 'temperature/inlet', value: 2, ts },
+        ], ts + 50);
+
+        await TelemetryAggregatorService.drain({ force: true, nowMs: ts + 2_000 });
+        const docs = docsFromCall(insertSpy, 0);
+        expect(docs).toHaveLength(2);
+
+        expect(docs).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    metadata: expect.objectContaining({ deviceId: 'pump-1' }),
+                    metric: 'temperature:inlet',
+                }),
+                expect.objectContaining({
+                    metadata: expect.objectContaining({ deviceId: 'pump-1' }),
+                    metric: 'temperature/inlet',
+                }),
+            ]),
+        );
+    });
+
+    it('normalizes valid identity fields and drops malformed deviceId/metric values', async () => {
+        const insertSpy = vi.spyOn(Telemetry, 'insertMany').mockResolvedValue([] as never);
+        const ts = 1_712_000_000_000;
+
+        TelemetryAggregatorService.ingest('edge-identity', [
+            { deviceId: ' pump-1 ', metric: ' temp.C/% ', value: 10, ts },
+            { deviceId: 'pump/2', metric: 'pressure', value: 20, ts }, // invalid deviceId
+            { deviceId: 'pump-3', metric: 'temp value', value: 30, ts }, // invalid metric
+        ], ts + 100);
+
+        await TelemetryAggregatorService.drain({ force: true, nowMs: ts + 2_000 });
+        const docs = docsFromCall(insertSpy, 0);
+        expect(docs).toHaveLength(1);
+        expect(docs[0]).toEqual(
+            expect.objectContaining({
+                metadata: expect.objectContaining({ deviceId: 'pump-1' }),
+                metric: 'temp.C/%',
+            }),
+        );
+    });
 });

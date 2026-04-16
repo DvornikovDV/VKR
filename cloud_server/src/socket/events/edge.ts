@@ -12,55 +12,61 @@ export const EDGE_NAMESPACE = '/edge';
 
 export type EdgeForcedDisconnectReason = 'edge_forced_disconnect' | 'credential_rotated' | 'blocked';
 
-const activeEdgeSockets = new Map<string, Set<Socket>>();
-const pendingAuthenticatedEdgeSockets = new Map<string, Set<Socket>>();
+const activeEdgeSockets = new Map<string, Socket>();
+const pendingAuthenticatedEdgeSockets = new Map<string, Socket>();
 
-function trackActiveEdgeSocket(edgeId: string, socket: Socket): void {
-    const socketsForEdge = activeEdgeSockets.get(edgeId) ?? new Set<Socket>();
-    socketsForEdge.add(socket);
-    activeEdgeSockets.set(edgeId, socketsForEdge);
+function trackActiveEdgeSocket(edgeId: string, socket: Socket): boolean {
+    const existing = activeEdgeSockets.get(edgeId);
+    if (existing && existing !== socket) {
+        return false;
+    }
+
+    activeEdgeSockets.set(edgeId, socket);
+    return true;
 }
 
-function trackPendingAuthenticatedEdgeSocket(edgeId: string, socket: Socket): void {
-    const socketsForEdge = pendingAuthenticatedEdgeSockets.get(edgeId) ?? new Set<Socket>();
-    socketsForEdge.add(socket);
-    pendingAuthenticatedEdgeSockets.set(edgeId, socketsForEdge);
+function trackPendingAuthenticatedEdgeSocket(edgeId: string, socket: Socket): boolean {
+    const existingPending = pendingAuthenticatedEdgeSockets.get(edgeId);
+    if (existingPending && existingPending !== socket) {
+        return false;
+    }
+
+    if (activeEdgeSockets.has(edgeId) && activeEdgeSockets.get(edgeId) !== socket) {
+        return false;
+    }
+
+    pendingAuthenticatedEdgeSockets.set(edgeId, socket);
+    return true;
 }
 
 function untrackActiveEdgeSocket(edgeId: string, socket: Socket): void {
-    const socketsForEdge = activeEdgeSockets.get(edgeId);
-    if (!socketsForEdge) return;
-
-    socketsForEdge.delete(socket);
-    if (socketsForEdge.size === 0) {
+    if (activeEdgeSockets.get(edgeId) === socket) {
         activeEdgeSockets.delete(edgeId);
     }
 }
 
 function untrackPendingAuthenticatedEdgeSocket(edgeId: string, socket: Socket): void {
-    const socketsForEdge = pendingAuthenticatedEdgeSockets.get(edgeId);
-    if (!socketsForEdge) return;
-
-    socketsForEdge.delete(socket);
-    if (socketsForEdge.size === 0) {
+    if (pendingAuthenticatedEdgeSockets.get(edgeId) === socket) {
         pendingAuthenticatedEdgeSockets.delete(edgeId);
     }
 }
 
-function promoteAuthenticatedEdgeSocket(edgeId: string, socket: Socket): void {
+function promoteAuthenticatedEdgeSocket(edgeId: string, socket: Socket): boolean {
     untrackPendingAuthenticatedEdgeSocket(edgeId, socket);
-    trackActiveEdgeSocket(edgeId, socket);
+    return trackActiveEdgeSocket(edgeId, socket);
 }
 
 function getTrackedEdgeSockets(edgeId: string): Socket[] {
     const trackedSockets = new Set<Socket>();
 
-    for (const socket of activeEdgeSockets.get(edgeId) ?? []) {
-        trackedSockets.add(socket);
+    const activeSocket = activeEdgeSockets.get(edgeId);
+    if (activeSocket) {
+        trackedSockets.add(activeSocket);
     }
 
-    for (const socket of pendingAuthenticatedEdgeSockets.get(edgeId) ?? []) {
-        trackedSockets.add(socket);
+    const pendingSocket = pendingAuthenticatedEdgeSockets.get(edgeId);
+    if (pendingSocket) {
+        trackedSockets.add(pendingSocket);
     }
 
     return Array.from(trackedSockets);
@@ -68,14 +74,10 @@ function getTrackedEdgeSockets(edgeId: string): Socket[] {
 
 export function getActiveEdgeSocketCount(edgeId?: string): number {
     if (edgeId) {
-        return activeEdgeSockets.get(edgeId)?.size ?? 0;
+        return activeEdgeSockets.has(edgeId) ? 1 : 0;
     }
 
-    let total = 0;
-    for (const socketsForEdge of activeEdgeSockets.values()) {
-        total += socketsForEdge.size;
-    }
-    return total;
+    return activeEdgeSockets.size;
 }
 
 export function disconnectEdgeSockets(
@@ -90,6 +92,7 @@ export function disconnectEdgeSockets(
     for (const socket of sockets) {
         markTrustedSessionLost(socket, { skipOfflineTransition: true });
         untrackPendingAuthenticatedEdgeSocket(edgeId, socket);
+        untrackActiveEdgeSocket(edgeId, socket);
         socket.emit('edge_disconnect', { edgeId, reason });
         socket.disconnect(true);
     }
@@ -111,7 +114,11 @@ async function edgeAuthMiddleware(socket: Socket, next: (err?: Error) => void): 
         }
 
         attachAuthenticatedEdgeContext(socket, authResult.context);
-        trackPendingAuthenticatedEdgeSocket(authResult.context.edgeId, socket);
+        const reserved = trackPendingAuthenticatedEdgeSocket(authResult.context.edgeId, socket);
+        if (!reserved) {
+            next(new Error('invalid_credential'));
+            return;
+        }
         socket.once('disconnect', () => {
             untrackPendingAuthenticatedEdgeSocket(authResult.context.edgeId, socket);
         });
@@ -141,20 +148,29 @@ export function registerEdgeNamespace(io: IOServer): void {
             return;
         }
 
-        promoteAuthenticatedEdgeSocket(edgeId, socket);
+        if (!promoteAuthenticatedEdgeSocket(edgeId, socket)) {
+            socket.disconnect(true);
+            return;
+        }
         console.log(`[edge] Edge connected: ${edgeId} (socket: ${socket.id})`);
 
         registerTelemetryHandler(socket, io, edgeId);
 
         socket.on('disconnect', (reason: string) => {
             untrackActiveEdgeSocket(edgeId, socket);
+            untrackPendingAuthenticatedEdgeSocket(edgeId, socket);
             markTrustedSessionLost(socket);
             console.log(`[edge] Edge disconnected: ${edgeId} - reason: ${reason}`);
             if (getActiveEdgeSocketCount(edgeId) === 0 && !shouldSkipOfflineTransition(socket)) {
-                void markEdgeOffline(edgeId).catch((error) => {
+                void markEdgeOffline(edgeId).then((lastSeenAt) => {
+                    io.to(edgeId).emit('edge_status', {
+                        edgeId,
+                        online: false,
+                        lastSeenAt: lastSeenAt?.toISOString() ?? null,
+                    });
+                }).catch((error) => {
                     console.error(`[edge] Failed to mark edge offline (${edgeId}):`, error);
                 });
-                io.to(edgeId).emit('edge_status', { edgeId, online: false });
             }
         });
 

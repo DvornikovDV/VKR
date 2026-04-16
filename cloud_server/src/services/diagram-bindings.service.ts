@@ -3,6 +3,7 @@ import { DiagramBindings, type IDiagramBindings, type IWidgetBinding } from '../
 import { Diagram } from '../models/Diagram';
 import { EdgeServer } from '../models/EdgeServer';
 import { AppError } from '../api/middlewares/error.middleware';
+import { normalizeDeviceId, normalizeMetric } from './edge-identity.validation';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -97,12 +98,36 @@ async function upsert(
     // Validate edgeServer is in user's trustedUsers
     await assertEdgeServerTrusted(edgeServerId, ownerId);
 
+    const normalizedBindings = payload.widgetBindings.map((binding, index) => {
+        const widgetId = typeof binding.widgetId === 'string' ? binding.widgetId.trim() : '';
+        const deviceId = normalizeDeviceId(binding.deviceId);
+        const metric = normalizeMetric(binding.metric);
+
+        if (!widgetId) {
+            throw new AppError(`widgetBindings[${index}].widgetId is required`, 400);
+        }
+        if (!deviceId) {
+            throw new AppError(
+                `widgetBindings[${index}].deviceId must match [A-Za-z0-9._-]+`,
+                400,
+            );
+        }
+        if (!metric) {
+            throw new AppError(
+                `widgetBindings[${index}].metric must match [A-Za-z0-9._:/%-]+`,
+                400,
+            );
+        }
+
+        return { widgetId, deviceId, metric };
+    });
+
     // Atomic upsert — eliminates race condition on unique compound index { diagramId, edgeServerId }
     const before = await DiagramBindings.findOne({ diagramId, edgeServerId }).lean().exec();
 
     const binding = await DiagramBindings.findOneAndUpdate(
         { diagramId, edgeServerId },
-        { $set: { widgetBindings: payload.widgetBindings, ownerId } },
+        { $set: { widgetBindings: normalizedBindings, ownerId } },
         { new: true, upsert: true, setDefaultsOnInsert: true },
     ).exec();
 

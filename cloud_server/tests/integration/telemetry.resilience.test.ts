@@ -195,7 +195,10 @@ describe('T087 - Telemetry continuity under lifecycle model', () => {
             credentialSecret: registered.credentialSecret,
         });
 
-        const onlineEvent = waitForEvent<{ edgeId: string; online: boolean }>(dashboardSocket, 'edge_status');
+        const onlineEvent = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
+            dashboardSocket,
+            'edge_status',
+        );
         const telemetryEvent = waitForEvent<TelemetryBroadcast>(dashboardSocket, 'telemetry');
 
         edgeSocket.emit('telemetry', {
@@ -204,7 +207,13 @@ describe('T087 - Telemetry continuity under lifecycle model', () => {
             ],
         });
 
-        await expect(onlineEvent).resolves.toEqual({ edgeId: registered.edgeId, online: true });
+        await expect(onlineEvent).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: true,
+                lastSeenAt: expect.any(String),
+            }),
+        );
         await expect(telemetryEvent).resolves.toEqual(
             expect.objectContaining({
                 edgeId: registered.edgeId,
@@ -212,10 +221,19 @@ describe('T087 - Telemetry continuity under lifecycle model', () => {
             }),
         );
 
-        const offlineEvent = waitForEvent<{ edgeId: string; online: boolean }>(dashboardSocket, 'edge_status');
+        const offlineEvent = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
+            dashboardSocket,
+            'edge_status',
+        );
         edgeSocket.disconnect();
 
-        await expect(offlineEvent).resolves.toEqual({ edgeId: registered.edgeId, online: false });
+        await expect(offlineEvent).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: false,
+                lastSeenAt: expect.any(String),
+            }),
+        );
 
         const persisted = await waitForPersistedEdge(
             registered.edgeId,
@@ -243,7 +261,10 @@ describe('T087 - Telemetry continuity under lifecycle model', () => {
             credentialSecret: registered.credentialSecret,
         });
 
-        const firstOnline = waitForEvent<{ edgeId: string; online: boolean }>(dashboardSocket, 'edge_status');
+        const firstOnline = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
+            dashboardSocket,
+            'edge_status',
+        );
         const firstTelemetry = waitForEvent<TelemetryBroadcast>(dashboardSocket, 'telemetry');
         edgeSocket.emit('telemetry', {
             readings: [
@@ -253,7 +274,13 @@ describe('T087 - Telemetry continuity under lifecycle model', () => {
             ],
         });
 
-        await expect(firstOnline).resolves.toEqual({ edgeId: registered.edgeId, online: true });
+        await expect(firstOnline).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: true,
+                lastSeenAt: expect.any(String),
+            }),
+        );
         await expect(firstTelemetry).resolves.toEqual(
             expect.objectContaining({
                 edgeId: registered.edgeId,

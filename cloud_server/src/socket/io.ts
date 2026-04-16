@@ -70,9 +70,13 @@ export async function disconnectEdgeSocketsById(
 ): Promise<number> {
     const disconnectedSockets = disconnectEdgeSockets(edgeId, reason);
     if (disconnectedSockets > 0) {
-        await markEdgeOffline(edgeId);
+        const lastSeenAt = await markEdgeOffline(edgeId);
         if (_io) {
-            _io.to(edgeId).emit('edge_status', { edgeId, online: false });
+            _io.to(edgeId).emit('edge_status', {
+                edgeId,
+                online: false,
+                lastSeenAt: lastSeenAt?.toISOString() ?? null,
+            });
         }
     }
 

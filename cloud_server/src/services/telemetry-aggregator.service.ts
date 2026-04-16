@@ -5,6 +5,7 @@ import {
     type ITelemetryDoc,
     type NumericTelemetryRollup,
 } from '../models/Telemetry';
+import { normalizeDeviceId, normalizeMetric } from './edge-identity.validation';
 
 export interface TelemetryReading {
     deviceId: string;
@@ -15,7 +16,7 @@ export interface TelemetryReading {
 
 type ValueKind = 'numeric' | 'boolean';
 
-type BucketKey = `${string}:${string}:${string}:${number}:${'n' | 'b'}`;
+type BucketKey = string;
 
 interface BaseBucketEntry {
     edgeId: string;
@@ -70,11 +71,8 @@ function bucketStart(ts: number): number {
 
 function makeKey(edgeId: string, reading: TelemetryReading, startMs: number): BucketKey {
     const kindSuffix: 'n' | 'b' = typeof reading.value === 'number' ? 'n' : 'b';
-    return `${edgeId}:${reading.deviceId}:${reading.metric}:${startMs}:${kindSuffix}`;
-}
-
-function isNonEmptyString(value: unknown): value is string {
-    return typeof value === 'string' && value.trim().length > 0;
+    // Use a structural key to avoid collisions from delimiter characters in deviceId/metric.
+    return JSON.stringify([edgeId, reading.deviceId, reading.metric, startMs, kindSuffix]);
 }
 
 function isTelemetryValue(value: unknown): value is number | boolean {
@@ -98,24 +96,39 @@ export function isTimestampValid(ts: number, nowMs: number = Date.now()): boolea
 }
 
 export function isReadingValid(reading: unknown, nowMs: number = Date.now()): reading is TelemetryReading {
+    return normalizeReading(reading, nowMs) !== null;
+}
+
+export function normalizeReading(reading: unknown, nowMs: number = Date.now()): TelemetryReading | null {
     if (!reading || typeof reading !== 'object') {
-        return false;
+        return null;
     }
 
     const candidate = reading as Partial<TelemetryReading>;
-    if (!isNonEmptyString(candidate.deviceId) || !isNonEmptyString(candidate.metric)) {
-        return false;
+    const deviceId = normalizeDeviceId(candidate.deviceId);
+    const metric = normalizeMetric(candidate.metric);
+    if (!deviceId || !metric) {
+        return null;
     }
 
     if (!isTelemetryValue(candidate.value)) {
-        return false;
+        return null;
     }
 
     if (typeof candidate.ts !== 'number' || !Number.isFinite(candidate.ts)) {
-        return false;
+        return null;
     }
 
-    return isTimestampValid(candidate.ts, nowMs);
+    if (!isTimestampValid(candidate.ts, nowMs)) {
+        return null;
+    }
+
+    return {
+        deviceId,
+        metric,
+        value: candidate.value,
+        ts: candidate.ts,
+    };
 }
 
 function upsertNumericEntry(
@@ -239,14 +252,15 @@ function computeFlushWatermark(nowMs: number, force: boolean): number {
 
 function ingest(edgeId: string, readings: TelemetryReading[], nowMs: number = Date.now()): void {
     for (const reading of readings) {
-        if (!isReadingValid(reading, nowMs)) {
+        const normalizedReading = normalizeReading(reading, nowMs);
+        if (!normalizedReading) {
             console.warn(
                 `[TelemetryAggregator] Dropping malformed reading for edge ${edgeId}`,
             );
             continue;
         }
 
-        const startMs = bucketStart(reading.ts);
+        const startMs = bucketStart(normalizedReading.ts);
         const endMs = startMs + BUCKET_MS;
 
         if (sealedThroughBucketEndMs > 0 && endMs <= sealedThroughBucketEndMs) {
@@ -256,19 +270,19 @@ function ingest(edgeId: string, readings: TelemetryReading[], nowMs: number = Da
             continue;
         }
 
-        const key = makeKey(edgeId, reading, startMs);
+        const key = makeKey(edgeId, normalizedReading, startMs);
         if (window.size >= WINDOW_MAX_KEYS && !window.has(key)) {
             console.warn(`[TelemetryAggregator] Window cap (${WINDOW_MAX_KEYS}) reached, dropping readings`);
             break;
         }
 
-        const kind = getValueKind(reading.value);
+        const kind = getValueKind(normalizedReading.value);
         if (kind === 'numeric') {
             const existing = window.get(key);
             const next = upsertNumericEntry(
                 existing && existing.kind === 'numeric' ? existing : undefined,
                 edgeId,
-                reading,
+                normalizedReading,
                 startMs,
             );
             window.set(key, next);
@@ -277,13 +291,13 @@ function ingest(edgeId: string, readings: TelemetryReading[], nowMs: number = Da
             const next = upsertBooleanEntry(
                 existing && existing.kind === 'boolean' ? existing : undefined,
                 edgeId,
-                reading,
+                normalizedReading,
                 startMs,
             );
             window.set(key, next);
         }
 
-        maxEventTsSeen = Math.max(maxEventTsSeen, reading.ts);
+        maxEventTsSeen = Math.max(maxEventTsSeen, normalizedReading.ts);
     }
 }
 
@@ -354,6 +368,7 @@ export const TelemetryAggregatorService = {
     drain,
     isTimestampValid,
     isReadingValid,
+    normalizeReading,
     startDrainLoop,
     stopDrainLoop,
     windowSize,

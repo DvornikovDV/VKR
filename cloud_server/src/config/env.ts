@@ -83,21 +83,6 @@ export const ENV = {
     /** Default ADMIN provisioning password (used by seed script) */
     DEFAULT_ADMIN_PASSWORD: optional_trimmed_string('DEFAULT_ADMIN_PASSWORD'),
 
-    /** One-time onboarding package validity (hours) */
-    EDGE_ONBOARDING_PACKAGE_TTL_HOURS: optional_positive_int('EDGE_ONBOARDING_PACKAGE_TTL_HOURS', 24),
-
-    /** Number of random bytes for one-time onboarding secret generation */
-    EDGE_ONBOARDING_SECRET_BYTES: optional_positive_int('EDGE_ONBOARDING_SECRET_BYTES', 32),
-
     /** Number of random bytes for persistent reconnect secret generation */
     EDGE_PERSISTENT_SECRET_BYTES: optional_positive_int('EDGE_PERSISTENT_SECRET_BYTES', 48),
-
-    /** Max reconnect attempts used by edge runtime compatibility flows */
-    EDGE_RECONNECT_MAX_ATTEMPTS: optional_positive_int('EDGE_RECONNECT_MAX_ATTEMPTS', 10),
-
-    /** Base reconnect delay in milliseconds */
-    EDGE_RECONNECT_BASE_DELAY_MS: optional_positive_int('EDGE_RECONNECT_BASE_DELAY_MS', 1000),
-
-    /** Max reconnect delay in milliseconds */
-    EDGE_RECONNECT_MAX_DELAY_MS: optional_positive_int('EDGE_RECONNECT_MAX_DELAY_MS', 30000),
 } as const;

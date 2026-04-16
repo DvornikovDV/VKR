@@ -71,7 +71,7 @@ describe('Edge socket lifecycle runtime path', () => {
             credentialSecret: registered.credentialSecret,
         });
 
-        const initialOnlineStatus = waitForEvent<{ edgeId: string; online: boolean }>(
+        const initialOnlineStatus = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
             dashboardSocket,
             'edge_status',
         );
@@ -82,10 +82,13 @@ describe('Edge socket lifecycle runtime path', () => {
             ],
         });
 
-        await expect(initialOnlineStatus).resolves.toEqual({
-            edgeId: registered.edgeId,
-            online: true,
-        });
+        await expect(initialOnlineStatus).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: true,
+                lastSeenAt: expect.any(String),
+            }),
+        );
         await expect(initialTelemetry).resolves.toEqual(
             expect.objectContaining({
                 edgeId: registered.edgeId,
@@ -94,7 +97,7 @@ describe('Edge socket lifecycle runtime path', () => {
         );
 
         const forcedDisconnect = waitForForcedDisconnect(edgeSocket);
-        const offlineStatus = waitForEvent<{ edgeId: string; online: boolean }>(
+        const offlineStatus = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
             dashboardSocket,
             'edge_status',
         );
@@ -104,10 +107,13 @@ describe('Edge socket lifecycle runtime path', () => {
             edgeReason: 'credential_rotated',
             disconnectReason: 'io server disconnect',
         });
-        await expect(offlineStatus).resolves.toEqual({
-            edgeId: registered.edgeId,
-            online: false,
-        });
+        await expect(offlineStatus).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: false,
+                lastSeenAt: expect.any(String),
+            }),
+        );
 
         edgeSocket.emit('telemetry', {
             readings: [
@@ -128,7 +134,7 @@ describe('Edge socket lifecycle runtime path', () => {
             credentialSecret: rotated.credentialSecret,
         });
 
-        const restoredOnlineStatus = waitForEvent<{ edgeId: string; online: boolean }>(
+        const restoredOnlineStatus = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
             dashboardSocket,
             'edge_status',
         );
@@ -139,10 +145,13 @@ describe('Edge socket lifecycle runtime path', () => {
             ],
         });
 
-        await expect(restoredOnlineStatus).resolves.toEqual({
-            edgeId: registered.edgeId,
-            online: true,
-        });
+        await expect(restoredOnlineStatus).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: true,
+                lastSeenAt: expect.any(String),
+            }),
+        );
         await expect(restoredTelemetry).resolves.toEqual(
             expect.objectContaining({
                 edgeId: registered.edgeId,
@@ -168,7 +177,7 @@ describe('Edge socket lifecycle runtime path', () => {
             credentialSecret: registered.credentialSecret,
         });
 
-        const initialOnlineStatus = waitForEvent<{ edgeId: string; online: boolean }>(
+        const initialOnlineStatus = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
             dashboardSocket,
             'edge_status',
         );
@@ -179,10 +188,13 @@ describe('Edge socket lifecycle runtime path', () => {
             ],
         });
 
-        await expect(initialOnlineStatus).resolves.toEqual({
-            edgeId: registered.edgeId,
-            online: true,
-        });
+        await expect(initialOnlineStatus).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: true,
+                lastSeenAt: expect.any(String),
+            }),
+        );
         await expect(initialTelemetry).resolves.toEqual(
             expect.objectContaining({
                 edgeId: registered.edgeId,
@@ -191,7 +203,7 @@ describe('Edge socket lifecycle runtime path', () => {
         );
 
         const forcedDisconnect = waitForForcedDisconnect(edgeSocket);
-        const offlineStatus = waitForEvent<{ edgeId: string; online: boolean }>(
+        const offlineStatus = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
             dashboardSocket,
             'edge_status',
         );
@@ -201,10 +213,13 @@ describe('Edge socket lifecycle runtime path', () => {
             edgeReason: 'blocked',
             disconnectReason: 'io server disconnect',
         });
-        await expect(offlineStatus).resolves.toEqual({
-            edgeId: registered.edgeId,
-            online: false,
-        });
+        await expect(offlineStatus).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: false,
+                lastSeenAt: expect.any(String),
+            }),
+        );
 
         edgeSocket.emit('telemetry', {
             readings: [
@@ -232,7 +247,7 @@ describe('Edge socket lifecycle runtime path', () => {
             credentialSecret: unblocked.credentialSecret,
         });
 
-        const restoredOnlineStatus = waitForEvent<{ edgeId: string; online: boolean }>(
+        const restoredOnlineStatus = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
             dashboardSocket,
             'edge_status',
         );
@@ -243,10 +258,13 @@ describe('Edge socket lifecycle runtime path', () => {
             ],
         });
 
-        await expect(restoredOnlineStatus).resolves.toEqual({
-            edgeId: registered.edgeId,
-            online: true,
-        });
+        await expect(restoredOnlineStatus).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: true,
+                lastSeenAt: expect.any(String),
+            }),
+        );
         await expect(restoredTelemetry).resolves.toEqual(
             expect.objectContaining({
                 edgeId: registered.edgeId,

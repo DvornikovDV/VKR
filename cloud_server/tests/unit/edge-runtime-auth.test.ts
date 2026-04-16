@@ -125,4 +125,23 @@ describe('edge-runtime-auth', () => {
             code: 'blocked',
         });
     });
+
+    it('rejects malformed edgeId as invalid_credential without touching persistence', async () => {
+        const result = await authenticatePersistentEdgeRuntime({
+            handshake: {
+                auth: {
+                    edgeId: 'invalid-id',
+                    credentialSecret: 'secret',
+                },
+            },
+        });
+
+        expect(result).toEqual({
+            ok: false,
+            code: 'invalid_credential',
+        });
+        expect(findByIdMock).not.toHaveBeenCalled();
+        expect(findOneAndUpdateMock).not.toHaveBeenCalled();
+        expect(compareMock).not.toHaveBeenCalled();
+    });
 });

@@ -4,7 +4,10 @@ import { ENV } from '../config/env';
 import { connectDatabase, disconnectDatabase } from '../database/mongoose';
 import { EdgeServer } from '../models/EdgeServer';
 import { User } from '../models/User';
-import { EdgeOnboardingService } from '../services/edge-onboarding.service';
+import {
+    hashPersistentCredentialSecret,
+    verifyPersistentCredentialSecret,
+} from '../services/edge-lifecycle.domain';
 
 const DEFAULT_EDGE_NAME = 'Local Telemetry Test Edge';
 
@@ -96,7 +99,7 @@ export async function seedEdgeTelemetryTest(
         if (existingEdges.length === 0) {
             const edgeId = new mongoose.Types.ObjectId();
             const credentialSecret = derivePersistentSecret(edgeId.toString());
-            const secretHash = await EdgeOnboardingService.hashCredentialSecret(credentialSecret);
+            const secretHash = await hashPersistentCredentialSecret(credentialSecret);
             const createdEdge = await EdgeServer.create({
                 _id: edgeId,
                 name: DEFAULT_EDGE_NAME,
@@ -129,7 +132,7 @@ export async function seedEdgeTelemetryTest(
 
         const existingEdge = existingEdges[0];
         const credentialSecret = derivePersistentSecret(existingEdge._id.toString());
-        const nextSecretHash = await EdgeOnboardingService.hashCredentialSecret(credentialSecret);
+        const nextSecretHash = await hashPersistentCredentialSecret(credentialSecret);
         const nextTrustedUsers = mergeTrustedUsers(
             [...existingEdge.trustedUsers],
             trustedUserId,
@@ -137,7 +140,7 @@ export async function seedEdgeTelemetryTest(
         const persistentCredential = existingEdge.persistentCredential;
         const hasReusableCredential = Boolean(
             persistentCredential &&
-                await EdgeOnboardingService.verifyCredentialSecret(
+                await verifyPersistentCredentialSecret(
                     credentialSecret,
                     persistentCredential.secretHash,
                 ),

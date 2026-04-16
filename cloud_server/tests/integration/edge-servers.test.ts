@@ -41,16 +41,6 @@ let edgeSocketUrl = '';
 let startedSocketServer = false;
 const activeClientSockets = new Set<ClientSocket>();
 
-type EdgeActivationPayload = {
-    edgeId: string;
-    lifecycleState: 'Active';
-    persistentCredential: {
-        version: number;
-        secret: string;
-        issuedAt: string;
-    };
-};
-
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 async function createAdminUser(email: string): Promise<string> {
@@ -113,7 +103,9 @@ async function createEdgeServer(name: string): Promise<string> {
     return (res.body.data?.edge?._id as string);
 }
 
-async function registerEdgeWithOnboarding(name: string): Promise<{ edgeId: string; onboardingSecret: string }> {
+async function registerEdgeWithPersistentCredential(
+    name: string,
+): Promise<{ edgeId: string; credentialSecret: string }> {
     const res = await request(app)
         .post('/api/edge-servers')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -122,21 +114,20 @@ async function registerEdgeWithOnboarding(name: string): Promise<{ edgeId: strin
     expect(res.status).toBe(201);
     return {
         edgeId: res.body.data?.edge?._id as string,
-        onboardingSecret: res.body.data?.onboardingPackage?.onboardingSecret as string,
+        credentialSecret: res.body.data?.persistentCredential?.credentialSecret as string,
     };
 }
 
-async function connectOnboardingSocket(
+async function connectPersistentSocket(
     edgeId: string,
-    onboardingSecret: string,
-): Promise<{ socket: ClientSocket; activationPayload: EdgeActivationPayload }> {
+    credentialSecret: string,
+): Promise<ClientSocket> {
     return new Promise((resolve, reject) => {
         const socket = trackSocket(
             createSocketClient(`${edgeSocketUrl}${EDGE_NAMESPACE}`, {
                 auth: {
                     edgeId,
-                    credentialMode: 'onboarding',
-                    credentialSecret: onboardingSecret,
+                    credentialSecret,
                 },
                 transports: ['websocket'],
                 reconnection: false,
@@ -146,27 +137,14 @@ async function connectOnboardingSocket(
             }),
         );
 
-        let connected = false;
-        let activationPayload: EdgeActivationPayload | null = null;
         const timer = setTimeout(() => {
             socket.close();
-            reject(new Error('edge_activation_timeout'));
+            reject(new Error('edge_connect_timeout'));
         }, 3500);
 
-        const maybeResolve = () => {
-            if (!connected || !activationPayload) return;
-            clearTimeout(timer);
-            resolve({ socket, activationPayload });
-        };
-
         socket.once('connect', () => {
-            connected = true;
-            maybeResolve();
-        });
-
-        socket.once('edge_activation', (payload: unknown) => {
-            activationPayload = payload as EdgeActivationPayload;
-            maybeResolve();
+            clearTimeout(timer);
+            resolve(socket);
         });
 
         socket.once('connect_error', (error) => {
@@ -375,7 +353,7 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
     });
 
     it('T029-3 generic forced disconnect keeps admin and user fleet projections telemetry-ready but offline', async () => {
-        const { edgeId, onboardingSecret } = await registerEdgeWithOnboarding(
+        const { edgeId, credentialSecret } = await registerEdgeWithPersistentCredential(
             'Edge Forced Disconnect Projection',
         );
 
@@ -385,7 +363,7 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
             .send({ userId: freeUserId })
             .expect(200);
 
-        const { socket } = await connectOnboardingSocket(edgeId, onboardingSecret);
+        const socket = await connectPersistentSocket(edgeId, credentialSecret);
 
         const disconnectWait = waitForForcedDisconnect(socket);
         await expect(disconnectEdgeSocketsById(edgeId)).resolves.toBe(1);
@@ -403,13 +381,11 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
             adminRes.body.data as Array<{
                 _id: string;
                 lifecycleState: string;
-                isTelemetryReady: boolean;
                 availability: { online: boolean };
             }>
         ).find((item) => item._id === edgeId);
         expect(adminEdge).toBeTruthy();
         expect(adminEdge?.lifecycleState).toBe('Active');
-        expect(adminEdge?.isTelemetryReady).toBe(true);
         expect(adminEdge?.availability.online).toBe(false);
 
         const userRes = await request(app)
@@ -553,8 +529,8 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
             .set('Authorization', `Bearer ${adminToken}`);
 
         expect(res.status).toBe(200);
-        expect(res.body.data.online).toBe(false);
-        expect(res.body.data.lastSeenAt).toBeNull();
+        expect(res.body.data.availability.online).toBe(false);
+        expect(res.body.data.availability.lastSeenAt).toBeNull();
     });
 
     // ── T026-7: Ping — online after in-memory update ──────────────────────
@@ -570,8 +546,8 @@ describe('T026 — Edge Server HTTP Integration Tests (US3)', () => {
             .set('Authorization', `Bearer ${adminToken}`);
 
         expect(res.status).toBe(200);
-        expect(res.body.data.online).toBe(true);
-        expect(res.body.data.lastSeenAt).not.toBeNull();
+        expect(res.body.data.availability.online).toBe(true);
+        expect(res.body.data.availability.lastSeenAt).not.toBeNull();
     });
 
     // ── Guard tests ───────────────────────────────────────────────────────

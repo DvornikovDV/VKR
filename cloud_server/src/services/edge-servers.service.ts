@@ -34,9 +34,8 @@ const PING_THRESHOLD_MS = 3_000;
 
 export const lastSeenRegistry = new Map<string, number>();
 
-export function updateLastSeen(edgeId: string): void {
-    const observedAtMs = Date.now();
-    const observedAt = new Date(observedAtMs);
+export function updateLastSeen(edgeId: string, observedAt: Date = new Date()): Date {
+    const observedAtMs = observedAt.getTime();
     lastSeenRegistry.set(edgeId, observedAtMs);
 
     void EdgeServer.updateOne(
@@ -57,19 +56,30 @@ export function updateLastSeen(edgeId: string): void {
         .catch((error) => {
             console.error(`[edge-last-seen] Failed to persist heartbeat for edge ${edgeId}:`, error);
         });
+
+    return observedAt;
 }
 
-export async function markEdgeOffline(edgeId: string): Promise<void> {
+export async function markEdgeOffline(edgeId: string): Promise<Date | null> {
     lastSeenRegistry.delete(edgeId);
 
-    await EdgeServer.updateOne(
+    const updated = await EdgeServer.findOneAndUpdate(
         { _id: edgeId },
         {
             $set: {
                 'availability.online': false,
             },
         },
-    ).exec();
+        {
+            new: true,
+        },
+    )
+        .select('availability.lastSeenAt')
+        .lean<{ availability?: { lastSeenAt?: Date | null } } | null>()
+        .exec();
+
+    const lastSeenAt = updated?.availability?.lastSeenAt;
+    return lastSeenAt instanceof Date ? lastSeenAt : null;
 }
 
 function toObjectId(id: string, label: string): mongoose.Types.ObjectId {

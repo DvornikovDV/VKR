@@ -1,4 +1,5 @@
 import { Schema, model, type Document, type Types } from 'mongoose';
+import { DEVICE_ID_PATTERN, METRIC_PATTERN } from '../services/edge-identity.validation';
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -22,9 +23,9 @@ export interface IDiagramBindings extends Document {
 
 const WidgetBindingSchema = new Schema<IWidgetBinding>(
     {
-        widgetId: { type: String, required: true },
-        deviceId: { type: String, required: true },
-        metric: { type: String, required: true },
+        widgetId: { type: String, required: true, trim: true, minlength: 1 },
+        deviceId: { type: String, required: true, trim: true, match: DEVICE_ID_PATTERN },
+        metric: { type: String, required: true, trim: true, match: METRIC_PATTERN },
     },
     { _id: false },
 );

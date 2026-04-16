@@ -82,7 +82,7 @@ describe('Edge socket auth runtime path', () => {
         expect(persistedAfterConnect?.availability.online).toBe(false);
         expect(persistedAfterConnect?.persistentCredential?.lastAcceptedAt).toBeInstanceOf(Date);
 
-        const onlineStatusPromise = waitForEvent<{ edgeId: string; online: boolean }>(
+        const onlineStatusPromise = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
             dashboardSocket,
             'edge_status',
         );
@@ -99,10 +99,13 @@ describe('Edge socket auth runtime path', () => {
             ],
         });
 
-        await expect(onlineStatusPromise).resolves.toEqual({
-            edgeId: registered.edgeId,
-            online: true,
-        });
+        await expect(onlineStatusPromise).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: true,
+                lastSeenAt: expect.any(String),
+            }),
+        );
 
         await expect(telemetryPromise).resolves.toEqual(
             expect.objectContaining({
@@ -118,9 +121,9 @@ describe('Edge socket auth runtime path', () => {
         );
     });
 
-    it('rejects onboarding-style auth payload on the real /edge socket path', async () => {
+    it('rejects removed legacy auth payload shape on the real /edge socket path', async () => {
         const { adminToken } = await createAdminSession('edge_socket_auth_legacy_admin@test.com');
-        const registered = await registerEdge(adminToken, 'Legacy Onboarding Rejected');
+        const registered = await registerEdge(adminToken, 'Legacy Auth Shape Rejected');
 
         const connectError = await connectEdgeExpectingError(socketBaseUrl, activeSockets, {
             edgeId: registered.edgeId,
@@ -130,6 +133,15 @@ describe('Edge socket auth runtime path', () => {
 
         expect(connectError).toBe('invalid_credential');
         expect(getConnectedEdgeSocketCount(registered.edgeId)).toBe(0);
+    });
+
+    it('classifies malformed edgeId in handshake as invalid_credential', async () => {
+        const malformedIdError = await connectEdgeExpectingError(socketBaseUrl, activeSockets, {
+            edgeId: 'not-an-object-id',
+            credentialSecret: 'any-secret',
+        });
+
+        expect(malformedIdError).toBe('invalid_credential');
     });
 
     it('forces disconnect through the production socket path and stops trusted telemetry from the disconnected runtime', async () => {
@@ -149,7 +161,7 @@ describe('Edge socket auth runtime path', () => {
             credentialSecret: registered.credentialSecret,
         });
 
-        const initialOnlineStatus = waitForEvent<{ edgeId: string; online: boolean }>(
+        const initialOnlineStatus = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
             dashboardSocket,
             'edge_status',
         );
@@ -165,10 +177,13 @@ describe('Edge socket auth runtime path', () => {
             ],
         });
 
-        await expect(initialOnlineStatus).resolves.toEqual({
-            edgeId: registered.edgeId,
-            online: true,
-        });
+        await expect(initialOnlineStatus).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: true,
+                lastSeenAt: expect.any(String),
+            }),
+        );
         await expect(initialTelemetry).resolves.toEqual(
             expect.objectContaining({
                 edgeId: registered.edgeId,
@@ -177,7 +192,7 @@ describe('Edge socket auth runtime path', () => {
         );
 
         const forcedDisconnect = waitForForcedDisconnect(edgeSocket);
-        const offlineStatus = waitForEvent<{ edgeId: string; online: boolean }>(
+        const offlineStatus = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
             dashboardSocket,
             'edge_status',
         );
@@ -187,10 +202,13 @@ describe('Edge socket auth runtime path', () => {
             edgeReason: 'blocked',
             disconnectReason: 'io server disconnect',
         });
-        await expect(offlineStatus).resolves.toEqual({
-            edgeId: registered.edgeId,
-            online: false,
-        });
+        await expect(offlineStatus).resolves.toEqual(
+            expect.objectContaining({
+                edgeId: registered.edgeId,
+                online: false,
+                lastSeenAt: expect.any(String),
+            }),
+        );
 
         expect(getConnectedEdgeSocketCount(registered.edgeId)).toBe(0);
 
@@ -206,5 +224,27 @@ describe('Edge socket auth runtime path', () => {
         });
 
         await expect(expectNoEvent(dashboardSocket, 'telemetry')).resolves.toBeUndefined();
+    });
+
+    it('rejects a second edge runtime connect for the same edgeId while a trusted session is active', async () => {
+        const { adminToken } = await createAdminSession('edge_socket_single_session_admin@test.com');
+        const registered = await registerEdge(adminToken, 'Single Session Edge');
+
+        const firstSocket = await connectEdgeSocket(socketBaseUrl, activeSockets, {
+            edgeId: registered.edgeId,
+            credentialSecret: registered.credentialSecret,
+        });
+
+        expect(firstSocket.connected).toBe(true);
+        expect(getConnectedEdgeSocketCount(registered.edgeId)).toBe(1);
+
+        const secondError = await connectEdgeExpectingError(socketBaseUrl, activeSockets, {
+            edgeId: registered.edgeId,
+            credentialSecret: registered.credentialSecret,
+        });
+
+        expect(secondError).toBe('invalid_credential');
+        expect(getConnectedEdgeSocketCount(registered.edgeId)).toBe(1);
+        expect(firstSocket.connected).toBe(true);
     });
 });

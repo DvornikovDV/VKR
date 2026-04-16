@@ -68,10 +68,7 @@ describe('T049a - Admin global edge fleet', () => {
         const servers = res.body.data as Array<Record<string, unknown>>;
         servers.forEach((server) => {
             expect(server['persistentCredential']).toBeUndefined();
-            expect(server['onboardingSecret']).toBeUndefined();
-            const currentOnboardingPackage =
-                server['currentOnboardingPackage'] as Record<string, unknown> | null | undefined;
-            expect(currentOnboardingPackage?.['secretHash']).toBeUndefined();
+            expect(JSON.stringify(server)).not.toContain('secretHash');
         });
     });
 });
@@ -124,7 +121,7 @@ describe('T049b - User stats', () => {
         expect(res.status).toBe(401);
     });
 
-    it('counts only lifecycle Active edges in user stats even when non-Active edges look available', async () => {
+    it('counts only lifecycle Active edges in user stats even when Blocked edges are also trusted', async () => {
         await EdgeServer.deleteMany({ name: /^profile_test_t033_/ }).exec();
 
         await EdgeServer.create({
@@ -132,44 +129,25 @@ describe('T049b - User stats', () => {
             lifecycleState: 'Active',
             trustedUsers: [userId],
             availability: { online: true, lastSeenAt: new Date('2026-03-29T00:00:00.000Z') },
-            currentOnboardingPackage: {
-                credentialId: 'profile-test-t033-active-onboarding',
-                secretHash: 'profile_test_t033_onboarding_hash',
-                displayHint: 'prof...hash',
-                issuedAt: new Date('2026-03-28T00:00:00.000Z'),
-                expiresAt: new Date('2026-03-29T00:00:00.000Z'),
-                issuedBy: null,
-                status: 'used',
-                usedAt: new Date('2026-03-28T00:10:00.000Z'),
-                supersededByCredentialId: null,
-            },
             persistentCredential: {
                 version: 1,
                 secretHash: 'profile_test_t033_persistent_hash',
                 issuedAt: new Date('2026-03-28T00:30:00.000Z'),
                 lastAcceptedAt: null,
-                revokedAt: null,
-                revocationReason: null,
             },
         });
 
         await EdgeServer.create({
-            name: 'profile_test_t033_reonboarding_edge',
-            lifecycleState: 'Re-onboarding Required',
+            name: 'profile_test_t033_blocked_edge',
+            lifecycleState: 'Blocked',
             trustedUsers: [userId],
             availability: { online: true, lastSeenAt: new Date('2026-03-29T01:00:00.000Z') },
-            currentOnboardingPackage: {
-                credentialId: 'profile-test-t033-reonboarding-onboarding',
-                secretHash: 'profile_test_t033_reonboarding_pkg_hash',
-                displayHint: 'prof...reonb',
-                issuedAt: new Date('2026-03-28T01:00:00.000Z'),
-                expiresAt: new Date('2026-03-29T01:00:00.000Z'),
-                issuedBy: null,
-                status: 'ready',
-                usedAt: null,
-                supersededByCredentialId: null,
+            persistentCredential: {
+                version: 2,
+                secretHash: 'profile_test_t033_blocked_hash',
+                issuedAt: new Date('2026-03-28T01:30:00.000Z'),
+                lastAcceptedAt: null,
             },
-            persistentCredential: null,
         });
 
         const statsResponse = await request(app)
