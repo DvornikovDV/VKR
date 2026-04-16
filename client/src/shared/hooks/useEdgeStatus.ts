@@ -1,13 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  getEdgeServers,
-  getTrustedEdgeServers,
-  type AdminEdgeServer,
-  type TrustedEdgeServer,
-} from '@/shared/api/edgeServers'
 import { useTelemetryStore } from '@/shared/store/useTelemetryStore'
-
-export type EdgeStatusScope = 'auto' | 'admin' | 'trusted'
+import {
+  loadCanonicalEdgeStatusRestSnapshots,
+  type EdgeStatusScope,
+} from '@/shared/hooks/edgeStatusRest'
 
 interface UseEdgeStatusOptions {
   edgeIds?: string[]
@@ -35,49 +31,19 @@ const UNKNOWN_SNAPSHOT: EdgeStatusSnapshot = {
   lastSeenAt: null,
 }
 
-function normalizeEdgeSnapshots(
-  rows: Array<AdminEdgeServer | TrustedEdgeServer>,
-): Record<string, EdgeStatusSnapshot> {
-  const map: Record<string, EdgeStatusSnapshot> = {}
-
-  for (const row of rows) {
-    map[row._id] = {
-      online: Boolean(row.availability.online),
-      lastSeenAt: row.availability.lastSeenAt,
-    }
-  }
-
-  return map
-}
-
 export function useEdgeStatus(options: UseEdgeStatusOptions = {}): UseEdgeStatusResult {
   const { edgeIds, fallbackPollMs = 5000, scope = 'auto' } = options
   const wsEdgeStatusById = useTelemetryStore((state) => state.edgeStatusById)
   const wsConnected = useTelemetryStore((state) => state.isConnected)
+  const edgeIdsKey = edgeIds?.join('|') ?? ''
 
   const [restEdgeSnapshotById, setRestEdgeSnapshotById] = useState<Record<string, EdgeStatusSnapshot>>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const fetchRestSnapshots = useCallback(async (): Promise<Record<string, EdgeStatusSnapshot>> => {
-    if (scope === 'admin') {
-      const rows = await getEdgeServers()
-      return normalizeEdgeSnapshots(rows)
-    }
-
-    if (scope === 'trusted') {
-      const rows = await getTrustedEdgeServers()
-      return normalizeEdgeSnapshots(rows)
-    }
-
-    try {
-      const rows = await getEdgeServers()
-      return normalizeEdgeSnapshots(rows)
-    } catch {
-      const rows = await getTrustedEdgeServers()
-      return normalizeEdgeSnapshots(rows)
-    }
-  }, [scope])
+    return loadCanonicalEdgeStatusRestSnapshots({ edgeIds, scope })
+  }, [edgeIdsKey, scope])
 
   const refresh = useCallback(async () => {
     setError(null)
@@ -88,9 +54,9 @@ export function useEdgeStatus(options: UseEdgeStatusOptions = {}): UseEdgeStatus
     } catch {
       const modeLabel =
         scope === 'admin'
-          ? 'admin fleet'
+          ? 'admin availability snapshots'
           : scope === 'trusted'
-            ? 'trusted edge list'
+            ? 'assigned edge list'
             : 'REST fallback'
       setError(`Failed to refresh edge status from ${modeLabel}.`)
     } finally {

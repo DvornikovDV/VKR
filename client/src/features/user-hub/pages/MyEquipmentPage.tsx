@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getTrustedEdgeServers, type TrustedEdgeServer } from '@/shared/api/edgeServers'
+import { getAssignedEdgeServers, type AssignedEdgeServer } from '@/shared/api/edgeServers'
 import { useEdgeStatus } from '@/shared/hooks/useEdgeStatus'
 
 function toErrorMessage(error: unknown, fallback: string): string {
@@ -24,7 +24,7 @@ function formatUtcTimestamp(value: string | null | undefined): string {
 }
 
 export function MyEquipmentPage() {
-  const [assignedEdges, setAssignedEdges] = useState<TrustedEdgeServer[]>([])
+  const [assignedEdges, setAssignedEdges] = useState<AssignedEdgeServer[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -40,7 +40,7 @@ export function MyEquipmentPage() {
     setError(null)
 
     try {
-      const rows = await getTrustedEdgeServers()
+      const rows = await getAssignedEdgeServers()
       setAssignedEdges(rows)
     } catch (loadError) {
       setError(toErrorMessage(loadError, 'Failed to load assigned equipment.'))
@@ -81,7 +81,7 @@ export function MyEquipmentPage() {
         <div>
           <h1 className="text-xl font-semibold text-white">My Equipment</h1>
           <p className="text-sm text-[#94a3b8]">
-            Read-only list of assigned edge servers and current readiness status.
+            Read-only list of assigned edge servers and current lifecycle / availability status.
           </p>
         </div>
 

@@ -36,7 +36,7 @@ import { SaveAsDialog } from '@/shared/components/SaveAsDialog'
 import { SaveConflictModal } from '@/shared/components/SaveConflictModal'
 import type { EditorRouteDiagram } from '@/shared/api/diagrams'
 import { getDiagramById, updateDiagram } from '@/shared/api/diagrams'
-import { getEdgeServerCatalog, getTrustedEdgeServers } from '@/shared/api/edgeServers'
+import { getAssignedEdgeServers, getEdgeServerCatalog } from '@/shared/api/edgeServers'
 
 type PagePhase = 'loading' | 'ready' | 'error'
 
@@ -138,7 +138,7 @@ export function FullConstructorPage() {
     try {
       const [loadedDiagram, trustedEdgeServers, loadedBindingSets] = await Promise.all([
         getDiagramById(id),
-        getTrustedEdgeServers(),
+        getAssignedEdgeServers().then((rows) => rows.filter((edge) => edge.lifecycleState === 'Active')),
         getBindingsByDiagram(id),
       ])
       let normalizedLayout: EditorRouteDiagram['layout'] = {}

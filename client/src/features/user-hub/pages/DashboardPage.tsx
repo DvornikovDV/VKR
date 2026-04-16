@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getDashboardBindingProfiles } from '@/shared/api/bindings'
 import { getDashboardDiagramById, getDashboardDiagrams } from '@/shared/api/diagrams'
-import { getDashboardTrustedEdgeServers } from '@/shared/api/edgeServers'
+import { getAssignedEdgeServers } from '@/shared/api/edgeServers'
 import { useDashboardRouteState } from '@/features/dashboard/hooks/useDashboardRouteState'
 import { useDashboardRuntimeSession } from '@/features/dashboard/hooks/useDashboardRuntimeSession'
 import { DashboardToolbar } from '@/features/dashboard/components/DashboardToolbar'
@@ -81,7 +81,7 @@ export function DashboardPage() {
       try {
         const [loadedDiagrams, loadedTrustedEdges] = await Promise.all([
           getDashboardDiagrams(),
-          getDashboardTrustedEdgeServers(),
+          getAssignedEdgeServers().then((rows) => rows.filter((edge) => edge.lifecycleState === 'Active')),
         ])
 
         if (!isMounted) {

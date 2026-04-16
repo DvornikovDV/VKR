@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { server } from '../mocks/server'
-import { createEdgeOnboardingApiFixtures, createEdgeOnboardingApiHandlers } from '../mocks/handlers'
+import { http, HttpResponse } from 'msw'
 
 const apiGet = vi.fn()
 const apiPost = vi.fn()
@@ -20,81 +20,108 @@ vi.mock('@/shared/api/client', () => ({
 }))
 
 describe('repro_task_T010', () => {
-  it('exposes lifecycle-aware shared client API methods', async () => {
+  it('exposes canonical shared client API methods', async () => {
     const edgeServersApi = await import('@/shared/api/edgeServers')
     const edgeServersApiFns = edgeServersApi as unknown as Record<
       string,
       (...args: unknown[]) => Promise<unknown>
     >
-    const onboardingDisclosure = {
+
+    const disclosure = {
       edge: {
         _id: 'edge-1',
         name: 'Edge Alpha',
         trustedUsers: [],
         createdBy: null,
-        lifecycleState: 'Pending First Connection',
-        isTelemetryReady: false,
+        lifecycleState: 'Active',
         availability: { online: false, lastSeenAt: null },
-        currentOnboardingPackage: null,
-        persistentCredentialVersion: null,
+        persistentCredentialVersion: 1,
         lastLifecycleEventAt: '2026-03-26T10:00:00.000Z',
       },
-      onboardingPackage: {
+      persistentCredential: {
         edgeId: 'edge-1',
-        onboardingSecret: 'first-connection-secret',
+        credentialSecret: 'persistent-secret',
+        version: 1,
         issuedAt: '2026-03-26T10:00:00.000Z',
-        expiresAt: '2026-03-27T10:00:00.000Z',
-        instructions: 'Use this package once during first edge activation',
+        instructions: 'Use this secret as the edge runtime persistent credential.',
       },
     }
-    const reonboardingEdge = {
+    const blockedEdge = {
       _id: 'edge-1',
       name: 'Edge Alpha',
       trustedUsers: [],
       createdBy: null,
-      lifecycleState: 'Re-onboarding Required',
-      isTelemetryReady: false,
-      availability: { online: false, lastSeenAt: null },
-      currentOnboardingPackage: null,
-      persistentCredentialVersion: null,
-      lastLifecycleEventAt: '2026-03-26T10:05:00.000Z',
-    }
-    const blockedEdge = {
-      ...reonboardingEdge,
       lifecycleState: 'Blocked',
+      availability: { online: false, lastSeenAt: null },
+      persistentCredentialVersion: 1,
       lastLifecycleEventAt: '2026-03-26T10:06:00.000Z',
     }
 
-    apiPost.mockResolvedValueOnce(onboardingDisclosure)
-    apiPost.mockResolvedValueOnce(onboardingDisclosure)
-    apiPost.mockResolvedValueOnce(reonboardingEdge)
+    apiPost.mockResolvedValueOnce(disclosure)
+    apiPost.mockResolvedValueOnce(disclosure)
     apiPost.mockResolvedValueOnce(blockedEdge)
-    apiPost.mockResolvedValueOnce(reonboardingEdge)
+    apiPost.mockResolvedValueOnce(disclosure)
 
-    await edgeServersApiFns.registerEdgeServer({ name: 'Edge Alpha' })
-    await edgeServersApiFns.resetEdgeOnboardingCredentials('edge-1')
-    await edgeServersApiFns.revokeEdgeTrust('edge-1')
-    await edgeServersApiFns.blockEdgeServer('edge-1')
-    await edgeServersApiFns.reenableEdgeOnboarding('edge-1')
+    await edgeServersApiFns.registerAdminEdgeServer({ name: 'Edge Alpha' })
+    await edgeServersApiFns.rotateEdgeServerCredential('edge-1')
+    await edgeServersApiFns.blockAdminEdgeServer('edge-1')
+    await edgeServersApiFns.unblockEdgeServer('edge-1')
 
     expect(apiPost).toHaveBeenNthCalledWith(1, '/edge-servers', { name: 'Edge Alpha' })
-    expect(apiPost).toHaveBeenNthCalledWith(2, '/edge-servers/edge-1/onboarding/reset')
-    expect(apiPost).toHaveBeenNthCalledWith(3, '/edge-servers/edge-1/trust/revoke')
-    expect(apiPost).toHaveBeenNthCalledWith(4, '/edge-servers/edge-1/block')
-    expect(apiPost).toHaveBeenNthCalledWith(5, '/edge-servers/edge-1/re-enable-onboarding')
+    expect(apiPost).toHaveBeenNthCalledWith(2, '/edge-servers/edge-1/rotate-credential')
+    expect(apiPost).toHaveBeenNthCalledWith(3, '/edge-servers/edge-1/block')
+    expect(apiPost).toHaveBeenNthCalledWith(4, '/edge-servers/edge-1/unblock')
   })
 
-  it('serves lifecycle action mocks via MSW handlers', async () => {
-    const fixtures = createEdgeOnboardingApiFixtures()
-    const handlers = createEdgeOnboardingApiHandlers(fixtures)
-    server.use(...handlers)
+  it('serves canonical lifecycle action mocks via MSW handlers', async () => {
+    server.use(
+      http.post('/api/edge-servers/:edgeId/rotate-credential', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            edge: {
+              _id: String(params.edgeId),
+              name: 'Edge Alpha',
+              trustedUsers: [],
+              createdBy: null,
+              lifecycleState: 'Active',
+              availability: { online: false, lastSeenAt: null },
+              persistentCredentialVersion: 2,
+              lastLifecycleEventAt: '2026-03-26T10:10:00.000Z',
+            },
+            persistentCredential: {
+              edgeId: String(params.edgeId),
+              credentialSecret: 'rotated-secret',
+              version: 2,
+              issuedAt: '2026-03-26T10:10:00.000Z',
+              instructions: 'Use this secret as the edge runtime persistent credential.',
+            },
+          },
+        }),
+      ),
+      http.post('/api/edge-servers/:edgeId/block', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: String(params.edgeId),
+            name: 'Edge Alpha',
+            trustedUsers: [],
+            createdBy: null,
+            lifecycleState: 'Blocked',
+            availability: { online: false, lastSeenAt: null },
+            persistentCredentialVersion: 2,
+            lastLifecycleEventAt: '2026-03-26T10:11:00.000Z',
+          },
+        }),
+      ),
+    )
 
-    const resetResponse = await fetch('/api/edge-servers/edge-onboarding-1/onboarding/reset', {
+    const rotateResponse = await fetch('/api/edge-servers/edge-1/rotate-credential', {
       method: 'POST',
     })
-    expect(resetResponse.status).toBe(200)
+    expect(rotateResponse.status).toBe(200)
 
-    const blockResponse = await fetch('/api/edge-servers/edge-onboarding-1/block', {
+    const blockResponse = await fetch('/api/edge-servers/edge-1/block', {
       method: 'POST',
     })
     expect(blockResponse.status).toBe(200)

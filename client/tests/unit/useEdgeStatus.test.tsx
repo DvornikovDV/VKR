@@ -3,20 +3,20 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { useEdgeStatus } from '@/shared/hooks/useEdgeStatus'
 import { useTelemetryStore } from '@/shared/store/useTelemetryStore'
 
-const { getEdgeServersMock, getTrustedEdgeServersMock } = vi.hoisted(() => ({
-  getEdgeServersMock: vi.fn(),
-  getTrustedEdgeServersMock: vi.fn(),
+const { getEdgeServerPingSnapshotMock, getAssignedEdgeServersMock } = vi.hoisted(() => ({
+  getEdgeServerPingSnapshotMock: vi.fn(),
+  getAssignedEdgeServersMock: vi.fn(),
 }))
 
 vi.mock('@/shared/api/edgeServers', () => ({
-  getEdgeServers: getEdgeServersMock,
-  getTrustedEdgeServers: getTrustedEdgeServersMock,
+  getAssignedEdgeServers: getAssignedEdgeServersMock,
+  getEdgeServerPingSnapshot: getEdgeServerPingSnapshotMock,
 }))
 
 describe('useEdgeStatus normalization (T034)', () => {
   beforeEach(() => {
-    getEdgeServersMock.mockReset()
-    getTrustedEdgeServersMock.mockReset()
+    getEdgeServerPingSnapshotMock.mockReset()
+    getAssignedEdgeServersMock.mockReset()
     useTelemetryStore.setState({
       isConnected: false,
       edgeStatusById: {},
@@ -28,14 +28,13 @@ describe('useEdgeStatus normalization (T034)', () => {
     })
   })
 
-  it('falls back to trusted edge list when admin fleet endpoint fails', async () => {
-    getEdgeServersMock.mockRejectedValueOnce(new Error('403 forbidden'))
-    getTrustedEdgeServersMock.mockResolvedValueOnce([
+  it('falls back to assigned edge list when admin ping snapshots fail', async () => {
+    getEdgeServerPingSnapshotMock.mockRejectedValueOnce(new Error('403 forbidden'))
+    getAssignedEdgeServersMock.mockResolvedValueOnce([
       {
         _id: 'edge-1',
         name: 'Trusted One',
         lifecycleState: 'Active',
-        isTelemetryReady: true,
         availability: { online: true, lastSeenAt: null },
       },
     ])
@@ -55,20 +54,10 @@ describe('useEdgeStatus normalization (T034)', () => {
   })
 
   it('prefers websocket edge status over REST fallback status', async () => {
-    getEdgeServersMock.mockResolvedValueOnce([
-      {
-        _id: 'edge-2',
-        name: 'REST Online',
-        lifecycleState: 'Active',
-        isTelemetryReady: true,
-        availability: { online: true, lastSeenAt: null },
-        trustedUsers: [],
-        createdBy: null,
-        currentOnboardingPackage: null,
-        persistentCredentialVersion: null,
-        lastLifecycleEventAt: null,
-      },
-    ])
+    getEdgeServerPingSnapshotMock.mockResolvedValueOnce({
+      lifecycleState: 'Active',
+      availability: { online: true, lastSeenAt: null },
+    })
 
     useTelemetryStore.setState({
       isConnected: true,
@@ -89,12 +78,11 @@ describe('useEdgeStatus normalization (T034)', () => {
   })
 
   it('uses trusted scope without probing admin fleet endpoint', async () => {
-    getTrustedEdgeServersMock.mockResolvedValueOnce([
+    getAssignedEdgeServersMock.mockResolvedValueOnce([
       {
         _id: 'edge-3',
         name: 'Trusted Scope',
         lifecycleState: 'Active',
-        isTelemetryReady: true,
         availability: { online: true, lastSeenAt: '2026-03-29T08:00:00.000Z' },
       },
     ])
@@ -107,7 +95,7 @@ describe('useEdgeStatus normalization (T034)', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    expect(getEdgeServersMock).not.toHaveBeenCalled()
+    expect(getEdgeServerPingSnapshotMock).not.toHaveBeenCalled()
     expect(result.current.getSnapshot('edge-3')).toEqual({
       online: true,
       lastSeenAt: '2026-03-29T08:00:00.000Z',
@@ -115,8 +103,8 @@ describe('useEdgeStatus normalization (T034)', () => {
   })
 
   it('returns unknown snapshot when both REST sources fail', async () => {
-    getEdgeServersMock.mockRejectedValueOnce(new Error('admin down'))
-    getTrustedEdgeServersMock.mockRejectedValueOnce(new Error('trusted down'))
+    getEdgeServerPingSnapshotMock.mockRejectedValueOnce(new Error('admin down'))
+    getAssignedEdgeServersMock.mockRejectedValueOnce(new Error('trusted down'))
 
     const { result } = renderHook(() => useEdgeStatus({ edgeIds: ['edge-unknown'] }))
 

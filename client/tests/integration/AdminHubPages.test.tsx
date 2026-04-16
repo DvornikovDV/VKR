@@ -17,6 +17,20 @@ const adminSession: Session = {
   accessToken: 'admin-token',
 }
 
+interface MockEdge {
+  _id: string
+  name: string
+  lifecycleState: 'Active' | 'Blocked'
+  availability: {
+    online: boolean
+    lastSeenAt: string | null
+  }
+  trustedUsers: Array<{ _id: string; email: string }>
+  createdBy: { _id: string; email: string } | null
+  persistentCredentialVersion: number | null
+  lastLifecycleEventAt: string | null
+}
+
 function renderAdminRoute(path: string) {
   const router = createMemoryRouter(
     [
@@ -36,6 +50,51 @@ function renderAdminRoute(path: string) {
   render(<RouterProvider router={router} />)
 }
 
+function installCanonicalEdgeFleetHandlers(params: {
+  fleetRef: { current: MockEdge[] }
+  users: Array<{
+    _id: string
+    email: string
+    role: 'ADMIN' | 'USER'
+    subscriptionTier: 'FREE' | 'PRO'
+    isDeleted: boolean
+    isBanned: boolean
+    createdAt: string
+  }>
+}) {
+  server.use(
+    http.get('/api/admin/edge-servers', () =>
+      HttpResponse.json({
+        status: 'success',
+        data: params.fleetRef.current,
+      }),
+    ),
+    http.get('/api/admin/users', () =>
+      HttpResponse.json({
+        status: 'success',
+        total: params.users.length,
+        data: params.users,
+      }),
+    ),
+    http.get('/api/edge-servers/:edgeId/ping', ({ params: routeParams }) => {
+      const edgeId = String(routeParams.edgeId)
+      const edge = params.fleetRef.current.find((item) => item._id === edgeId)
+
+      if (!edge) {
+        return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
+      }
+
+      return HttpResponse.json({
+        status: 'success',
+        data: {
+          lifecycleState: edge.lifecycleState,
+          availability: edge.availability,
+        },
+      })
+    }),
+  )
+}
+
 beforeEach(() => {
   act(() => {
     useAuthStore.setState({ session: null, isAuthenticated: false })
@@ -43,7 +102,7 @@ beforeEach(() => {
   })
 })
 
-describe('Admin Hub routes and pages (T050d)', () => {
+describe('Admin Hub routes and pages (canonical edge contract)', () => {
   it('T026: resolves /admin/users and /admin/diagrams routes to target pages', async () => {
     server.use(
       http.get('/api/admin/users', () =>
@@ -78,151 +137,135 @@ describe('Admin Hub routes and pages (T050d)', () => {
     expect(await screen.findByRole('heading', { name: 'Admin Diagram Gallery' })).toBeInTheDocument()
   })
 
-  it('T012: shows onboarding disclosure for register and reset without re-showing old secret', async () => {
-    interface MockEdge {
-      _id: string
-      name: string
-      lifecycleState: 'Pending First Connection' | 'Active' | 'Re-onboarding Required' | 'Blocked'
-      isTelemetryReady: boolean
-      availability: {
-        online: boolean
-        lastSeenAt: string | null
-      }
-      trustedUsers: Array<{ _id: string; email: string }>
-      createdBy: { _id: string; email: string } | null
-      currentOnboardingPackage: {
-        credentialId: string
-        status: 'ready' | 'used' | 'expired' | 'reset' | 'blocked'
-        issuedAt: string
-        expiresAt: string
-        usedAt: string | null
-        displayHint: string | null
-      } | null
-      persistentCredentialVersion: number | null
-      lastLifecycleEventAt: string | null
-    }
-
+  it('shows one-time persistent credential disclosure for register, rotate, and unblock without keeping old secret visible', async () => {
     const users = [
       {
         _id: 'u1',
         email: 'user-1@example.com',
-        role: 'USER',
-        subscriptionTier: 'FREE',
+        role: 'USER' as const,
+        subscriptionTier: 'FREE' as const,
         isDeleted: false,
         isBanned: false,
         createdAt: '2026-03-01T00:00:00.000Z',
       },
     ]
 
-    let fleet: MockEdge[] = [
-      {
-        _id: 'edge-1',
-        name: 'Existing Edge',
-        lifecycleState: 'Active',
-        isTelemetryReady: true,
-        availability: { online: false, lastSeenAt: null },
-        trustedUsers: [],
-        createdBy: { _id: 'admin-1', email: 'admin@example.com' },
-        currentOnboardingPackage: null,
-        persistentCredentialVersion: 2,
-        lastLifecycleEventAt: '2026-03-29T09:00:00.000Z',
-      },
-    ]
+    const fleetRef = {
+      current: [
+        {
+          _id: 'edge-active',
+          name: 'Active Edge',
+          lifecycleState: 'Active' as const,
+          availability: { online: true, lastSeenAt: '2026-03-29T10:00:00.000Z' },
+          trustedUsers: [],
+          createdBy: { _id: 'admin-1', email: 'admin@example.com' },
+          persistentCredentialVersion: 2,
+          lastLifecycleEventAt: '2026-03-29T10:00:00.000Z',
+        },
+        {
+          _id: 'edge-blocked',
+          name: 'Blocked Edge',
+          lifecycleState: 'Blocked' as const,
+          availability: { online: false, lastSeenAt: '2026-03-29T09:30:00.000Z' },
+          trustedUsers: [],
+          createdBy: { _id: 'admin-1', email: 'admin@example.com' },
+          persistentCredentialVersion: 1,
+          lastLifecycleEventAt: '2026-03-29T09:30:00.000Z',
+        },
+      ] satisfies MockEdge[],
+    }
+
+    installCanonicalEdgeFleetHandlers({ fleetRef, users })
 
     const registrationSecret = 'register-secret-value'
-    const resetSecret = 'reset-secret-value'
+    const rotateSecret = 'rotate-secret-value'
+    const unblockSecret = 'unblock-secret-value'
 
     server.use(
-      http.get('/api/admin/edge-servers', () =>
-        HttpResponse.json({
-          status: 'success',
-          data: fleet,
-        }),
-      ),
-      http.get('/api/admin/users', () =>
-        HttpResponse.json({
-          status: 'success',
-          total: users.length,
-          data: users,
-        }),
-      ),
-      http.get('/api/edge-servers', () =>
-        HttpResponse.json({
-          status: 'success',
-          data: fleet.map((edge) => ({ _id: edge._id, isOnline: false })),
-        }),
-      ),
       http.post('/api/edge-servers', async ({ request }) => {
         const body = (await request.json()) as { name: string }
-        const created = {
-          _id: 'edge-2',
+        const created: MockEdge = {
+          _id: 'edge-new',
           name: body.name,
-          lifecycleState: 'Pending First Connection' as const,
-          isTelemetryReady: false,
+          lifecycleState: 'Active',
           availability: { online: false, lastSeenAt: null },
           trustedUsers: [],
           createdBy: { _id: 'admin-1', email: 'admin@example.com' },
-          currentOnboardingPackage: {
-            credentialId: 'pkg-edge-2-v1',
-            status: 'ready' as const,
-            issuedAt: '2026-03-29T10:00:00.000Z',
-            expiresAt: '2026-03-30T10:00:00.000Z',
-            usedAt: null,
-            displayHint: 'Ends with ...EDGE',
-          },
-          persistentCredentialVersion: null,
-          lastLifecycleEventAt: '2026-03-29T10:00:00.000Z',
+          persistentCredentialVersion: 1,
+          lastLifecycleEventAt: '2026-03-29T10:10:00.000Z',
         }
-        fleet = [created, ...fleet]
+        fleetRef.current = [created, ...fleetRef.current]
 
         return HttpResponse.json(
           {
             status: 'success',
             data: {
               edge: created,
-              onboardingPackage: {
+              persistentCredential: {
                 edgeId: created._id,
-                onboardingSecret: registrationSecret,
-                issuedAt: '2026-03-29T10:00:00.000Z',
-                expiresAt: '2026-03-30T10:00:00.000Z',
-                instructions: 'Use once during first activation',
+                credentialSecret: registrationSecret,
+                version: 1,
+                issuedAt: '2026-03-29T10:10:00.000Z',
+                instructions: 'Use this secret as the edge runtime persistent credential.',
               },
             },
           },
           { status: 201 },
         )
       }),
-      http.post('/api/edge-servers/:edgeId/onboarding/reset', ({ params }) => {
+      http.post('/api/edge-servers/:edgeId/rotate-credential', ({ params }) => {
         const edgeId = String(params.edgeId)
-        const target = fleet.find((edge) => edge._id === edgeId)
+        const target = fleetRef.current.find((edge) => edge._id === edgeId)
         if (!target) {
           return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
         }
 
-        const updated = {
+        const updated: MockEdge = {
           ...target,
-          currentOnboardingPackage: {
-            credentialId: 'pkg-edge-2-v2',
-            status: 'ready' as const,
-            issuedAt: '2026-03-29T11:00:00.000Z',
-            expiresAt: '2026-03-30T11:00:00.000Z',
-            usedAt: null,
-            displayHint: 'Ends with ...RESET',
-          },
-          lastLifecycleEventAt: '2026-03-29T11:00:00.000Z',
+          persistentCredentialVersion: (target.persistentCredentialVersion ?? 0) + 1,
+          lastLifecycleEventAt: '2026-03-29T10:20:00.000Z',
         }
-        fleet = fleet.map((edge) => (edge._id === edgeId ? updated : edge))
+        fleetRef.current = fleetRef.current.map((edge) => (edge._id === edgeId ? updated : edge))
 
         return HttpResponse.json({
           status: 'success',
           data: {
             edge: updated,
-            onboardingPackage: {
+            persistentCredential: {
               edgeId,
-              onboardingSecret: resetSecret,
-              issuedAt: '2026-03-29T11:00:00.000Z',
-              expiresAt: '2026-03-30T11:00:00.000Z',
-              instructions: 'Use once during first activation',
+              credentialSecret: rotateSecret,
+              version: updated.persistentCredentialVersion,
+              issuedAt: '2026-03-29T10:20:00.000Z',
+              instructions: 'Use this secret as the edge runtime persistent credential.',
+            },
+          },
+        })
+      }),
+      http.post('/api/edge-servers/:edgeId/unblock', ({ params }) => {
+        const edgeId = String(params.edgeId)
+        const target = fleetRef.current.find((edge) => edge._id === edgeId)
+        if (!target) {
+          return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
+        }
+
+        const updated: MockEdge = {
+          ...target,
+          lifecycleState: 'Active',
+          persistentCredentialVersion: (target.persistentCredentialVersion ?? 0) + 1,
+          lastLifecycleEventAt: '2026-03-29T10:30:00.000Z',
+        }
+        fleetRef.current = fleetRef.current.map((edge) => (edge._id === edgeId ? updated : edge))
+
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            edge: updated,
+            persistentCredential: {
+              edgeId,
+              credentialSecret: unblockSecret,
+              version: updated.persistentCredentialVersion,
+              issuedAt: '2026-03-29T10:30:00.000Z',
+              instructions: 'Use this secret as the edge runtime persistent credential.',
             },
           },
         })
@@ -238,222 +281,120 @@ describe('Admin Hub routes and pages (T050d)', () => {
     await user.type(screen.getByLabelText('Name'), 'New Edge')
     await user.click(screen.getByRole('button', { name: 'Register' }))
 
-    expect(await screen.findByRole('heading', { name: 'One-time onboarding package' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'One-time persistent credential' })).toBeInTheDocument()
     expect(screen.getByText(registrationSecret)).toBeInTheDocument()
 
-    await waitFor(() => {
-      const row = screen.getByText('New Edge').closest('tr')
-      expect(row).not.toBeNull()
-      expect(within(row as HTMLTableRowElement).getByText('Pending First Connection')).toBeInTheDocument()
-      expect(within(row as HTMLTableRowElement).getByText('Ends with ...EDGE')).toBeInTheDocument()
-    })
+    const newRow = await screen.findByText('New Edge')
+    expect(within(newRow.closest('tr') as HTMLTableRowElement).getByText('v1')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Refresh' }))
-
     await waitFor(() => {
       expect(screen.queryByText(registrationSecret)).not.toBeInTheDocument()
     })
 
-    const refreshedRow = screen.getByText('New Edge').closest('tr')
-    expect(refreshedRow).not.toBeNull()
-    expect(within(refreshedRow as HTMLTableRowElement).getByText('Ends with ...EDGE')).toBeInTheDocument()
-
     await user.click(
-      within(refreshedRow as HTMLTableRowElement).getByRole('button', { name: 'Reset onboarding' }),
+      within(screen.getByText('New Edge').closest('tr') as HTMLTableRowElement).getByRole('button', {
+        name: 'Rotate credential',
+      }),
     )
-
-    expect(await screen.findByText(resetSecret)).toBeInTheDocument()
+    expect(await screen.findByText(rotateSecret)).toBeInTheDocument()
     expect(screen.queryByText(registrationSecret)).not.toBeInTheDocument()
 
-    await waitFor(() => {
-      const row = screen.getByText('New Edge').closest('tr')
-      expect(row).not.toBeNull()
-      expect(within(row as HTMLTableRowElement).getByText('Ends with ...RESET')).toBeInTheDocument()
-    })
+    await user.click(
+      within(screen.getByText('Blocked Edge').closest('tr') as HTMLTableRowElement).getByRole('button', {
+        name: 'Unblock edge',
+      }),
+    )
+    expect(await screen.findByText(unblockSecret)).toBeInTheDocument()
+    expect(screen.queryByText(rotateSecret)).not.toBeInTheDocument()
   })
 
-  it('T024: renders lifecycle controls and applies recovery actions from lifecycle-aware payloads', async () => {
-    interface MockEdge {
-      _id: string
-      name: string
-      lifecycleState: 'Pending First Connection' | 'Active' | 'Re-onboarding Required' | 'Blocked'
-      isTelemetryReady: boolean
-      availability: {
-        online: boolean
-        lastSeenAt: string | null
-      }
-      trustedUsers: Array<{ _id: string; email: string }>
-      createdBy: { _id: string; email: string } | null
-      currentOnboardingPackage: {
-        credentialId: string
-        status: 'ready' | 'used' | 'expired' | 'reset' | 'blocked'
-        issuedAt: string
-        expiresAt: string
-        usedAt: string | null
-        displayHint: string | null
-      } | null
-      persistentCredentialVersion: number | null
-      lastLifecycleEventAt: string | null
-    }
-
+  it('renders canonical lifecycle controls and removes onboarding-only actions', async () => {
     const users = [
       {
         _id: 'u1',
         email: 'user-1@example.com',
-        role: 'USER',
-        subscriptionTier: 'FREE',
+        role: 'USER' as const,
+        subscriptionTier: 'FREE' as const,
         isDeleted: false,
         isBanned: false,
         createdAt: '2026-03-01T00:00:00.000Z',
       },
     ]
 
-    let fleet: MockEdge[] = [
-      {
-        _id: 'edge-pending',
-        name: 'Pending Edge',
-        lifecycleState: 'Pending First Connection',
-        isTelemetryReady: false,
-        availability: { online: false, lastSeenAt: null },
-        trustedUsers: [],
-        createdBy: { _id: 'admin-1', email: 'admin@example.com' },
-        currentOnboardingPackage: {
-          credentialId: 'pkg-pending-v1',
-          status: 'ready',
-          issuedAt: '2026-03-29T09:00:00.000Z',
-          expiresAt: '2026-03-30T09:00:00.000Z',
-          usedAt: null,
-          displayHint: 'Ends with ...PEND',
+    const fleetRef = {
+      current: [
+        {
+          _id: 'edge-active',
+          name: 'Active Edge',
+          lifecycleState: 'Active' as const,
+          availability: { online: true, lastSeenAt: '2026-03-29T10:00:00.000Z' },
+          trustedUsers: [],
+          createdBy: { _id: 'admin-1', email: 'admin@example.com' },
+          persistentCredentialVersion: 3,
+          lastLifecycleEventAt: '2026-03-29T10:00:00.000Z',
         },
-        persistentCredentialVersion: null,
-        lastLifecycleEventAt: '2026-03-29T09:00:00.000Z',
-      },
-      {
-        _id: 'edge-active',
-        name: 'Active Edge',
-        lifecycleState: 'Active',
-        isTelemetryReady: true,
-        availability: { online: true, lastSeenAt: '2026-03-29T10:00:00.000Z' },
-        trustedUsers: [],
-        createdBy: { _id: 'admin-1', email: 'admin@example.com' },
-        currentOnboardingPackage: null,
-        persistentCredentialVersion: 3,
-        lastLifecycleEventAt: '2026-03-29T10:00:00.000Z',
-      },
-      {
-        _id: 'edge-recovery',
-        name: 'Recovery Edge',
-        lifecycleState: 'Re-onboarding Required',
-        isTelemetryReady: false,
-        availability: { online: false, lastSeenAt: null },
-        trustedUsers: [],
-        createdBy: { _id: 'admin-1', email: 'admin@example.com' },
-        currentOnboardingPackage: {
-          credentialId: 'pkg-recovery-v1',
-          status: 'ready',
-          issuedAt: '2026-03-29T10:30:00.000Z',
-          expiresAt: '2026-03-30T10:30:00.000Z',
-          usedAt: null,
-          displayHint: 'Ends with ...RECO',
+        {
+          _id: 'edge-blocked',
+          name: 'Blocked Edge',
+          lifecycleState: 'Blocked' as const,
+          availability: { online: false, lastSeenAt: '2026-03-29T09:00:00.000Z' },
+          trustedUsers: [],
+          createdBy: { _id: 'admin-1', email: 'admin@example.com' },
+          persistentCredentialVersion: 2,
+          lastLifecycleEventAt: '2026-03-29T09:00:00.000Z',
         },
-        persistentCredentialVersion: null,
-        lastLifecycleEventAt: '2026-03-29T10:30:00.000Z',
-      },
-      {
-        _id: 'edge-blocked',
-        name: 'Blocked Edge',
-        lifecycleState: 'Blocked',
-        isTelemetryReady: false,
-        availability: { online: false, lastSeenAt: null },
-        trustedUsers: [],
-        createdBy: { _id: 'admin-1', email: 'admin@example.com' },
-        currentOnboardingPackage: {
-          credentialId: 'pkg-blocked-v1',
-          status: 'blocked',
-          issuedAt: '2026-03-29T08:00:00.000Z',
-          expiresAt: '2026-03-30T08:00:00.000Z',
-          usedAt: null,
-          displayHint: 'Ends with ...BLOC',
-        },
-        persistentCredentialVersion: null,
-        lastLifecycleEventAt: '2026-03-29T10:45:00.000Z',
-      },
-    ]
+      ] satisfies MockEdge[],
+    }
+
+    installCanonicalEdgeFleetHandlers({ fleetRef, users })
 
     server.use(
-      http.get('/api/admin/edge-servers', () =>
-        HttpResponse.json({
-          status: 'success',
-          data: fleet,
-        }),
-      ),
-      http.get('/api/admin/users', () =>
-        HttpResponse.json({
-          status: 'success',
-          total: users.length,
-          data: users,
-        }),
-      ),
-      // REST fallback intentionally disagrees with admin availability; page must prefer lifecycle payload.
-      http.get('/api/edge-servers', () =>
-        HttpResponse.json({
-          status: 'success',
-          data: fleet.map((edge) => ({ _id: edge._id, isOnline: !edge.availability.online })),
-        }),
-      ),
-      http.post('/api/edge-servers/:edgeId/trust/revoke', ({ params }) => {
-        const edgeId = String(params.edgeId)
-        const edge = fleet.find((item) => item._id === edgeId)
-        if (!edge) {
-          return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
-        }
-
-        const updated: MockEdge = {
-          ...edge,
-          lifecycleState: 'Re-onboarding Required',
-          isTelemetryReady: false,
-          availability: { online: false, lastSeenAt: edge.availability.lastSeenAt },
-          persistentCredentialVersion: null,
-          lastLifecycleEventAt: '2026-03-29T11:00:00.000Z',
-        }
-        fleet = fleet.map((item) => (item._id === edgeId ? updated : item))
-        return HttpResponse.json({ status: 'success', data: updated })
-      }),
       http.post('/api/edge-servers/:edgeId/block', ({ params }) => {
         const edgeId = String(params.edgeId)
-        const edge = fleet.find((item) => item._id === edgeId)
-        if (!edge) {
+        const target = fleetRef.current.find((edge) => edge._id === edgeId)
+        if (!target) {
           return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
         }
 
         const updated: MockEdge = {
-          ...edge,
+          ...target,
           lifecycleState: 'Blocked',
-          isTelemetryReady: false,
-          availability: { online: false, lastSeenAt: edge.availability.lastSeenAt },
-          currentOnboardingPackage: edge.currentOnboardingPackage
-            ? { ...edge.currentOnboardingPackage, status: 'blocked' }
-            : edge.currentOnboardingPackage,
-          lastLifecycleEventAt: '2026-03-29T11:05:00.000Z',
+          availability: { online: false, lastSeenAt: target.availability.lastSeenAt },
+          lastLifecycleEventAt: '2026-03-29T10:10:00.000Z',
         }
-        fleet = fleet.map((item) => (item._id === edgeId ? updated : item))
+        fleetRef.current = fleetRef.current.map((edge) => (edge._id === edgeId ? updated : edge))
         return HttpResponse.json({ status: 'success', data: updated })
       }),
-      http.post('/api/edge-servers/:edgeId/re-enable-onboarding', ({ params }) => {
+      http.post('/api/edge-servers/:edgeId/unblock', ({ params }) => {
         const edgeId = String(params.edgeId)
-        const edge = fleet.find((item) => item._id === edgeId)
-        if (!edge) {
+        const target = fleetRef.current.find((edge) => edge._id === edgeId)
+        if (!target) {
           return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
         }
 
         const updated: MockEdge = {
-          ...edge,
-          lifecycleState: 'Re-onboarding Required',
-          isTelemetryReady: false,
-          lastLifecycleEventAt: '2026-03-29T11:10:00.000Z',
+          ...target,
+          lifecycleState: 'Active',
+          availability: { online: true, lastSeenAt: '2026-03-29T10:12:00.000Z' },
+          persistentCredentialVersion: (target.persistentCredentialVersion ?? 0) + 1,
+          lastLifecycleEventAt: '2026-03-29T10:12:00.000Z',
         }
-        fleet = fleet.map((item) => (item._id === edgeId ? updated : item))
-        return HttpResponse.json({ status: 'success', data: updated })
+        fleetRef.current = fleetRef.current.map((edge) => (edge._id === edgeId ? updated : edge))
+
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            edge: updated,
+            persistentCredential: {
+              edgeId,
+              credentialSecret: 'unblock-secret',
+              version: updated.persistentCredentialVersion,
+              issuedAt: '2026-03-29T10:12:00.000Z',
+              instructions: 'Use this secret as the edge runtime persistent credential.',
+            },
+          },
+        })
       }),
     )
 
@@ -461,162 +402,95 @@ describe('Admin Hub routes and pages (T050d)', () => {
     renderAdminRoute('/admin/edge')
 
     expect(await screen.findByRole('heading', { name: 'Edge Fleet' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Reset onboarding' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Revoke trust' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Re-enable onboarding' })).not.toBeInTheDocument()
 
     const activeRow = screen.getByText('Active Edge').closest('tr')
     expect(activeRow).not.toBeNull()
     expect(within(activeRow as HTMLTableRowElement).getByText('Active')).toBeInTheDocument()
     expect(within(activeRow as HTMLTableRowElement).getByText('Online')).toBeInTheDocument()
 
-    const pendingRow = screen.getByText('Pending Edge').closest('tr')
-    expect(pendingRow).not.toBeNull()
-    expect(
-      within(pendingRow as HTMLTableRowElement).getByText('Pending First Connection'),
-    ).toBeInTheDocument()
-
-    const recoveryRow = screen.getByText('Recovery Edge').closest('tr')
-    expect(recoveryRow).not.toBeNull()
-    expect(
-      within(recoveryRow as HTMLTableRowElement).getByText('Re-onboarding Required'),
-    ).toBeInTheDocument()
-
-    const blockedRow = screen.getByText('Blocked Edge').closest('tr')
-    expect(blockedRow).not.toBeNull()
-    expect(within(blockedRow as HTMLTableRowElement).getAllByText('Blocked').length).toBeGreaterThan(0)
-
     await user.click(
-      within(activeRow as HTMLTableRowElement).getByRole('button', { name: 'Revoke trust' }),
+      within(activeRow as HTMLTableRowElement).getByRole('button', { name: 'Block edge' }),
     )
 
     await waitFor(() => {
       const updatedRow = screen.getByText('Active Edge').closest('tr')
       expect(updatedRow).not.toBeNull()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Re-onboarding Required')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Blocked')).toBeInTheDocument()
       expect(within(updatedRow as HTMLTableRowElement).getByText('Offline')).toBeInTheDocument()
     })
 
+    const blockedRow = screen.getByText('Blocked Edge').closest('tr')
+    expect(blockedRow).not.toBeNull()
     await user.click(
-      within(pendingRow as HTMLTableRowElement).getByRole('button', { name: 'Block edge' }),
-    )
-
-    await waitFor(() => {
-      const updatedRow = screen.getByText('Pending Edge').closest('tr')
-      expect(updatedRow).not.toBeNull()
-      expect(within(updatedRow as HTMLTableRowElement).getAllByText('Blocked').length).toBeGreaterThan(0)
-    })
-
-    await user.click(
-      within(blockedRow as HTMLTableRowElement).getByRole('button', {
-        name: 'Re-enable onboarding',
-      }),
+      within(blockedRow as HTMLTableRowElement).getByRole('button', { name: 'Unblock edge' }),
     )
 
     await waitFor(() => {
       const updatedRow = screen.getByText('Blocked Edge').closest('tr')
       expect(updatedRow).not.toBeNull()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Re-onboarding Required')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Active')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Online')).toBeInTheDocument()
     })
   })
 
   it('keeps assign and revoke flow working on Edge Fleet page', async () => {
-    interface MockEdge {
-      _id: string
-      name: string
-      lifecycleState: 'Pending First Connection' | 'Active' | 'Re-onboarding Required' | 'Blocked'
-      isTelemetryReady: boolean
-      availability: {
-        online: boolean
-        lastSeenAt: string | null
-      }
-      trustedUsers: Array<{ _id: string; email: string }>
-      createdBy: { _id: string; email: string } | null
-      currentOnboardingPackage: {
-        credentialId: string
-        status: 'ready' | 'used' | 'expired' | 'reset' | 'blocked'
-        issuedAt: string
-        expiresAt: string
-        usedAt: string | null
-        displayHint: string | null
-      } | null
-      persistentCredentialVersion: number | null
-      lastLifecycleEventAt: string | null
-    }
-
     const users = [
       {
         _id: 'u1',
         email: 'user-1@example.com',
-        role: 'USER',
-        subscriptionTier: 'FREE',
+        role: 'USER' as const,
+        subscriptionTier: 'FREE' as const,
         isDeleted: false,
         isBanned: false,
         createdAt: '2026-03-01T00:00:00.000Z',
       },
     ]
 
-    let fleet: MockEdge[] = [
-      {
-        _id: 'edge-1',
-        name: 'Existing Edge',
-        lifecycleState: 'Pending First Connection',
-        isTelemetryReady: false,
-        availability: { online: true, lastSeenAt: '2026-03-29T09:00:00.000Z' },
-        trustedUsers: [],
-        createdBy: { _id: 'admin-1', email: 'admin@example.com' },
-        currentOnboardingPackage: {
-          credentialId: 'pkg-edge-1-v1',
-          status: 'ready',
-          issuedAt: '2026-03-29T09:00:00.000Z',
-          expiresAt: '2026-03-30T09:00:00.000Z',
-          usedAt: null,
-          displayHint: 'Ends with ...A111',
+    const fleetRef = {
+      current: [
+        {
+          _id: 'edge-1',
+          name: 'Existing Edge',
+          lifecycleState: 'Active' as const,
+          availability: { online: true, lastSeenAt: '2026-03-29T09:00:00.000Z' },
+          trustedUsers: [],
+          createdBy: { _id: 'admin-1', email: 'admin@example.com' },
+          persistentCredentialVersion: 1,
+          lastLifecycleEventAt: '2026-03-29T09:00:00.000Z',
         },
-        persistentCredentialVersion: null,
-        lastLifecycleEventAt: '2026-03-29T09:00:00.000Z',
-      },
-    ]
+      ] satisfies MockEdge[],
+    }
+
+    installCanonicalEdgeFleetHandlers({ fleetRef, users })
 
     server.use(
-      http.get('/api/admin/edge-servers', () =>
-        HttpResponse.json({
-          status: 'success',
-          data: fleet,
-        }),
-      ),
-      http.get('/api/admin/users', () =>
-        HttpResponse.json({
-          status: 'success',
-          total: users.length,
-          data: users,
-        }),
-      ),
-      http.get('/api/edge-servers', () =>
-        HttpResponse.json({
-          status: 'success',
-          data: fleet.map((edge) => ({ _id: edge._id, isOnline: !edge.availability.online })),
-        }),
-      ),
       http.post('/api/edge-servers/:edgeId/bind', async ({ params, request }) => {
         const body = (await request.json()) as { userId: string }
         const edgeId = String(params.edgeId)
-        const user = users.find((item) => item._id === body.userId)
+        const matchedUser = users.find((item) => item._id === body.userId)
 
-        if (!user) {
+        if (!matchedUser) {
           return HttpResponse.json({ status: 'error', message: 'User not found' }, { status: 404 })
         }
 
-        fleet = fleet.map((edge) =>
+        fleetRef.current = fleetRef.current.map((edge) =>
           edge._id === edgeId
-            ? { ...edge, trustedUsers: [{ _id: user._id, email: user.email }] }
+            ? { ...edge, trustedUsers: [{ _id: matchedUser._id, email: matchedUser.email }] }
             : edge,
         )
-        const updated = fleet.find((edge) => edge._id === edgeId)
+        const updated = fleetRef.current.find((edge) => edge._id === edgeId)
 
         return HttpResponse.json({ status: 'success', data: updated })
       }),
       http.delete('/api/edge-servers/:edgeId/bind/:userId', ({ params }) => {
         const edgeId = String(params.edgeId)
-        fleet = fleet.map((edge) => (edge._id === edgeId ? { ...edge, trustedUsers: [] } : edge))
-        const updated = fleet.find((edge) => edge._id === edgeId)
+        fleetRef.current = fleetRef.current.map((edge) =>
+          edge._id === edgeId ? { ...edge, trustedUsers: [] } : edge,
+        )
+        const updated = fleetRef.current.find((edge) => edge._id === edgeId)
 
         return HttpResponse.json({ status: 'success', data: updated })
       }),

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getDiagrams } from '@/shared/api/diagrams'
-import { getEdgeServers } from '@/shared/api/edgeServers'
+import { getAdminEdgeFleet } from '@/shared/api/edgeServers'
 import { getUsers, type UserRow } from '@/shared/api/users'
 
 interface PlatformStats {
@@ -48,7 +48,7 @@ export function OverviewPage() {
       try {
         const [users, edgeServers, diagrams] = await Promise.all([
           getUsers({ page: 1, limit: 100 }),
-          getEdgeServers(),
+          getAdminEdgeFleet(),
           getDiagrams(),
         ])
 

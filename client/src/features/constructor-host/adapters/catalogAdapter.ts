@@ -1,8 +1,8 @@
 import {
+  getAssignedEdgeServers,
   getEdgeServerCatalog,
-  getTrustedEdgeServers,
+  type AssignedEdgeServer,
   type EdgeServerCatalogRow,
-  type TrustedEdgeServer,
 } from '@/shared/api/edgeServers'
 import type {
   EditorDeviceMetricCatalogEntry,
@@ -34,9 +34,10 @@ function buildMetricOption(metric: string): EditorMetricOption {
 }
 
 export function mapTrustedEdgeServersToMachineOptions(
-  edgeServers: TrustedEdgeServer[],
+  edgeServers: AssignedEdgeServer[],
 ): EditorMachineOption[] {
   return edgeServers
+    .filter((edgeServer) => edgeServer.lifecycleState === 'Active')
     .map((edgeServer) => ({
       edgeServerId: edgeServer._id,
       label: edgeServer.name,
@@ -97,7 +98,7 @@ export function mapCatalogRowsToDeviceMetricCatalog(
 }
 
 export async function loadHostedMachineOptions(): Promise<EditorMachineOption[]> {
-  const edgeServers = await getTrustedEdgeServers()
+  const edgeServers = await getAssignedEdgeServers()
   return mapTrustedEdgeServersToMachineOptions(edgeServers)
 }
 

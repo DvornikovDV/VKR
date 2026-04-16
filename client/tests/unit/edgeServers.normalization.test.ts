@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { apiGet, apiPost, apiDelete } = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -15,182 +15,173 @@ vi.mock('@/shared/api/client', () => ({
 }))
 
 import {
-  getDashboardTrustedEdgeServers,
-  getEdgeServers,
-  getTrustedEdgeServers,
-  registerEdgeServer,
+  bindEdgeServer,
+  getAdminEdgeFleet,
+  getAssignedEdgeServers,
+  getEdgeServerPingSnapshot,
+  registerAdminEdgeServer,
+  revokeEdgeServerAccess,
+  rotateEdgeServerCredential,
+  unblockEdgeServer,
 } from '@/shared/api/edgeServers'
 
-describe('edgeServers normalization (T034)', () => {
+describe('edgeServers canonical normalization (T052)', () => {
   beforeEach(() => {
     apiGet.mockReset()
     apiPost.mockReset()
     apiDelete.mockReset()
   })
 
-  it('filters trusted edges strictly by canonical Active lifecycle state', async () => {
+  it('keeps only canonical Active | Blocked rows for assigned edges', async () => {
     apiGet.mockResolvedValueOnce([
       {
-        _id: 'edge-invalid',
-        name: 'Missing Lifecycle',
+        _id: 'edge-missing-lifecycle',
+        name: 'Invalid Edge',
         availability: { online: true, lastSeenAt: null },
+      },
+      {
+        _id: 'edge-active',
+        name: 'Active Edge',
+        lifecycleState: 'Active',
+        availability: { online: true, lastSeenAt: '2026-04-15T12:00:00.000Z' },
       },
       {
         _id: 'edge-blocked',
         name: 'Blocked Edge',
         lifecycleState: 'Blocked',
-        availability: { online: true, lastSeenAt: null },
+        availability: { online: false, lastSeenAt: '2026-04-15T11:55:00.000Z' },
       },
+    ])
+
+    await expect(getAssignedEdgeServers()).resolves.toEqual([
       {
         _id: 'edge-active',
         name: 'Active Edge',
         lifecycleState: 'Active',
-        availability: { online: false, lastSeenAt: '2026-03-29T00:00:00.000Z' },
+        availability: { online: true, lastSeenAt: '2026-04-15T12:00:00.000Z' },
       },
-    ])
-
-    const trusted = await getTrustedEdgeServers()
-
-    expect(trusted).toEqual([
       {
-        _id: 'edge-active',
-        name: 'Active Edge',
-        lifecycleState: 'Active',
-        isTelemetryReady: true,
-        availability: { online: false, lastSeenAt: '2026-03-29T00:00:00.000Z' },
+        _id: 'edge-blocked',
+        name: 'Blocked Edge',
+        lifecycleState: 'Blocked',
+        availability: { online: false, lastSeenAt: '2026-04-15T11:55:00.000Z' },
       },
     ])
   })
 
-  it('applies the same strict Active-only filtering for dashboard trusted edges', async () => {
-    apiGet.mockResolvedValueOnce([
-      {
-        _id: 'edge-pending',
-        name: 'Pending Edge',
-        lifecycleState: 'Pending First Connection',
-        availability: { online: false, lastSeenAt: null },
-      },
-      {
-        _id: 'edge-active-dashboard',
-        name: 'Dashboard Active Edge',
-        lifecycleState: 'Active',
-        availability: { online: true, lastSeenAt: '2026-03-29T00:30:00.000Z' },
-      },
-    ])
-
-    const trusted = await getDashboardTrustedEdgeServers()
-
-    expect(trusted).toEqual([
-      {
-        _id: 'edge-active-dashboard',
-        name: 'Dashboard Active Edge',
-        lifecycleState: 'Active',
-        isTelemetryReady: true,
-        availability: { online: true, lastSeenAt: '2026-03-29T00:30:00.000Z' },
-      },
-    ])
-  })
-
-  it('drops non-canonical admin payloads and keeps canonical lifecycle-aware DTOs', async () => {
+  it('drops non-canonical admin fleet payloads', async () => {
     apiGet.mockResolvedValueOnce([
       {
         _id: 'edge-invalid-admin',
         name: 'Invalid Admin Edge',
-      },
-      {
-        _id: 'edge-canonical-admin',
-        name: 'Canonical Admin Edge',
-        lifecycleState: 'Re-onboarding Required',
-        isTelemetryReady: false,
-        availability: { online: false, lastSeenAt: null },
-        trustedUsers: [],
-        createdBy: null,
-        currentOnboardingPackage: null,
-        persistentCredentialVersion: 2,
-        lastLifecycleEventAt: '2026-03-29T01:05:00.000Z',
-      },
-    ])
-
-    const adminFleet = await getEdgeServers()
-
-    expect(adminFleet).toHaveLength(1)
-    expect(adminFleet[0]).toMatchObject({
-      _id: 'edge-canonical-admin',
-      lifecycleState: 'Re-onboarding Required',
-      isTelemetryReady: false,
-      availability: { online: false, lastSeenAt: null },
-      trustedUsers: [],
-      createdBy: null,
-      currentOnboardingPackage: null,
-      persistentCredentialVersion: 2,
-      lastLifecycleEventAt: '2026-03-29T01:05:00.000Z',
-    })
-  })
-
-  it('does not treat admin Active rows without persistent credential version as telemetry-ready', async () => {
-    apiGet.mockResolvedValueOnce([
-      {
-        _id: 'edge-active-corrupted',
-        name: 'Active But Corrupted',
-        lifecycleState: 'Active',
-        isTelemetryReady: true,
-        availability: { online: true, lastSeenAt: '2026-03-29T03:00:00.000Z' },
-        trustedUsers: [],
-        createdBy: null,
-        currentOnboardingPackage: null,
-        persistentCredentialVersion: null,
-        lastLifecycleEventAt: '2026-03-29T03:05:00.000Z',
-      },
-    ])
-
-    const adminFleet = await getEdgeServers()
-
-    expect(adminFleet).toEqual([
-      {
-        _id: 'edge-active-corrupted',
-        name: 'Active But Corrupted',
-        lifecycleState: 'Active',
-        isTelemetryReady: false,
-        availability: { online: true, lastSeenAt: '2026-03-29T03:00:00.000Z' },
-        trustedUsers: [],
-        createdBy: null,
-        currentOnboardingPackage: null,
-        persistentCredentialVersion: null,
-        lastLifecycleEventAt: '2026-03-29T03:05:00.000Z',
-      },
-    ])
-  })
-
-  it('normalizes disclosure response edge into strict AdminEdgeServer shape', async () => {
-    apiPost.mockResolvedValueOnce({
-      edge: {
-        _id: 'edge-register-1',
-        name: 'Register Edge',
         lifecycleState: 'Pending First Connection',
-        isTelemetryReady: false,
         availability: { online: false, lastSeenAt: null },
       },
-      onboardingPackage: {
-        edgeId: 'edge-register-1',
-        onboardingSecret: 'secret',
-        issuedAt: '2026-03-29T02:00:00.000Z',
-        expiresAt: '2026-03-30T02:00:00.000Z',
-        instructions: 'Use once',
+      {
+        _id: 'edge-admin-active',
+        name: 'Canonical Admin Edge',
+        lifecycleState: 'Active',
+        availability: { online: false, lastSeenAt: null },
+        trustedUsers: [],
+        createdBy: null,
+        persistentCredentialVersion: 2,
+        lastLifecycleEventAt: '2026-04-15T12:05:00.000Z',
       },
+    ])
+
+    await expect(getAdminEdgeFleet()).resolves.toEqual([
+      {
+        _id: 'edge-admin-active',
+        name: 'Canonical Admin Edge',
+        lifecycleState: 'Active',
+        availability: { online: false, lastSeenAt: null },
+        trustedUsers: [],
+        createdBy: null,
+        persistentCredentialVersion: 2,
+        lastLifecycleEventAt: '2026-04-15T12:05:00.000Z',
+      },
+    ])
+  })
+
+  it('normalizes credential disclosure responses for register, rotate, and unblock', async () => {
+    const disclosure = {
+      edge: {
+        _id: 'edge-1',
+        name: 'Edge Alpha',
+        lifecycleState: 'Active',
+        availability: { online: false, lastSeenAt: null },
+        trustedUsers: [],
+        createdBy: { _id: 'admin-1', email: 'admin@example.com' },
+        persistentCredentialVersion: 4,
+        lastLifecycleEventAt: '2026-04-15T12:10:00.000Z',
+      },
+      persistentCredential: {
+        edgeId: 'edge-1',
+        credentialSecret: 'persistent-secret',
+        version: 4,
+        issuedAt: '2026-04-15T12:10:00.000Z',
+        instructions: 'Use this secret as the edge runtime persistent credential.',
+      },
+    }
+
+    apiPost.mockResolvedValueOnce(disclosure)
+    apiPost.mockResolvedValueOnce(disclosure)
+    apiPost.mockResolvedValueOnce(disclosure)
+
+    await expect(registerAdminEdgeServer({ name: 'Edge Alpha' })).resolves.toEqual(disclosure)
+    await expect(rotateEdgeServerCredential('edge-1')).resolves.toEqual(disclosure)
+    await expect(unblockEdgeServer('edge-1')).resolves.toEqual(disclosure)
+  })
+
+  it('normalizes ping snapshots and assignment endpoints on canonical paths', async () => {
+    apiGet.mockResolvedValueOnce({
+      lifecycleState: 'Blocked',
+      availability: { online: false, lastSeenAt: '2026-04-15T12:15:00.000Z' },
     })
-
-    const disclosure = await registerEdgeServer({ name: 'Register Edge' })
-
-    expect(disclosure.edge).toMatchObject({
-      _id: 'edge-register-1',
-      lifecycleState: 'Pending First Connection',
-      isTelemetryReady: false,
-      availability: { online: false, lastSeenAt: null },
+    apiPost.mockResolvedValueOnce({
+      _id: 'edge-1',
+      name: 'Edge Alpha',
+      lifecycleState: 'Active',
+      availability: { online: true, lastSeenAt: '2026-04-15T12:15:00.000Z' },
+      trustedUsers: [{ _id: 'user-1', email: 'user@example.com' }],
+      createdBy: null,
+      persistentCredentialVersion: 4,
+      lastLifecycleEventAt: '2026-04-15T12:15:00.000Z',
+    })
+    apiDelete.mockResolvedValueOnce({
+      _id: 'edge-1',
+      name: 'Edge Alpha',
+      lifecycleState: 'Active',
+      availability: { online: true, lastSeenAt: '2026-04-15T12:15:00.000Z' },
       trustedUsers: [],
       createdBy: null,
-      currentOnboardingPackage: null,
-      persistentCredentialVersion: null,
-      lastLifecycleEventAt: null,
+      persistentCredentialVersion: 4,
+      lastLifecycleEventAt: '2026-04-15T12:15:00.000Z',
+    })
+
+    await expect(getEdgeServerPingSnapshot('edge-1')).resolves.toEqual({
+      lifecycleState: 'Blocked',
+      availability: { online: false, lastSeenAt: '2026-04-15T12:15:00.000Z' },
+    })
+    await expect(bindEdgeServer('edge-1', { userId: 'user-1' })).resolves.toEqual({
+      _id: 'edge-1',
+      name: 'Edge Alpha',
+      lifecycleState: 'Active',
+      availability: { online: true, lastSeenAt: '2026-04-15T12:15:00.000Z' },
+      trustedUsers: [{ _id: 'user-1', email: 'user@example.com' }],
+      createdBy: null,
+      persistentCredentialVersion: 4,
+      lastLifecycleEventAt: '2026-04-15T12:15:00.000Z',
+    })
+    await expect(revokeEdgeServerAccess('edge-1', 'user-1')).resolves.toEqual({
+      _id: 'edge-1',
+      name: 'Edge Alpha',
+      lifecycleState: 'Active',
+      availability: { online: true, lastSeenAt: '2026-04-15T12:15:00.000Z' },
+      trustedUsers: [],
+      createdBy: null,
+      persistentCredentialVersion: 4,
+      lastLifecycleEventAt: '2026-04-15T12:15:00.000Z',
     })
   })
 })

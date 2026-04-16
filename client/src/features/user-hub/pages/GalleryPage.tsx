@@ -8,7 +8,7 @@ import {
   type Diagram,
 } from '@/shared/api/diagrams'
 import { deleteBinding, getBindingsByDiagram } from '@/shared/api/bindings'
-import { getTrustedEdgeServers } from '@/shared/api/edgeServers'
+import { getAssignedEdgeServers } from '@/shared/api/edgeServers'
 import { useDiagramLimits } from '@/shared/hooks/useDiagramLimits'
 import {
   DiagramCard,
@@ -65,7 +65,7 @@ export function GalleryPage() {
     try {
       const [diagrams, trustedEdges] = await Promise.all([
         getDiagrams(),
-        getTrustedEdgeServers().catch(() => []),
+        getAssignedEdgeServers().catch(() => []),
       ])
       const trustedEdgeMap = new Map(
         trustedEdges.map((edge) => [

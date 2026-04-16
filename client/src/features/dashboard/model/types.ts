@@ -1,4 +1,4 @@
-export type { DashboardTrustedEdgeServer } from '@/shared/api/edgeServers'
+export type { AssignedEdgeServer as DashboardTrustedEdgeServer } from '@/shared/api/edgeServers'
 
 export type DashboardSelectionSource = 'route-prefill' | 'user-selection' | 'recovery-reset'
 
