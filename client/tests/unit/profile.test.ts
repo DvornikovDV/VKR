@@ -1,23 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const getMock = vi.fn()
-const patchMock = vi.fn()
+const { apiGet, apiPatch } = vi.hoisted(() => ({
+  apiGet: vi.fn(),
+  apiPatch: vi.fn(),
+}))
 
 vi.mock('@/shared/api/client', () => ({
   apiClient: {
-    get: getMock,
-    patch: patchMock,
+    get: apiGet,
+    patch: apiPatch,
   },
 }))
 
-describe('repro T037', () => {
+import { changePassword, getProfileSummary } from '@/shared/api/profile'
+
+describe('profile API', () => {
   beforeEach(() => {
-    getMock.mockReset()
-    patchMock.mockReset()
+    apiGet.mockReset()
+    apiPatch.mockReset()
   })
 
   it('loads profile summary from self-service profile and stats endpoints', async () => {
-    getMock.mockImplementation(async (endpoint: string) => {
+    apiGet.mockImplementation(async (endpoint: string) => {
       if (endpoint === '/users/me') {
         return {
           _id: 'user-1',
@@ -37,12 +41,7 @@ describe('repro T037', () => {
       throw new Error(`Unexpected endpoint: ${endpoint}`)
     })
 
-    const profileApi = await import('@/shared/api/profile')
-    const result = await profileApi.getProfileSummary()
-
-    expect(getMock).toHaveBeenCalledWith('/users/me')
-    expect(getMock).toHaveBeenCalledWith('/users/me/stats')
-    expect(result).toEqual({
+    await expect(getProfileSummary()).resolves.toEqual({
       id: 'user-1',
       email: 'fresh-user@example.com',
       role: 'USER',
@@ -52,18 +51,20 @@ describe('repro T037', () => {
       equipmentUsed: 1,
       equipmentLimit: null,
     })
+
+    expect(apiGet).toHaveBeenCalledWith('/users/me')
+    expect(apiGet).toHaveBeenCalledWith('/users/me/stats')
   })
 
   it('patches password updates through the self-service endpoint', async () => {
-    patchMock.mockResolvedValue(undefined)
+    apiPatch.mockResolvedValueOnce(undefined)
 
-    const profileApi = await import('@/shared/api/profile')
-    await profileApi.changePassword({
+    await changePassword({
       currentPassword: 'old-password-1',
       newPassword: 'new-password-2',
     })
 
-    expect(patchMock).toHaveBeenCalledWith('/users/me/password', {
+    expect(apiPatch).toHaveBeenCalledWith('/users/me/password', {
       currentPassword: 'old-password-1',
       newPassword: 'new-password-2',
     })

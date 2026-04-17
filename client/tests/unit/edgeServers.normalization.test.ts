@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import * as edgeServersApi from '@/shared/api/edgeServers'
 
 const { apiGet, apiPost, apiDelete } = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock('@/shared/api/client', () => ({
 
 import {
   bindEdgeServer,
+  blockAdminEdgeServer,
   getAdminEdgeFleet,
   getAssignedEdgeServers,
   getEdgeServerPingSnapshot,
@@ -131,6 +133,64 @@ describe('edgeServers canonical normalization (T052)', () => {
     await expect(registerAdminEdgeServer({ name: 'Edge Alpha' })).resolves.toEqual(disclosure)
     await expect(rotateEdgeServerCredential('edge-1')).resolves.toEqual(disclosure)
     await expect(unblockEdgeServer('edge-1')).resolves.toEqual(disclosure)
+  })
+
+  it('exposes only canonical edge API exports and calls canonical lifecycle endpoints', async () => {
+    const disclosure = {
+      edge: {
+        _id: 'edge-1',
+        name: 'Edge Alpha',
+        lifecycleState: 'Active' as const,
+        availability: { online: false, lastSeenAt: null },
+        trustedUsers: [],
+        createdBy: null,
+        persistentCredentialVersion: 1,
+        lastLifecycleEventAt: '2026-04-15T12:10:00.000Z',
+      },
+      persistentCredential: {
+        edgeId: 'edge-1',
+        credentialSecret: 'persistent-secret',
+        version: 1,
+        issuedAt: '2026-04-15T12:10:00.000Z',
+        instructions: 'Use this secret as the edge runtime persistent credential.',
+      },
+    }
+    const blockedEdge = {
+      _id: 'edge-1',
+      name: 'Edge Alpha',
+      lifecycleState: 'Blocked' as const,
+      availability: { online: false, lastSeenAt: null },
+      trustedUsers: [],
+      createdBy: null,
+      persistentCredentialVersion: 1,
+      lastLifecycleEventAt: '2026-04-15T12:11:00.000Z',
+    }
+
+    expect(typeof edgeServersApi.getAdminEdgeFleet).toBe('function')
+    expect(typeof edgeServersApi.getAssignedEdgeServers).toBe('function')
+    expect(typeof edgeServersApi.registerAdminEdgeServer).toBe('function')
+    expect(typeof edgeServersApi.rotateEdgeServerCredential).toBe('function')
+    expect(typeof edgeServersApi.blockAdminEdgeServer).toBe('function')
+    expect(typeof edgeServersApi.unblockEdgeServer).toBe('function')
+    expect(typeof edgeServersApi.getEdgeServerPingSnapshot).toBe('function')
+    expect('getEdgeServers' in edgeServersApi).toBe(false)
+    expect('getTrustedEdgeServers' in edgeServersApi).toBe(false)
+    expect('registerEdgeServer' in edgeServersApi).toBe(false)
+
+    apiPost.mockResolvedValueOnce(disclosure)
+    apiPost.mockResolvedValueOnce(disclosure)
+    apiPost.mockResolvedValueOnce(blockedEdge)
+    apiPost.mockResolvedValueOnce(disclosure)
+
+    await registerAdminEdgeServer({ name: 'Edge Alpha' })
+    await rotateEdgeServerCredential('edge-1')
+    await blockAdminEdgeServer('edge-1')
+    await unblockEdgeServer('edge-1')
+
+    expect(apiPost).toHaveBeenNthCalledWith(1, '/edge-servers', { name: 'Edge Alpha' })
+    expect(apiPost).toHaveBeenNthCalledWith(2, '/edge-servers/edge-1/rotate-credential')
+    expect(apiPost).toHaveBeenNthCalledWith(3, '/edge-servers/edge-1/block')
+    expect(apiPost).toHaveBeenNthCalledWith(4, '/edge-servers/edge-1/unblock')
   })
 
   it('normalizes ping snapshots and assignment endpoints on canonical paths', async () => {

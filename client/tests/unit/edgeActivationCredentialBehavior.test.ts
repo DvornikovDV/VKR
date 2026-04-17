@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -55,6 +55,29 @@ describe('edge activation credential behavior', () => {
       edgeId: 'edge-t021',
       credentialMode: 'persistent',
       credentialSecret: 'persistent-secret-t021',
+    })
+  })
+
+  it('builds persisted reconnect credential records directly from activation payloads', async () => {
+    const edgeTransport = await import('../../../edge_server/src/transport/cloudSocketClient')
+
+    const record = edgeTransport.buildPersistedCredentialRecordFromActivation({
+      edgeId: 'edge-activation-1',
+      lifecycleState: 'Active',
+      persistentCredential: {
+        version: 2,
+        secret: 'persistent-secret',
+        issuedAt: '2026-03-26T10:00:00.000Z',
+      },
+    })
+
+    expect(record).toEqual({
+      edgeId: 'edge-activation-1',
+      credentialMode: 'persistent',
+      credentialSecret: 'persistent-secret',
+      version: 2,
+      issuedAt: '2026-03-26T10:00:00.000Z',
+      lifecycleState: 'Active',
     })
   })
 
@@ -134,7 +157,6 @@ describe('edge activation credential behavior', () => {
       'edge_server/tests/fixtures/runtime/legacy-onboarding/credential.json',
     )
 
-    const { readFile } = await import('node:fs/promises')
     const [runtimeStateContract, validCredentialRaw] = await Promise.all([
       readFile(runtimeStateContractPath, 'utf8'),
       readFile(validCredentialFixturePath, 'utf8'),
@@ -161,5 +183,43 @@ describe('edge activation credential behavior', () => {
 
     const legacyStore = edgeStore.createPersistedCredentialStore(legacyPath)
     await expect(legacyStore.load()).rejects.toThrow(`Invalid persisted credential format in ${legacyPath}`)
+  })
+
+  it('keeps TypeScript connect_error guards aligned with runtime contracts', async () => {
+    const runtimeContractPath = path.join(
+      REPO_ROOT_DIR,
+      'specs/001-edge-runtime/contracts/cloud-runtime-contract.md',
+    )
+    const lifecycleContractPath = path.join(
+      REPO_ROOT_DIR,
+      'specs/004-edge-onboarding/contracts/edge-socket-contract.md',
+    )
+
+    const [runtimeContract, lifecycleContract] = await Promise.all([
+      readFile(runtimeContractPath, 'utf8'),
+      readFile(lifecycleContractPath, 'utf8'),
+    ])
+
+    const requiredConnectErrorCodes = [
+      'edge_not_found',
+      'blocked',
+      'onboarding_not_allowed',
+      'onboarding_package_missing',
+      'onboarding_package_expired',
+      'onboarding_package_reused',
+      'invalid_credential',
+      'persistent_credential_revoked',
+      'edge_auth_internal_error',
+    ] as const
+
+    const edgeTransport = await import('../../../edge_server/src/transport/cloudSocketClient')
+
+    for (const code of requiredConnectErrorCodes) {
+      expect(runtimeContract).toContain(code)
+      expect(lifecycleContract).toContain(code)
+      expect(edgeTransport.isEdgeConnectErrorCode(code)).toBe(true)
+    }
+
+    expect(edgeTransport.isEdgeConnectErrorCode('unexpected_error_code')).toBe(false)
   })
 })
