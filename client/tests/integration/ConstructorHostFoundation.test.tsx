@@ -76,7 +76,7 @@ describe('Constructor host foundation tasks (T004-T007)', () => {
           data: [
             // Non-canonical payload missing lifecycleState must be ignored.
             { _id: 'edge-invalid', name: 'Invalid' },
-            // Canonical non-Active payload must be ignored as not telemetry-ready.
+            // Canonical blocked payload must remain visible as a consumer-facing option.
             {
               _id: 'edge-blocked',
               name: 'Blocked',
@@ -130,8 +130,33 @@ describe('Constructor host foundation tasks (T004-T007)', () => {
     const catalog = await loadHostedDeviceMetricCatalog('edge-a')
 
     expect(machines).toEqual([
-      { edgeServerId: 'edge-a', label: 'Alpha', isOnline: true },
-      { edgeServerId: 'edge-b', label: 'Bravo', isOnline: false },
+      {
+        edgeServerId: 'edge-a',
+        label: 'Alpha (Active, Online)',
+        edgeName: 'Alpha',
+        lifecycleState: 'Active',
+        availabilityLabel: 'Online',
+        lastSeenAt: null,
+        isOnline: true,
+      },
+      {
+        edgeServerId: 'edge-blocked',
+        label: 'Blocked (Blocked, Offline)',
+        edgeName: 'Blocked',
+        lifecycleState: 'Blocked',
+        availabilityLabel: 'Offline',
+        lastSeenAt: null,
+        isOnline: false,
+      },
+      {
+        edgeServerId: 'edge-b',
+        label: 'Bravo (Active, Offline)',
+        edgeName: 'Bravo',
+        lifecycleState: 'Active',
+        availabilityLabel: 'Offline',
+        lastSeenAt: null,
+        isOnline: false,
+      },
     ])
     expect(catalog).toEqual([
       {

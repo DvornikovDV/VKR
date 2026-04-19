@@ -105,8 +105,8 @@ describe('MyEquipmentPage assigned-edge readiness view (T033/T047)', () => {
 
     expect(await screen.findByText('Pump Edge B')).toBeInTheDocument()
     expect(screen.getByText('Valve Edge C')).toBeInTheDocument()
-    expect(screen.getByText('Online')).toBeInTheDocument()
-    expect(screen.getByText('Offline')).toBeInTheDocument()
+    expect(screen.getAllByText('Online').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Offline').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('2026-03-29 10:15 UTC')).toBeInTheDocument()
     expect(screen.getByText('2026-03-28 22:05 UTC')).toBeInTheDocument()
   })

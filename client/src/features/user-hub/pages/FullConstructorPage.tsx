@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
 import { ConstructorHost } from '@/features/constructor-host/ConstructorHost'
 import {
+  mapAssignedEdgeServersToMachineOptions,
   mapCatalogRowsToDeviceMetricCatalog,
-  mapTrustedEdgeServersToMachineOptions,
 } from '@/features/constructor-host/adapters/catalogAdapter'
 import {
   exportWidgetBindingsPayload,
@@ -30,6 +30,7 @@ import {
 } from '@/features/constructor-host/useUnsavedChangesGuard'
 import { useHostedLayoutSaveFlow } from '@/features/constructor-host/useHostedLayoutSaveFlow'
 import { deleteAllBindings, getBindingsByDiagram, createBinding } from '@/shared/api/bindings'
+import { getConstructorEdgeGuidance } from '@/shared/edgePresentation'
 import { BindingsInvalidatedModal } from '@/shared/components/BindingsInvalidatedModal'
 import { SaveBindingsRequiresLayoutModal } from '@/shared/components/SaveBindingsRequiresLayoutModal'
 import { SaveAsDialog } from '@/shared/components/SaveAsDialog'
@@ -101,14 +102,17 @@ export function FullConstructorPage() {
   )
   const activeEdgeServerLabel = useMemo(
     () =>
-      machines.find((machine) => machine.edgeServerId === activeEdgeServerId)?.label ?? activeEdgeServerId,
+      machines.find((machine) => machine.edgeServerId === activeEdgeServerId)?.edgeName ?? activeEdgeServerId,
     [activeEdgeServerId, machines],
   )
-  const showEmptyCatalogGuidance =
-    phase === 'ready' &&
-    Boolean(activeEdgeServerId) &&
-    machines.some((machine) => machine.edgeServerId === activeEdgeServerId) &&
-    deviceCatalog.length === 0
+  const activeMachine = useMemo(
+    () => machines.find((machine) => machine.edgeServerId === activeEdgeServerId) ?? null,
+    [activeEdgeServerId, machines],
+  )
+  const activeMachineGuidance =
+    phase === 'ready' && activeMachine
+      ? getConstructorEdgeGuidance(activeMachine, deviceCatalog.length > 0)
+      : null
   const hasUnsavedChanges = hasUnsavedChangesFromDirtyState(dirtyState)
   useUnsavedChangesGuard({ hasUnsavedChanges })
 
@@ -138,7 +142,7 @@ export function FullConstructorPage() {
     try {
       const [loadedDiagram, trustedEdgeServers, loadedBindingSets] = await Promise.all([
         getDiagramById(id),
-        getAssignedEdgeServers().then((rows) => rows.filter((edge) => edge.lifecycleState === 'Active')),
+        getAssignedEdgeServers(),
         getBindingsByDiagram(id),
       ])
       let normalizedLayout: EditorRouteDiagram['layout'] = {}
@@ -154,7 +158,7 @@ export function FullConstructorPage() {
       }
 
       const bindingsRecovery = importBindingSetsPayloadWithRecovery(loadedBindingSets)
-      const nextMachines = mapTrustedEdgeServersToMachineOptions(trustedEdgeServers)
+      const nextMachines = mapAssignedEdgeServersToMachineOptions(trustedEdgeServers)
       const nextActiveEdgeServerId = nextMachines.some(
         (machine) => machine.edgeServerId === requestedEdgeServerId,
       )
@@ -530,10 +534,10 @@ export function FullConstructorPage() {
           </p>
         </div>
       )}
-      {showEmptyCatalogGuidance && (
+      {activeMachineGuidance && (
         <div className="px-4 pt-3">
           <p className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">
-            {`The selected edge has no telemetry-derived catalog entries yet (${activeEdgeServerLabel ?? 'unknown edge'}). Keep the constructor layout work in progress and return after telemetry arrives to configure bindings.`}
+            {activeMachineGuidance.replace('Selected edge', activeEdgeServerLabel ?? 'Selected edge')}
           </p>
         </div>
       )}

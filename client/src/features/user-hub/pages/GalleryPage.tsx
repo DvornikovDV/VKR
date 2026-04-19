@@ -9,6 +9,10 @@ import {
 } from '@/shared/api/diagrams'
 import { deleteBinding, getBindingsByDiagram } from '@/shared/api/bindings'
 import { getAssignedEdgeServers } from '@/shared/api/edgeServers'
+import {
+  getEdgeAvailabilityLabel,
+  type EdgeConsumerContextStatus,
+} from '@/shared/edgePresentation'
 import { useDiagramLimits } from '@/shared/hooks/useDiagramLimits'
 import {
   DiagramCard,
@@ -19,6 +23,14 @@ import {
 interface DiagramCardState extends DiagramCardModel {
   updatedAt: string
   version: number | null
+}
+
+interface ResolvedEdgeContext {
+  name: string
+  isOnline: boolean
+  lifecycleState: 'Active' | 'Blocked'
+  availabilityLabel: 'Online' | 'Offline' | 'Unknown'
+  lastSeenAt: string | null
 }
 
 function toUpdatedAt(diagram: Diagram): string {
@@ -65,14 +77,19 @@ export function GalleryPage() {
     try {
       const [diagrams, trustedEdges] = await Promise.all([
         getDiagrams(),
-        getAssignedEdgeServers().catch(() => []),
+        getAssignedEdgeServers()
+          .then((rows) => rows)
+          .catch(() => null),
       ])
       const trustedEdgeMap = new Map(
-        trustedEdges.map((edge) => [
+        (trustedEdges ?? []).map((edge) => [
           edge._id,
           {
             name: edge.name,
             isOnline: edge.availability.online,
+            lifecycleState: edge.lifecycleState,
+            availabilityLabel: getEdgeAvailabilityLabel(edge.availability.online),
+            lastSeenAt: edge.availability.lastSeenAt,
           },
         ]),
       )
@@ -81,13 +98,23 @@ export function GalleryPage() {
         diagrams.map(async (diagram) => {
           try {
             const bindings = await getBindingsByDiagram(diagram._id)
-            const telemetryProfiles: TelemetryProfileEntry[] = bindings.map((binding) => ({
-              telemetryProfileId: binding._id,
-              monitoredObjectId: binding.edgeServerId,
-              monitoredObjectName:
-                trustedEdgeMap.get(binding.edgeServerId)?.name ?? binding.edgeServerId,
-              isOnline: trustedEdgeMap.get(binding.edgeServerId)?.isOnline ?? false,
-            }))
+            const telemetryProfiles: TelemetryProfileEntry[] = bindings.map((binding) => {
+              const edgeContext = trustedEdgeMap.get(binding.edgeServerId)
+              const edgeContextStatus: EdgeConsumerContextStatus = edgeContext
+                ? 'resolved'
+                : 'unresolved'
+
+              return {
+                telemetryProfileId: binding._id,
+                monitoredObjectId: binding.edgeServerId,
+                monitoredObjectName: edgeContext?.name ?? binding.edgeServerId,
+                edgeContextStatus,
+                isOnline: edgeContext?.isOnline,
+                lifecycleState: edgeContext?.lifecycleState,
+                availabilityLabel: edgeContext?.availabilityLabel ?? 'Unknown',
+                lastSeenAt: edgeContext?.lastSeenAt ?? null,
+              }
+            })
             return toCardModel(diagram, telemetryProfiles)
           } catch {
             return toCardModel(diagram, [])

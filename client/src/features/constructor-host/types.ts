@@ -17,6 +17,10 @@ export interface WidgetBindingRecord {
 export interface EditorMachineOption {
   edgeServerId: string
   label: string
+  edgeName?: string
+  lifecycleState?: 'Active' | 'Blocked'
+  availabilityLabel?: 'Online' | 'Offline' | 'Unknown'
+  lastSeenAt?: string | null
   isOnline?: boolean
 }
 

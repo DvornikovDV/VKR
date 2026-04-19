@@ -176,7 +176,7 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
       }),
     )
 
-    const router = renderTelemetryFlow('/hub/editor/diagram-1')
+    const router = renderTelemetryFlow('/hub/editor/diagram-1?edgeId=edge-a')
 
     await waitFor(() => {
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
@@ -187,6 +187,7 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
 
     catalogReady = true
     act(() => {
+      harness.emitMachineChange(null)
       harness.emitMachineChange('edge-a')
     })
 

@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getAssignedEdgeServers, type AssignedEdgeServer } from '@/shared/api/edgeServers'
+import {
+  getEdgeAvailabilityBadgeClass,
+  getEdgeAvailabilityLabel,
+  getEdgeLifecycleBadgeClass,
+} from '@/shared/edgePresentation'
 import { useEdgeStatus } from '@/shared/hooks/useEdgeStatus'
 
 function toErrorMessage(error: unknown, fallback: string): string {
@@ -21,6 +26,17 @@ function formatUtcTimestamp(value: string | null | undefined): string {
   }
 
   return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`
+}
+
+function getEffectiveAvailability(
+  edge: AssignedEdgeServer,
+  snapshot: { online: boolean | null; lastSeenAt: string | null },
+) {
+  if (snapshot.online === null) {
+    return edge.availability
+  }
+
+  return snapshot
 }
 
 export function MyEquipmentPage() {
@@ -117,7 +133,8 @@ export function MyEquipmentPage() {
         <div className="grid gap-4 md:grid-cols-2">
           {assignedEdges.map((edge) => {
             const snapshot = getSnapshot(edge._id)
-            const online = snapshot.online
+            const availability = getEffectiveAvailability(edge, snapshot)
+            const availabilityLabel = getEdgeAvailabilityLabel(availability.online)
             return (
               <article
                 key={edge._id}
@@ -125,17 +142,10 @@ export function MyEquipmentPage() {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h2 className="text-base font-semibold text-white">{edge.name}</h2>
-                  <span
-                    className={
-                      online === true
-                        ? 'rounded-full bg-[var(--color-online)]/10 px-2 py-1 text-xs text-[var(--color-online)]'
-                        : online === false
-                          ? 'rounded-full bg-[var(--color-offline)]/10 px-2 py-1 text-xs text-[var(--color-offline)]'
-                          : 'rounded-full bg-[#94a3b8]/10 px-2 py-1 text-xs text-[#94a3b8]'
-                    }
-                  >
-                    {online === true ? 'Online' : online === false ? 'Offline' : 'Unknown'}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={getEdgeLifecycleBadgeClass(edge.lifecycleState)}>{edge.lifecycleState}</span>
+                    <span className={getEdgeAvailabilityBadgeClass(availability.online)}>{availabilityLabel}</span>
+                  </div>
                 </div>
 
                 <dl className="mt-3 space-y-1 text-xs text-[#cbd5e1]">
@@ -144,8 +154,12 @@ export function MyEquipmentPage() {
                     <dd>{edge.lifecycleState}</dd>
                   </div>
                   <div className="flex items-center justify-between gap-2">
+                    <dt className="text-[#94a3b8]">Availability</dt>
+                    <dd>{availabilityLabel}</dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
                     <dt className="text-[#94a3b8]">Last seen</dt>
-                    <dd>{formatUtcTimestamp(snapshot.lastSeenAt)}</dd>
+                    <dd>{formatUtcTimestamp(availability.lastSeenAt)}</dd>
                   </div>
                 </dl>
               </article>

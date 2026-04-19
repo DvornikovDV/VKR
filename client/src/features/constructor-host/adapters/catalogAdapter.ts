@@ -4,6 +4,10 @@ import {
   type AssignedEdgeServer,
   type EdgeServerCatalogRow,
 } from '@/shared/api/edgeServers'
+import {
+  formatEdgeMachineLabel,
+  getEdgeAvailabilityLabel,
+} from '@/shared/edgePresentation'
 import type {
   EditorDeviceMetricCatalogEntry,
   EditorMachineOption,
@@ -36,14 +40,27 @@ function buildMetricOption(metric: string): EditorMetricOption {
 export function mapTrustedEdgeServersToMachineOptions(
   edgeServers: AssignedEdgeServer[],
 ): EditorMachineOption[] {
+  return mapAssignedEdgeServersToMachineOptions(edgeServers)
+}
+
+export function mapAssignedEdgeServersToMachineOptions(
+  edgeServers: AssignedEdgeServer[],
+): EditorMachineOption[] {
   return edgeServers
-    .filter((edgeServer) => edgeServer.lifecycleState === 'Active')
     .map((edgeServer) => ({
       edgeServerId: edgeServer._id,
-      label: edgeServer.name,
+      label: formatEdgeMachineLabel(
+        edgeServer.name,
+        edgeServer.lifecycleState,
+        getEdgeAvailabilityLabel(edgeServer.availability.online),
+      ),
+      edgeName: edgeServer.name,
+      lifecycleState: edgeServer.lifecycleState,
+      availabilityLabel: getEdgeAvailabilityLabel(edgeServer.availability.online),
+      lastSeenAt: edgeServer.availability.lastSeenAt,
       isOnline: edgeServer.availability.online,
     }))
-    .sort((a, b) => a.label.localeCompare(b.label))
+    .sort((a, b) => (a.edgeName ?? a.label).localeCompare(b.edgeName ?? b.label))
 }
 
 export function mapCatalogRowsToDeviceMetricCatalog(
@@ -99,7 +116,7 @@ export function mapCatalogRowsToDeviceMetricCatalog(
 
 export async function loadHostedMachineOptions(): Promise<EditorMachineOption[]> {
   const edgeServers = await getAssignedEdgeServers()
-  return mapTrustedEdgeServersToMachineOptions(edgeServers)
+  return mapAssignedEdgeServersToMachineOptions(edgeServers)
 }
 
 export async function loadHostedDeviceMetricCatalog(

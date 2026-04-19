@@ -2,12 +2,24 @@ import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, ExternalLink, Pencil, Trash2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { deleteDiagram } from '@/shared/api/diagrams'
+import {
+  canOpenDashboardForEdgeContext,
+  getDashboardHandoffNote,
+  getEdgeAvailabilityBadgeClass,
+  getEdgeAvailabilityLabel,
+  getEdgeLifecycleBadgeClass,
+  type EdgeConsumerContextStatus,
+} from '@/shared/edgePresentation'
 
 export interface TelemetryProfileEntry {
   telemetryProfileId: string
   monitoredObjectId: string
   monitoredObjectName: string
   isOnline?: boolean
+  edgeContextStatus?: EdgeConsumerContextStatus
+  lifecycleState?: 'Active' | 'Blocked'
+  availabilityLabel?: 'Online' | 'Offline' | 'Unknown'
+  lastSeenAt?: string | null
 }
 
 export interface DiagramCardModel {
@@ -269,24 +281,53 @@ export function DiagramCard({
                     key={profile.telemetryProfileId}
                     className="rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-3"
                   >
+                    {(() => {
+                      const availabilityLabel =
+                        profile.availabilityLabel ?? getEdgeAvailabilityLabel(profile.isOnline)
+                      const dashboardDisabled = !canOpenDashboardForEdgeContext({
+                        contextStatus: profile.edgeContextStatus,
+                        lifecycleState: profile.lifecycleState,
+                      })
+                      const dashboardNote = getDashboardHandoffNote({
+                        contextStatus: profile.edgeContextStatus,
+                        lifecycleState: profile.lifecycleState,
+                      })
+
+                      return (
+                        <>
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <span className="truncate text-sm font-medium text-white">{profile.monitoredObjectName}</span>
-                      <span
-                        className={
-                          profile.isOnline
-                            ? 'text-xs text-[var(--color-online)]'
-                            : 'text-xs text-[var(--color-offline)]'
-                        }
-                      >
-                        {profile.isOnline ? 'Online' : 'Offline'}
-                      </span>
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {profile.lifecycleState && (
+                          <span className={getEdgeLifecycleBadgeClass(profile.lifecycleState)}>
+                            {profile.lifecycleState}
+                          </span>
+                        )}
+                        <span className={getEdgeAvailabilityBadgeClass(profile.isOnline ?? null)}>
+                          {availabilityLabel}
+                        </span>
+                      </div>
                     </div>
+
+                    {dashboardNote && (
+                      <p className="mb-2 text-xs text-[var(--color-warning)]">
+                        {dashboardNote}
+                      </p>
+                    )}
 
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => onOpenDashboard(profile)}
-                        className="inline-flex items-center gap-1 rounded-md bg-[var(--color-brand-600)] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[var(--color-brand-500)]"
+                        onClick={() => {
+                          if (dashboardDisabled) {
+                            return
+                          }
+
+                          onOpenDashboard(profile)
+                        }}
+                        disabled={dashboardDisabled}
+                        title={dashboardDisabled ? dashboardNote ?? undefined : undefined}
+                        className="inline-flex items-center gap-1 rounded-md bg-[var(--color-brand-600)] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[var(--color-brand-500)] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <ExternalLink size={12} />
                         Open Dashboard
@@ -308,6 +349,9 @@ export function DiagramCard({
                         Delete Telemetry Profile
                       </button>
                     </div>
+                        </>
+                      )
+                    })()}
                   </li>
                 ))}
               </ul>
