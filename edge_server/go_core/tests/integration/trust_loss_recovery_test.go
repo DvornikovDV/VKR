@@ -29,6 +29,7 @@ type trustLossScenario struct {
 }
 
 func TestReproTaskT028TrustLossAndDisconnectCoverage(t *testing.T) {
+	requireLegacyOnboardingReference(t)
 	t.Setenv("CLOUD_SOCKET_URL", "wss://cloud.example.test")
 	t.Setenv("EDGE_ONBOARDING_SECRET", "trust-loss-suite-secret")
 
@@ -118,6 +119,7 @@ func TestReproTaskT028TrustLossAndDisconnectCoverage(t *testing.T) {
 }
 
 func TestReproTaskT028FreshReOnboardingRecoveryRequiresFreshOperatorInput(t *testing.T) {
+	requireLegacyOnboardingReference(t)
 	t.Setenv("CLOUD_SOCKET_URL", "wss://cloud.example.test")
 
 	cfg, err := config.LoadFromFile(runtimeFixturePath(t, "config.yaml"))

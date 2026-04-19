@@ -17,8 +17,12 @@ These fixtures freeze the minimum local input shapes for the `007-edge-server` p
 - `partial-corrupt/credential.json`
   - Deliberately malformed JSON payload based on the same persistent credential baseline for parse-failure handling.
 - `onboarding-package.json`
-  - Legacy bootstrap reference kept only while onboarding-first tests remain under rewrite.
+  - `onboarding-package.json` - quarantined legacy reference only; not part of production acceptance.
+  - Default Go acceptance must not depend on it; legacy reference coverage runs only with `EDGE_ENABLE_LEGACY_ONBOARDING_REFERENCE=1`.
+  - Kept only while onboarding-first reference coverage remains under rewrite in `T010`, `T011`, `T015`, and `T021`.
 - `legacy-onboarding/credential.json`
-  - Legacy onboarding-shaped persisted record kept as a quarantined reference and not as canonical persistent runtime state.
+  - `legacy-onboarding/credential.json` - quarantined legacy reference only; not part of production acceptance.
+  - Must fail when presented as the canonical persistent `credential.json` runtime input.
 - `wrong-edge-id/edge_activation.json`
-  - Legacy activation payload reference whose `edgeId` does not match the expected runtime edge id.
+  - `wrong-edge-id/edge_activation.json` - quarantined legacy reference only; not part of production acceptance.
+  - Must fail when parsed against the expected runtime edge id.

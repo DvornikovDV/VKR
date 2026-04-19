@@ -1,4 +1,5 @@
 {
+  "fixtureClass": "legacy-reference-only",
   "edgeId": "507f1f77bcf86cd799439099",
   "lifecycleState": "Active",
   "persistentCredential": {

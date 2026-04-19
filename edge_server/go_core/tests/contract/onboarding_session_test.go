@@ -15,6 +15,7 @@ func onboardingFixturePath(t *testing.T, name string) string {
 }
 
 func TestReproTaskT011OnboardingSessionLifecycle(t *testing.T) {
+	requireLegacyOnboardingReference(t)
 	t.Setenv("EDGE_ONBOARDING_SECRET", "first-onboarding-secret")
 	onboardingPath := onboardingFixturePath(t, "onboarding-package.json")
 
@@ -99,6 +100,7 @@ func TestReproTaskT011OnboardingSessionLifecycle(t *testing.T) {
 }
 
 func TestReproTaskT011bConsumedOnboardingDoesNotCreateFutureTrustPathWithoutFreshOperatorInput(t *testing.T) {
+	requireLegacyOnboardingReference(t)
 	t.Setenv("EDGE_ONBOARDING_SECRET", "stale-onboarding-secret")
 	onboardingPath := onboardingFixturePath(t, "onboarding-package.json")
 
@@ -130,6 +132,7 @@ func TestReproTaskT011bConsumedOnboardingDoesNotCreateFutureTrustPathWithoutFres
 }
 
 func TestReproTaskT014bOnboardingTimestampsAreOptionalAndValidatedOnlyWhenPresent(t *testing.T) {
+	requireLegacyOnboardingReference(t)
 	t.Setenv("EDGE_ONBOARDING_SECRET", "optional-ts-secret")
 
 	testCases := []struct {

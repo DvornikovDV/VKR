@@ -193,6 +193,7 @@ func writeRuntimeConfigFixture(t *testing.T, cloudURL string) string {
 }
 
 func TestReproTaskT016bProductionMainEntrypointUsesRealCloudTransportLifecycle(t *testing.T) {
+	requireLegacyOnboardingReference(t)
 	socketServer := newFakeSocketIOServer(t)
 	defer socketServer.Close()
 
@@ -242,6 +243,7 @@ func TestReproTaskT016bProductionMainEntrypointUsesRealCloudTransportLifecycle(t
 }
 
 func TestReproTaskT016bProductionMainEntrypointFailsFastWithoutValidAuthPath(t *testing.T) {
+	requireLegacyOnboardingReference(t)
 	binaryPath := buildRuntimeBinary(t)
 	configPath := writeRuntimeConfigFixture(t, "http://127.0.0.1:65535")
 

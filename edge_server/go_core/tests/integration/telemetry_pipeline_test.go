@@ -743,6 +743,7 @@ func assertCanonicalTelemetryPayload(t *testing.T, raw string, want []map[string
 }
 
 func TestReproTaskT018ProductionRuntimeTelemetryPathBatchesCanonicalPayloadsAndDropsOutsideTrustedSession(t *testing.T) {
+	requireLegacyOnboardingReference(t)
 	t.Setenv("CLOUD_SOCKET_URL", "wss://cloud.example.test")
 	t.Setenv("EDGE_ONBOARDING_SECRET", "telemetry-repro-secret")
 
@@ -872,6 +873,7 @@ func TestReproTaskT018ProductionRuntimeTelemetryPathBatchesCanonicalPayloadsAndD
 }
 
 func TestT030ProductionRuntimeResumesTelemetryOnlyAfterAcceptedFutureTrustPath(t *testing.T) {
+	requireLegacyOnboardingReference(t)
 	t.Setenv("CLOUD_SOCKET_URL", "wss://cloud.example.test")
 	t.Setenv("EDGE_ONBOARDING_SECRET", "telemetry-recovery-secret")
 

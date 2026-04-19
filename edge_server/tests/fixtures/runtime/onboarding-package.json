@@ -1,4 +1,5 @@
 {
+  "fixtureClass": "legacy-reference-only",
   "edgeId": "507f1f77bcf86cd799439011",
   "onboardingSecret": "${EDGE_ONBOARDING_SECRET}",
   "issuedAt": "2026-04-05T10:00:00.000Z",
