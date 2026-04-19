@@ -19,15 +19,30 @@ const (
 )
 
 type Config struct {
+	Runtime RuntimeConfig             `yaml:"runtime"`
 	Cloud   CloudConfig               `yaml:"cloud"`
 	Batch   BatchConfig               `yaml:"batch"`
 	Sources []PollingSourceDefinition `yaml:"sources"`
 	Logging LoggingConfig             `yaml:"logging"`
 }
 
+type RuntimeConfig struct {
+	EdgeID       string `yaml:"edgeId"`
+	StateDir     string `yaml:"stateDir"`
+	InstanceName string `yaml:"instanceName"`
+}
+
 type CloudConfig struct {
-	URL       string `yaml:"url"`
-	Namespace string `yaml:"namespace"`
+	URL              string          `yaml:"url"`
+	Namespace        string          `yaml:"namespace"`
+	ConnectTimeoutMs int             `yaml:"connectTimeoutMs"`
+	Reconnect        ReconnectConfig `yaml:"reconnect"`
+}
+
+type ReconnectConfig struct {
+	BaseDelayMs int `yaml:"baseDelayMs"`
+	MaxDelayMs  int `yaml:"maxDelayMs"`
+	MaxAttempts int `yaml:"maxAttempts"`
 }
 
 type BatchConfig struct {
@@ -106,11 +121,38 @@ func (c *Config) applyDefaults() {
 }
 
 func (c Config) validate() error {
+	hasRuntimeSection := strings.TrimSpace(c.Runtime.EdgeID) != "" ||
+		strings.TrimSpace(c.Runtime.StateDir) != "" ||
+		strings.TrimSpace(c.Runtime.InstanceName) != ""
+	if hasRuntimeSection {
+		// Temporary T001 compatibility shim: accept the 007 runtime block now and
+		// remove this optional path when T004 makes runtime.edgeId/stateDir mandatory.
+		if strings.TrimSpace(c.Runtime.EdgeID) == "" {
+			return fmt.Errorf("runtime.edgeId is required when runtime block is present")
+		}
+		if strings.TrimSpace(c.Runtime.StateDir) == "" {
+			return fmt.Errorf("runtime.stateDir is required when runtime block is present")
+		}
+	}
 	if strings.TrimSpace(c.Cloud.URL) == "" {
 		return fmt.Errorf("cloud.url is required")
 	}
 	if c.Cloud.Namespace != defaultCloudNamespace {
 		return fmt.Errorf("cloud.namespace must be %q", defaultCloudNamespace)
+	}
+	if c.Cloud.ConnectTimeoutMs < 0 {
+		return fmt.Errorf("cloud.connectTimeoutMs must be positive when provided")
+	}
+	hasReconnectBlock := c.Cloud.Reconnect.BaseDelayMs != 0 ||
+		c.Cloud.Reconnect.MaxDelayMs != 0 ||
+		c.Cloud.Reconnect.MaxAttempts != 0
+	if hasReconnectBlock {
+		if c.Cloud.Reconnect.BaseDelayMs <= 0 {
+			return fmt.Errorf("cloud.reconnect.baseDelayMs must be positive when reconnect block is present")
+		}
+		if c.Cloud.Reconnect.MaxDelayMs <= 0 {
+			return fmt.Errorf("cloud.reconnect.maxDelayMs must be positive when reconnect block is present")
+		}
 	}
 	if c.Batch.IntervalMs <= 0 {
 		return fmt.Errorf("batch.intervalMs must be positive")

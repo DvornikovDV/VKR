@@ -56,6 +56,71 @@ sources:
 	}
 }
 
+func TestLoadFromFileAccepts007FixtureShape(t *testing.T) {
+	t.Setenv("RUNTIME_STATE_DIR", t.TempDir())
+	t.Setenv("CLOUD_SOCKET_URL", "http://127.0.0.1:4000")
+
+	body := `
+runtime:
+  edgeId: 507f1f77bcf86cd799439011
+  stateDir: ${RUNTIME_STATE_DIR}
+  instanceName: fixture-edge
+
+cloud:
+  url: ${CLOUD_SOCKET_URL}
+  namespace: /edge
+  connectTimeoutMs: 10000
+  reconnect:
+    baseDelayMs: 1000
+    maxDelayMs: 30000
+    maxAttempts: 0
+
+batch:
+  intervalMs: 1000
+  maxReadings: 100
+
+sources:
+  - sourceId: source-1
+    adapterKind: mock
+    enabled: true
+    pollIntervalMs: 1000
+    connection:
+      profile: default
+    devices:
+      - deviceId: device-1
+        address:
+          node: 1
+        metrics:
+          - metric: pressure
+            valueType: number
+            mapping:
+              register: 40001
+`
+
+	cfgPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte(body), 0o600); err != nil {
+		t.Fatalf("write config fixture: %v", err)
+	}
+
+	cfg, err := LoadFromFile(cfgPath)
+	if err != nil {
+		t.Fatalf("load 007-shaped config: %v", err)
+	}
+
+	if cfg.Runtime.EdgeID != "507f1f77bcf86cd799439011" {
+		t.Fatalf("unexpected runtime.edgeId: %q", cfg.Runtime.EdgeID)
+	}
+	if cfg.Runtime.StateDir == "" {
+		t.Fatal("expected runtime.stateDir to be preserved")
+	}
+	if cfg.Cloud.ConnectTimeoutMs != 10000 {
+		t.Fatalf("unexpected connect timeout: %d", cfg.Cloud.ConnectTimeoutMs)
+	}
+	if cfg.Cloud.Reconnect.BaseDelayMs != 1000 || cfg.Cloud.Reconnect.MaxDelayMs != 30000 {
+		t.Fatalf("unexpected reconnect settings: %+v", cfg.Cloud.Reconnect)
+	}
+}
+
 func TestParseRejectsInvalidOperatorConfig(t *testing.T) {
 	t.Setenv("CLOUD_SOCKET_URL", "wss://runtime.example.test")
 

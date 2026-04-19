@@ -94,6 +94,41 @@ func TestCredentialStoreAtomicReplaceAndCorruptRecovery(t *testing.T) {
 	}
 }
 
+func TestCredentialStoreLoads007PersistentCredentialFixtureShape(t *testing.T) {
+	stateDir := t.TempDir()
+	store := NewCredentialStore(stateDir)
+
+	payload := `{
+  "edgeId": "507f1f77bcf86cd799439011",
+  "credentialSecret": "fixture-secret",
+  "version": 3,
+  "issuedAt": "2026-04-19T08:20:00Z",
+  "source": "register",
+  "installedAt": "2026-04-19T08:25:00Z"
+}`
+	credentialPath := filepath.Join(stateDir, credentialFileName)
+	if err := os.WriteFile(credentialPath, []byte(payload), 0o600); err != nil {
+		t.Fatalf("write 007 credential fixture: %v", err)
+	}
+
+	credential, exists, err := store.Load()
+	if err != nil {
+		t.Fatalf("load 007 credential fixture: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected credential fixture to exist")
+	}
+	if credential.CredentialMode != "persistent" {
+		t.Fatalf("expected shimmed credentialMode=persistent, got %q", credential.CredentialMode)
+	}
+	if credential.LifecycleState != "Active" {
+		t.Fatalf("expected shimmed lifecycleState=Active, got %q", credential.LifecycleState)
+	}
+	if credential.CredentialSecret != "fixture-secret" || credential.Version != 3 {
+		t.Fatalf("unexpected loaded credential: %+v", credential)
+	}
+}
+
 func TestRuntimeAndStatusStorePersistence(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 4, 6, 10, 10, 0, 0, time.UTC)

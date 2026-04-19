@@ -1,6 +1,16 @@
+runtime:
+  edgeId: 507f1f77bcf86cd799439011
+  stateDir: ${RUNTIME_STATE_DIR}
+  instanceName: fixture-edge
+
 cloud:
   url: ${CLOUD_SOCKET_URL}
   namespace: /edge
+  connectTimeoutMs: 10000
+  reconnect:
+    baseDelayMs: 1000
+    maxDelayMs: 30000
+    maxAttempts: 0
 
 batch:
   intervalMs: 1000

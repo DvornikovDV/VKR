@@ -1,26 +1,24 @@
 # Runtime Fixtures
 
-These fixtures freeze the minimum local credential and activation payload shapes needed for future `001-edge-runtime` contract tests.
+These fixtures freeze the minimum local input shapes for the `007-edge-server` persistent-credential runtime baseline.
 
 ## Authority rules
 
-- The source of truth remains the cloud contract and the `specs/001-edge-runtime/contracts/*` documents.
-- The TypeScript files under `edge_server/src` were used only as development examples to derive representative local shapes.
-- The fixtures here are intentionally small and stable so future Go tests can consume them without depending on the current TypeScript examples.
+- The source of truth for local runtime inputs is `specs/007-edge-server/data-model.md` plus `specs/007-edge-server/quickstart.md`.
+- Cloud-owned trust outcomes stay authoritative in the active websocket contract; these fixtures only freeze edge-local input files.
+- The fixtures here are intentionally small and stable so Go runtime tests can consume them without depending on the legacy TypeScript onboarding path.
 
 ## Fixture set
 
+- `config.yaml`
+  - Operator-managed smoke/reference config shaped like the `007` persistent runtime baseline with `runtime.edgeId`, `runtime.stateDir`, reconnect settings, and one local source definition.
 - `valid/credential.json`
-  - Canonical persisted reconnect record expected to be accepted as trusted local state.
+  - Canonical current persistent credential file installed locally for trusted startup.
 - `partial-corrupt/credential.json`
-  - Deliberately malformed JSON payload representing a partial or corrupt persisted credential file.
+  - Deliberately malformed JSON payload based on the same persistent credential baseline for parse-failure handling.
+- `onboarding-package.json`
+  - Legacy bootstrap reference kept only while onboarding-first tests remain under rewrite.
 - `legacy-onboarding/credential.json`
-  - Legacy onboarding-shaped persisted record that must not be accepted as canonical trusted reconnect state.
+  - Legacy onboarding-shaped persisted record kept as a quarantined reference and not as canonical persistent runtime state.
 - `wrong-edge-id/edge_activation.json`
-  - Syntactically valid activation payload whose `edgeId` does not match the expected runtime edge id.
-
-## Derivation notes
-
-- `valid/credential.json` matches the accepted persistent record shape exercised by `client/tests/unit/edgeActivationCredentialBehavior.test.ts`.
-- `legacy-onboarding/credential.json` matches the onboarding-shaped record that the same regression rejects.
-- `wrong-edge-id/edge_activation.json` matches the activation payload shape validated by `edge_server/src/onboarding/activateEdge.ts`, except for the intentionally mismatched `edgeId`.
+  - Legacy activation payload reference whose `edgeId` does not match the expected runtime edge id.
