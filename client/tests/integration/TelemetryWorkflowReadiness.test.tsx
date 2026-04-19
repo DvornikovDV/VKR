@@ -5,6 +5,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '../mocks/server'
+import {
+  createUserEdgeConsumerFixtures,
+  createUserEdgeConsumerHandlers,
+} from '../mocks/handlers'
 import { loadHostedConstructor } from '@/features/constructor-host/loadHostedConstructor'
 import { createMockHostedConstructorHarness } from './helpers/mockHostedConstructor'
 import { userHubRouteChildren } from '@/app/userHubRoutes'
@@ -220,5 +224,93 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
     })
     expect(router.state.location.search).toContain('diagramId=diagram-1')
     expect(router.state.location.search).toContain('edgeId=edge-a')
+  })
+
+  it('keeps blocked edge guidance and disables invalid native dashboard handoff across constructor and gallery flows', async () => {
+    const user = userEvent.setup()
+    const harness = createMockHostedConstructorHarness({
+      initialBindings: [{ widgetId: 'widget-1', deviceId: 'device-1', metric: 'temperature' }],
+    })
+    mockedLoadHostedConstructor.mockResolvedValue(harness.module)
+
+    const fixtures = createUserEdgeConsumerFixtures({
+      assignedEdges: [
+        {
+          _id: 'edge-blocked',
+          name: 'Blocked Edge',
+          lifecycleState: 'Blocked',
+          availability: { online: false, lastSeenAt: '2026-04-19T09:30:00.000Z' },
+        },
+      ],
+    })
+
+    server.use(
+      ...createUserEdgeConsumerHandlers(fixtures),
+      http.get('/api/diagrams', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              _id: 'diagram-1',
+              name: 'Boiler Hall',
+              layout: {},
+              __v: 3,
+              updatedAt: '2026-03-01T00:00:00.000Z',
+            },
+          ],
+        }),
+      ),
+      http.get('/api/diagrams/:id', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: String(params.id),
+            name: 'Boiler Hall',
+            layout: { widgets: [] },
+            __v: 3,
+          },
+        }),
+      ),
+      http.get('/api/diagrams/:id/bindings', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              _id: 'binding-edge-blocked',
+              diagramId: String(params.id),
+              edgeServerId: 'edge-blocked',
+              widgetBindings: [{ widgetId: 'widget-1', deviceId: 'device-1', metric: 'temperature' }],
+            },
+          ],
+        }),
+      ),
+    )
+
+    const router = renderTelemetryFlow('/hub/editor/diagram-1?edgeId=edge-blocked')
+
+    await waitFor(() => {
+      expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
+    })
+    expect(screen.getByText(/selected edge is currently blocked/i)).toBeInTheDocument()
+    expect(
+      screen.queryByText(/selected edge has no telemetry-derived catalog entries yet/i),
+    ).not.toBeInTheDocument()
+
+    await act(async () => {
+      await router.navigate('/hub')
+    })
+
+    expect(await screen.findByText('Boiler Hall')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Telemetry Profiles' }))
+
+    const openDashboardButton = screen.getByRole('button', { name: /Open Dashboard/i })
+    expect(screen.getByText('Blocked Edge')).toBeInTheDocument()
+    expect(screen.getByText('Blocked')).toBeInTheDocument()
+    expect(screen.getByText('Offline')).toBeInTheDocument()
+    expect(
+      screen.getByText('Native Dashboard handoff is unavailable while this edge is blocked.'),
+    ).toBeInTheDocument()
+    expect(openDashboardButton).toBeDisabled()
+    expect(router.state.location.pathname).toBe('/hub')
   })
 })

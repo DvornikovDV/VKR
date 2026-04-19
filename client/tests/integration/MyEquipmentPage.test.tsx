@@ -7,6 +7,10 @@ import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
 import { useTelemetryStore } from '@/shared/store/useTelemetryStore'
 import { server } from '../mocks/server'
+import {
+  createUserEdgeConsumerFixtures,
+  createUserEdgeConsumerHandlers,
+} from '../mocks/handlers'
 
 const userSession: Session = {
   id: 'user-1',
@@ -78,36 +82,42 @@ describe('MyEquipmentPage route wiring (T034)', () => {
 })
 
 describe('MyEquipmentPage assigned-edge readiness view (T033/T047)', () => {
-  it('renders assigned edges with online and offline status plus last-seen values', async () => {
-    server.use(
-      http.get('/api/edge-servers', () =>
-        HttpResponse.json({
-          status: 'success',
-          data: [
-            {
-              _id: 'edge-online',
-              name: 'Pump Edge B',
-              lifecycleState: 'Active',
-              availability: { online: true, lastSeenAt: '2026-03-29T10:15:00.000Z' },
-            },
-            {
-              _id: 'edge-offline',
-              name: 'Valve Edge C',
-              lifecycleState: 'Active',
-              availability: { online: false, lastSeenAt: '2026-03-28T22:05:00.000Z' },
-            },
-          ],
-        }),
-      ),
-    )
+  it('renders assigned edges with canonical lifecycle, availability, and last-seen values including blocked assignments', async () => {
+    const fixtures = createUserEdgeConsumerFixtures({
+      assignedEdges: [
+        {
+          _id: 'edge-online',
+          name: 'Pump Edge B',
+          lifecycleState: 'Active',
+          availability: { online: true, lastSeenAt: '2026-03-29T10:15:00.000Z' },
+        },
+        {
+          _id: 'edge-offline',
+          name: 'Valve Edge C',
+          lifecycleState: 'Active',
+          availability: { online: false, lastSeenAt: '2026-03-28T22:05:00.000Z' },
+        },
+        {
+          _id: 'edge-blocked',
+          name: 'Blocked Edge D',
+          lifecycleState: 'Blocked',
+          availability: { online: false, lastSeenAt: '2026-03-28T21:45:00.000Z' },
+        },
+      ],
+    })
+    server.use(...createUserEdgeConsumerHandlers(fixtures))
 
     mount('/hub/edge')
 
     expect(await screen.findByText('Pump Edge B')).toBeInTheDocument()
     expect(screen.getByText('Valve Edge C')).toBeInTheDocument()
+    expect(screen.getByText('Blocked Edge D')).toBeInTheDocument()
+    expect(screen.getAllByText('Active').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('Blocked').length).toBeGreaterThanOrEqual(1)
     expect(screen.getAllByText('Online').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('Offline').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Offline').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('2026-03-29 10:15 UTC')).toBeInTheDocument()
     expect(screen.getByText('2026-03-28 22:05 UTC')).toBeInTheDocument()
+    expect(screen.getByText('2026-03-28 21:45 UTC')).toBeInTheDocument()
   })
 })

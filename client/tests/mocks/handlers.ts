@@ -36,6 +36,13 @@ export interface DashboardEdgeFixture {
   }
 }
 
+export interface UserEdgeCatalogFixture {
+  edgeServerId: string
+  deviceId: string
+  metric: string
+  label: string
+}
+
 export interface AdminEdgeFixture {
   _id: string
   name: string
@@ -72,6 +79,11 @@ export interface DashboardRestFixtures {
   diagramsById: Record<string, DashboardDiagramFixture>
   trustedEdges: DashboardEdgeFixture[]
   bindingProfilesByDiagramId: Record<string, DashboardBindingProfileFixture[]>
+}
+
+export interface UserEdgeConsumerFixtures {
+  assignedEdges: DashboardEdgeFixture[]
+  catalogByEdgeId: Record<string, UserEdgeCatalogFixture[]>
 }
 
 function createDefaultDashboardRestFixtures(): DashboardRestFixtures {
@@ -127,6 +139,43 @@ function createDefaultDashboardRestFixtures(): DashboardRestFixtures {
   }
 }
 
+function createDefaultUserEdgeConsumerFixtures(): UserEdgeConsumerFixtures {
+  return {
+    assignedEdges: [
+      {
+        _id: 'edge-online',
+        name: 'Online Edge',
+        lifecycleState: 'Active',
+        availability: { online: true, lastSeenAt: '2026-04-19T10:20:00.000Z' },
+      },
+      {
+        _id: 'edge-offline',
+        name: 'Offline Edge',
+        lifecycleState: 'Active',
+        availability: { online: false, lastSeenAt: '2026-04-19T10:10:00.000Z' },
+      },
+      {
+        _id: 'edge-blocked',
+        name: 'Blocked Edge',
+        lifecycleState: 'Blocked',
+        availability: { online: false, lastSeenAt: '2026-04-19T10:00:00.000Z' },
+      },
+    ],
+    catalogByEdgeId: {
+      'edge-online': [
+        {
+          edgeServerId: 'edge-online',
+          deviceId: 'pump-1',
+          metric: 'temperature',
+          label: 'pump-1.temperature',
+        },
+      ],
+      'edge-offline': [],
+      'edge-blocked': [],
+    },
+  }
+}
+
 export function createDashboardApiFixtures(
   overrides: Partial<DashboardRestFixtures> = {},
 ): DashboardRestFixtures {
@@ -141,6 +190,20 @@ export function createDashboardApiFixtures(
     bindingProfilesByDiagramId: {
       ...defaults.bindingProfilesByDiagramId,
       ...(overrides.bindingProfilesByDiagramId ?? {}),
+    },
+  }
+}
+
+export function createUserEdgeConsumerFixtures(
+  overrides: Partial<UserEdgeConsumerFixtures> = {},
+): UserEdgeConsumerFixtures {
+  const defaults = createDefaultUserEdgeConsumerFixtures()
+
+  return {
+    assignedEdges: overrides.assignedEdges ?? defaults.assignedEdges,
+    catalogByEdgeId: {
+      ...defaults.catalogByEdgeId,
+      ...(overrides.catalogByEdgeId ?? {}),
     },
   }
 }
@@ -182,6 +245,23 @@ export function createDashboardApiHandlers(fixtures: DashboardRestFixtures): Htt
       HttpResponse.json({
         status: 'success',
         data: fixtures.bindingProfilesByDiagramId[String(params.id)] ?? [],
+      }),
+    ),
+  ]
+}
+
+export function createUserEdgeConsumerHandlers(fixtures: UserEdgeConsumerFixtures): HttpHandler[] {
+  return [
+    http.get('/api/edge-servers', () =>
+      HttpResponse.json({
+        status: 'success',
+        data: fixtures.assignedEdges,
+      }),
+    ),
+    http.get('/api/edge-servers/:edgeId/catalog', ({ params }) =>
+      HttpResponse.json({
+        status: 'success',
+        data: fixtures.catalogByEdgeId[String(params.edgeId)] ?? [],
       }),
     ),
   ]

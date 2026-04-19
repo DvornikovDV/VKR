@@ -4,6 +4,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, Link, RouterProvider } from 'react-router-dom'
 import { server } from '../mocks/server'
+import {
+  createUserEdgeConsumerFixtures,
+  createUserEdgeConsumerHandlers,
+} from '../mocks/handlers'
 import { getDiagramById } from '@/shared/api/diagrams'
 import { loadHostedDeviceMetricCatalog, loadHostedMachineOptions } from '@/features/constructor-host/adapters/catalogAdapter'
 import {
@@ -170,6 +174,32 @@ describe('Constructor host foundation tasks (T004-T007)', () => {
         ],
       },
     ])
+  })
+
+  it('keeps blocked and offline machine context visible while catalog stays empty until telemetry arrives', async () => {
+    const fixtures = createUserEdgeConsumerFixtures()
+    server.use(...createUserEdgeConsumerHandlers(fixtures))
+
+    const machines = await loadHostedMachineOptions()
+    const blockedCatalog = await loadHostedDeviceMetricCatalog('edge-blocked')
+    const offlineCatalog = await loadHostedDeviceMetricCatalog('edge-offline')
+
+    expect(machines).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          edgeServerId: 'edge-offline',
+          lifecycleState: 'Active',
+          availabilityLabel: 'Offline',
+        }),
+        expect.objectContaining({
+          edgeServerId: 'edge-blocked',
+          lifecycleState: 'Blocked',
+          availabilityLabel: 'Offline',
+        }),
+      ]),
+    )
+    expect(blockedCatalog).toEqual([])
+    expect(offlineCatalog).toEqual([])
   })
 
   it('loads hosted constructor runtime through same-origin loader with module validation (T006)', async () => {
