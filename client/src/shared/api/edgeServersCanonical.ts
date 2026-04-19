@@ -272,6 +272,19 @@ function normalizeCanonicalAdminEdgeServerResponse(response: unknown): Canonical
   return edge
 }
 
+function normalizeCanonicalAdminEdgeMutationResponse(response: unknown): CanonicalAdminEdgeServer {
+  if (!isRecord(response)) {
+    throw new Error('Invalid canonical admin edge mutation response.')
+  }
+
+  const edge = normalizeCanonicalAdminEdgeServer(response.edge)
+  if (!edge) {
+    throw new Error('Invalid canonical admin edge mutation response.')
+  }
+
+  return edge
+}
+
 export async function getAdminEdgeFleet(): Promise<CanonicalAdminEdgeServer[]> {
   const rows = await apiClient.get<unknown[]>('/admin/edge-servers')
   return rows
@@ -302,7 +315,7 @@ export async function rotateEdgeServerCredential(
 
 export async function blockAdminEdgeServer(edgeId: string): Promise<CanonicalAdminEdgeServer> {
   const response = await apiClient.post<unknown>(`/edge-servers/${edgeId}/block`)
-  return normalizeCanonicalAdminEdgeServerResponse(response)
+  return normalizeCanonicalAdminEdgeMutationResponse(response)
 }
 
 export async function unblockEdgeServer(

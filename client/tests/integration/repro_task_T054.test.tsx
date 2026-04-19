@@ -44,7 +44,7 @@ beforeEach(() => {
 })
 
 describe('repro_task_T054', () => {
-  it('keeps the Edge Fleet block flow working when the cloud contract returns data.edge', async () => {
+  it('keeps blocked edge availability driven by canonical admin ping snapshots', async () => {
     server.use(
       http.get('/api/admin/edge-servers', () =>
         HttpResponse.json({
@@ -70,15 +70,20 @@ describe('repro_task_T054', () => {
           data: [],
         }),
       ),
-      http.get('/api/edge-servers/:edgeId/ping', () =>
-        HttpResponse.json({
+      http.get('/api/edge-servers/:edgeId/ping', ({ params }) => {
+        const edgeId = String(params.edgeId)
+
+        return HttpResponse.json({
           status: 'success',
           data: {
-            lifecycleState: 'Active',
-            availability: { online: true, lastSeenAt: '2026-04-17T10:00:00.000Z' },
+            lifecycleState: 'Blocked',
+            availability:
+              edgeId === 'edge-active'
+                ? { online: false, lastSeenAt: '2026-04-17T10:55:00.000Z' }
+                : { online: true, lastSeenAt: '2026-04-17T10:00:00.000Z' },
           },
-        }),
-      ),
+        })
+      }),
       http.post('/api/edge-servers/:edgeId/block', ({ params }) =>
         HttpResponse.json({
           status: 'success',
@@ -116,6 +121,9 @@ describe('repro_task_T054', () => {
       expect(updatedRow).not.toBeNull()
       expect(within(updatedRow as HTMLTableRowElement).getByText('Blocked')).toBeInTheDocument()
       expect(within(updatedRow as HTMLTableRowElement).getByText('Offline')).toBeInTheDocument()
+      expect(
+        within(updatedRow as HTMLTableRowElement).getByText('Last seen: 2026-04-17 10:55:00 UTC'),
+      ).toBeInTheDocument()
     })
   })
 })

@@ -29,11 +29,43 @@ export interface DashboardBindingProfileFixture {
 export interface DashboardEdgeFixture {
   _id: string
   name: string
-  lifecycleState: 'Active'
+  lifecycleState: 'Active' | 'Blocked'
   availability: {
     online: boolean
     lastSeenAt: string | null
   }
+}
+
+export interface AdminEdgeFixture {
+  _id: string
+  name: string
+  lifecycleState: 'Active' | 'Blocked'
+  availability: {
+    online: boolean
+    lastSeenAt: string | null
+  }
+  trustedUsers: Array<{ _id: string; email: string }>
+  createdBy: { _id: string; email: string } | null
+  persistentCredentialVersion: number | null
+  lastLifecycleEventAt: string | null
+}
+
+export interface AdminEdgeCredentialDisclosureFixture {
+  edge: AdminEdgeFixture
+  persistentCredential: {
+    edgeId: string
+    credentialSecret: string
+    version: number
+    issuedAt: string
+    instructions: string
+  }
+}
+
+export interface AdminEdgeContractFixtures {
+  fleet: AdminEdgeFixture[]
+  blockEdgeById?: Record<string, AdminEdgeFixture>
+  rotateDisclosureById?: Record<string, AdminEdgeCredentialDisclosureFixture>
+  unblockDisclosureById?: Record<string, AdminEdgeCredentialDisclosureFixture>
 }
 
 export interface DashboardRestFixtures {
@@ -152,6 +184,58 @@ export function createDashboardApiHandlers(fixtures: DashboardRestFixtures): Htt
         data: fixtures.bindingProfilesByDiagramId[String(params.id)] ?? [],
       }),
     ),
+  ]
+}
+
+export function createAdminEdgeContractHandlers(fixtures: AdminEdgeContractFixtures): HttpHandler[] {
+  return [
+    http.get('/api/admin/edge-servers', () =>
+      HttpResponse.json({
+        status: 'success',
+        data: fixtures.fleet,
+      }),
+    ),
+    http.post('/api/edge-servers/:edgeId/block', ({ params }) => {
+      const edgeId = String(params.edgeId)
+      const edge = fixtures.blockEdgeById?.[edgeId]
+
+      if (!edge) {
+        return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
+      }
+
+      return HttpResponse.json({
+        status: 'success',
+        data: {
+          edge,
+        },
+      })
+    }),
+    http.post('/api/edge-servers/:edgeId/rotate-credential', ({ params }) => {
+      const edgeId = String(params.edgeId)
+      const disclosure = fixtures.rotateDisclosureById?.[edgeId]
+
+      if (!disclosure) {
+        return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
+      }
+
+      return HttpResponse.json({
+        status: 'success',
+        data: disclosure,
+      })
+    }),
+    http.post('/api/edge-servers/:edgeId/unblock', ({ params }) => {
+      const edgeId = String(params.edgeId)
+      const disclosure = fixtures.unblockDisclosureById?.[edgeId]
+
+      if (!disclosure) {
+        return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
+      }
+
+      return HttpResponse.json({
+        status: 'success',
+        data: disclosure,
+      })
+    }),
   ]
 }
 

@@ -357,14 +357,24 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
           return HttpResponse.json({ status: 'error', message: 'Edge not found' }, { status: 404 })
         }
 
-        const updated: MockEdge = {
+        const updatedSnapshot: MockEdge = {
           ...target,
           lifecycleState: 'Blocked',
-          availability: { online: false, lastSeenAt: target.availability.lastSeenAt },
+          availability: { online: false, lastSeenAt: '2026-03-29T10:55:00.000Z' },
+          lastLifecycleEventAt: '2026-03-29T10:55:00.000Z',
+        }
+        const updatedResponse: MockEdge = {
+          ...updatedSnapshot,
+          availability: { online: false, lastSeenAt: '2026-03-29T10:10:00.000Z' },
           lastLifecycleEventAt: '2026-03-29T10:10:00.000Z',
         }
-        fleetRef.current = fleetRef.current.map((edge) => (edge._id === edgeId ? updated : edge))
-        return HttpResponse.json({ status: 'success', data: updated })
+        fleetRef.current = fleetRef.current.map((edge) => (edge._id === edgeId ? updatedSnapshot : edge))
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            edge: updatedResponse,
+          },
+        })
       }),
       http.post('/api/edge-servers/:edgeId/unblock', ({ params }) => {
         const edgeId = String(params.edgeId)
@@ -420,6 +430,7 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
       expect(updatedRow).not.toBeNull()
       expect(within(updatedRow as HTMLTableRowElement).getByText('Blocked')).toBeInTheDocument()
       expect(within(updatedRow as HTMLTableRowElement).getByText('Offline')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Last seen: 2026-03-29 10:55:00 UTC')).toBeInTheDocument()
     })
 
     const blockedRow = screen.getByText('Blocked Edge').closest('tr')
@@ -433,6 +444,7 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
       expect(updatedRow).not.toBeNull()
       expect(within(updatedRow as HTMLTableRowElement).getByText('Active')).toBeInTheDocument()
       expect(within(updatedRow as HTMLTableRowElement).getByText('Online')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Last seen: 2026-03-29 10:12:00 UTC')).toBeInTheDocument()
     })
   })
 

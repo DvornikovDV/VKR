@@ -292,13 +292,23 @@ export function EdgeFleetPage() {
     }
   }
 
-  function isEdgeOnline(edge: CanonicalAdminEdgeServer): boolean {
+  function getEdgeAvailabilitySnapshot(edge: CanonicalAdminEdgeServer) {
     const snapshot = getSnapshot(edge._id)
-    if (snapshot.online !== null) {
-      return snapshot.online
+    if (snapshot.online === null) {
+      return edge.availability
     }
 
-    return edge.availability.online
+    return snapshot
+  }
+
+  function isEdgeOnline(edge: CanonicalAdminEdgeServer): boolean {
+    const availability = getEdgeAvailabilitySnapshot(edge)
+    return availability.online
+  }
+
+  function getEdgeLastSeenAt(edge: CanonicalAdminEdgeServer): string | null {
+    const availability = getEdgeAvailabilitySnapshot(edge)
+    return availability.lastSeenAt
   }
 
   return (
@@ -442,7 +452,7 @@ export function EdgeFleetPage() {
                           {online ? 'Online' : 'Offline'}
                         </span>
                         <p className="text-xs text-[#94a3b8]">
-                          Last seen: {formatUtcTimestamp(getSnapshot(edge._id).lastSeenAt)}
+                          Last seen: {formatUtcTimestamp(getEdgeLastSeenAt(edge))}
                         </p>
                       </div>
                     </td>

@@ -165,6 +165,9 @@ describe('edgeServers canonical normalization (T052)', () => {
       persistentCredentialVersion: 1,
       lastLifecycleEventAt: '2026-04-15T12:11:00.000Z',
     }
+    const blockedResponse = {
+      edge: blockedEdge,
+    }
 
     expect(typeof edgeServersApi.getAdminEdgeFleet).toBe('function')
     expect(typeof edgeServersApi.getAssignedEdgeServers).toBe('function')
@@ -179,12 +182,12 @@ describe('edgeServers canonical normalization (T052)', () => {
 
     apiPost.mockResolvedValueOnce(disclosure)
     apiPost.mockResolvedValueOnce(disclosure)
-    apiPost.mockResolvedValueOnce(blockedEdge)
+    apiPost.mockResolvedValueOnce(blockedResponse)
     apiPost.mockResolvedValueOnce(disclosure)
 
     await registerAdminEdgeServer({ name: 'Edge Alpha' })
     await rotateEdgeServerCredential('edge-1')
-    await blockAdminEdgeServer('edge-1')
+    await expect(blockAdminEdgeServer('edge-1')).resolves.toEqual(blockedEdge)
     await unblockEdgeServer('edge-1')
 
     expect(apiPost).toHaveBeenNthCalledWith(1, '/edge-servers', { name: 'Edge Alpha' })

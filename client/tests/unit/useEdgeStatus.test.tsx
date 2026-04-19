@@ -127,6 +127,7 @@ describe('useEdgeStatus normalization (T034)', () => {
 
     expect(getAssignedEdgeServersMock).not.toHaveBeenCalled()
     expect(getEdgeServerPingSnapshotMock).toHaveBeenCalledTimes(2)
+    expect(result.current.isOnline('edge-2')).toBe(false)
     expect(result.current.getSnapshot('edge-1')).toEqual({
       online: true,
       lastSeenAt: '2026-04-15T12:20:00.000Z',
