@@ -12,24 +12,15 @@ import (
 
 type Credential struct {
 	EdgeID           string    `json:"edgeId"`
-	CredentialMode   string    `json:"credentialMode"`
-	CredentialSecret string    `json:"credentialSecret"`
-	Version          int       `json:"version"`
-	IssuedAt         time.Time `json:"issuedAt"`
-	LifecycleState   string    `json:"lifecycleState"`
-}
-
-type CredentialStore struct {
-	path string
-}
-
-type persistentCredentialFixture007 struct {
-	EdgeID           string    `json:"edgeId"`
 	CredentialSecret string    `json:"credentialSecret"`
 	Version          int       `json:"version"`
 	IssuedAt         time.Time `json:"issuedAt"`
 	Source           string    `json:"source"`
 	InstalledAt      time.Time `json:"installedAt"`
+}
+
+type CredentialStore struct {
+	path string
 }
 
 func NewCredentialStore(stateDir string) *CredentialStore {
@@ -59,26 +50,15 @@ func (s *CredentialStore) Load() (Credential, bool, error) {
 	if err := json.Unmarshal(payload, &credential); err != nil {
 		return Credential{}, true, fmt.Errorf("parse %s: %w", filepath.Base(s.path), err)
 	}
-	if err := validateCredential(credential); err == nil {
-		return credential, true, nil
+	if err := validateCredential(credential); err != nil {
+		return Credential{}, true, err
 	}
-
-	// Temporary T001 compatibility shim: accept the 007 persistent-credential file
-	// shape until T005 replaces the store schema and removes legacy dual-shape load.
-	compatCredential, err := load007CredentialFixture(payload)
-	if err != nil {
-		return Credential{}, true, validateCredential(credential)
-	}
-
-	return compatCredential, true, nil
+	return credential, true, nil
 }
 
 func validateCredential(credential Credential) error {
 	if strings.TrimSpace(credential.EdgeID) == "" {
 		return fmt.Errorf("credential.edgeId is required")
-	}
-	if credential.CredentialMode != "persistent" {
-		return fmt.Errorf("credential.credentialMode must be persistent")
 	}
 	if strings.TrimSpace(credential.CredentialSecret) == "" {
 		return fmt.Errorf("credential.credentialSecret is required")
@@ -89,43 +69,15 @@ func validateCredential(credential Credential) error {
 	if credential.IssuedAt.IsZero() {
 		return fmt.Errorf("credential.issuedAt is required")
 	}
-	if credential.LifecycleState != "Active" {
-		return fmt.Errorf("credential.lifecycleState must be Active")
+	if strings.TrimSpace(credential.Source) == "" {
+		return fmt.Errorf("credential.source is required")
+	}
+	if credential.Source != "register" && credential.Source != "rotate" && credential.Source != "unblock" {
+		return fmt.Errorf("credential.source must be register, rotate, or unblock")
+	}
+	if credential.InstalledAt.IsZero() {
+		return fmt.Errorf("credential.installedAt is required")
 	}
 
 	return nil
-}
-
-func load007CredentialFixture(payload []byte) (Credential, error) {
-	var fixture persistentCredentialFixture007
-	if err := json.Unmarshal(payload, &fixture); err != nil {
-		return Credential{}, fmt.Errorf("parse 007 credential fixture: %w", err)
-	}
-	if strings.TrimSpace(fixture.EdgeID) == "" {
-		return Credential{}, fmt.Errorf("credential.edgeId is required")
-	}
-	if strings.TrimSpace(fixture.CredentialSecret) == "" {
-		return Credential{}, fmt.Errorf("credential.credentialSecret is required")
-	}
-	if fixture.Version <= 0 {
-		return Credential{}, fmt.Errorf("credential.version must be positive")
-	}
-	if fixture.IssuedAt.IsZero() {
-		return Credential{}, fmt.Errorf("credential.issuedAt is required")
-	}
-	if fixture.InstalledAt.IsZero() {
-		return Credential{}, fmt.Errorf("credential.installedAt is required")
-	}
-	if fixture.Source != "register" && fixture.Source != "rotate" && fixture.Source != "unblock" {
-		return Credential{}, fmt.Errorf("credential.source must be register, rotate, or unblock")
-	}
-
-	return Credential{
-		EdgeID:           fixture.EdgeID,
-		CredentialMode:   "persistent",
-		CredentialSecret: fixture.CredentialSecret,
-		Version:          fixture.Version,
-		IssuedAt:         fixture.IssuedAt,
-		LifecycleState:   "Active",
-	}, nil
 }

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,15 +58,17 @@ func TestCredentialStoreAtomicReplaceAndCorruptRecovery(t *testing.T) {
 
 	first := Credential{
 		EdgeID:           "507f1f77bcf86cd799439011",
-		CredentialMode:   "persistent",
 		CredentialSecret: "secret-v1",
 		Version:          1,
 		IssuedAt:         time.Date(2026, 4, 6, 10, 0, 0, 0, time.UTC),
-		LifecycleState:   "Active",
+		Source:           "register",
+		InstalledAt:      time.Date(2026, 4, 6, 10, 5, 0, 0, time.UTC),
 	}
 	second := first
 	second.CredentialSecret = "secret-v2"
 	second.Version = 2
+	second.Source = "rotate"
+	second.InstalledAt = time.Date(2026, 4, 6, 10, 6, 0, 0, time.UTC)
 
 	if err := store.Save(first); err != nil {
 		t.Fatalf("save first credential: %v", err)
@@ -81,11 +84,30 @@ func TestCredentialStoreAtomicReplaceAndCorruptRecovery(t *testing.T) {
 	if !exists {
 		t.Fatal("expected credential file to exist")
 	}
-	if got.Version != 2 || got.CredentialSecret != "secret-v2" {
+	if got.Version != 2 || got.CredentialSecret != "secret-v2" || got.Source != "rotate" || !got.InstalledAt.Equal(second.InstalledAt) {
 		t.Fatalf("expected latest credential after atomic replace, got %+v", got)
 	}
 
 	credentialPath := filepath.Join(stateDir, credentialFileName)
+	payload, err := os.ReadFile(credentialPath)
+	if err != nil {
+		t.Fatalf("read persisted credential: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		t.Fatalf("parse persisted credential payload: %v", err)
+	}
+	for _, key := range []string{"edgeId", "credentialSecret", "version", "issuedAt", "source", "installedAt"} {
+		if _, ok := persisted[key]; !ok {
+			t.Fatalf("expected persisted credential key %q, got %+v", key, persisted)
+		}
+	}
+	for _, legacyKey := range []string{"credentialMode", "lifecycleState"} {
+		if _, ok := persisted[legacyKey]; ok {
+			t.Fatalf("did not expect legacy credential key %q in persisted payload %+v", legacyKey, persisted)
+		}
+	}
+
 	if err := os.WriteFile(credentialPath, []byte("{invalid-json"), 0o600); err != nil {
 		t.Fatalf("write corrupt credential: %v", err)
 	}
@@ -94,7 +116,7 @@ func TestCredentialStoreAtomicReplaceAndCorruptRecovery(t *testing.T) {
 	}
 }
 
-func TestCredentialStoreLoads007PersistentCredentialFixtureShape(t *testing.T) {
+func TestCredentialStoreLoadsPersistentCredentialSchema(t *testing.T) {
 	stateDir := t.TempDir()
 	store := NewCredentialStore(stateDir)
 
@@ -118,14 +140,37 @@ func TestCredentialStoreLoads007PersistentCredentialFixtureShape(t *testing.T) {
 	if !exists {
 		t.Fatal("expected credential fixture to exist")
 	}
-	if credential.CredentialMode != "persistent" {
-		t.Fatalf("expected shimmed credentialMode=persistent, got %q", credential.CredentialMode)
-	}
-	if credential.LifecycleState != "Active" {
-		t.Fatalf("expected shimmed lifecycleState=Active, got %q", credential.LifecycleState)
-	}
 	if credential.CredentialSecret != "fixture-secret" || credential.Version != 3 {
 		t.Fatalf("unexpected loaded credential: %+v", credential)
+	}
+	if credential.Source != "register" {
+		t.Fatalf("expected persistent source=register, got %+v", credential)
+	}
+	if credential.InstalledAt.IsZero() {
+		t.Fatalf("unexpected loaded credential: %+v", credential)
+	}
+}
+
+func TestCredentialStoreRejectsLegacyCredentialShape(t *testing.T) {
+	stateDir := t.TempDir()
+	store := NewCredentialStore(stateDir)
+
+	payload := `{
+  "edgeId": "507f1f77bcf86cd799439011",
+  "credentialMode": "persistent",
+  "credentialSecret": "legacy-secret",
+  "version": 2,
+  "issuedAt": "2026-04-19T08:20:00Z",
+  "lifecycleState": "Active"
+}`
+	credentialPath := filepath.Join(stateDir, credentialFileName)
+	if err := os.WriteFile(credentialPath, []byte(payload), 0o600); err != nil {
+		t.Fatalf("write legacy credential payload: %v", err)
+	}
+
+	_, _, err := store.Load()
+	if err == nil || !strings.Contains(err.Error(), "credential.source is required") {
+		t.Fatalf("expected legacy credential shape to be rejected by persistent-only validation, got %v", err)
 	}
 }
 

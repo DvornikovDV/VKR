@@ -31,8 +31,11 @@ func TestReproTaskT003LegacyRuntimeFixturesRemainQuarantinedFromProductionAccept
 	}
 
 	_, _, err = store.Load()
-	if err == nil || !strings.Contains(err.Error(), "credential.credentialMode must be persistent") {
-		t.Fatalf("expected production credential store to reject legacy onboarding credential fixture, got %v", err)
+	if err == nil {
+		t.Fatal("expected production credential store to reject legacy onboarding credential fixture")
+	}
+	if !isPersistentCredentialSchemaError(err) {
+		t.Fatalf("expected legacy onboarding credential fixture to fail persistent-only credential validation, got %v", err)
 	}
 
 	activationBytes, err := os.ReadFile(runtimeFixturePath(t, "wrong-edge-id/edge_activation.json"))
@@ -150,4 +153,23 @@ func runGoTestForT003Repro(t *testing.T, workdir string, args ...string) (int, s
 
 	t.Fatalf("run go test %v: %v\n%s", args, err, string(output))
 	return 0, ""
+}
+
+func isPersistentCredentialSchemaError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	for _, snippet := range []string{
+		"credential.version must be positive",
+		"credential.source is required",
+		"credential.source must be register, rotate, or unblock",
+		"credential.installedAt is required",
+	} {
+		if strings.Contains(err.Error(), snippet) {
+			return true
+		}
+	}
+
+	return false
 }
