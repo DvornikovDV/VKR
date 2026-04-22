@@ -226,7 +226,6 @@ function main(): void {
         timeout: 10000,
         auth: {
             edgeId: config.edgeId,
-            credentialMode: 'persistent',
             credentialSecret: config.edgePersistentSecret,
         },
     });

@@ -58,7 +58,9 @@ func TestReproTaskT011OnboardingSessionLifecycle(t *testing.T) {
 	if err := firstSession.HandleEdgeActivation(activation); err != nil {
 		t.Fatalf("handle edge activation: %v", err)
 	}
-	firstProcess.MarkDisconnected("transport_close")
+	if err := firstProcess.MarkDisconnected("transport_close"); err != nil {
+		t.Fatalf("mark first process disconnected: %v", err)
+	}
 
 	reconnectAuth, err := firstSession.BuildHandshakeAuth()
 	if err != nil {
@@ -124,7 +126,9 @@ func TestReproTaskT011bConsumedOnboardingDoesNotCreateFutureTrustPathWithoutFres
 		t.Fatalf("handle edge activation: %v", err)
 	}
 
-	firstProcess.MarkUntrusted("trust_revoked", true)
+	if err := firstProcess.MarkUntrusted("trust_revoked", true); err != nil {
+		t.Fatalf("mark first process untrusted: %v", err)
+	}
 
 	if _, err := firstSession.BuildHandshakeAuth(); err == nil {
 		t.Fatal("expected consumed onboarding package to be unusable after trust loss without fresh operator input")

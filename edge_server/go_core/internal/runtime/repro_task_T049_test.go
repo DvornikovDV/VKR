@@ -1,6 +1,10 @@
 package runtime
 
-import "testing"
+import (
+	"testing"
+
+	"edge_server/go_core/internal/state"
+)
 
 func TestReproTaskT049TracksTrustedUntrustedAndDisconnectedExecution(t *testing.T) {
 	runner := New()
@@ -14,6 +18,18 @@ func TestReproTaskT049TracksTrustedUntrustedAndDisconnectedExecution(t *testing.
 	}
 	if initial.CredentialMode != CredentialModeNone {
 		t.Fatalf("expected initial credential mode none, got %q", initial.CredentialMode)
+	}
+	if initial.CredentialStatus != state.CredentialStatusMissing {
+		t.Fatalf("expected initial credentialStatus=missing, got %q", initial.CredentialStatus)
+	}
+	if initial.SessionState != state.SessionStateStartup {
+		t.Fatalf("expected initial sessionState=startup, got %q", initial.SessionState)
+	}
+	if initial.AuthOutcome != state.AuthOutcomeNeverAttempted {
+		t.Fatalf("expected initial authOutcome=never_attempted, got %q", initial.AuthOutcome)
+	}
+	if initial.RetryEligible {
+		t.Fatal("expected initial retryEligible=false")
 	}
 	if initial.SessionEpoch != 0 {
 		t.Fatalf("expected initial session epoch 0, got %d", initial.SessionEpoch)
@@ -33,6 +49,18 @@ func TestReproTaskT049TracksTrustedUntrustedAndDisconnectedExecution(t *testing.
 	if trusted.PersistentCredentialSecret == nil || *trusted.PersistentCredentialSecret != "persist-secret-v1" {
 		t.Fatalf("expected persistent credential secret to be retained in-memory, got %v", trusted.PersistentCredentialSecret)
 	}
+	if trusted.CredentialStatus != state.CredentialStatusLoaded {
+		t.Fatalf("expected trusted credentialStatus=loaded, got %q", trusted.CredentialStatus)
+	}
+	if trusted.SessionState != state.SessionStateTrusted {
+		t.Fatalf("expected trusted sessionState=trusted, got %q", trusted.SessionState)
+	}
+	if trusted.AuthOutcome != state.AuthOutcomeAccepted {
+		t.Fatalf("expected trusted authOutcome=accepted, got %q", trusted.AuthOutcome)
+	}
+	if !trusted.RetryEligible {
+		t.Fatal("expected trusted session to remain retry eligible")
+	}
 	if trusted.SessionEpoch != 1 {
 		t.Fatalf("expected first trusted activation to set sessionEpoch=1, got %d", trusted.SessionEpoch)
 	}
@@ -40,7 +68,9 @@ func TestReproTaskT049TracksTrustedUntrustedAndDisconnectedExecution(t *testing.
 		t.Fatal("expected telemetry to be allowed while trusted and connected")
 	}
 
-	runner.MarkDisconnected("transport_closed")
+	if err := runner.MarkDisconnected("transport_closed"); err != nil {
+		t.Fatalf("mark disconnected: %v", err)
+	}
 	disconnected := runner.StateSnapshot()
 	if disconnected.Trusted {
 		t.Fatalf("expected disconnected state to be untrusted for telemetry gating, got %+v", disconnected)
@@ -57,17 +87,43 @@ func TestReproTaskT049TracksTrustedUntrustedAndDisconnectedExecution(t *testing.
 	if disconnected.LastReason == nil || *disconnected.LastReason != "transport_closed" {
 		t.Fatalf("expected disconnected state to store lastReason=transport_closed, got %v", disconnected.LastReason)
 	}
+	if disconnected.CredentialStatus != state.CredentialStatusLoaded {
+		t.Fatalf("expected disconnect to preserve credentialStatus=loaded, got %q", disconnected.CredentialStatus)
+	}
+	if disconnected.SessionState != state.SessionStateRetryWait {
+		t.Fatalf("expected disconnect sessionState=retry_wait, got %q", disconnected.SessionState)
+	}
+	if disconnected.AuthOutcome != state.AuthOutcomeDisconnected {
+		t.Fatalf("expected disconnect authOutcome=disconnected, got %q", disconnected.AuthOutcome)
+	}
+	if !disconnected.RetryEligible {
+		t.Fatal("expected disconnect to remain retry eligible with loaded credential")
+	}
 	if runner.TelemetryAllowed() {
 		t.Fatal("expected telemetry to be blocked while disconnected")
 	}
 
-	runner.MarkUntrusted("trust_revoked", true)
+	if err := runner.MarkUntrusted("trust_revoked", true); err != nil {
+		t.Fatalf("mark untrusted: %v", err)
+	}
 	untrusted := runner.StateSnapshot()
 	if untrusted.CredentialMode != CredentialModeNone {
 		t.Fatalf("expected trust-loss with clearCredential=true to force credentialMode=none, got %q", untrusted.CredentialMode)
 	}
 	if untrusted.PersistentCredentialSecret != nil {
 		t.Fatalf("expected trust-loss to clear in-memory persistent credential, got %v", untrusted.PersistentCredentialSecret)
+	}
+	if untrusted.CredentialStatus != state.CredentialStatusSuperseded {
+		t.Fatalf("expected trust-loss credentialStatus=superseded, got %q", untrusted.CredentialStatus)
+	}
+	if untrusted.SessionState != state.SessionStateOperatorActionRequired {
+		t.Fatalf("expected trust-loss sessionState=operator_action_required, got %q", untrusted.SessionState)
+	}
+	if untrusted.AuthOutcome != state.AuthOutcomeCredentialRotated {
+		t.Fatalf("expected trust-loss authOutcome=credential_rotated, got %q", untrusted.AuthOutcome)
+	}
+	if untrusted.RetryEligible {
+		t.Fatal("expected trust-loss to disable retry eligibility")
 	}
 	if untrusted.LastReason == nil || *untrusted.LastReason != "trust_revoked" {
 		t.Fatalf("expected trust-loss lastReason=trust_revoked, got %v", untrusted.LastReason)

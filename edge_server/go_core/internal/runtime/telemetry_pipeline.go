@@ -16,6 +16,8 @@ type TelemetryPipelineConfig struct {
 	MaxReadings   int
 	Client        *cloud.TelemetryClient
 	StateSnapshot func() SessionStateSnapshot
+	OnEmitSuccess func(time.Time) error
+	OnAsyncError  func(error)
 }
 
 type TelemetryPipeline struct {
@@ -24,6 +26,8 @@ type TelemetryPipeline struct {
 	client        *cloud.TelemetryClient
 	batcher       *telemetryBatcher
 	stateSnapshot func() SessionStateSnapshot
+	onEmitSuccess func(time.Time) error
+	onAsyncError  func(error)
 	resetCh       chan struct{}
 }
 
@@ -52,6 +56,8 @@ func NewTelemetryPipeline(cfg TelemetryPipelineConfig) (*TelemetryPipeline, erro
 		client:        cfg.Client,
 		batcher:       batcher,
 		stateSnapshot: cfg.StateSnapshot,
+		onEmitSuccess: cfg.OnEmitSuccess,
+		onAsyncError:  cfg.OnAsyncError,
 		resetCh:       make(chan struct{}, 1),
 	}, nil
 }
@@ -134,6 +140,11 @@ func (p *TelemetryPipeline) flush(snapshot SessionStateSnapshot) {
 
 	if err := p.client.EmitReadings(pending); err != nil {
 		return
+	}
+	if p.onEmitSuccess != nil {
+		if err := p.onEmitSuccess(time.Now().UTC()); err != nil && p.onAsyncError != nil {
+			p.onAsyncError(err)
+		}
 	}
 
 	p.batcher.Reset()

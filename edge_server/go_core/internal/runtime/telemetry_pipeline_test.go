@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -235,4 +236,54 @@ func TestReproTaskT050TelemetryPipelineDropsPendingBatchAfterEligibilityLossBefo
 	}
 
 	t.Fatal("expected recovered telemetry payload")
+}
+
+func TestTelemetryPipelineReportsOnEmitSuccessPersistenceError(t *testing.T) {
+	readings := make(chan source.Reading, 2)
+	emitter := &telemetryEmitterStub{}
+	client, err := cloud.NewTelemetryClient(emitter)
+	if err != nil {
+		t.Fatalf("create telemetry client: %v", err)
+	}
+
+	reportedErr := make(chan error, 1)
+	pipeline, err := NewTelemetryPipeline(TelemetryPipelineConfig{
+		Readings:    readings,
+		IntervalMs:  25,
+		MaxReadings: 1,
+		Client:      client,
+		StateSnapshot: func() SessionStateSnapshot {
+			return SessionStateSnapshot{Trusted: true, Connected: true, SessionEpoch: 1}
+		},
+		OnEmitSuccess: func(time.Time) error {
+			return fmt.Errorf("synthetic runtime-state persistence failure")
+		},
+		OnAsyncError: func(err error) {
+			reportedErr <- err
+		},
+	})
+	if err != nil {
+		t.Fatalf("create telemetry pipeline: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go pipeline.Run(ctx)
+
+	readings <- source.Reading{SourceID: "source-1", DeviceID: "pump-1", Metric: "pressure", Value: 18.5, TS: 1001}
+
+	select {
+	case err := <-reportedErr:
+		if err == nil || !strings.Contains(err.Error(), "synthetic runtime-state persistence failure") {
+			t.Fatalf("expected persistence failure to be reported, got %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected telemetry pipeline to report onEmitSuccess persistence error")
+	}
+
+	payloads := emitter.Payloads()
+	if len(payloads) != 1 {
+		t.Fatalf("expected telemetry payload to still be emitted once, got %+v", payloads)
+	}
 }

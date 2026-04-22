@@ -2,26 +2,35 @@ package runtime
 
 import (
 	"context"
+	"edge_server/go_core/internal/state"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"edge_server/go_core/internal/cloud"
 	"edge_server/go_core/internal/source"
 )
 
+type runtimeStateSaver interface {
+	Save(state.RuntimeState) error
+}
+
 type Runner struct {
-	state     *RuntimeState
-	mu        sync.RWMutex
-	bootstrap *BootstrapSession
-	transport cloud.Transport
-	telemetry *TelemetryPipeline
+	state       *RuntimeState
+	mu          sync.RWMutex
+	bootstrap   *BootstrapSession
+	transport   cloud.Transport
+	telemetry   *TelemetryPipeline
+	stateStore  runtimeStateSaver
+	asyncErrors chan error
 }
 
 func New() *Runner {
 	return &Runner{
-		state: NewRuntimeState(),
+		state:       NewRuntimeState(),
+		asyncErrors: make(chan error, 1),
 	}
 }
 
@@ -52,6 +61,9 @@ func (r *Runner) ActivateTrustedSession(edgeID string, persistentSecret string) 
 	if err := r.state.ActivateTrustedSession(edgeID, persistentSecret); err != nil {
 		return err
 	}
+	if err := r.persistRuntimeState(); err != nil {
+		return fmt.Errorf("persist runtime state after trusted activation: %w", err)
+	}
 
 	if telemetry := r.currentTelemetryPipeline(); telemetry != nil {
 		telemetry.Reset()
@@ -60,22 +72,78 @@ func (r *Runner) ActivateTrustedSession(edgeID string, persistentSecret string) 
 	return nil
 }
 
-func (r *Runner) MarkDisconnected(reason string) {
-	r.state.MarkDisconnected(reason)
-	if telemetry := r.currentTelemetryPipeline(); telemetry != nil {
-		telemetry.Reset()
+func (r *Runner) ConfigureRuntimeState(edgeID string, sourceConfigRevision string) error {
+	if err := r.state.SetSourceSnapshot(edgeID, sourceConfigRevision); err != nil {
+		return err
 	}
+
+	if err := r.persistRuntimeState(); err != nil {
+		return fmt.Errorf("persist runtime state after source snapshot update: %w", err)
+	}
+
+	return nil
 }
 
-func (r *Runner) MarkUntrusted(reason string, clearCredential bool) {
-	r.state.MarkUntrusted(reason, clearCredential)
+func (r *Runner) MarkConnectAttempt(edgeID string) error {
+	if err := r.state.MarkConnectAttempt(edgeID); err != nil {
+		return err
+	}
+
+	if err := r.persistRuntimeState(); err != nil {
+		return fmt.Errorf("persist runtime state after connect attempt: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Runner) MarkDisconnected(reason string) error {
+	r.state.MarkDisconnected(reason)
+	if err := r.persistRuntimeState(); err != nil {
+		return fmt.Errorf("persist runtime state after disconnect: %w", err)
+	}
 	if telemetry := r.currentTelemetryPipeline(); telemetry != nil {
 		telemetry.Reset()
 	}
+
+	return nil
+}
+
+func (r *Runner) MarkUntrusted(reason string, clearCredential bool) error {
+	r.state.MarkUntrusted(reason, clearCredential)
+	if err := r.persistRuntimeState(); err != nil {
+		return fmt.Errorf("persist runtime state after trust loss: %w", err)
+	}
+	if telemetry := r.currentTelemetryPipeline(); telemetry != nil {
+		telemetry.Reset()
+	}
+
+	return nil
 }
 
 func (r *Runner) TelemetryAllowed() bool {
 	return r.state.TelemetryAllowed()
+}
+
+func (r *Runner) BindRuntimeStateStore(store runtimeStateSaver) error {
+	if store == nil {
+		return errors.New("runtime state store is required")
+	}
+
+	r.mu.Lock()
+	r.stateStore = store
+	r.mu.Unlock()
+
+	return nil
+}
+
+func (r *Runner) RecordTelemetrySent(at time.Time) error {
+	r.state.RecordTelemetrySent(at)
+
+	if err := r.persistRuntimeState(); err != nil {
+		return fmt.Errorf("persist runtime state after telemetry emit: %w", err)
+	}
+
+	return nil
 }
 
 func (r *Runner) attachBootstrapSession(session *BootstrapSession) {
@@ -112,6 +180,33 @@ func (r *Runner) currentTelemetryPipeline() *TelemetryPipeline {
 	return r.telemetry
 }
 
+func (r *Runner) currentRuntimeStateStore() runtimeStateSaver {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.stateStore
+}
+
+func (r *Runner) persistRuntimeState() error {
+	store := r.currentRuntimeStateStore()
+	if store == nil {
+		return nil
+	}
+
+	return store.Save(r.state.PersistenceSnapshot())
+}
+
+func (r *Runner) reportAsyncError(err error) {
+	if err == nil || r == nil || r.asyncErrors == nil {
+		return
+	}
+
+	select {
+	case r.asyncErrors <- err:
+	default:
+	}
+}
+
 func (r *Runner) BindTelemetryReadings(
 	ctx context.Context,
 	readings <-chan source.Reading,
@@ -141,6 +236,8 @@ func (r *Runner) BindTelemetryReadings(
 		MaxReadings:   maxReadings,
 		Client:        client,
 		StateSnapshot: r.StateSnapshot,
+		OnEmitSuccess: r.RecordTelemetrySent,
+		OnAsyncError:  r.reportAsyncError,
 	})
 	if err != nil {
 		return fmt.Errorf("create telemetry pipeline: %w", err)
@@ -184,6 +281,11 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	for {
 		select {
+		case err := <-r.asyncErrors:
+			if client != nil {
+				_ = client.Disconnect()
+			}
+			return err
 		case <-ctx.Done():
 			if client != nil {
 				_ = client.Disconnect()
@@ -213,6 +315,10 @@ func (r *Runner) Run(ctx context.Context) error {
 			return fmt.Errorf("build runtime handshake auth: %w", err)
 		}
 
+		if err := r.MarkConnectAttempt(auth.EdgeID); err != nil {
+			return fmt.Errorf("record runtime connect attempt: %w", err)
+		}
+
 		if client == nil || expectedEdge != auth.EdgeID {
 			client, err = cloud.NewSocketIOClient(cloud.SocketIOClientConfig{
 				ExpectedEdgeID: auth.EdgeID,
@@ -226,7 +332,9 @@ func (r *Runner) Run(ctx context.Context) error {
 			if err := client.RegisterLifecycleHandlers(cloud.LifecycleHandlers{
 				OnActivation: func(event cloud.EdgeActivation) {
 					if err := bootstrap.HandleEdgeActivation(event); err != nil {
-						r.MarkUntrusted("activation_rejected", true)
+						if markErr := r.MarkUntrusted("activation_rejected", true); markErr != nil {
+							r.reportAsyncError(fmt.Errorf("persist runtime state after activation rejection: %w", markErr))
+						}
 						signalLifecycleEvent(lifecycleEvents, "activation_rejected")
 						return
 					}
@@ -241,7 +349,9 @@ func (r *Runner) Run(ctx context.Context) error {
 					sessionFlow.HandleConnectError(code)
 				},
 				OnProtocolError: func(protocolErr cloud.ProtocolError) {
-					r.MarkUntrusted(protocolErr.Event, true)
+					if err := r.MarkUntrusted(protocolErr.Event, true); err != nil {
+						r.reportAsyncError(fmt.Errorf("persist runtime state after protocol error: %w", err))
+					}
 					signalLifecycleEvent(lifecycleEvents, "protocol_error")
 				},
 			}); err != nil {
@@ -263,6 +373,9 @@ func (r *Runner) Run(ctx context.Context) error {
 
 		for {
 			select {
+			case err := <-r.asyncErrors:
+				_ = client.Disconnect()
+				return err
 			case <-ctx.Done():
 				_ = client.Disconnect()
 				return nil

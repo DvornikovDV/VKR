@@ -7,9 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"edge_server/go_core/internal/config"
 	"edge_server/go_core/internal/runtimeapp"
+	"edge_server/go_core/internal/source"
 	"edge_server/go_core/internal/state"
 )
 
@@ -147,4 +149,108 @@ func TestRuntimeSmokeFixtureDoesNotRequirePersistedRuntimeStateFiles(t *testing.
 			t.Fatalf("inspect fixture %q: %v", fileName, err)
 		}
 	}
+}
+
+func TestRuntimeStateFileTracksProductionRuntimeTransitions(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("RUNTIME_STATE_DIR", stateDir)
+	t.Setenv("CLOUD_SOCKET_URL", "http://127.0.0.1:4000")
+
+	cfg, err := config.LoadFromFile(runtimeFixturePath(t, "config.yaml"))
+	if err != nil {
+		t.Fatalf("load runtime config fixture: %v", err)
+	}
+	cfg.Batch.IntervalMs = 20
+	cfg.Batch.MaxReadings = 1
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	process, err := runtimeapp.New(ctx, cfg, noopTransport{})
+	if err != nil {
+		t.Fatalf("construct production runtime app: %v", err)
+	}
+
+	runtimeStore := state.NewRuntimeStateStore(stateDir)
+	startupState := waitForRuntimeState(t, runtimeStore, func(snapshot state.RuntimeState) bool {
+		return snapshot.EdgeID == cfg.Runtime.EdgeID &&
+			snapshot.CredentialStatus == state.CredentialStatusMissing &&
+			snapshot.SessionState == state.SessionStateStartup &&
+			snapshot.AuthOutcome == state.AuthOutcomeNeverAttempted &&
+			!snapshot.RetryEligible &&
+			snapshot.SourceConfigRevision != ""
+	})
+	if startupState.LastConnectAttemptAt != nil {
+		t.Fatalf("expected startup runtime-state to avoid premature connect attempts, got %+v", startupState)
+	}
+
+	if err := process.Runner.ActivateTrustedSession(cfg.Runtime.EdgeID, "persistent-secret-fixture-valid"); err != nil {
+		t.Fatalf("activate trusted session: %v", err)
+	}
+	trustedState := waitForRuntimeState(t, runtimeStore, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateTrusted &&
+			snapshot.AuthOutcome == state.AuthOutcomeAccepted &&
+			snapshot.RetryEligible &&
+			snapshot.LastTrustedSessionAt != nil
+	})
+	if trustedState.EdgeID != cfg.Runtime.EdgeID {
+		t.Fatalf("expected trusted runtime-state edgeId=%q, got %+v", cfg.Runtime.EdgeID, trustedState)
+	}
+
+	control, err := process.Sources.MockControl("mock-source-1")
+	if err != nil {
+		t.Fatalf("get mock source control: %v", err)
+	}
+	if err := control.EmitReading(source.RawReading{
+		DeviceID: "pump-1",
+		Metric:   "pressure",
+		Value:    18.75,
+		TS:       1001,
+	}); err != nil {
+		t.Fatalf("emit reading through production runtime app: %v", err)
+	}
+
+	telemetryState := waitForRuntimeState(t, runtimeStore, func(snapshot state.RuntimeState) bool {
+		return snapshot.LastTelemetrySentAt != nil
+	})
+	if telemetryState.LastTelemetrySentAt == nil {
+		t.Fatalf("expected runtime-state to record successful telemetry emit, got %+v", telemetryState)
+	}
+
+	if err := process.Runner.MarkDisconnected("transport_closed"); err != nil {
+		t.Fatalf("mark runtime disconnected: %v", err)
+	}
+	disconnectedState := waitForRuntimeState(t, runtimeStore, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateRetryWait &&
+			snapshot.AuthOutcome == state.AuthOutcomeDisconnected &&
+			snapshot.RetryEligible &&
+			snapshot.LastDisconnectReason != nil &&
+			*snapshot.LastDisconnectReason == "transport_closed"
+	})
+	if disconnectedState.LastDisconnectAt == nil {
+		t.Fatalf("expected runtime-state to record disconnect timestamp, got %+v", disconnectedState)
+	}
+}
+
+func waitForRuntimeState(t *testing.T, store *state.RuntimeStateStore, predicate func(state.RuntimeState) bool) state.RuntimeState {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		snapshot, exists, err := store.Load()
+		if err != nil {
+			t.Fatalf("load runtime-state from production store: %v", err)
+		}
+		if exists && predicate(snapshot) {
+			return snapshot
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	snapshot, exists, err := store.Load()
+	if err != nil {
+		t.Fatalf("final runtime-state load: %v", err)
+	}
+	t.Fatalf("timed out waiting for runtime-state predicate, exists=%v snapshot=%+v", exists, snapshot)
+	return state.RuntimeState{}
 }

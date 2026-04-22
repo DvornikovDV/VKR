@@ -102,4 +102,5 @@ When humidity forwarding is enabled, the runtime emits two metrics for the same 
 
 - The runtime never logs the full secret.
 - `connect_error` is surfaced directly and reconnection is disabled to avoid hiding auth failures.
+- The `/edge` handshake uses only `edgeId` and `credentialSecret`.
 - The telemetry payload follows the existing cloud contract: `{ readings: [{ deviceId, metric, value, ts }] }`.

@@ -178,16 +178,24 @@ func TestRuntimeAndStatusStorePersistence(t *testing.T) {
 	stateDir := t.TempDir()
 	now := time.Date(2026, 4, 6, 10, 10, 0, 0, time.UTC)
 	lastReason := "trusted"
+	credentialVersion := 2
+	lastDisconnectReason := "transport_closed"
 
 	runtimeStore := NewRuntimeStateStore(stateDir)
 	runtimeState := RuntimeState{
-		TrustMode:            "trusted_reconnect_ready",
-		LastOutcome:          "trusted_reconnect_succeeded",
+		EdgeID:               "507f1f77bcf86cd799439011",
+		CredentialVersion:    &credentialVersion,
+		CredentialStatus:     CredentialStatusLoaded,
+		SessionState:         SessionStateTrusted,
+		AuthOutcome:          AuthOutcomeAccepted,
+		RetryEligible:        true,
+		LastConnectAttemptAt: &now,
 		LastTrustedSessionAt: &now,
-		LastTelemetryAt:      &now,
-		BacklogSize:          0,
+		LastDisconnectAt:     &now,
+		LastDisconnectReason: &lastDisconnectReason,
+		LastTelemetrySentAt:  &now,
 		SourceConfigRevision: "rev-1",
-		AdapterMode:          "mock-internal",
+		UpdatedAt:            now,
 	}
 	if err := runtimeStore.Save(runtimeState); err != nil {
 		t.Fatalf("save runtime state: %v", err)
@@ -197,8 +205,36 @@ func TestRuntimeAndStatusStorePersistence(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load runtime state: %v", err)
 	}
-	if !exists || gotState.TrustMode != "trusted_reconnect_ready" {
+	if !exists || gotState.CredentialStatus != CredentialStatusLoaded || gotState.AuthOutcome != AuthOutcomeAccepted {
 		t.Fatalf("unexpected runtime-state read, exists=%v value=%+v", exists, gotState)
+	}
+
+	runtimeStatePath := filepath.Join(stateDir, runtimeStateFileName)
+	payload, err := os.ReadFile(runtimeStatePath)
+	if err != nil {
+		t.Fatalf("read runtime-state payload: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(payload, &persisted); err != nil {
+		t.Fatalf("parse runtime-state payload: %v", err)
+	}
+	for _, key := range []string{
+		"edgeId",
+		"credentialVersion",
+		"credentialStatus",
+		"sessionState",
+		"authOutcome",
+		"retryEligible",
+		"sourceConfigRevision",
+	} {
+		if _, ok := persisted[key]; !ok {
+			t.Fatalf("expected persisted runtime-state key %q, got %+v", key, persisted)
+		}
+	}
+	for _, legacyKey := range []string{"trustMode", "lastOutcome", "backlogSize", "adapterMode", "activeSourceCount", "degradedSourceCount"} {
+		if _, ok := persisted[legacyKey]; ok {
+			t.Fatalf("did not expect legacy runtime-state key %q in persisted payload %+v", legacyKey, persisted)
+		}
 	}
 
 	statusStore := NewStatusStore(stateDir)
@@ -221,6 +257,24 @@ func TestRuntimeAndStatusStorePersistence(t *testing.T) {
 	}
 	if !exists || gotStatus.CloudConnection != "trusted" {
 		t.Fatalf("unexpected status read, exists=%v value=%+v", exists, gotStatus)
+	}
+}
+
+func TestRuntimeStateStoreRejectsRetryEligibleBlockedOutcomes(t *testing.T) {
+	store := NewRuntimeStateStore(t.TempDir())
+	now := time.Date(2026, 4, 6, 10, 20, 0, 0, time.UTC)
+
+	err := store.Save(RuntimeState{
+		EdgeID:               "507f1f77bcf86cd799439011",
+		CredentialStatus:     CredentialStatusBlocked,
+		SessionState:         SessionStateOperatorActionRequired,
+		AuthOutcome:          AuthOutcomeBlocked,
+		RetryEligible:        true,
+		SourceConfigRevision: "rev-2",
+		UpdatedAt:            now,
+	})
+	if err == nil || !strings.Contains(err.Error(), "runtimeState.retryEligible must be false") {
+		t.Fatalf("expected blocked runtime-state to reject retryEligible=true, got %v", err)
 	}
 }
 

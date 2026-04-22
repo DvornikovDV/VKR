@@ -270,7 +270,9 @@ func TestReproTaskT018RuntimeOwnedTelemetryPathDropsPreRecoveryPendingReadings(t
 
 	time.Sleep(50 * time.Millisecond)
 
-	process.Runner.MarkDisconnected("transport_closed")
+	if err := process.Runner.MarkDisconnected("transport_closed"); err != nil {
+		t.Fatalf("mark disconnected after pre-recovery reading: %v", err)
+	}
 
 	if err := process.Runner.ActivateTrustedSession("edge-telemetry-1", "persistent-secret-2"); err != nil {
 		t.Fatalf("activate recovered trusted session: %v", err)
