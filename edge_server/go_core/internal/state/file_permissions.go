@@ -15,6 +15,12 @@ const (
 	RuntimeStateFileStatus       RuntimeStateFile = statusFileName
 )
 
+var managedRuntimeStateFiles = []RuntimeStateFile{
+	RuntimeStateFileCredential,
+	RuntimeStateFileRuntimeState,
+	RuntimeStateFileStatus,
+}
+
 type PermissionProfile struct {
 	FileName                       RuntimeStateFile
 	POSIXFallbackMode              os.FileMode
@@ -50,6 +56,12 @@ func PermissionProfileForFile(file RuntimeStateFile) (PermissionProfile, error) 
 	}
 }
 
+func ManagedRuntimeStateFiles() []RuntimeStateFile {
+	files := make([]RuntimeStateFile, len(managedRuntimeStateFiles))
+	copy(files, managedRuntimeStateFiles)
+	return files
+}
+
 func RuntimeStateFileFromPath(path string) (RuntimeStateFile, error) {
 	base := filepath.Base(path)
 	switch base {
@@ -62,6 +74,15 @@ func RuntimeStateFileFromPath(path string) (RuntimeStateFile, error) {
 	default:
 		return "", fmt.Errorf("runtime state file %q is not managed by permission profiles", base)
 	}
+}
+
+func PermissionProfileFromPath(path string) (PermissionProfile, error) {
+	file, err := RuntimeStateFileFromPath(path)
+	if err != nil {
+		return PermissionProfile{}, err
+	}
+
+	return PermissionProfileForFile(file)
 }
 
 func VerifyRuntimeFilePermissions(path string, file RuntimeStateFile) error {

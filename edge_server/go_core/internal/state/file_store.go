@@ -13,11 +13,57 @@ const (
 	credentialFileName   = "credential.json"
 	runtimeStateFileName = "runtime-state.json"
 	statusFileName       = "status.json"
+	stateDirectoryMode   = 0o700
 )
+
+func EnsureRuntimePersistenceBoundaries(stateDir string) error {
+	normalizedStateDir := strings.TrimSpace(stateDir)
+	if normalizedStateDir == "" {
+		return fmt.Errorf("runtime state directory is required")
+	}
+
+	if err := os.MkdirAll(normalizedStateDir, stateDirectoryMode); err != nil {
+		return fmt.Errorf("create state directory: %w", err)
+	}
+
+	for _, file := range ManagedRuntimeStateFiles() {
+		path := filepath.Join(normalizedStateDir, string(file))
+		info, err := os.Stat(path)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return fmt.Errorf("inspect %s: %w", file, err)
+		}
+
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s must be a regular file", file)
+		}
+
+		if err := VerifyRuntimeFilePermissions(path, file); err != nil {
+			return fmt.Errorf("verify %s permissions: %w", file, err)
+		}
+	}
+
+	return nil
+}
 
 func atomicWriteJSON(path string, value any, mode os.FileMode) error {
 	if strings.TrimSpace(path) == "" {
 		return fmt.Errorf("state file path is required")
+	}
+
+	profile, err := PermissionProfileFromPath(path)
+	if err != nil {
+		return fmt.Errorf("resolve permission profile for %s: %w", filepath.Base(path), err)
+	}
+	if mode != profile.POSIXFallbackMode {
+		return fmt.Errorf(
+			"%s mode must match permission profile %o (got %o)",
+			profile.FileName,
+			profile.POSIXFallbackMode,
+			mode,
+		)
 	}
 
 	payload, err := json.MarshalIndent(value, "", "  ")
@@ -27,7 +73,7 @@ func atomicWriteJSON(path string, value any, mode os.FileMode) error {
 	payload = append(payload, '\n')
 
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, stateDirectoryMode); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
 	}
 
@@ -55,11 +101,14 @@ func atomicWriteJSON(path string, value any, mode os.FileMode) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close temp state file: %w", err)
 	}
-	if err := os.Chmod(tmpPath, mode); err != nil {
+	if err := os.Chmod(tmpPath, profile.POSIXFallbackMode); err != nil {
 		return fmt.Errorf("set state file mode: %w", err)
 	}
 	if err := replaceFile(tmpPath, path); err != nil {
 		return fmt.Errorf("atomic replace %s: %w", filepath.Base(path), err)
+	}
+	if err := VerifyRuntimeFilePermissions(path, profile.FileName); err != nil {
+		return fmt.Errorf("verify %s permissions: %w", profile.FileName, err)
 	}
 
 	success = true

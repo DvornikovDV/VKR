@@ -10,6 +10,7 @@ import (
 	"edge_server/go_core/internal/cloud"
 	"edge_server/go_core/internal/config"
 	"edge_server/go_core/internal/mockadapter"
+	"edge_server/go_core/internal/operator"
 	"edge_server/go_core/internal/runtime"
 	"edge_server/go_core/internal/source"
 	"edge_server/go_core/internal/state"
@@ -28,9 +29,16 @@ func New(ctx context.Context, cfg config.Config, transport cloud.Transport) (*Pr
 	if transport == nil {
 		return nil, fmt.Errorf("runtime app transport is required")
 	}
+	if err := state.EnsureRuntimePersistenceBoundaries(cfg.Runtime.StateDir); err != nil {
+		return nil, fmt.Errorf("initialize runtime persistence boundaries: %w", err)
+	}
+	if _, _, err := state.NewCredentialStore(cfg.Runtime.StateDir).Load(); err != nil {
+		return nil, fmt.Errorf("load startup credential boundary: %w", err)
+	}
 
 	runner := runtime.NewWithTransport(transport)
-	if err := runner.BindRuntimeStateStore(state.NewRuntimeStateStore(cfg.Runtime.StateDir)); err != nil {
+	runtimeStore := state.NewRuntimeStateStore(cfg.Runtime.StateDir)
+	if err := runner.BindRuntimeStateStore(runtimeStore); err != nil {
 		return nil, fmt.Errorf("bind runtime-state store: %w", err)
 	}
 	bootstrap := runtime.NewBootstrapSession(runner)
@@ -52,6 +60,9 @@ func New(ctx context.Context, cfg config.Config, transport cloud.Transport) (*Pr
 	if err := runner.ConfigureRuntimeState(cfg.Runtime.EdgeID, sourceConfigRevision); err != nil {
 		return nil, fmt.Errorf("initialize runtime-state snapshot: %w", err)
 	}
+	if err := initializeStatusSnapshot(cfg.Runtime.StateDir, runtimeStore); err != nil {
+		return nil, fmt.Errorf("initialize status snapshot: %w", err)
+	}
 
 	if err := runner.BindTelemetryReadings(
 		ctx,
@@ -67,6 +78,40 @@ func New(ctx context.Context, cfg config.Config, transport cloud.Transport) (*Pr
 		Bootstrap: bootstrap,
 		Sources:   sources,
 	}, nil
+}
+
+func initializeStatusSnapshot(stateDir string, runtimeStore *state.RuntimeStateStore) error {
+	if runtimeStore == nil {
+		return fmt.Errorf("runtime-state store is required")
+	}
+
+	statusStore := state.NewStatusStore(stateDir)
+	if _, _, err := statusStore.Load(); err != nil {
+		return fmt.Errorf("load existing status snapshot: %w", err)
+	}
+
+	runtimeSnapshot, exists, err := runtimeStore.Load()
+	if err != nil {
+		return fmt.Errorf("load initialized runtime-state snapshot: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("runtime-state snapshot must exist after initialization")
+	}
+
+	statusSnapshot, err := operator.ProjectStatusSnapshot(operator.StatusProjectionInput{
+		RuntimeState:  runtimeSnapshot,
+		SourceSummary: "healthy",
+		LastReason:    runtimeSnapshot.LastDisconnectReason,
+	})
+	if err != nil {
+		return fmt.Errorf("project startup status snapshot: %w", err)
+	}
+
+	if err := statusStore.Save(statusSnapshot); err != nil {
+		return fmt.Errorf("persist startup status snapshot: %w", err)
+	}
+
+	return nil
 }
 
 func activeSourceRevision(definitions []source.Definition) (string, error) {
