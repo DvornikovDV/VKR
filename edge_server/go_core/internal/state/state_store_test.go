@@ -239,13 +239,16 @@ func TestRuntimeAndStatusStorePersistence(t *testing.T) {
 
 	statusStore := NewStatusStore(stateDir)
 	status := StatusSnapshot{
-		EdgeID:           "507f1f77bcf86cd799439011",
-		TrustMode:        "trusted_reconnect_ready",
-		CloudConnection:  "trusted",
-		AdapterState:     "running",
-		BufferedReadings: 0,
-		LastReason:       &lastReason,
-		UpdatedAt:        now,
+		EdgeID:                  "507f1f77bcf86cd799439011",
+		RuntimeStatus:           "trusted",
+		CloudConnection:         "trusted",
+		AuthSummary:             "ok",
+		RetryEligible:           true,
+		LoadedCredentialVersion: &credentialVersion,
+		SourceSummary:           "healthy",
+		LastTelemetrySentAt:     &now,
+		LastReason:              &lastReason,
+		UpdatedAt:               now,
 	}
 	if err := statusStore.Save(status); err != nil {
 		t.Fatalf("save status: %v", err)
@@ -257,6 +260,40 @@ func TestRuntimeAndStatusStorePersistence(t *testing.T) {
 	}
 	if !exists || gotStatus.CloudConnection != "trusted" {
 		t.Fatalf("unexpected status read, exists=%v value=%+v", exists, gotStatus)
+	}
+	if gotStatus.LoadedCredentialVersion == nil || *gotStatus.LoadedCredentialVersion != credentialVersion {
+		t.Fatalf("expected loadedCredentialVersion=%d, got %+v", credentialVersion, gotStatus.LoadedCredentialVersion)
+	}
+
+	statusPath := filepath.Join(stateDir, statusFileName)
+	statusPayload, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatalf("read status payload: %v", err)
+	}
+	var persistedStatus map[string]any
+	if err := json.Unmarshal(statusPayload, &persistedStatus); err != nil {
+		t.Fatalf("parse status payload: %v", err)
+	}
+	for _, key := range []string{
+		"edgeId",
+		"runtimeStatus",
+		"cloudConnection",
+		"authSummary",
+		"retryEligible",
+		"loadedCredentialVersion",
+		"sourceSummary",
+		"lastTelemetrySentAt",
+		"lastReason",
+		"updatedAt",
+	} {
+		if _, ok := persistedStatus[key]; !ok {
+			t.Fatalf("expected persisted status key %q, got %+v", key, persistedStatus)
+		}
+	}
+	for _, legacyKey := range []string{"trustMode", "adapterState", "bufferedReadings"} {
+		if _, ok := persistedStatus[legacyKey]; ok {
+			t.Fatalf("did not expect legacy status key %q in persisted payload %+v", legacyKey, persistedStatus)
+		}
 	}
 }
 
@@ -281,15 +318,75 @@ func TestRuntimeStateStoreRejectsRetryEligibleBlockedOutcomes(t *testing.T) {
 func TestStatusStoreRejectsMissingEdgeID(t *testing.T) {
 	store := NewStatusStore(t.TempDir())
 	status := StatusSnapshot{
-		TrustMode:        "trusted_reconnect_ready",
-		CloudConnection:  "trusted",
-		AdapterState:     "running",
-		BufferedReadings: 0,
-		UpdatedAt:        time.Date(2026, 4, 6, 10, 20, 0, 0, time.UTC),
+		RuntimeStatus:   "trusted",
+		CloudConnection: "trusted",
+		AuthSummary:     "ok",
+		RetryEligible:   true,
+		SourceSummary:   "healthy",
+		UpdatedAt:       time.Date(2026, 4, 6, 10, 20, 0, 0, time.UTC),
 	}
 
 	err := store.Save(status)
 	if err == nil || !strings.Contains(err.Error(), "status.edgeId is required") {
 		t.Fatalf("expected missing edgeId validation error, got %v", err)
 	}
+}
+
+func TestStatusStoreLoadRejectsMissingRequiredKeys(t *testing.T) {
+	stateDir := t.TempDir()
+
+	cases := []struct {
+		name        string
+		payload     string
+		expectedErr string
+	}{
+		{
+			name: "missing retryEligible key",
+			payload: `{
+  "edgeId": "507f1f77bcf86cd799439011",
+  "runtimeStatus": "trusted",
+  "cloudConnection": "trusted",
+  "authSummary": "ok",
+  "loadedCredentialVersion": 2,
+  "sourceSummary": "healthy",
+  "lastTelemetrySentAt": "2026-04-06T10:20:00Z",
+  "lastReason": null,
+  "updatedAt": "2026-04-06T10:20:00Z"
+}`,
+			expectedErr: "status.retryEligible is required",
+		},
+		{
+			name: "missing loadedCredentialVersion key",
+			payload: `{
+  "edgeId": "507f1f77bcf86cd799439011",
+  "runtimeStatus": "trusted",
+  "cloudConnection": "trusted",
+  "authSummary": "ok",
+  "retryEligible": true,
+  "sourceSummary": "healthy",
+  "lastTelemetrySentAt": null,
+  "lastReason": null,
+  "updatedAt": "2026-04-06T10:20:00Z"
+}`,
+			expectedErr: "status.loadedCredentialVersion is required",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			statusPath := filepath.Join(stateDir, statusFileName)
+			if err := os.WriteFile(statusPath, []byte(tc.payload), 0o600); err != nil {
+				t.Fatalf("write status fixture: %v", err)
+			}
+
+			_, exists, err := NewStatusStore(stateDir).Load()
+			if !exists {
+				t.Fatal("expected status file to be observed as existing")
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.expectedErr) {
+				t.Fatalf("expected error containing %q, got %v", tc.expectedErr, err)
+			}
+		})
+	}
+
 }

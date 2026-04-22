@@ -3,18 +3,34 @@ package operator
 import "edge_server/go_core/internal/cloud"
 
 type RuntimeOutcome struct {
-	Code           string
-	TrustMode      string
-	OperatorAction string
+	Code            string
+	RuntimeStatus   string
+	CloudConnection string
+	AuthSummary     string
 }
 
 func MapConnectError(code cloud.ConnectErrorCode) RuntimeOutcome {
 	switch code {
 	case cloud.ConnectErrorBlocked:
 		return RuntimeOutcome{
-			Code:           "blocked",
-			TrustMode:      "blocked",
-			OperatorAction: "require_operator_reenable",
+			Code:            "blocked",
+			RuntimeStatus:   "blocked",
+			CloudConnection: "rejected",
+			AuthSummary:     "blocked",
+		}
+	case cloud.ConnectErrorEdgeNotFound:
+		return RuntimeOutcome{
+			Code:            string(code),
+			RuntimeStatus:   "waiting_for_credential",
+			CloudConnection: "rejected",
+			AuthSummary:     "edge_not_found",
+		}
+	case cloud.ConnectErrorEdgeAuthInternalError:
+		return RuntimeOutcome{
+			Code:            string(code),
+			RuntimeStatus:   "stopped",
+			CloudConnection: "rejected",
+			AuthSummary:     "internal_error",
 		}
 	case cloud.ConnectErrorInvalidCredential,
 		cloud.ConnectErrorOnboardingNotAllowed,
@@ -23,15 +39,17 @@ func MapConnectError(code cloud.ConnectErrorCode) RuntimeOutcome {
 		cloud.ConnectErrorOnboardingPackageReused,
 		cloud.ConnectErrorPersistentCredentialRevoked:
 		return RuntimeOutcome{
-			Code:           string(code),
-			TrustMode:      "re_onboarding_required",
-			OperatorAction: "require_re_onboarding",
+			Code:            string(code),
+			RuntimeStatus:   "waiting_for_credential",
+			CloudConnection: "rejected",
+			AuthSummary:     "invalid_credential",
 		}
 	default:
 		return RuntimeOutcome{
-			Code:           string(code),
-			TrustMode:      "recovery_needed",
-			OperatorAction: "retry_or_recover",
+			Code:            string(code),
+			RuntimeStatus:   "retrying",
+			CloudConnection: "disconnected",
+			AuthSummary:     "retryable_disconnect",
 		}
 	}
 }
@@ -40,27 +58,31 @@ func MapDisconnectReason(reason cloud.DisconnectReason) RuntimeOutcome {
 	switch reason {
 	case cloud.DisconnectReasonTrustRevoked:
 		return RuntimeOutcome{
-			Code:           "trust_revoked",
-			TrustMode:      "re_onboarding_required",
-			OperatorAction: "require_re_onboarding",
+			Code:            "trust_revoked",
+			RuntimeStatus:   "waiting_for_credential",
+			CloudConnection: "rejected",
+			AuthSummary:     "credential_replaced",
 		}
 	case cloud.DisconnectReasonBlocked:
 		return RuntimeOutcome{
-			Code:           "blocked",
-			TrustMode:      "blocked",
-			OperatorAction: "require_operator_reenable",
+			Code:            "blocked",
+			RuntimeStatus:   "blocked",
+			CloudConnection: "rejected",
+			AuthSummary:     "blocked",
 		}
 	case cloud.DisconnectReasonForced, cloud.DisconnectReasonClientRequested:
 		return RuntimeOutcome{
-			Code:           string(reason),
-			TrustMode:      "disconnected",
-			OperatorAction: "retry_connection",
+			Code:            string(reason),
+			RuntimeStatus:   "retrying",
+			CloudConnection: "disconnected",
+			AuthSummary:     "retryable_disconnect",
 		}
 	default:
 		return RuntimeOutcome{
-			Code:           string(reason),
-			TrustMode:      "disconnected",
-			OperatorAction: "retry_connection",
+			Code:            string(reason),
+			RuntimeStatus:   "retrying",
+			CloudConnection: "disconnected",
+			AuthSummary:     "retryable_disconnect",
 		}
 	}
 }
@@ -72,15 +94,17 @@ func MapTelemetryDiscardState(trusted bool, connected bool) (RuntimeOutcome, boo
 
 	if !connected {
 		return RuntimeOutcome{
-			Code:           "telemetry_discarded_disconnected",
-			TrustMode:      "disconnected",
-			OperatorAction: "retry_connection",
+			Code:            "telemetry_discarded_disconnected",
+			RuntimeStatus:   "retrying",
+			CloudConnection: "disconnected",
+			AuthSummary:     "retryable_disconnect",
 		}, true
 	}
 
 	return RuntimeOutcome{
-		Code:           "telemetry_discarded_untrusted",
-		TrustMode:      "re_onboarding_required",
-		OperatorAction: "require_re_onboarding",
+		Code:            "telemetry_discarded_untrusted",
+		RuntimeStatus:   "waiting_for_credential",
+		CloudConnection: "rejected",
+		AuthSummary:     "credential_replaced",
 	}, true
 }

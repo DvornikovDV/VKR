@@ -7,83 +7,64 @@ import (
 	"time"
 
 	"edge_server/go_core/internal/cloud"
-	"edge_server/go_core/internal/runtime"
 )
 
-func TestSessionEpochMonotonicity(t *testing.T) {
-	tracker := runtime.NewSessionEpochTracker()
+type fixedEpochProvider struct {
+	epoch uint64
+}
 
-	first := tracker.Next()
-	second := tracker.Next()
-
-	if first != 1 || second != 2 {
-		t.Fatalf("expected monotonic epochs [1,2], got [%d,%d]", first, second)
-	}
-	if tracker.IsActive(first) {
-		t.Fatalf("expected first epoch to be inactive after second starts")
-	}
-	if !tracker.IsActive(second) {
-		t.Fatalf("expected latest epoch to be active")
-	}
-
-	tracker.Invalidate()
-	if tracker.Current() != 0 {
-		t.Fatalf("expected invalidated tracker to reset current epoch to 0, got %d", tracker.Current())
-	}
-	if tracker.IsActive(second) {
-		t.Fatalf("expected previous epoch to become inactive after invalidation")
-	}
-	third := tracker.Next()
-	if third != 3 {
-		t.Fatalf("expected next epoch after invalidation to remain monotonic and become 3, got %d", third)
-	}
-	if !tracker.IsActive(third) {
-		t.Fatalf("expected new epoch %d to be active", third)
-	}
+func (p fixedEpochProvider) Current() uint64 {
+	return p.epoch
 }
 
 func TestOutcomeMappingFromCloudSignals(t *testing.T) {
 	cases := []struct {
-		name       string
-		got        RuntimeOutcome
-		wantCode   string
-		wantTrust  string
-		wantAction string
+		name              string
+		got               RuntimeOutcome
+		wantCode          string
+		wantRuntimeStatus string
+		wantCloud         string
+		wantAuthSummary   string
 	}{
 		{
-			name:       "blocked connect error maps to blocked trust mode",
-			got:        MapConnectError(cloud.ConnectErrorBlocked),
-			wantCode:   "blocked",
-			wantTrust:  "blocked",
-			wantAction: "require_operator_reenable",
+			name:              "blocked connect error maps to blocked status contract",
+			got:               MapConnectError(cloud.ConnectErrorBlocked),
+			wantCode:          "blocked",
+			wantRuntimeStatus: "blocked",
+			wantCloud:         "rejected",
+			wantAuthSummary:   "blocked",
 		},
 		{
-			name:       "trust_revoked disconnect maps to re-onboarding-required trust mode",
-			got:        MapDisconnectReason(cloud.DisconnectReasonTrustRevoked),
-			wantCode:   "trust_revoked",
-			wantTrust:  "re_onboarding_required",
-			wantAction: "require_re_onboarding",
+			name:              "trust revoked disconnect maps to waiting_for_credential status contract",
+			got:               MapDisconnectReason(cloud.DisconnectReasonTrustRevoked),
+			wantCode:          "trust_revoked",
+			wantRuntimeStatus: "waiting_for_credential",
+			wantCloud:         "rejected",
+			wantAuthSummary:   "credential_replaced",
 		},
 		{
-			name:       "ordinary disconnect maps to disconnected trust mode",
-			got:        MapDisconnectReason(cloud.DisconnectReasonClientRequested),
-			wantCode:   "client_requested",
-			wantTrust:  "disconnected",
-			wantAction: "retry_connection",
+			name:              "ordinary disconnect maps to retrying status contract",
+			got:               MapDisconnectReason(cloud.DisconnectReasonClientRequested),
+			wantCode:          "client_requested",
+			wantRuntimeStatus: "retrying",
+			wantCloud:         "disconnected",
+			wantAuthSummary:   "retryable_disconnect",
 		},
 		{
-			name:       "telemetry discard while disconnected maps to disconnected trust mode",
-			got:        telemetryDiscardOutcome(t, false, false),
-			wantCode:   "telemetry_discarded_disconnected",
-			wantTrust:  "disconnected",
-			wantAction: "retry_connection",
+			name:              "telemetry discard while disconnected maps to retrying status contract",
+			got:               telemetryDiscardOutcome(t, false, false),
+			wantCode:          "telemetry_discarded_disconnected",
+			wantRuntimeStatus: "retrying",
+			wantCloud:         "disconnected",
+			wantAuthSummary:   "retryable_disconnect",
 		},
 		{
-			name:       "telemetry discard while untrusted maps to re-onboarding-required trust mode",
-			got:        telemetryDiscardOutcome(t, false, true),
-			wantCode:   "telemetry_discarded_untrusted",
-			wantTrust:  "re_onboarding_required",
-			wantAction: "require_re_onboarding",
+			name:              "telemetry discard while untrusted maps to waiting_for_credential status contract",
+			got:               telemetryDiscardOutcome(t, false, true),
+			wantCode:          "telemetry_discarded_untrusted",
+			wantRuntimeStatus: "waiting_for_credential",
+			wantCloud:         "rejected",
+			wantAuthSummary:   "credential_replaced",
 		},
 	}
 
@@ -92,11 +73,14 @@ func TestOutcomeMappingFromCloudSignals(t *testing.T) {
 			if tc.got.Code != tc.wantCode {
 				t.Fatalf("expected outcome code %q, got %q", tc.wantCode, tc.got.Code)
 			}
-			if tc.got.TrustMode != tc.wantTrust {
-				t.Fatalf("expected trust mode %q, got %q", tc.wantTrust, tc.got.TrustMode)
+			if tc.got.RuntimeStatus != tc.wantRuntimeStatus {
+				t.Fatalf("expected runtimeStatus %q, got %q", tc.wantRuntimeStatus, tc.got.RuntimeStatus)
 			}
-			if tc.got.OperatorAction != tc.wantAction {
-				t.Fatalf("expected operator action %q, got %q", tc.wantAction, tc.got.OperatorAction)
+			if tc.got.CloudConnection != tc.wantCloud {
+				t.Fatalf("expected cloudConnection %q, got %q", tc.wantCloud, tc.got.CloudConnection)
+			}
+			if tc.got.AuthSummary != tc.wantAuthSummary {
+				t.Fatalf("expected authSummary %q, got %q", tc.wantAuthSummary, tc.got.AuthSummary)
 			}
 		})
 	}
@@ -115,14 +99,12 @@ func telemetryDiscardOutcome(t *testing.T, trusted bool, connected bool) Runtime
 
 func TestStructuredLoggerIncludesEpochAndOutcome(t *testing.T) {
 	buf := &bytes.Buffer{}
-	tracker := runtime.NewSessionEpochTracker()
-	tracker.Next()
 	fixedNow := time.Date(2026, 4, 6, 12, 0, 0, 0, time.UTC)
 
 	logger := NewJSONLogger(JSONLoggerConfig{
 		Writer:        buf,
 		MinLevel:      LogLevelInfo,
-		EpochProvider: tracker,
+		EpochProvider: fixedEpochProvider{epoch: 1},
 		Now: func() time.Time {
 			return fixedNow
 		},
