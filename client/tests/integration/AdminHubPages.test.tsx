@@ -150,7 +150,7 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
       },
     ]
 
-    const fleetRef = {
+    const fleetRef: { current: MockEdge[] } = {
       current: [
         {
           _id: 'edge-active',
@@ -322,7 +322,7 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
       },
     ]
 
-    const fleetRef = {
+    const fleetRef: { current: MockEdge[] } = {
       current: [
         {
           _id: 'edge-active',
@@ -461,7 +461,7 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
       },
     ]
 
-    const fleetRef = {
+    const fleetRef: { current: MockEdge[] } = {
       current: [
         {
           _id: 'edge-1',

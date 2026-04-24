@@ -56,11 +56,15 @@ describe('dashboard saved layout types (T035)', () => {
     const widgets = savedLayout.widgets ?? []
     const runtimeLayout: DashboardRuntimeLayout = {
       images,
+      runtimeRenderableImages: images,
       connectionPoints,
+      runtimeRenderableConnectionPoints: connectionPoints,
       connections,
       widgets,
       imageById: new Map(images.map((image) => [image.imageId, image])),
+      runtimeRenderableImageById: new Map(images.map((image) => [image.imageId, image])),
       pointById: new Map(connectionPoints.map((point) => [point.id, point])),
+      runtimeRenderablePointById: new Map(connectionPoints.map((point) => [point.id, point])),
       widgetById: new Map(widgets.map((widget) => [widget.id, widget])),
       widgetIds: new Set(widgets.map((widget) => widget.id)),
       runtimeRenderableWidgets: widgets,
@@ -85,12 +89,18 @@ describe('dashboard saved layout normalization (T036/T038)', () => {
     const visualWidgets = dashboardVisualLayout.widgets ?? []
 
     expect(runtimeLayout.images).toEqual(visualImages)
+    expect(runtimeLayout.runtimeRenderableImages).toEqual(visualImages)
     expect(runtimeLayout.connectionPoints).toEqual(dashboardVisualLayout.connectionPoints)
+    expect(runtimeLayout.runtimeRenderableConnectionPoints).toEqual(dashboardVisualLayout.connectionPoints)
     expect(runtimeLayout.connections).toEqual(visualConnections)
     expect(runtimeLayout.widgets).toEqual(visualWidgets)
 
     expect(runtimeLayout.imageById.get('image-pump')).toBe(visualImages[1])
+    expect(runtimeLayout.runtimeRenderableImageById.get('image-pump')).toBe(visualImages[1])
     expect(runtimeLayout.pointById.get('pin-boiler-out')).toEqual(
+      expect.objectContaining({ imageId: 'image-boiler', side: 'right', offset: 0.45 }),
+    )
+    expect(runtimeLayout.runtimeRenderablePointById.get('pin-boiler-out')).toEqual(
       expect.objectContaining({ imageId: 'image-boiler', side: 'right', offset: 0.45 }),
     )
     expect(runtimeLayout.widgetById.get('widget-temperature')).toEqual(
@@ -275,6 +285,144 @@ describe('dashboard saved layout normalization (T036/T038)', () => {
         severity: 'blocking',
         kind: 'damaged-image-data',
         elementId: 'image-broken-data',
+      }),
+    )
+  })
+
+  it('reports incomplete widget geometry and keeps the damaged widget out of renderable widgets', () => {
+    const runtimeLayout = normalizeDashboardRuntimeLayout({
+      ...dashboardVisualLayout,
+      widgets: [
+        ...(dashboardVisualLayout.widgets ?? []),
+        {
+          id: 'widget-incomplete-geometry',
+          type: 'number-display',
+          imageId: 'image-boiler',
+          width: 100,
+          height: 48,
+        },
+      ],
+    })
+
+    expect(runtimeLayout.widgets.map((widget) => widget.id)).toContain('widget-incomplete-geometry')
+    expect(runtimeLayout.runtimeRenderableWidgets.map((widget) => widget.id)).not.toContain(
+      'widget-incomplete-geometry',
+    )
+    expect(runtimeLayout.diagramBounds).toEqual({
+      minX: 40,
+      minY: 8,
+      maxX: 860,
+      maxY: 388,
+      width: 820,
+      height: 380,
+    })
+    expect(runtimeLayout.renderIssues).toContainEqual(
+      expect.objectContaining({
+        severity: 'recoverable',
+        kind: 'incomplete-widget-geometry',
+        elementId: 'widget-incomplete-geometry',
+      }),
+    )
+  })
+
+  it('reports incomplete image geometry and keeps the damaged image out of renderable image paths', () => {
+    const runtimeLayout = normalizeDashboardRuntimeLayout({
+      ...dashboardVisualLayout,
+      images: [
+        ...(dashboardVisualLayout.images ?? []),
+        {
+          imageId: 'image-incomplete-geometry',
+          base64: dashboardVisualLayout.images?.[0]?.base64,
+          y: -120,
+          width: 240,
+          height: 80,
+        },
+      ],
+      connectionPoints: [
+        ...(dashboardVisualLayout.connectionPoints ?? []),
+        {
+          id: 'pin-incomplete-image',
+          imageId: 'image-incomplete-geometry',
+          side: 'right',
+          offset: 0.5,
+        },
+      ],
+      connections: [
+        ...(dashboardVisualLayout.connections ?? []),
+        {
+          id: 'connection-incomplete-image-derived',
+          fromPinId: 'pin-incomplete-image',
+          toPinId: 'pin-pump-in',
+          userModified: false,
+        },
+      ],
+    })
+
+    expect(runtimeLayout.images.map((image) => image.imageId)).toContain('image-incomplete-geometry')
+    expect(runtimeLayout.imageById.has('image-incomplete-geometry')).toBe(true)
+    expect(runtimeLayout.runtimeRenderableImages.map((image) => image.imageId)).not.toContain(
+      'image-incomplete-geometry',
+    )
+    expect(runtimeLayout.runtimeRenderableImageById.has('image-incomplete-geometry')).toBe(false)
+    expect(
+      runtimeLayout.connectionRenderSegments.some(
+        (segment) => segment.connectionId === 'connection-incomplete-image-derived',
+      ),
+    ).toBe(false)
+    expect(runtimeLayout.diagramBounds).toEqual({
+      minX: 40,
+      minY: 8,
+      maxX: 860,
+      maxY: 388,
+      width: 820,
+      height: 380,
+    })
+    expect(runtimeLayout.renderIssues).toContainEqual(
+      expect.objectContaining({
+        severity: 'recoverable',
+        kind: 'incomplete-image-geometry',
+        elementId: 'image-incomplete-geometry',
+      }),
+    )
+  })
+
+  it('reports incomplete connection point geometry without deriving invented point positions', () => {
+    const runtimeLayout = normalizeDashboardRuntimeLayout({
+      ...dashboardVisualLayout,
+      connectionPoints: [
+        ...(dashboardVisualLayout.connectionPoints ?? []),
+        {
+          id: 'pin-incomplete-geometry',
+          imageId: 'image-boiler',
+        },
+      ],
+      connections: [
+        ...(dashboardVisualLayout.connections ?? []),
+        {
+          id: 'connection-incomplete-point-derived',
+          fromPinId: 'pin-incomplete-geometry',
+          toPinId: 'pin-pump-in',
+          userModified: false,
+        },
+      ],
+    })
+
+    expect(runtimeLayout.connectionPoints.map((point) => point.id)).toContain('pin-incomplete-geometry')
+    expect(runtimeLayout.pointById.has('pin-incomplete-geometry')).toBe(true)
+    expect(runtimeLayout.runtimeRenderableConnectionPoints.map((point) => point.id)).not.toContain(
+      'pin-incomplete-geometry',
+    )
+    expect(runtimeLayout.runtimeRenderablePointById.has('pin-incomplete-geometry')).toBe(false)
+    expect(
+      runtimeLayout.connectionRenderSegments.some(
+        (segment) => segment.connectionId === 'connection-incomplete-point-derived',
+      ),
+    ).toBe(false)
+    expect(runtimeLayout.renderIssues).toContainEqual(
+      expect.objectContaining({
+        severity: 'recoverable',
+        kind: 'incomplete-connection-point-geometry',
+        elementId: 'pin-incomplete-geometry',
       }),
     )
   })

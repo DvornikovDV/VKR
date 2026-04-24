@@ -1,0 +1,416 @@
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import {
+  createDashboardVisualRestFixtures,
+  dashboardVisualDiagram,
+  dashboardVisualLayout,
+} from '../fixtures/dashboardVisualLayout'
+import { createDashboardApiHandlers } from '../mocks/handlers'
+import { server } from '../mocks/server'
+import { userHubRouteChildren } from '@/app/userHubRoutes'
+import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
+import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
+
+const runtimeHarness = vi.hoisted(() => {
+  type SocketEventHandler = (...args: unknown[]) => void
+
+  const listeners = new Map<string, Set<SocketEventHandler>>()
+  const emittedEvents: Array<{ event: string; payload: unknown }> = []
+  let lastSubscribePayload: { edgeId: string } | null = null
+
+  function dispatchEvent(eventName: string, ...args: unknown[]) {
+    const eventListeners = listeners.get(eventName)
+    if (!eventListeners) {
+      return
+    }
+
+    for (const listener of eventListeners) {
+      listener(...args)
+    }
+  }
+
+  const socket = {
+    connected: false,
+    on: vi.fn((event: string, listener: SocketEventHandler) => {
+      const eventListeners = listeners.get(event) ?? new Set<SocketEventHandler>()
+      eventListeners.add(listener)
+      listeners.set(event, eventListeners)
+      return socket
+    }),
+    off: vi.fn((event: string, listener: SocketEventHandler) => {
+      const eventListeners = listeners.get(event)
+      if (!eventListeners) {
+        return socket
+      }
+
+      eventListeners.delete(listener)
+      if (eventListeners.size === 0) {
+        listeners.delete(event)
+      }
+
+      return socket
+    }),
+    emit: vi.fn((event: string, payload?: unknown) => {
+      emittedEvents.push({ event, payload: payload ?? null })
+      if (event === 'subscribe' && payload && typeof payload === 'object' && 'edgeId' in payload) {
+        lastSubscribePayload = { edgeId: String((payload as { edgeId: unknown }).edgeId) }
+      }
+
+      return socket
+    }),
+    connect: vi.fn(() => {
+      socket.connected = true
+      dispatchEvent('connect')
+      return socket
+    }),
+    disconnect: vi.fn(() => {
+      socket.connected = false
+      dispatchEvent('disconnect', 'io client disconnect')
+      return socket
+    }),
+  }
+
+  const socketFactory = vi.fn(() => socket)
+
+  return {
+    socketFactory,
+    emitDisconnect: () => {
+      socket.connected = false
+      dispatchEvent('disconnect', 'transport close')
+    },
+    emitTelemetry: (event: {
+      edgeId: string
+      readings: Array<{
+        deviceId: string
+        metric: string
+        last: number | string | boolean | null
+        ts: number
+      }>
+      serverTs: number
+    }) => {
+      dispatchEvent('telemetry', event)
+    },
+    getLastSubscribePayload: () => lastSubscribePayload,
+    reset: () => {
+      listeners.clear()
+      emittedEvents.length = 0
+      lastSubscribePayload = null
+      socket.connected = false
+      socketFactory.mockClear()
+      socket.on.mockClear()
+      socket.off.mockClear()
+      socket.emit.mockClear()
+      socket.connect.mockClear()
+      socket.disconnect.mockClear()
+    },
+  }
+})
+
+vi.mock('@/features/dashboard/services/cloudRuntimeClient', async () => {
+  const actual = await vi.importActual<typeof import('@/features/dashboard/services/cloudRuntimeClient')>(
+    '@/features/dashboard/services/cloudRuntimeClient',
+  )
+
+  return {
+    ...actual,
+    cloudRuntimeClient: actual.createCloudRuntimeClient(runtimeHarness.socketFactory),
+  }
+})
+
+const userSession: Session = {
+  id: 'user-visual-1',
+  email: 'visual-user@example.com',
+  role: 'USER',
+  tier: 'PRO',
+  accessToken: 'visual-user-token',
+}
+
+function mount(path: string) {
+  const router = createMemoryRouter(
+    [
+      {
+        path: '/login',
+        element: <div data-testid="login-page">Login</div>,
+      },
+      {
+        path: '/hub',
+        element: <ProtectedRoute requiredRole="USER" />,
+        children: userHubRouteChildren,
+      },
+    ],
+    { initialEntries: [path] },
+  )
+
+  render(<RouterProvider router={router} />)
+  return router
+}
+
+beforeEach(() => {
+  runtimeHarness.reset()
+  server.use(...createDashboardApiHandlers(createDashboardVisualRestFixtures()))
+  act(() => {
+    useAuthStore.setState({ session: null, isAuthenticated: false })
+    useAuthStore.getState().setSession(userSession)
+  })
+})
+
+describe('Dashboard visual runtime surface (T040)', () => {
+  it('renders the saved visual layout from GET /api/diagrams/:id as the primary monitoring surface', async () => {
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.getLastSubscribePayload()).toEqual({ edgeId: 'edge-visual-1' })
+    })
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-visual-stage')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-visual-stage')).toHaveAttribute('data-konva-node')
+    const gridLayer = screen.getByTestId('dashboard-visual-grid-layer')
+    const workspace = screen.getByTestId('dashboard-visual-workspace')
+    expect(gridLayer).toContainElement(workspace)
+    expect(workspace).toHaveAttribute('data-draggable', 'true')
+    expect(workspace).toHaveAttribute('data-scale-x', '1')
+    expect(workspace).toHaveAttribute('data-scale-y', '1')
+    const dragHitArea = screen.getByTestId('dashboard-visual-drag-hit-area')
+    expect(workspace).toContainElement(dragHitArea)
+    expect(dragHitArea).toHaveAttribute('data-listening', 'true')
+    expect(dragHitArea).toHaveAttribute('data-opacity', '0.01')
+
+    const boilerImage = screen.getByTestId('dashboard-visual-image-image-boiler')
+    expect(boilerImage).toBeInTheDocument()
+    expect(boilerImage).toHaveAttribute('data-x', '40')
+    expect(boilerImage).toHaveAttribute('data-y', '32')
+    expect(boilerImage).toHaveAttribute('data-width', '360')
+    expect(boilerImage).toHaveAttribute('data-height', '220')
+    expect(gridLayer).toContainElement(boilerImage)
+    expect(screen.getByTestId('dashboard-visual-image-image-pump')).toBeInTheDocument()
+    const savedConnection = screen.getByTestId('dashboard-visual-connection-connection-main-line-0')
+    expect(savedConnection).toBeInTheDocument()
+    expect(savedConnection).toHaveAttribute(
+      'data-source',
+      'saved-segment',
+    )
+    expect(savedConnection).toHaveAttribute('data-points', '400,131,470,131')
+    const boilerOutPoint = screen.getByTestId('dashboard-visual-point-pin-boiler-out')
+    expect(boilerOutPoint).toBeInTheDocument()
+    expect(boilerOutPoint).toHaveAttribute('data-x', '400')
+    expect(boilerOutPoint).toHaveAttribute('data-y', '131')
+    expect(boilerOutPoint).toHaveAttribute('data-fill', '#000000')
+    expect(screen.getByTestId('dashboard-visual-widget-widget-temperature')).toBeInTheDocument()
+    const temperatureShell = screen.getByTestId('dashboard-visual-widget-shell-widget-temperature')
+    expect(temperatureShell).toHaveAttribute('data-x', '96')
+    expect(temperatureShell).toHaveAttribute('data-y', '92')
+    expect(temperatureShell).toHaveAttribute('data-width', '112')
+    expect(temperatureShell).toHaveAttribute('data-height', '52')
+    expect(temperatureShell).toHaveAttribute('data-fill', '#0f172a')
+    expect(temperatureShell).toHaveAttribute('data-stroke', '#38bdf8')
+    expect(screen.getByTestId('dashboard-visual-widget-widget-command')).toBeInTheDocument()
+
+    expect(screen.getByText('Visual rendering issues: 2 recoverable')).toBeInTheDocument()
+    expect(screen.queryByText('Saved diagram snapshot')).not.toBeInTheDocument()
+  })
+
+  it('updates only viewport state when visual viewport controls are used', async () => {
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    expect(screen.getByText('Viewport: fit at 100%')).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Zoom in' }))
+    expect(screen.getByText('Viewport: manual at 125%')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Zoom out' }))
+    expect(screen.getByText('Viewport: manual at 100%')).toBeInTheDocument()
+
+    const workspace = screen.getByTestId('dashboard-visual-workspace')
+    expect(screen.getByTestId('dashboard-visual-grid-layer')).toContainElement(workspace)
+    expect(workspace).toContainElement(screen.getByTestId('dashboard-visual-image-image-boiler'))
+    const offsetXBeforeDrag = Number(workspace.getAttribute('data-x'))
+    const offsetYBeforeDrag = Number(workspace.getAttribute('data-y'))
+    fireEvent.mouseUp(workspace)
+    await waitFor(() => {
+      expect(screen.getByTestId('dashboard-visual-workspace')).toHaveAttribute(
+        'data-x',
+        String(offsetXBeforeDrag + 64),
+      )
+    })
+    expect(screen.getByTestId('dashboard-visual-workspace')).toHaveAttribute(
+      'data-y',
+      String(offsetYBeforeDrag - 32),
+    )
+    expect(screen.getByText('Viewport: manual at 100%')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Pan right' }))
+    expect(screen.getByText('Viewport: manual at 100%')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Reset view' }))
+    expect(screen.getByText('Viewport: reset at 100%')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Fit to view' }))
+    expect(screen.getByText('Viewport: fit at 100%')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-visual-widget-widget-temperature')).toBeInTheDocument()
+  })
+
+  it('reports incomplete saved widget geometry without rendering an invented widget shell', async () => {
+    const fixtures = createDashboardVisualRestFixtures()
+    server.use(
+      ...createDashboardApiHandlers({
+        ...fixtures,
+        diagramsById: {
+          [dashboardVisualDiagram._id]: {
+            ...dashboardVisualDiagram,
+            layout: {
+              ...dashboardVisualLayout,
+              widgets: [
+                ...(dashboardVisualLayout.widgets ?? []),
+                {
+                  id: 'widget-incomplete-geometry',
+                  type: 'number-display',
+                  imageId: 'image-boiler',
+                  width: 120,
+                  height: 40,
+                },
+              ],
+            },
+          },
+        },
+      }),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    expect(screen.getByText('Visual rendering issues: 3 recoverable')).toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-visual-widget-widget-incomplete-geometry')).not.toBeInTheDocument()
+  })
+
+  it('reports incomplete saved image geometry without rendering an invented image position', async () => {
+    const fixtures = createDashboardVisualRestFixtures()
+    server.use(
+      ...createDashboardApiHandlers({
+        ...fixtures,
+        diagramsById: {
+          [dashboardVisualDiagram._id]: {
+            ...dashboardVisualDiagram,
+            layout: {
+              ...dashboardVisualLayout,
+              images: [
+                ...(dashboardVisualLayout.images ?? []),
+                {
+                  imageId: 'image-incomplete-geometry',
+                  base64: dashboardVisualLayout.images?.[0]?.base64,
+                  y: -120,
+                  width: 240,
+                  height: 80,
+                },
+              ],
+            },
+          },
+        },
+      }),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    expect(screen.getByText('Visual rendering issues: 3 recoverable')).toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-visual-image-image-incomplete-geometry')).not.toBeInTheDocument()
+  })
+
+  it('reports incomplete saved connection point geometry without rendering an invented point', async () => {
+    const fixtures = createDashboardVisualRestFixtures()
+    server.use(
+      ...createDashboardApiHandlers({
+        ...fixtures,
+        diagramsById: {
+          [dashboardVisualDiagram._id]: {
+            ...dashboardVisualDiagram,
+            layout: {
+              ...dashboardVisualLayout,
+              connectionPoints: [
+                ...(dashboardVisualLayout.connectionPoints ?? []),
+                {
+                  id: 'pin-incomplete-geometry',
+                  imageId: 'image-boiler',
+                },
+              ],
+              connections: [
+                ...(dashboardVisualLayout.connections ?? []),
+                {
+                  id: 'connection-incomplete-point-derived',
+                  fromPinId: 'pin-incomplete-geometry',
+                  toPinId: 'pin-pump-in',
+                  userModified: false,
+                },
+              ],
+            },
+          },
+        },
+      }),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    expect(screen.getByText('Visual rendering issues: 3 recoverable')).toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-visual-point-pin-incomplete-geometry')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-visual-connection-connection-incomplete-point-derived-0')).not.toBeInTheDocument()
+  })
+
+  it('renders live number and text telemetry inside the saved visual widgets and preserves it while reconnecting', async () => {
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.getLastSubscribePayload()).toEqual({ edgeId: 'edge-visual-1' })
+    })
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    const temperatureWidget = screen.getByTestId('dashboard-visual-widget-widget-temperature')
+    const statusWidget = screen.getByTestId('dashboard-visual-widget-widget-status')
+    expect(within(temperatureWidget).getByText('0 C')).toBeInTheDocument()
+    expect(within(statusWidget).getByText('Pending')).toBeInTheDocument()
+
+    act(() => {
+      runtimeHarness.emitTelemetry({
+        edgeId: 'edge-visual-1',
+        readings: [
+          {
+            deviceId: 'boiler-1',
+            metric: 'temperature',
+            last: '72.4',
+            ts: 1763895000000,
+          },
+          {
+            deviceId: 'boiler-1',
+            metric: 'status',
+            last: 'Stable output',
+            ts: 1763895000001,
+          },
+        ],
+        serverTs: 1763895000500,
+      })
+    })
+
+    expect(within(temperatureWidget).getByText('72.4 C')).toBeInTheDocument()
+    expect(within(statusWidget).getByText('Stable output')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-runtime-widget-widget-temperature')).toHaveTextContent('Value: 72.4')
+    expect(screen.getByTestId('dashboard-runtime-widget-widget-status')).toHaveTextContent('Value: Stable output')
+
+    act(() => {
+      runtimeHarness.emitDisconnect()
+    })
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Transport reconnecting. Displaying last received values.'),
+      ).toBeInTheDocument()
+    })
+    expect(within(temperatureWidget).getByText('72.4 C')).toBeInTheDocument()
+    expect(within(statusWidget).getByText('Stable output')).toBeInTheDocument()
+  })
+})

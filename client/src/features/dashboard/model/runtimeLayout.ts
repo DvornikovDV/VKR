@@ -21,16 +21,24 @@ const EMPTY_BOUNDS: DashboardDiagramBounds = {
   height: 0,
 }
 
+type DashboardImageWithGeometry = DashboardSavedImage & {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+type DashboardConnectionPointWithGeometry = DashboardConnectionPoint & {
+  side: NonNullable<DashboardConnectionPoint['side']>
+  offset: number
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
-}
-
-function toFiniteNumber(value: unknown, fallback: number): number {
-  return isFiniteNumber(value) ? value : fallback
 }
 
 function toArray<T>(value: T[] | undefined): T[] {
@@ -49,6 +57,10 @@ function isConnectionPoint(value: unknown): value is DashboardConnectionPoint {
   return isRecord(value) && hasNonEmptyString(value.id) && hasNonEmptyString(value.imageId)
 }
 
+function isConnectionPointSide(value: unknown): value is DashboardConnectionPoint['side'] {
+  return value === 'top' || value === 'right' || value === 'bottom' || value === 'left'
+}
+
 function isSavedConnection(value: unknown): value is DashboardSavedConnection {
   return (
     isRecord(value) &&
@@ -62,9 +74,33 @@ function isDashboardWidget(value: unknown): value is DashboardWidget {
   return isRecord(value) && hasNonEmptyString(value.id) && hasNonEmptyString(value.type)
 }
 
-function clampUnit(value: unknown): number {
-  const numericValue = toFiniteNumber(value, 0.5)
-  return Math.min(1, Math.max(0, numericValue))
+function hasImageGeometry(image: DashboardSavedImage): image is DashboardImageWithGeometry {
+  return (
+    isFiniteNumber(image.x) &&
+    isFiniteNumber(image.y) &&
+    isFiniteNumber(image.width) &&
+    isFiniteNumber(image.height)
+  )
+}
+
+function hasConnectionPointGeometry(
+  point: DashboardConnectionPoint,
+): point is DashboardConnectionPointWithGeometry {
+  return (
+    isConnectionPointSide(point.side) &&
+    isFiniteNumber(point.offset) &&
+    point.offset >= 0 &&
+    point.offset <= 1
+  )
+}
+
+function hasWidgetGeometry(widget: DashboardWidget): boolean {
+  return (
+    isFiniteNumber(widget.x) &&
+    isFiniteNumber(widget.y) &&
+    isFiniteNumber(widget.width) &&
+    isFiniteNumber(widget.height)
+  )
 }
 
 function createIssue(
@@ -88,10 +124,14 @@ function appendRectBounds(
   width: unknown,
   height: unknown,
 ): DashboardDiagramBounds | null {
-  const left = toFiniteNumber(x, 0)
-  const top = toFiniteNumber(y, 0)
-  const rectWidth = Math.max(0, toFiniteNumber(width, 0))
-  const rectHeight = Math.max(0, toFiniteNumber(height, 0))
+  if (!isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(width) || !isFiniteNumber(height)) {
+    return bounds
+  }
+
+  const left = x
+  const top = y
+  const rectWidth = Math.max(0, width)
+  const rectHeight = Math.max(0, height)
   const right = left + rectWidth
   const bottom = top + rectHeight
 
@@ -129,11 +169,13 @@ function appendPointBounds(
 }
 
 function resolveImageWidth(image: DashboardSavedImage): number {
-  return Math.max(0, toFiniteNumber(image.width, 0) * toFiniteNumber(image.scaleX, 1))
+  const scaleX = isFiniteNumber(image.scaleX) ? image.scaleX : 1
+  return isFiniteNumber(image.width) ? Math.max(0, image.width * scaleX) : 0
 }
 
 function resolveImageHeight(image: DashboardSavedImage): number {
-  return Math.max(0, toFiniteNumber(image.height, 0) * toFiniteNumber(image.scaleY, 1))
+  const scaleY = isFiniteNumber(image.scaleY) ? image.scaleY : 1
+  return isFiniteNumber(image.height) ? Math.max(0, image.height * scaleY) : 0
 }
 
 function resolveConnectionPointPosition(
@@ -145,11 +187,15 @@ function resolveConnectionPointPosition(
     return null
   }
 
-  const x = toFiniteNumber(image.x, 0)
-  const y = toFiniteNumber(image.y, 0)
+  if (!hasImageGeometry(image) || !hasConnectionPointGeometry(point)) {
+    return null
+  }
+
+  const x = image.x
+  const y = image.y
   const width = resolveImageWidth(image)
   const height = resolveImageHeight(image)
-  const offset = clampUnit(point.offset)
+  const offset = point.offset
 
   switch (point.side) {
     case 'top':
@@ -161,7 +207,7 @@ function resolveConnectionPointPosition(
     case 'left':
       return { x, y: y + height * offset }
     default:
-      return { x: x + width * offset, y: y + height * 0.5 }
+      return null
   }
 }
 
@@ -313,6 +359,17 @@ function buildRenderIssues(
   }
 
   for (const image of images) {
+    if (!hasImageGeometry(image)) {
+      issues.push(
+        createIssue(
+          'recoverable',
+          'incomplete-image-geometry',
+          'Saved image geometry is incomplete and cannot be rendered safely.',
+          image.imageId,
+        ),
+      )
+    }
+
     if (!hasNonEmptyString(image.base64) || !image.base64.trim().startsWith('data:image/')) {
       issues.push(
         createIssue(
@@ -326,6 +383,17 @@ function buildRenderIssues(
   }
 
   for (const point of connectionPoints) {
+    if (!hasConnectionPointGeometry(point)) {
+      issues.push(
+        createIssue(
+          'recoverable',
+          'incomplete-connection-point-geometry',
+          'Connection point saved geometry is incomplete and cannot be rendered safely.',
+          point.id,
+        ),
+      )
+    }
+
     if (!imageById.has(point.imageId)) {
       issues.push(
         createIssue(
@@ -352,6 +420,17 @@ function buildRenderIssues(
   }
 
   for (const widget of widgets) {
+    if (!hasWidgetGeometry(widget)) {
+      issues.push(
+        createIssue(
+          'recoverable',
+          'incomplete-widget-geometry',
+          'Widget saved geometry is incomplete and cannot be rendered safely.',
+          widget.id,
+        ),
+      )
+    }
+
     if (hasNonEmptyString(widget.imageId) && !imageById.has(widget.imageId)) {
       issues.push(
         createIssue(
@@ -404,10 +483,21 @@ export function normalizeDashboardRuntimeLayout(
   const connections = toArray(layout?.connections).filter(isSavedConnection)
   const widgets = toArray(layout?.widgets).filter(isDashboardWidget)
   const imageById = new Map(images.map((image) => [image.imageId, image]))
+  const runtimeRenderableImages = images.filter(hasImageGeometry)
+  const runtimeRenderableImageById = new Map(runtimeRenderableImages.map((image) => [image.imageId, image]))
   const pointById = new Map(connectionPoints.map((point) => [point.id, point]))
+  const runtimeRenderableConnectionPoints = connectionPoints.filter(hasConnectionPointGeometry)
+  const runtimeRenderablePointById = new Map(
+    runtimeRenderableConnectionPoints.map((point) => [point.id, point]),
+  )
   const widgetById = new Map(widgets.map((widget) => [widget.id, widget]))
   const widgetIds = new Set(widgets.map((widget) => widget.id))
-  const connectionSegmentResult = buildConnectionRenderSegments(connections, pointById, imageById)
+  const runtimeRenderableWidgets = widgets.filter(hasWidgetGeometry)
+  const connectionSegmentResult = buildConnectionRenderSegments(
+    connections,
+    runtimeRenderablePointById,
+    runtimeRenderableImageById,
+  )
   const renderIssues = [
     ...buildRenderIssues(
       images,
@@ -422,16 +512,24 @@ export function normalizeDashboardRuntimeLayout(
 
   return {
     images,
+    runtimeRenderableImages,
     connectionPoints,
+    runtimeRenderableConnectionPoints,
     connections,
     widgets,
     imageById,
+    runtimeRenderableImageById,
     pointById,
+    runtimeRenderablePointById,
     widgetById,
     widgetIds,
-    runtimeRenderableWidgets: widgets,
+    runtimeRenderableWidgets,
     connectionRenderSegments: connectionSegmentResult.renderSegments,
-    diagramBounds: calculateDiagramBounds(images, widgets, connectionSegmentResult.renderSegments),
+    diagramBounds: calculateDiagramBounds(
+      runtimeRenderableImages,
+      runtimeRenderableWidgets,
+      connectionSegmentResult.renderSegments,
+    ),
     renderIssues,
     hasBlockingIssues: renderIssues.some((issue) => issue.severity === 'blocking'),
     hasRecoverableIssues: renderIssues.some((issue) => issue.severity === 'recoverable'),

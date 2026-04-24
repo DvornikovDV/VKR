@@ -1,16 +1,10 @@
 import { http, HttpResponse, type HttpHandler } from 'msw'
-
-interface DashboardWidgetFixture extends Record<string, unknown> {
-  id: string
-  type: string
-}
+import type { DashboardLayoutDocument } from '@/features/dashboard/model/types'
 
 export interface DashboardDiagramFixture {
   _id: string
   name: string
-  layout: {
-    widgets: DashboardWidgetFixture[]
-  }
+  layout: DashboardLayoutDocument
 }
 
 export interface DashboardBindingFixture {

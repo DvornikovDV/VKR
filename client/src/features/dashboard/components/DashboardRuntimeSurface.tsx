@@ -1,11 +1,26 @@
+import { useEffect, useMemo, useState } from 'react'
+import { DashboardViewportControls } from '@/features/dashboard/components/DashboardViewportControls'
+import { DashboardVisualSurface } from '@/features/dashboard/components/DashboardVisualSurface'
+import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runtimeLayout'
+import {
+  createDashboardInitialViewport,
+  panDashboardViewport,
+  resetDashboardViewport,
+  zoomDashboardViewport,
+} from '@/features/dashboard/model/viewport'
 import type {
   DashboardDiagramDocument,
   DashboardEdgeAvailability,
   DashboardMetricValueByBindingKey,
   DashboardRuntimeProjection,
+  DashboardRuntimeLayout,
   DashboardRuntimeValue,
   DashboardTransportStatus,
 } from '@/features/dashboard/model/types'
+import type {
+  DashboardViewportSize,
+  DashboardViewportState,
+} from '@/features/dashboard/model/viewport'
 
 interface DashboardRuntimeSurfaceProps {
   isActiveContext: boolean
@@ -15,6 +30,11 @@ interface DashboardRuntimeSurfaceProps {
   edgeAvailability: DashboardEdgeAvailability
   latestMetricValueByBindingKey: DashboardMetricValueByBindingKey
   lastServerTimestamp?: number | null
+}
+
+const VISUAL_VIEWPORT_SIZE: DashboardViewportSize = {
+  width: 960,
+  height: 540,
 }
 
 function formatRuntimeValue(value: DashboardRuntimeValue): string {
@@ -36,6 +56,10 @@ function selectRuntimeWidgetClassName(isSupported: boolean): string {
   return `${baseClassName} pointer-events-none select-none border-dashed opacity-75`
 }
 
+function createFallbackRuntimeLayout(): DashboardRuntimeLayout {
+  return normalizeDashboardRuntimeLayout({ widgets: [] })
+}
+
 export function DashboardRuntimeSurface({
   isActiveContext,
   savedDiagram,
@@ -45,6 +69,22 @@ export function DashboardRuntimeSurface({
   latestMetricValueByBindingKey,
   lastServerTimestamp = null,
 }: DashboardRuntimeSurfaceProps) {
+  const runtimeLayout = useMemo(
+    () => (savedDiagram ? normalizeDashboardRuntimeLayout(savedDiagram.layout) : null),
+    [savedDiagram],
+  )
+  const [viewport, setViewport] = useState<DashboardViewportState>(() =>
+    createDashboardInitialViewport(createFallbackRuntimeLayout().diagramBounds, VISUAL_VIEWPORT_SIZE),
+  )
+
+  useEffect(() => {
+    if (!runtimeLayout) {
+      return
+    }
+
+    setViewport(createDashboardInitialViewport(runtimeLayout.diagramBounds, VISUAL_VIEWPORT_SIZE))
+  }, [runtimeLayout])
+
   if (!isActiveContext) {
     return (
       <section className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
@@ -81,14 +121,60 @@ export function DashboardRuntimeSurface({
         </p>
       )}
 
+      <div className="mt-4 space-y-3">
+        {!savedDiagram || !runtimeLayout ? (
+          <p className="text-sm text-[#94a3b8]">Saved diagram snapshot is unavailable.</p>
+        ) : (
+          <>
+            <DashboardViewportControls
+              viewport={viewport}
+              onZoomIn={() =>
+                setViewport((current) =>
+                  zoomDashboardViewport(current, {
+                    factor: 1.25,
+                    anchor: {
+                      x: VISUAL_VIEWPORT_SIZE.width / 2,
+                      y: VISUAL_VIEWPORT_SIZE.height / 2,
+                    },
+                  }),
+                )
+              }
+              onZoomOut={() =>
+                setViewport((current) =>
+                  zoomDashboardViewport(current, {
+                    factor: 0.8,
+                    anchor: {
+                      x: VISUAL_VIEWPORT_SIZE.width / 2,
+                      y: VISUAL_VIEWPORT_SIZE.height / 2,
+                    },
+                  }),
+                )
+              }
+              onFitToView={() =>
+                setViewport(createDashboardInitialViewport(runtimeLayout.diagramBounds, VISUAL_VIEWPORT_SIZE))
+              }
+              onReset={() => setViewport(resetDashboardViewport(runtimeLayout.diagramBounds))}
+              onPan={(pan) => setViewport((current) => panDashboardViewport(current, pan))}
+            />
+            <DashboardVisualSurface
+              runtimeLayout={runtimeLayout}
+              runtimeProjection={runtimeProjection}
+              viewport={viewport}
+              viewportSize={VISUAL_VIEWPORT_SIZE}
+              onPanViewport={(pan) => setViewport((current) => panDashboardViewport(current, pan))}
+            />
+          </>
+        )}
+      </div>
+
       <div className="mt-4">
-        <h3 className="text-sm font-semibold text-white">Saved diagram snapshot</h3>
+        <h3 className="text-sm font-semibold text-white">Runtime diagnostics</h3>
         {!savedDiagram ? (
           <p className="mt-2 text-sm text-[#94a3b8]">Saved diagram snapshot is unavailable.</p>
         ) : !hasRuntimeWidgets ? (
           <p className="mt-2 text-sm text-[#94a3b8]">Saved diagram has no runtime widgets.</p>
         ) : (
-          <ul className="mt-2 space-y-2">
+          <ul className="mt-2 space-y-2" aria-label="Runtime widget diagnostics">
             {runtimeWidgets.map((widget) => {
               const isNonOperative = !widget.isSupported
 

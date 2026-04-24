@@ -38,6 +38,10 @@ function getMessage(
       return 'No saved binding profile for the selected Diagram + Edge pair.'
     case 'invalid-binding-profile':
       return 'Saved binding profile references stale widget ids.'
+    case 'visual-rendering-error':
+      return 'Saved diagram visual layout cannot be rendered.'
+    case 'partial-visual-rendering':
+      return 'Saved diagram rendered with recoverable visual issues.'
     case 'ready':
       return 'Monitoring context resolved.'
     default:
@@ -57,6 +61,10 @@ function getHint(state: DashboardRecoveryState): string | null {
       return 'Create or save bindings in Constructor, then return to Dashboard monitoring.'
     case 'invalid-binding-profile':
       return 'Saved binding profile needs a refresh because widget ids no longer match.'
+    case 'visual-rendering-error':
+      return 'Open the saved diagram in Constructor and restore its visual layout before monitoring.'
+    case 'partial-visual-rendering':
+      return 'Renderable visual elements stay visible while damaged saved elements are reported below.'
     case 'ready':
       return 'Live telemetry updates are applied from the selected Edge subscription.'
     default:
@@ -78,7 +86,7 @@ export function DashboardStatePanel({
   const edgeAvailabilityLabel = selectEdgeAvailabilityLabel(edgeAvailability)
   const isReconnecting = transportStatus === 'reconnecting'
   const isLoading = state === 'loading'
-  const isError = state === 'generic-error'
+  const isError = state === 'generic-error' || state === 'visual-rendering-error'
 
   return (
     <section

@@ -11,6 +11,7 @@ import {
   resolveBindingProfileForEdge,
   validateBindingProfileAgainstSavedWidgets,
 } from '@/features/dashboard/model/bindingValidation'
+import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runtimeLayout'
 import { selectDashboardRuntimeProjection } from '@/features/dashboard/model/selectors'
 import type {
   DashboardBindingProfile,
@@ -220,6 +221,10 @@ export function DashboardPage() {
 
     return validateBindingProfileAgainstSavedWidgets(selectedBindingProfile, selectedSavedDiagram.layout)
   }, [selectedBindingProfile, selectedSavedDiagram])
+  const selectedRuntimeLayout = useMemo(
+    () => (selectedSavedDiagram ? normalizeDashboardRuntimeLayout(selectedSavedDiagram.layout) : null),
+    [selectedSavedDiagram],
+  )
 
   const recoveryState: DashboardRecoveryState = useMemo(() => {
     if (isStructurallyInvalid) {
@@ -278,6 +283,18 @@ export function DashboardPage() {
       return 'missing-binding-profile'
     }
 
+    if (!selectedRuntimeLayout) {
+      return 'loading'
+    }
+
+    if (selectedRuntimeLayout.hasBlockingIssues) {
+      return 'visual-rendering-error'
+    }
+
+    if (selectedRuntimeLayout.hasRecoverableIssues) {
+      return 'partial-visual-rendering'
+    }
+
     return 'ready'
   }, [
     bindingValidation,
@@ -292,13 +309,16 @@ export function DashboardPage() {
     selectedDiagram,
     selectedDiagramId,
     selectedBindingProfile,
+    selectedRuntimeLayout,
     selectedSavedDiagram,
     selectedEdge,
     selectedEdgeId,
   ])
 
   const isToolbarDisabled = isBootstrapLoading || Boolean(bootstrapError)
-  const isRuntimeEnabled = recoveryState === 'ready' && Boolean(selectedEdgeId && selectedBindingProfile)
+  const isRuntimeEnabled =
+    (recoveryState === 'ready' || recoveryState === 'partial-visual-rendering') &&
+    Boolean(selectedEdgeId && selectedBindingProfile)
   const isRecoveryLoading = recoveryState === 'loading'
 
   const runtimeSession = useDashboardRuntimeSession({

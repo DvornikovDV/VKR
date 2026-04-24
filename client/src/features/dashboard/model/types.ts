@@ -129,11 +129,15 @@ export interface DashboardConnectionRenderSegment {
 
 export interface DashboardRuntimeLayout {
   images: DashboardSavedImage[]
+  runtimeRenderableImages: DashboardSavedImage[]
   connectionPoints: DashboardConnectionPoint[]
+  runtimeRenderableConnectionPoints: DashboardConnectionPoint[]
   connections: DashboardSavedConnection[]
   widgets: DashboardWidget[]
   imageById: Map<string, DashboardSavedImage>
+  runtimeRenderableImageById: Map<string, DashboardSavedImage>
   pointById: Map<string, DashboardConnectionPoint>
+  runtimeRenderablePointById: Map<string, DashboardConnectionPoint>
   widgetById: Map<string, DashboardWidget>
   widgetIds: Set<string>
   runtimeRenderableWidgets: DashboardWidget[]
@@ -196,6 +200,7 @@ export interface DashboardSubscribedEvent {
 
 export type DashboardMetricValueByBindingKey = Record<string, DashboardRuntimeValue>
 export type DashboardWidgetValueById = Record<string, DashboardRuntimeValue>
+export type DashboardWidgetRuntimeValueState = 'pending' | 'live'
 
 export interface DashboardWidgetRuntimeProjection {
   widgetId: string
@@ -203,6 +208,9 @@ export interface DashboardWidgetRuntimeProjection {
   isBound: boolean
   isSupported: boolean
   value: DashboardRuntimeValue
+  visualValue: string
+  valueState: DashboardWidgetRuntimeValueState
+  unitLabel: string | null
 }
 
 export interface DashboardRuntimeProjection {

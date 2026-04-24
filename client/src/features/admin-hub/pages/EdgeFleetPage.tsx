@@ -303,7 +303,7 @@ export function EdgeFleetPage() {
 
   function isEdgeOnline(edge: CanonicalAdminEdgeServer): boolean {
     const availability = getEdgeAvailabilitySnapshot(edge)
-    return availability.online
+    return availability.online === true
   }
 
   function getEdgeLastSeenAt(edge: CanonicalAdminEdgeServer): string | null {

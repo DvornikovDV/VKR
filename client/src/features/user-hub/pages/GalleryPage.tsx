@@ -25,14 +25,6 @@ interface DiagramCardState extends DiagramCardModel {
   version: number | null
 }
 
-interface ResolvedEdgeContext {
-  name: string
-  isOnline: boolean
-  lifecycleState: 'Active' | 'Blocked'
-  availabilityLabel: 'Online' | 'Offline' | 'Unknown'
-  lastSeenAt: string | null
-}
-
 function toUpdatedAt(diagram: Diagram): string {
   return diagram.updatedAt ?? diagram.createdAt ?? new Date(0).toISOString()
 }

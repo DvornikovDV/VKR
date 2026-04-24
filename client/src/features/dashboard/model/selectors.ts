@@ -63,6 +63,58 @@ function projectLedValue(value: DashboardRuntimeValue): boolean {
   return false
 }
 
+function selectSavedUnitLabel(widget: DashboardWidget): string | null {
+  if (typeof widget.unit !== 'string') {
+    return null
+  }
+
+  const trimmed = widget.unit.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function selectPendingWidgetValue(widget: DashboardWidget): DashboardRuntimeValue {
+  const widgetType = widget.type.trim()
+
+  if (widgetType === 'number-display') {
+    if (isSupportedRuntimeValue(widget.displayValue)) {
+      return projectDashboardWidgetValue(widgetType, widget.displayValue)
+    }
+
+    return null
+  }
+
+  if (widgetType === 'text-display') {
+    if (typeof widget.text === 'string') {
+      return widget.text
+    }
+
+    if (isSupportedRuntimeValue(widget.displayValue)) {
+      return projectDashboardWidgetValue(widgetType, widget.displayValue)
+    }
+
+    return null
+  }
+
+  return null
+}
+
+function formatVisualWidgetValue(
+  widgetType: string,
+  value: DashboardRuntimeValue,
+  unitLabel: string | null,
+): string {
+  if (value === null) {
+    return 'Pending'
+  }
+
+  const renderedValue = String(value)
+  if (widgetType === 'number-display' && unitLabel) {
+    return `${renderedValue} ${unitLabel}`
+  }
+
+  return renderedValue
+}
+
 export function createDashboardBindingKey(deviceId: string, metric: string): string {
   return `${toNonEmptyString(deviceId)}${DASHBOARD_BINDING_KEY_SEPARATOR}${toNonEmptyString(metric)}`
 }
@@ -179,17 +231,22 @@ export function selectWidgetRuntimeProjection(
     const widgetType = widget.type.trim()
     const isBound = boundWidgetIds.has(widgetId)
     const isSupported = SUPPORTED_DASHBOARD_WIDGET_TYPES.has(widgetType)
-    const rawValue =
-      Object.prototype.hasOwnProperty.call(widgetValuesById, widgetId) ?
-        widgetValuesById[widgetId]
-      : null
+    const hasLiveValue = Object.prototype.hasOwnProperty.call(widgetValuesById, widgetId)
+    const rawValue = hasLiveValue ? widgetValuesById[widgetId] : null
+    const pendingValue = selectPendingWidgetValue(widget)
+    const value = isSupported ? projectDashboardWidgetValue(widgetType, rawValue) : rawValue
+    const projectedValue = hasLiveValue ? value : pendingValue
+    const unitLabel = widgetType === 'number-display' ? selectSavedUnitLabel(widget) : null
 
     return {
       widgetId,
       widgetType,
       isBound,
       isSupported,
-      value: isSupported ? projectDashboardWidgetValue(widgetType, rawValue) : rawValue,
+      value: projectedValue,
+      visualValue: formatVisualWidgetValue(widgetType, projectedValue, unitLabel),
+      valueState: hasLiveValue ? 'live' : 'pending',
+      unitLabel,
     }
   })
 }
