@@ -374,6 +374,7 @@ export function DashboardPage() {
           transportStatus={runtimeSession.transportStatus}
           edgeAvailability={runtimeSession.edgeAvailability}
           errorMessage={bootstrapError ?? bindingsError ?? savedDiagramError ?? runtimeSession.runtimeError}
+          renderIssues={selectedRuntimeLayout?.renderIssues ?? []}
         />
 
         <section className="rounded-xl border border-[#1f2a3d] bg-[#0a1220] p-3 shadow-[inset_0_1px_0_rgba(148,163,184,0.08)]">

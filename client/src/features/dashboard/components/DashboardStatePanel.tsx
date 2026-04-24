@@ -5,6 +5,7 @@ import {
 import type {
   DashboardEdgeAvailability,
   DashboardRecoveryState,
+  DashboardRenderIssue,
   DashboardTransportStatus,
 } from '@/features/dashboard/model/types'
 
@@ -15,6 +16,30 @@ interface DashboardStatePanelProps {
   transportStatus?: DashboardTransportStatus
   edgeAvailability?: DashboardEdgeAvailability
   errorMessage?: string | null
+  renderIssues?: DashboardRenderIssue[]
+}
+
+function formatIssueCount(count: number, label: string): string | null {
+  if (count === 0) {
+    return null
+  }
+
+  return `${count} ${label}`
+}
+
+function formatRenderIssueSummary(renderIssues: DashboardRenderIssue[]): string | null {
+  if (renderIssues.length === 0) {
+    return null
+  }
+
+  const blockingCount = renderIssues.filter((issue) => issue.severity === 'blocking').length
+  const recoverableCount = renderIssues.length - blockingCount
+  const summaryParts = [
+    formatIssueCount(blockingCount, 'blocking'),
+    formatIssueCount(recoverableCount, 'recoverable'),
+  ].filter((part): part is string => Boolean(part))
+
+  return `Visual render issues: ${summaryParts.join(', ')}`
 }
 
 function getMessage(
@@ -79,6 +104,7 @@ export function DashboardStatePanel({
   transportStatus = 'idle',
   edgeAvailability = 'unknown',
   errorMessage = null,
+  renderIssues = [],
 }: DashboardStatePanelProps) {
   const message = getMessage(state, selectedDiagramName, errorMessage)
   const hint = getHint(state)
@@ -87,6 +113,9 @@ export function DashboardStatePanel({
   const isReconnecting = transportStatus === 'reconnecting'
   const isLoading = state === 'loading'
   const isError = state === 'generic-error' || state === 'visual-rendering-error'
+  const visibleRenderIssues =
+    state === 'visual-rendering-error' || state === 'partial-visual-rendering' ? renderIssues : []
+  const renderIssueSummary = formatRenderIssueSummary(visibleRenderIssues)
 
   return (
     <section
@@ -110,6 +139,24 @@ export function DashboardStatePanel({
         <p>Transport: {transportLabel}</p>
         <p>Edge: {edgeAvailabilityLabel}</p>
       </div>
+
+      {renderIssueSummary && (
+        <div
+          data-testid="dashboard-state-render-issues"
+          className="mt-3 rounded-md border border-[#334155] bg-[#020617]/45 px-3 py-2 text-xs text-[#cbd5e1]"
+        >
+          <p className="font-medium text-white">{renderIssueSummary}</p>
+          <ul className="mt-2 space-y-1">
+            {visibleRenderIssues.map((issue, index) => (
+              <li key={`${issue.kind}-${issue.elementId ?? 'layout'}-${index}`}>
+                <span className="font-medium">{issue.kind}</span>
+                {issue.elementId ? <span> ({issue.elementId})</span> : null}
+                <span>: {issue.message}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {isLoading && (
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--color-surface-200)]">

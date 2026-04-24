@@ -594,3 +594,82 @@ describe('DashboardPage visual diagnostics (T051)', () => {
     expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
   })
 })
+
+describe('DashboardPage visual render issue recovery (T052)', () => {
+  it('surfaces blocking visual-rendering-error from normalized render issues without a text-only fallback', async () => {
+    const fixtures = createDashboardVisualRestFixtures()
+    setupDashboardApiFixtures({
+      ...fixtures,
+      diagramsById: {
+        [dashboardVisualDiagram._id]: {
+          ...dashboardVisualDiagram,
+          layout: {
+            images: [
+              {
+                imageId: 'image-broken',
+                base64: 'not-a-data-image',
+                x: 24,
+                y: 24,
+                width: 180,
+                height: 120,
+              },
+            ],
+            widgets: [
+              {
+                id: 'widget-temperature',
+                type: 'number-display',
+                imageId: 'image-broken',
+                x: 48,
+                y: 56,
+                width: 112,
+                height: 52,
+              },
+            ],
+          },
+        },
+      },
+      bindingProfilesByDiagramId: {
+        [dashboardVisualDiagram._id]: [
+          {
+            _id: 'binding-visual-broken',
+            diagramId: dashboardVisualDiagram._id,
+            edgeServerId: 'edge-visual-1',
+            widgetBindings: [
+              { widgetId: 'widget-temperature', deviceId: 'boiler-1', metric: 'temperature' },
+            ],
+          },
+        ],
+      },
+    })
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByText('Saved diagram visual layout cannot be rendered.')).toBeInTheDocument()
+
+    const renderIssueSummary = screen.getByTestId('dashboard-state-render-issues')
+    expect(renderIssueSummary).toHaveTextContent('Visual render issues: 1 blocking')
+    expect(renderIssueSummary).toHaveTextContent('damaged-image-data')
+    expect(renderIssueSummary).toHaveTextContent('image-broken')
+    expect(screen.queryByTestId('dashboard-visual-surface')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-runtime-widget-widget-temperature')).not.toBeInTheDocument()
+  })
+
+  it('surfaces partial-visual-rendering from recoverable render issues while preserving the visual surface', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(
+      await screen.findByText('Saved diagram rendered with recoverable visual issues.'),
+    ).toBeInTheDocument()
+
+    const renderIssueSummary = screen.getByTestId('dashboard-state-render-issues')
+    expect(renderIssueSummary).toHaveTextContent('Visual render issues: 2 recoverable')
+    expect(renderIssueSummary).toHaveTextContent('missing-connection-point')
+    expect(renderIssueSummary).toHaveTextContent('missing-widget-image')
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-runtime-widget-widget-temperature')).not.toBeInTheDocument()
+  })
+})
