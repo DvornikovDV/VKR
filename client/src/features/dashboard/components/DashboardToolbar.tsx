@@ -1,3 +1,4 @@
+import { Info } from 'lucide-react'
 import type {
   DashboardDiagramSummary,
   DashboardTrustedEdgeServer,
@@ -9,8 +10,10 @@ interface DashboardToolbarProps {
   edgeOptions: DashboardTrustedEdgeServer[]
   selectedEdgeId: string | null
   disabled?: boolean
+  diagnosticsOpen: boolean
   onDiagramChange: (diagramId: string | null) => void
   onEdgeChange: (edgeId: string | null) => void
+  onToggleDiagnostics: () => void
 }
 
 function toSelectValue(value: string | null): string {
@@ -32,8 +35,10 @@ export function DashboardToolbar({
   edgeOptions,
   selectedEdgeId,
   disabled = false,
+  diagnosticsOpen,
   onDiagramChange,
   onEdgeChange,
+  onToggleDiagnostics,
 }: DashboardToolbarProps) {
   const isEdgeDisabled = disabled || !selectedDiagramId || edgeOptions.length === 0
   const hasSelectedDiagramOption = hasOptionWithId(diagrams, selectedDiagramId)
@@ -41,7 +46,7 @@ export function DashboardToolbar({
 
   return (
     <section className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
         <label className="flex flex-col gap-1 text-sm text-[#cbd5e1]">
           Diagram
           <select
@@ -83,6 +88,18 @@ export function DashboardToolbar({
             ))}
           </select>
         </label>
+
+        <div className="flex items-end">
+          <button
+            type="button"
+            aria-expanded={diagnosticsOpen}
+            onClick={onToggleDiagnostics}
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 text-sm font-medium text-white transition-colors hover:bg-[var(--color-surface-300)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-brand-400)]"
+          >
+            <Info aria-hidden="true" size={16} />
+            Details
+          </button>
+        </div>
       </div>
     </section>
   )

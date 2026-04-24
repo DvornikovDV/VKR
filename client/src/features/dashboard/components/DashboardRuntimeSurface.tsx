@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
+import { DashboardDiagnosticsPanel } from '@/features/dashboard/components/DashboardDiagnosticsPanel'
 import { DashboardViewportControls } from '@/features/dashboard/components/DashboardViewportControls'
 import { DashboardVisualSurface } from '@/features/dashboard/components/DashboardVisualSurface'
 import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runtimeLayout'
@@ -14,7 +16,6 @@ import type {
   DashboardMetricValueByBindingKey,
   DashboardRuntimeProjection,
   DashboardRuntimeLayout,
-  DashboardRuntimeValue,
   DashboardTransportStatus,
 } from '@/features/dashboard/model/types'
 import type {
@@ -30,30 +31,13 @@ interface DashboardRuntimeSurfaceProps {
   edgeAvailability: DashboardEdgeAvailability
   latestMetricValueByBindingKey: DashboardMetricValueByBindingKey
   lastServerTimestamp?: number | null
+  diagnosticsOpen: boolean
+  onToggleDiagnostics: () => void
 }
 
 const VISUAL_VIEWPORT_SIZE: DashboardViewportSize = {
   width: 960,
   height: 540,
-}
-
-function formatRuntimeValue(value: DashboardRuntimeValue): string {
-  if (value === null) {
-    return 'null'
-  }
-
-  return String(value)
-}
-
-function selectRuntimeWidgetClassName(isSupported: boolean): string {
-  const baseClassName =
-    'rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white transition-opacity duration-150'
-
-  if (isSupported) {
-    return baseClassName
-  }
-
-  return `${baseClassName} pointer-events-none select-none border-dashed opacity-75`
 }
 
 function createFallbackRuntimeLayout(): DashboardRuntimeLayout {
@@ -68,6 +52,8 @@ export function DashboardRuntimeSurface({
   edgeAvailability,
   latestMetricValueByBindingKey,
   lastServerTimestamp = null,
+  diagnosticsOpen,
+  onToggleDiagnostics,
 }: DashboardRuntimeSurfaceProps) {
   const runtimeLayout = useMemo(
     () => (savedDiagram ? normalizeDashboardRuntimeLayout(savedDiagram.layout) : null),
@@ -96,15 +82,8 @@ export function DashboardRuntimeSurface({
     )
   }
 
-  const metricEntries = Object.entries(latestMetricValueByBindingKey).sort(([left], [right]) =>
-    left.localeCompare(right),
-  )
-  const hasValues = metricEntries.length > 0
-  const runtimeWidgets = runtimeProjection?.widgets ?? []
-  const hasRuntimeWidgets = runtimeWidgets.length > 0
-
   return (
-    <section className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
+    <section className="relative overflow-hidden rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4 pb-16">
       <h2 className="text-lg font-semibold text-white">Live Runtime Surface</h2>
 
       <div className="mt-2 flex flex-wrap gap-4 text-xs text-[#94a3b8]">
@@ -167,60 +146,29 @@ export function DashboardRuntimeSurface({
         )}
       </div>
 
-      <div className="mt-4">
-        <h3 className="text-sm font-semibold text-white">Runtime diagnostics</h3>
-        {!savedDiagram ? (
-          <p className="mt-2 text-sm text-[#94a3b8]">Saved diagram snapshot is unavailable.</p>
-        ) : !hasRuntimeWidgets ? (
-          <p className="mt-2 text-sm text-[#94a3b8]">Saved diagram has no runtime widgets.</p>
-        ) : (
-          <ul className="mt-2 space-y-2" aria-label="Runtime widget diagnostics">
-            {runtimeWidgets.map((widget) => {
-              const isNonOperative = !widget.isSupported
-
-              return (
-                <li
-                  key={widget.widgetId}
-                  data-testid={`dashboard-runtime-widget-${widget.widgetId}`}
-                  aria-disabled={isNonOperative ? 'true' : undefined}
-                  className={selectRuntimeWidgetClassName(widget.isSupported)}
-                >
-                  <p className="font-medium">{widget.widgetId}</p>
-                  <p className="text-xs text-[#94a3b8]">{widget.widgetType}</p>
-                  {!widget.isSupported ? (
-                    <p className="mt-1 text-xs text-[#94a3b8]">
-                      Visible only. Unsupported in monitoring MVP.
-                    </p>
-                  ) : !widget.isBound ? (
-                    <p className="mt-1 text-xs text-[#94a3b8]">Value: unbound</p>
-                  ) : (
-                    <p className="mt-1 text-xs text-[#94a3b8]">
-                      Value: {formatRuntimeValue(widget.value)}
-                    </p>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
-        )}
+      <div className="absolute inset-x-3 bottom-3 z-10 flex justify-center">
+        <button
+          type="button"
+          aria-label={diagnosticsOpen ? 'Close diagnostics' : 'Open diagnostics'}
+          aria-expanded={diagnosticsOpen}
+          onClick={onToggleDiagnostics}
+          className="inline-flex items-center gap-2 rounded-full border border-[#334155] bg-[#020617] px-4 py-2 text-xs font-medium text-[#e2e8f0] shadow-lg transition-colors hover:bg-[#0f172a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#38bdf8]"
+        >
+          {diagnosticsOpen ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronUp aria-hidden="true" size={14} />}
+          Diagnostics
+        </button>
       </div>
 
-      <h3 className="mt-4 text-sm font-semibold text-white">Telemetry by binding key</h3>
-      {!hasValues ? (
-        <p className="mt-3 text-sm text-[#94a3b8]">No live telemetry values received yet.</p>
-      ) : (
-        <ul className="mt-3 space-y-2">
-          {metricEntries.map(([bindingKey, value]) => (
-            <li
-              key={bindingKey}
-              className="flex items-center justify-between rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white"
-            >
-              <span>{bindingKey}</span>
-              <span>{formatRuntimeValue(value)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
+      {diagnosticsOpen ? (
+        <div className="absolute inset-x-3 bottom-14 z-10">
+          <DashboardDiagnosticsPanel
+            runtimeProjection={runtimeProjection}
+            telemetryValues={latestMetricValueByBindingKey}
+            renderIssues={runtimeLayout?.renderIssues ?? []}
+            lastServerTimestamp={lastServerTimestamp}
+          />
+        </div>
+      ) : null}
     </section>
   )
 }

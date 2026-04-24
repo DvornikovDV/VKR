@@ -51,6 +51,7 @@ export function DashboardPage() {
   const [bootstrapError, setBootstrapError] = useState<string | null>(null)
   const [bindingsError, setBindingsError] = useState<string | null>(null)
   const [savedDiagramError, setSavedDiagramError] = useState<string | null>(null)
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
 
   const selectedDiagramId = routeState.diagramId
   const selectedEdgeId = routeState.edgeId
@@ -346,6 +347,7 @@ export function DashboardPage() {
           edgeOptions={edgeOptions}
           selectedEdgeId={selectedEdgeId}
           disabled={isToolbarDisabled}
+          diagnosticsOpen={isDiagnosticsOpen}
           onDiagramChange={(diagramId) =>
             setRouteState(
               {
@@ -362,6 +364,7 @@ export function DashboardPage() {
               { source: 'user-selection' },
             )
           }
+          onToggleDiagnostics={() => setIsDiagnosticsOpen((isOpen) => !isOpen)}
         />
 
         <DashboardStatePanel
@@ -383,6 +386,8 @@ export function DashboardPage() {
               edgeAvailability={runtimeSession.edgeAvailability}
               latestMetricValueByBindingKey={runtimeSession.latestMetricValueByBindingKey}
               lastServerTimestamp={runtimeSession.lastServerTimestamp}
+              diagnosticsOpen={isDiagnosticsOpen}
+              onToggleDiagnostics={() => setIsDiagnosticsOpen((isOpen) => !isOpen)}
             />
           </div>
         </section>

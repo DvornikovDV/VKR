@@ -403,8 +403,12 @@ describe('Dashboard visual runtime surface (T040)', () => {
 
     expect(within(temperatureWidget).getByText('72.4 C')).toBeInTheDocument()
     expect(within(statusWidget).getByText('Stable output')).toBeInTheDocument()
-    expect(screen.getByTestId('dashboard-runtime-widget-widget-temperature')).toHaveTextContent('Value: 72.4')
-    expect(screen.getByTestId('dashboard-runtime-widget-widget-status')).toHaveTextContent('Value: Stable output')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
+    const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
+    expect(within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-temperature')).toHaveTextContent('Value: 72.4')
+    expect(within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-status')).toHaveTextContent('Value: Stable output')
 
     act(() => {
       runtimeHarness.emitDisconnect()

@@ -1,9 +1,13 @@
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
 import { server } from '../mocks/server'
+import {
+  createDashboardVisualRestFixtures,
+  dashboardVisualDiagram,
+} from '../fixtures/dashboardVisualLayout'
 import {
   createDashboardApiFixtures,
   createDashboardApiHandlers,
@@ -247,8 +251,11 @@ describe('DashboardPage (US2)', () => {
       )
     })
 
-    expect(screen.getByText('pump-1::temperature')).toBeInTheDocument()
-    expect(screen.getByText('48.7')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
+    const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
+    expect(within(diagnosticsPanel).getByText('pump-1::temperature')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('48.7')).toBeInTheDocument()
 
     act(() => {
       runtimeHarness.emitTransportStatus('edge-1', 'reconnecting')
@@ -259,7 +266,7 @@ describe('DashboardPage (US2)', () => {
         screen.getByText('Transport reconnecting. Last rendered values are preserved.'),
       ).toBeInTheDocument()
     }, { timeout: 3000 })
-    expect(screen.getByText('48.7')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('48.7')).toBeInTheDocument()
   })
 
   it('distinguishes edge offline state from transport reconnecting state', async () => {
@@ -449,14 +456,17 @@ describe('DashboardPage (US3)', () => {
       )
     })
 
-    expect(screen.getByText('widget-number')).toBeInTheDocument()
-    expect(screen.getByText('widget-text')).toBeInTheDocument()
-    expect(screen.getByText('widget-led')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
+    const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
+    expect(within(diagnosticsPanel).getByText('widget-number')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('widget-text')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('widget-led')).toBeInTheDocument()
     expect(screen.queryByText('widget-draft-only')).not.toBeInTheDocument()
 
-    expect(screen.getByText('Value: 48.5')).toBeInTheDocument()
-    expect(screen.getByText('Value: 15')).toBeInTheDocument()
-    expect(screen.getByText('Value: false')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Value: 48.5')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Value: 15')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Value: false')).toBeInTheDocument()
   })
 })
 
@@ -521,16 +531,66 @@ describe('DashboardPage (US4)', () => {
       )
     })
 
-    expect(screen.getByText('widget-command')).toBeInTheDocument()
-    expect(screen.getByText('widget-supported')).toBeInTheDocument()
-    expect(screen.getByText('Value: 49')).toBeInTheDocument()
-    expect(screen.getByText('Visible only. Unsupported in monitoring MVP.')).toBeInTheDocument()
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
+    const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
+    expect(within(diagnosticsPanel).getByText('widget-command')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('widget-supported')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Value: 49')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Visible only. Unsupported in monitoring MVP.')).toBeInTheDocument()
 
-    const nonOperativeWidget = screen.getByTestId('dashboard-runtime-widget-widget-command')
+    const nonOperativeWidget = within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-command')
     expect(nonOperativeWidget).toHaveAttribute('aria-disabled', 'true')
     expect(nonOperativeWidget.className).toContain('pointer-events-none')
     expect(
       screen.queryByRole('button', { name: /widget-command/i }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe('DashboardPage visual diagnostics (T051)', () => {
+  it('opens collapsed diagnostics from the bottom handle without replacing the visual surface', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const user = userEvent.setup()
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-diagnostics-panel')).not.toBeInTheDocument()
+    expect(screen.queryByText('Runtime diagnostics')).not.toBeInTheDocument()
+    expect(screen.queryByText('Telemetry by binding key')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
+
+    const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
+    const scrollRegion = within(diagnosticsPanel).getByTestId('dashboard-diagnostics-scroll-region')
+
+    expect(diagnosticsPanel).toBeInTheDocument()
+    expect(scrollRegion).toHaveClass('max-h-80')
+    expect(scrollRegion).toHaveClass('overflow-y-auto')
+    expect(within(diagnosticsPanel).getByRole('heading', { name: 'Telemetry' })).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByRole('heading', { name: 'Bindings' })).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByRole('heading', { name: 'Render issues' })).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
+  })
+
+  it('opens the same collapsed diagnostics state from the Details toolbar action', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const user = userEvent.setup()
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Details' }))
+
+    expect(await screen.findByTestId('dashboard-diagnostics-panel')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Close diagnostics' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+    expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
   })
 })
