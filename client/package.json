@@ -16,9 +16,11 @@
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",
     "clsx": "^2.1.1",
+    "konva": "^10.2.5",
     "lucide-react": "^0.577.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-konva": "^19.2.3",
     "react-router-dom": "^7.13.1",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.5.0",

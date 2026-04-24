@@ -1,256 +1,350 @@
 package integration
 
 import (
+	"bytes"
 	"context"
-	"errors"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"edge_server/go_core/internal/config"
-	"edge_server/go_core/internal/runtimeapp"
-	"edge_server/go_core/internal/source"
-	"edge_server/go_core/internal/state"
+	"github.com/gorilla/websocket"
 )
 
-func TestRuntimeSmokeFixtureContracts(t *testing.T) {
-	quickstartBytes, err := os.ReadFile(runtimeAuthorityPath(t, "specs", "007-edge-server", "quickstart.md"))
-	if err != nil {
-		t.Fatalf("read 007 quickstart: %v", err)
-	}
-	dataModelBytes, err := os.ReadFile(runtimeAuthorityPath(t, "specs", "007-edge-server", "data-model.md"))
-	if err != nil {
-		t.Fatalf("read 007 data model: %v", err)
-	}
-	websocketContractBytes, err := os.ReadFile(runtimeAuthorityPath(t, "specs", "001-cloud-server", "contracts", "websocket.md"))
-	if err != nil {
-		t.Fatalf("read websocket contract: %v", err)
-	}
-
-	for _, snippet := range []string{
-		"does not use onboarding-package semantics",
-		"`credential.json`",
-		"`runtime.edgeId`",
-		"stateDir:",
-		"`/edge`",
-		"current persistent credential",
-	} {
-		if !strings.Contains(string(quickstartBytes), snippet) {
-			t.Fatalf("007 quickstart must document %s for the smoke baseline", snippet)
-		}
-	}
-	for _, snippet := range []string{
-		"`runtime.edgeId`",
-		"`runtime.stateDir`",
-		"`credentialSecret`",
-		"`source`",
-		"`installedAt`",
-	} {
-		if !strings.Contains(string(dataModelBytes), snippet) {
-			t.Fatalf("007 data model must document %s for the smoke baseline", snippet)
-		}
-	}
-	for _, snippet := range []string{
-		"`edge_not_found`",
-		"`blocked`",
-		"`invalid_credential`",
-		"`edge_auth_internal_error`",
-		"`credential_rotated`",
-	} {
-		if !strings.Contains(string(websocketContractBytes), snippet) {
-			t.Fatalf("websocket contract must document %s for the smoke baseline", snippet)
-		}
-	}
-
-	stateDir := t.TempDir()
-	t.Setenv("RUNTIME_STATE_DIR", stateDir)
-	t.Setenv("CLOUD_SOCKET_URL", "http://127.0.0.1:4000")
-
-	cfg, err := config.LoadFromFile(runtimeFixturePath(t, "config.yaml"))
-	if err != nil {
-		t.Fatalf("load config fixture through production loader: %v", err)
-	}
-	if _, err := runtimeapp.New(context.Background(), cfg, noopTransport{}); err != nil {
-		t.Fatalf("consume config fixture through runtime app wiring: %v", err)
-	}
-	if cfg.Runtime.EdgeID != "507f1f77bcf86cd799439011" {
-		t.Fatalf("unexpected runtime edgeId from config fixture: %q", cfg.Runtime.EdgeID)
-	}
-	if cfg.Cloud.Namespace != "/edge" {
-		t.Fatalf("unexpected cloud namespace from config fixture: %q", cfg.Cloud.Namespace)
-	}
-
-	store := state.NewCredentialStore(stateDir)
-	credentialBytes, err := os.ReadFile(runtimeFixturePath(t, "valid/credential.json"))
-	if err != nil {
-		t.Fatalf("read valid credential fixture: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(stateDir, "credential.json"), credentialBytes, 0o600); err != nil {
-		t.Fatalf("write valid credential fixture into state dir: %v", err)
-	}
-
-	credential, exists, err := store.Load()
-	if err != nil {
-		t.Fatalf("load valid credential fixture through production store: %v", err)
-	}
-	if !exists {
-		t.Fatal("expected valid credential fixture to exist")
-	}
-	if credential.EdgeID != cfg.Runtime.EdgeID {
-		t.Fatalf("expected config and credential edgeIds to match, got %q and %q", cfg.Runtime.EdgeID, credential.EdgeID)
-	}
-	if credential.CredentialSecret != "persistent-secret-fixture-valid" {
-		t.Fatalf("unexpected credential secret from smoke fixture: %q", credential.CredentialSecret)
-	}
-	if credential.Version != 3 {
-		t.Fatalf("unexpected credential version from smoke fixture: %d", credential.Version)
-	}
+type runtimeHandshakeAttempt struct {
+	EdgeID           string
+	CredentialSecret string
+	AuthPayload      map[string]any
 }
 
-func TestRuntimeSmokeFixtureLoadsPersistentCredentialBootstrapInputs(t *testing.T) {
-	stateDir := t.TempDir()
-	store := state.NewCredentialStore(stateDir)
-
-	validCredentialBytes, err := os.ReadFile(runtimeFixturePath(t, "valid/credential.json"))
-	if err != nil {
-		t.Fatalf("read valid credential fixture: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(stateDir, "credential.json"), validCredentialBytes, 0o600); err != nil {
-		t.Fatalf("write valid credential fixture into state dir: %v", err)
-	}
-
-	credential, exists, err := store.Load()
-	if err != nil {
-		t.Fatalf("load persistent credential fixture: %v", err)
-	}
-	if !exists {
-		t.Fatal("expected credential fixture to exist")
-	}
-	if credential.EdgeID != "507f1f77bcf86cd799439011" {
-		t.Fatalf("unexpected credential edgeId from smoke fixture: %q", credential.EdgeID)
-	}
-	if credential.CredentialSecret != "persistent-secret-fixture-valid" {
-		t.Fatalf("unexpected credential secret from smoke fixture: %q", credential.CredentialSecret)
-	}
-	if credential.Version != 3 {
-		t.Fatalf("unexpected credential version from smoke fixture: %d", credential.Version)
-	}
+type runtimeAuthServerBehavior struct {
+	AcceptConnect bool
+	ConnectError  string
+	KeepAlive     bool
 }
 
-func TestRuntimeSmokeFixtureDoesNotRequirePersistedRuntimeStateFiles(t *testing.T) {
-	for _, fileName := range []string{"credential.json", "runtime-state.json", "status.json"} {
-		_, err := os.Stat(runtimeFixturePath(t, fileName))
-		if err == nil {
-			t.Fatalf("fixture set must not require machine-written runtime state file %q", fileName)
-		}
-		if !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("inspect fixture %q: %v", fileName, err)
-		}
-	}
+type runtimeAuthServer struct {
+	t        *testing.T
+	behavior runtimeAuthServerBehavior
+
+	mu       sync.Mutex
+	attempts []runtimeHandshakeAttempt
+	events   chan runtimeHandshakeAttempt
+
+	server *httptest.Server
 }
 
-func TestRuntimeStateFileTracksProductionRuntimeTransitions(t *testing.T) {
-	stateDir := t.TempDir()
-	t.Setenv("RUNTIME_STATE_DIR", stateDir)
-	t.Setenv("CLOUD_SOCKET_URL", "http://127.0.0.1:4000")
-
-	cfg, err := config.LoadFromFile(runtimeFixturePath(t, "config.yaml"))
-	if err != nil {
-		t.Fatalf("load runtime config fixture: %v", err)
-	}
-	cfg.Batch.IntervalMs = 20
-	cfg.Batch.MaxReadings = 1
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	process, err := runtimeapp.New(ctx, cfg, noopTransport{})
-	if err != nil {
-		t.Fatalf("construct production runtime app: %v", err)
-	}
-
-	runtimeStore := state.NewRuntimeStateStore(stateDir)
-	startupState := waitForRuntimeState(t, runtimeStore, func(snapshot state.RuntimeState) bool {
-		return snapshot.EdgeID == cfg.Runtime.EdgeID &&
-			snapshot.CredentialStatus == state.CredentialStatusMissing &&
-			snapshot.SessionState == state.SessionStateStartup &&
-			snapshot.AuthOutcome == state.AuthOutcomeNeverAttempted &&
-			!snapshot.RetryEligible &&
-			snapshot.SourceConfigRevision != ""
-	})
-	if startupState.LastConnectAttemptAt != nil {
-		t.Fatalf("expected startup runtime-state to avoid premature connect attempts, got %+v", startupState)
-	}
-
-	if err := process.Runner.ActivateTrustedSession(cfg.Runtime.EdgeID, "persistent-secret-fixture-valid"); err != nil {
-		t.Fatalf("activate trusted session: %v", err)
-	}
-	trustedState := waitForRuntimeState(t, runtimeStore, func(snapshot state.RuntimeState) bool {
-		return snapshot.SessionState == state.SessionStateTrusted &&
-			snapshot.AuthOutcome == state.AuthOutcomeAccepted &&
-			snapshot.RetryEligible &&
-			snapshot.LastTrustedSessionAt != nil
-	})
-	if trustedState.EdgeID != cfg.Runtime.EdgeID {
-		t.Fatalf("expected trusted runtime-state edgeId=%q, got %+v", cfg.Runtime.EdgeID, trustedState)
-	}
-
-	control, err := process.Sources.MockControl("mock-source-1")
-	if err != nil {
-		t.Fatalf("get mock source control: %v", err)
-	}
-	if err := control.EmitReading(source.RawReading{
-		DeviceID: "pump-1",
-		Metric:   "pressure",
-		Value:    18.75,
-		TS:       1001,
-	}); err != nil {
-		t.Fatalf("emit reading through production runtime app: %v", err)
-	}
-
-	telemetryState := waitForRuntimeState(t, runtimeStore, func(snapshot state.RuntimeState) bool {
-		return snapshot.LastTelemetrySentAt != nil
-	})
-	if telemetryState.LastTelemetrySentAt == nil {
-		t.Fatalf("expected runtime-state to record successful telemetry emit, got %+v", telemetryState)
-	}
-
-	if err := process.Runner.MarkDisconnected("transport_closed"); err != nil {
-		t.Fatalf("mark runtime disconnected: %v", err)
-	}
-	disconnectedState := waitForRuntimeState(t, runtimeStore, func(snapshot state.RuntimeState) bool {
-		return snapshot.SessionState == state.SessionStateRetryWait &&
-			snapshot.AuthOutcome == state.AuthOutcomeDisconnected &&
-			snapshot.RetryEligible &&
-			snapshot.LastDisconnectReason != nil &&
-			*snapshot.LastDisconnectReason == "transport_closed"
-	})
-	if disconnectedState.LastDisconnectAt == nil {
-		t.Fatalf("expected runtime-state to record disconnect timestamp, got %+v", disconnectedState)
-	}
-}
-
-func waitForRuntimeState(t *testing.T, store *state.RuntimeStateStore, predicate func(state.RuntimeState) bool) state.RuntimeState {
+func newRuntimeAuthServer(t *testing.T, behavior runtimeAuthServerBehavior) *runtimeAuthServer {
 	t.Helper()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		snapshot, exists, err := store.Load()
-		if err != nil {
-			t.Fatalf("load runtime-state from production store: %v", err)
-		}
-		if exists && predicate(snapshot) {
-			return snapshot
-		}
-		time.Sleep(10 * time.Millisecond)
+	srv := &runtimeAuthServer{
+		t:        t,
+		behavior: behavior,
+		events:   make(chan runtimeHandshakeAttempt, 8),
 	}
 
-	snapshot, exists, err := store.Load()
-	if err != nil {
-		t.Fatalf("final runtime-state load: %v", err)
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(_ *http.Request) bool { return true },
 	}
-	t.Fatalf("timed out waiting for runtime-state predicate, exists=%v snapshot=%+v", exists, snapshot)
-	return state.RuntimeState{}
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/socket.io/" {
+			http.NotFound(w, r)
+			return
+		}
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(`0{"sid":"smoke-sid","upgrades":[],"pingInterval":25000,"pingTimeout":20000,"maxPayload":1000000}`)); err != nil {
+			return
+		}
+
+		_, rawMessage, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		attempt, err := parseRuntimeHandshakeAttempt(rawMessage)
+		if err != nil {
+			t.Errorf("parse runtime handshake attempt: %v", err)
+			return
+		}
+
+		srv.mu.Lock()
+		srv.attempts = append(srv.attempts, attempt)
+		srv.mu.Unlock()
+
+		srv.events <- attempt
+
+		if behavior.ConnectError != "" {
+			connectErrorMessage := fmt.Sprintf(`44/edge,{"message":%q}`, behavior.ConnectError)
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(connectErrorMessage))
+			time.Sleep(25 * time.Millisecond)
+			return
+		}
+
+		if behavior.AcceptConnect {
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(`40/edge,{"sid":"edge-1"}`)); err != nil {
+				return
+			}
+		}
+
+		if behavior.KeepAlive {
+			for {
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+			}
+		}
+	})
+
+	srv.server = httptest.NewServer(handler)
+	return srv
+}
+
+func (s *runtimeAuthServer) Close() {
+	if s != nil && s.server != nil {
+		s.server.Close()
+	}
+}
+
+func (s *runtimeAuthServer) URL() string {
+	if s == nil || s.server == nil {
+		return ""
+	}
+	return s.server.URL
+}
+
+func (s *runtimeAuthServer) WaitForAttempt(t *testing.T, timeout time.Duration) runtimeHandshakeAttempt {
+	t.Helper()
+
+	select {
+	case attempt := <-s.events:
+		return attempt
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for runtime handshake attempt")
+		return runtimeHandshakeAttempt{}
+	}
+}
+
+func parseRuntimeHandshakeAttempt(raw []byte) (runtimeHandshakeAttempt, error) {
+	message := string(raw)
+	if !strings.HasPrefix(message, "40/edge,") {
+		return runtimeHandshakeAttempt{}, fmt.Errorf("expected namespace connect packet, got %q", message)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimPrefix(message, "40/edge,")), &payload); err != nil {
+		return runtimeHandshakeAttempt{}, fmt.Errorf("parse namespace auth payload: %w", err)
+	}
+
+	edgeID, _ := payload["edgeId"].(string)
+	credentialSecret, _ := payload["credentialSecret"].(string)
+
+	return runtimeHandshakeAttempt{
+		EdgeID:           strings.TrimSpace(edgeID),
+		CredentialSecret: strings.TrimSpace(credentialSecret),
+		AuthPayload:      payload,
+	}, nil
+}
+
+func TestT011RuntimeStartupUsesConfigAndLocalCredentialForTrustedConnect(t *testing.T) {
+	socketServer := newRuntimeAuthServer(t, runtimeAuthServerBehavior{
+		AcceptConnect: true,
+		KeepAlive:     true,
+	})
+	defer socketServer.Close()
+
+	binaryPath, configPath, stateDir := prepareRuntimeStartup(t, socketServer.URL())
+	installCredentialFixture(t, stateDir, "valid/credential.json")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binaryPath, "--config", configPath)
+	cmd.Env = os.Environ()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start runtime process: %v", err)
+	}
+	defer func() {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	}()
+
+	attempt := socketServer.WaitForAttempt(t, 2*time.Second)
+	if attempt.EdgeID != "507f1f77bcf86cd799439011" {
+		t.Fatalf("expected handshake edgeId from runtime config, got %q", attempt.EdgeID)
+	}
+	if attempt.CredentialSecret != "persistent-secret-fixture-valid" {
+		t.Fatalf("expected handshake to use persistent credential from credential.json, got %q", attempt.CredentialSecret)
+	}
+	if _, hasLegacyMode := attempt.AuthPayload["credentialMode"]; hasLegacyMode {
+		t.Fatalf("runtime handshake auth must not include legacy onboarding field credentialMode, payload=%v", attempt.AuthPayload)
+	}
+
+	time.Sleep(250 * time.Millisecond)
+	if cmd.ProcessState != nil {
+		t.Fatalf(
+			"runtime exited too early after accepted trusted connect:\nstdout:\n%s\nstderr:\n%s",
+			stdout.String(),
+			stderr.String(),
+		)
+	}
+}
+
+func TestT011RuntimeStartupFailsWithoutCredentialFile(t *testing.T) {
+	binaryPath, configPath, _ := prepareRuntimeStartup(t, "http://127.0.0.1:65535")
+
+	err, stdout, stderr := runRuntimeCommand(t, 8*time.Second, binaryPath, "--config", configPath)
+	if err == nil {
+		t.Fatalf("expected startup without credential.json to fail\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if !strings.Contains(strings.ToLower(stderr), "credential.json") {
+		t.Fatalf("expected error to mention missing credential.json, got stderr:\n%s", stderr)
+	}
+	if strings.Contains(strings.ToLower(stderr), "onboarding") {
+		t.Fatalf("startup without credential.json must not fallback to onboarding semantics, got stderr:\n%s", stderr)
+	}
+}
+
+func TestT011RuntimeStartupRejectsInvalidCredentialFile(t *testing.T) {
+	binaryPath, configPath, stateDir := prepareRuntimeStartup(t, "http://127.0.0.1:65535")
+	installCredentialFixture(t, stateDir, "partial-corrupt/credential.json")
+
+	err, stdout, stderr := runRuntimeCommand(t, 8*time.Second, binaryPath, "--config", configPath)
+	if err == nil {
+		t.Fatalf("expected startup with invalid credential.json to fail\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if !strings.Contains(strings.ToLower(stderr), "credential.json") {
+		t.Fatalf("expected invalid credential parse error to mention credential.json, got stderr:\n%s", stderr)
+	}
+	if !strings.Contains(strings.ToLower(stderr), "parse") {
+		t.Fatalf("expected invalid credential parse error details, got stderr:\n%s", stderr)
+	}
+}
+
+func TestT011RuntimeStartupHandlesUnknownEdgeWithoutOnboardingFallback(t *testing.T) {
+	socketServer := newRuntimeAuthServer(t, runtimeAuthServerBehavior{
+		ConnectError: "edge_not_found",
+	})
+	defer socketServer.Close()
+
+	binaryPath, configPath, stateDir := prepareRuntimeStartup(t, socketServer.URL())
+	installCredentialFixture(t, stateDir, "valid/credential.json")
+
+	err, stdout, stderr := runRuntimeCommand(t, 8*time.Second, binaryPath, "--config", configPath)
+	if err == nil {
+		t.Fatalf("expected unknown edge connect_error to fail runtime\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "edge_not_found") {
+		t.Fatalf("expected stderr to surface edge_not_found rejection, got:\n%s", stderr)
+	}
+	if strings.Contains(strings.ToLower(stderr), "onboarding") {
+		t.Fatalf("unknown edge handling must not fallback to onboarding semantics, got stderr:\n%s", stderr)
+	}
+}
+
+func TestT011RuntimeStartupHandlesConcurrentSessionDenialWithoutOnboardingFallback(t *testing.T) {
+	socketServer := newRuntimeAuthServer(t, runtimeAuthServerBehavior{
+		ConnectError: "invalid_credential",
+	})
+	defer socketServer.Close()
+
+	binaryPath, configPath, stateDir := prepareRuntimeStartup(t, socketServer.URL())
+	installCredentialFixture(t, stateDir, "valid/credential.json")
+
+	err, stdout, stderr := runRuntimeCommand(t, 8*time.Second, binaryPath, "--config", configPath)
+	if err == nil {
+		t.Fatalf("expected concurrent-session denial to fail runtime\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "invalid_credential") {
+		t.Fatalf("expected stderr to surface invalid_credential rejection, got:\n%s", stderr)
+	}
+	if strings.Contains(strings.ToLower(stderr), "onboarding") {
+		t.Fatalf("concurrent-session denial must not fallback to onboarding semantics, got stderr:\n%s", stderr)
+	}
+}
+
+func TestT011RuntimeEntrypointRejectsLegacyOnboardingFlag(t *testing.T) {
+	binaryPath, configPath, stateDir := prepareRuntimeStartup(t, "http://127.0.0.1:65535")
+	installCredentialFixture(t, stateDir, "valid/credential.json")
+
+	err, stdout, stderr := runRuntimeCommand(
+		t,
+		8*time.Second,
+		binaryPath,
+		"--config",
+		configPath,
+		"--onboarding-package",
+		runtimeFixturePath(t, "onboarding-package.json"),
+	)
+	if err == nil {
+		t.Fatalf("expected runtime entrypoint to reject legacy --onboarding-package flag\nstdout:\n%s\nstderr:\n%s", stdout, stderr)
+	}
+	if !strings.Contains(stderr, "flag provided but not defined: -onboarding-package") {
+		t.Fatalf("expected explicit unknown-flag error for legacy onboarding path, got stderr:\n%s", stderr)
+	}
+}
+
+func prepareRuntimeStartup(t *testing.T, cloudURL string) (binaryPath string, configPath string, stateDir string) {
+	t.Helper()
+
+	stateDir = t.TempDir()
+	t.Setenv("RUNTIME_STATE_DIR", stateDir)
+	configPath = writeRuntimeConfigFixture(t, cloudURL)
+	binaryPath = buildRuntimeBinary(t)
+
+	return binaryPath, configPath, stateDir
+}
+
+func installCredentialFixture(t *testing.T, stateDir string, fixtureName string) {
+	t.Helper()
+
+	credentialBytes, err := os.ReadFile(runtimeFixturePath(t, fixtureName))
+	if err != nil {
+		t.Fatalf("read credential fixture %q: %v", fixtureName, err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "credential.json"), credentialBytes, 0o600); err != nil {
+		t.Fatalf("write credential fixture %q to state dir: %v", fixtureName, err)
+	}
+}
+
+func runRuntimeCommand(t *testing.T, timeout time.Duration, binaryPath string, args ...string) (error, string, string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, binaryPath, args...)
+	cmd.Env = os.Environ()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf("runtime command timed out after %s: %w", timeout, ctx.Err()), stdout.String(), stderr.String()
+	}
+	return err, stdout.String(), stderr.String()
 }

@@ -1,196 +1,126 @@
 package contract
 
 import (
+	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 
 	"edge_server/go_core/internal/cloud"
-	"edge_server/go_core/internal/runtime"
+	"edge_server/go_core/internal/config"
+	"edge_server/go_core/internal/runtimeapp"
 )
 
-func onboardingFixturePath(t *testing.T, name string) string {
+func contractFixturePath(t *testing.T, name string) string {
 	t.Helper()
 	return filepath.Join("..", "..", "..", "tests", "fixtures", "runtime", name)
 }
 
-func TestReproTaskT011OnboardingSessionLifecycle(t *testing.T) {
-	requireLegacyOnboardingReference(t)
-	t.Setenv("EDGE_ONBOARDING_SECRET", "first-onboarding-secret")
-	onboardingPath := onboardingFixturePath(t, "onboarding-package.json")
+func contractAuthorityPath(t *testing.T, parts ...string) string {
+	t.Helper()
+	base := []string{"..", "..", "..", ".."}
+	return filepath.Join(append(base, parts...)...)
+}
 
-	packageInput, err := runtime.LoadOnboardingPackageFromFile(onboardingPath)
+type contractNoopTransport struct{}
+
+func (contractNoopTransport) Connect(context.Context, cloud.HandshakeAuth) error { return nil }
+func (contractNoopTransport) Disconnect() error                                   { return nil }
+func (contractNoopTransport) Emit(string, any) error                              { return nil }
+func (contractNoopTransport) OnEdgeActivation(func(any))                          {}
+func (contractNoopTransport) OnEdgeDisconnect(func(any))                          {}
+func (contractNoopTransport) OnConnect(func() error)                              {}
+func (contractNoopTransport) OnConnectError(func(error))                          {}
+func (contractNoopTransport) OnDisconnect(func(string))                           {}
+
+func TestT010PersistentBootstrapUsesCredentialFileAsOnlyAuthInput(t *testing.T) {
+	stateDir := t.TempDir()
+	t.Setenv("RUNTIME_STATE_DIR", stateDir)
+	t.Setenv("CLOUD_SOCKET_URL", "http://127.0.0.1:4000")
+
+	cfg, err := config.LoadFromFile(contractFixturePath(t, "config.yaml"))
 	if err != nil {
-		t.Fatalf("load onboarding package from operator input: %v", err)
+		t.Fatalf("load runtime config fixture: %v", err)
 	}
 
-	firstProcess := runtime.New()
-	firstSession := runtime.NewBootstrapSession(firstProcess)
-	if err := firstSession.Bootstrap(runtime.BootstrapInput{
-		OnboardingPackagePath: onboardingPath,
-	}); err != nil {
-		t.Fatalf("bootstrap first process from operator onboarding input: %v", err)
-	}
-
-	firstAuth, err := firstSession.BuildHandshakeAuth()
+	credentialFixture, err := os.ReadFile(contractFixturePath(t, "valid/credential.json"))
 	if err != nil {
-		t.Fatalf("build first process handshake auth: %v", err)
+		t.Fatalf("read persistent credential fixture: %v", err)
 	}
-	if firstAuth.EdgeID != packageInput.EdgeID {
-		t.Fatalf("expected first process edgeId %q, got %q", packageInput.EdgeID, firstAuth.EdgeID)
-	}
-	if firstAuth.CredentialMode != cloud.CredentialModeOnboarding {
-		t.Fatalf("expected first process onboarding credential mode, got %q", firstAuth.CredentialMode)
-	}
-	if firstAuth.CredentialSecret != packageInput.OnboardingSecret {
-		t.Fatalf("expected first process onboarding secret from operator input, got %q", firstAuth.CredentialSecret)
+	if err := os.WriteFile(filepath.Join(stateDir, "credential.json"), credentialFixture, 0o600); err != nil {
+		t.Fatalf("write persistent credential fixture: %v", err)
 	}
 
-	activation := cloud.EdgeActivation{
-		EdgeID:         packageInput.EdgeID,
-		LifecycleState: "Active",
-		PersistentCredential: cloud.PersistentCredential{
-			Version:  1,
-			Secret:   "persistent-secret-v1",
-			IssuedAt: time.Date(2026, time.April, 6, 10, 0, 0, 0, time.UTC),
-		},
-	}
-	if err := firstSession.HandleEdgeActivation(activation); err != nil {
-		t.Fatalf("handle edge activation: %v", err)
-	}
-	if err := firstProcess.MarkDisconnected("transport_close"); err != nil {
-		t.Fatalf("mark first process disconnected: %v", err)
-	}
-
-	reconnectAuth, err := firstSession.BuildHandshakeAuth()
+	process, err := runtimeapp.New(context.Background(), cfg, contractNoopTransport{})
 	if err != nil {
-		t.Fatalf("build reconnect handshake auth: %v", err)
-	}
-	if reconnectAuth.CredentialMode != cloud.CredentialModePersistent {
-		t.Fatalf("expected same-process reconnect to use persistent mode, got %q", reconnectAuth.CredentialMode)
-	}
-	if reconnectAuth.CredentialSecret != "persistent-secret-v1" {
-		t.Fatalf("expected same-process reconnect to reuse in-memory persistent secret, got %q", reconnectAuth.CredentialSecret)
+		t.Fatalf("construct runtime app for persistent bootstrap contract: %v", err)
 	}
 
-	freshProcess := runtime.New()
-	freshSession := runtime.NewBootstrapSession(freshProcess)
-	if err := freshSession.Bootstrap(runtime.BootstrapInput{
-		OnboardingPackagePath: onboardingPath,
-	}); err != nil {
-		t.Fatalf("bootstrap fresh process from operator onboarding input: %v", err)
-	}
-
-	freshSnapshot := freshProcess.StateSnapshot()
-	if freshSnapshot.Trusted {
-		t.Fatalf("expected fresh process startup to remain untrusted, got %+v", freshSnapshot)
-	}
-	if freshSnapshot.CredentialMode != runtime.CredentialModeOnboarding {
-		t.Fatalf("expected fresh process startup to begin in onboarding mode, got %q", freshSnapshot.CredentialMode)
-	}
-
-	freshAuth, err := freshSession.BuildHandshakeAuth()
+	auth, err := process.Bootstrap.BuildHandshakeAuth()
 	if err != nil {
-		t.Fatalf("build fresh process startup handshake auth: %v", err)
+		t.Fatalf("expected runtime bootstrap to build handshake from credential.json without onboarding input: %v", err)
 	}
-	if freshAuth.CredentialMode != cloud.CredentialModeOnboarding {
-		t.Fatalf("expected fresh process startup handshake to require onboarding mode, got %q", freshAuth.CredentialMode)
+	if auth.EdgeID != cfg.Runtime.EdgeID {
+		t.Fatalf("expected handshake edgeId %q, got %q", cfg.Runtime.EdgeID, auth.EdgeID)
 	}
-	if freshAuth.CredentialSecret != packageInput.OnboardingSecret {
-		t.Fatalf("expected fresh process startup to require operator onboarding input again, got %q", freshAuth.CredentialSecret)
+	if auth.CredentialMode != cloud.CredentialModePersistent {
+		t.Fatalf("expected persistent credential mode from credential.json bootstrap, got %q", auth.CredentialMode)
+	}
+	if auth.CredentialSecret != "persistent-secret-fixture-valid" {
+		t.Fatalf("expected credential secret from credential.json, got %q", auth.CredentialSecret)
 	}
 }
 
-func TestReproTaskT011bConsumedOnboardingDoesNotCreateFutureTrustPathWithoutFreshOperatorInput(t *testing.T) {
-	requireLegacyOnboardingReference(t)
-	t.Setenv("EDGE_ONBOARDING_SECRET", "stale-onboarding-secret")
-	onboardingPath := onboardingFixturePath(t, "onboarding-package.json")
-
-	firstProcess := runtime.New()
-	firstSession := runtime.NewBootstrapSession(firstProcess)
-	if err := firstSession.Bootstrap(runtime.BootstrapInput{
-		OnboardingPackagePath: onboardingPath,
-	}); err != nil {
-		t.Fatalf("bootstrap first process from operator onboarding input: %v", err)
+func TestT010ActiveEdgeContractCoversUnknownEdgeAndSingleSessionRejection(t *testing.T) {
+	websocketContractBytes, err := os.ReadFile(contractAuthorityPath(
+		t,
+		"specs",
+		"001-cloud-server",
+		"contracts",
+		"websocket.md",
+	))
+	if err != nil {
+		t.Fatalf("read websocket contract: %v", err)
 	}
 
-	if err := firstSession.HandleEdgeActivation(cloud.EdgeActivation{
-		EdgeID:         "507f1f77bcf86cd799439011",
-		LifecycleState: "Active",
-		PersistentCredential: cloud.PersistentCredential{
-			Version:  1,
-			Secret:   "persistent-secret-v1",
-			IssuedAt: time.Date(2026, time.April, 6, 10, 0, 0, 0, time.UTC),
-		},
-	}); err != nil {
-		t.Fatalf("handle edge activation: %v", err)
+	websocketContract := string(websocketContractBytes)
+	for _, snippet := range []string{
+		"`edge_not_found`",
+		"additional concurrent connect attempts for the same `edgeId` are rejected with `invalid_credential`",
+		"onboarding-package authentication is not part of the active contract",
+	} {
+		if !strings.Contains(websocketContract, snippet) {
+			t.Fatalf("websocket contract must include %q", snippet)
+		}
 	}
-
-	if err := firstProcess.MarkUntrusted("trust_revoked", true); err != nil {
-		t.Fatalf("mark first process untrusted: %v", err)
-	}
-
-	if _, err := firstSession.BuildHandshakeAuth(); err == nil {
-		t.Fatal("expected consumed onboarding package to be unusable after trust loss without fresh operator input")
-	}
-}
-
-func TestReproTaskT014bOnboardingTimestampsAreOptionalAndValidatedOnlyWhenPresent(t *testing.T) {
-	requireLegacyOnboardingReference(t)
-	t.Setenv("EDGE_ONBOARDING_SECRET", "optional-ts-secret")
 
 	testCases := []struct {
 		name    string
-		rawJSON string
-		wantErr bool
+		message string
+		want    cloud.ConnectErrorCode
 	}{
 		{
-			name: "accepts onboarding package without issuedAt and expiresAt",
-			rawJSON: `{
-				"edgeId": "507f1f77bcf86cd799439011",
-				"onboardingSecret": "${EDGE_ONBOARDING_SECRET}"
-			}`,
-			wantErr: false,
+			name:    "unknown edge connect rejection",
+			message: "edge_not_found",
+			want:    cloud.ConnectErrorEdgeNotFound,
 		},
 		{
-			name: "accepts onboarding package with issuedAt only",
-			rawJSON: `{
-				"edgeId": "507f1f77bcf86cd799439011",
-				"onboardingSecret": "${EDGE_ONBOARDING_SECRET}",
-				"issuedAt": "2026-04-07T09:00:00Z"
-			}`,
-			wantErr: false,
-		},
-		{
-			name: "accepts onboarding package with expiresAt only",
-			rawJSON: `{
-				"edgeId": "507f1f77bcf86cd799439011",
-				"onboardingSecret": "${EDGE_ONBOARDING_SECRET}",
-				"expiresAt": "2026-04-07T10:00:00Z"
-			}`,
-			wantErr: false,
-		},
-		{
-			name: "rejects onboarding package when both timestamps are present but inconsistent",
-			rawJSON: `{
-				"edgeId": "507f1f77bcf86cd799439011",
-				"onboardingSecret": "${EDGE_ONBOARDING_SECRET}",
-				"issuedAt": "2026-04-07T10:00:00Z",
-				"expiresAt": "2026-04-07T09:00:00Z"
-			}`,
-			wantErr: true,
+			name:    "single-session rejection",
+			message: "invalid_credential",
+			want:    cloud.ConnectErrorInvalidCredential,
 		},
 	}
 
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := runtime.ParseOnboardingPackage([]byte(tc.rawJSON))
-			if tc.wantErr && err == nil {
-				t.Fatal("expected onboarding package parse to fail")
+			err := cloud.NewConnectError(tc.message)
+			if err == nil {
+				t.Fatalf("expected connect error parser to accept message %q", tc.message)
 			}
-			if !tc.wantErr && err != nil {
-				t.Fatalf("expected onboarding package parse to succeed, got error: %v", err)
+			if got := cloud.NormalizeConnectError(err); got != tc.want {
+				t.Fatalf("expected normalized connect_error %q, got %q", tc.want, got)
 			}
 		})
 	}
