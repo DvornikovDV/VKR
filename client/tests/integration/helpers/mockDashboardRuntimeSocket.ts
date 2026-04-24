@@ -3,10 +3,12 @@ import type {
   DashboardSocketFactory,
   DashboardSocketLike,
 } from '@/features/dashboard/services/cloudRuntimeClient'
+import { dashboardVisualBindingProfile } from '../../fixtures/dashboardVisualLayout'
 import type {
   DashboardEdgeStatusEvent,
   DashboardTelemetryReading,
   DashboardTelemetryEvent,
+  DashboardTransportStatus,
 } from '@/features/dashboard/model/types'
 
 type SocketEventHandler = (...args: unknown[]) => void
@@ -16,6 +18,29 @@ interface MockSocketState {
   lastSubscribePayload: { edgeId: string } | null
   emittedEvents: Array<{ event: string; payload: unknown }>
 }
+
+interface MockDashboardRuntimeClientSessionOptions {
+  edgeId: string
+  onTransportStatusChange?: (status: DashboardTransportStatus) => void
+  onTelemetry?: (event: DashboardTelemetryEvent) => void
+  onEdgeStatus?: (event: DashboardEdgeStatusEvent) => void
+  onRuntimeError?: (error: Error) => void
+}
+
+export interface MockDashboardRuntimeClientHarness {
+  startSession: ReturnType<typeof vi.fn>
+  emitTransportStatus: (edgeId: string, status: DashboardTransportStatus) => void
+  emitTelemetry: (event: DashboardTelemetryEvent) => void
+  emitEdgeStatus: (event: DashboardEdgeStatusEvent) => void
+  emitRuntimeError: (edgeId: string, error?: Error) => void
+  getDisposeCount: (edgeId: string) => number
+  reset: () => void
+}
+
+const defaultVisualTelemetryBinding =
+  dashboardVisualBindingProfile.widgetBindings.find(
+    (binding) => binding.widgetId === 'widget-temperature',
+  ) ?? dashboardVisualBindingProfile.widgetBindings[0]
 
 export interface MockDashboardRuntimeSocketHarness {
   socket: DashboardSocketLike
@@ -58,8 +83,8 @@ export function createDashboardTelemetryReadingFixture(
   overrides: Partial<DashboardTelemetryReading> = {},
 ): DashboardTelemetryReading {
   return {
-    deviceId: overrides.deviceId ?? 'pump-1',
-    metric: overrides.metric ?? 'temperature',
+    deviceId: overrides.deviceId ?? defaultVisualTelemetryBinding?.deviceId ?? 'pump-1',
+    metric: overrides.metric ?? defaultVisualTelemetryBinding?.metric ?? 'temperature',
     last: overrides.last ?? 42.5,
     ts: overrides.ts ?? 1763895000000,
   }
@@ -83,6 +108,49 @@ export function createDashboardEdgeStatusEventFixture(
     online: overrides.online ?? true,
   }
 }
+
+export function createMockDashboardRuntimeClientHarness(): MockDashboardRuntimeClientHarness {
+  const activeCallbacksByEdge = new Map<string, MockDashboardRuntimeClientSessionOptions>()
+  const disposeCountByEdge = new Map<string, number>()
+  const startSession = vi.fn((options: MockDashboardRuntimeClientSessionOptions) => {
+    activeCallbacksByEdge.set(options.edgeId, options)
+    options.onTransportStatusChange?.('connecting')
+
+    return {
+      edgeId: options.edgeId,
+      dispose: () => {
+        activeCallbacksByEdge.delete(options.edgeId)
+        disposeCountByEdge.set(options.edgeId, (disposeCountByEdge.get(options.edgeId) ?? 0) + 1)
+      },
+      isConnected: () => false,
+    }
+  })
+
+  return {
+    startSession,
+    emitTransportStatus: (edgeId, status) => {
+      activeCallbacksByEdge.get(edgeId)?.onTransportStatusChange?.(status)
+    },
+    emitTelemetry: (event) => {
+      activeCallbacksByEdge.get(event.edgeId)?.onTelemetry?.(event)
+    },
+    emitEdgeStatus: (event) => {
+      activeCallbacksByEdge.get(event.edgeId)?.onEdgeStatus?.(event)
+    },
+    emitRuntimeError: (edgeId, error = new Error('Mock runtime error')) => {
+      activeCallbacksByEdge.get(edgeId)?.onRuntimeError?.(error)
+    },
+    getDisposeCount: (edgeId) => disposeCountByEdge.get(edgeId) ?? 0,
+    reset: () => {
+      activeCallbacksByEdge.clear()
+      disposeCountByEdge.clear()
+      startSession.mockClear()
+    },
+  }
+}
+
+export const dashboardRuntimeClientHarness = createMockDashboardRuntimeClientHarness()
+export const dashboardRuntimeSocketHarness = createMockDashboardRuntimeSocketHarness()
 
 export function createMockDashboardRuntimeSocketHarness(): MockDashboardRuntimeSocketHarness {
   const state = createState()

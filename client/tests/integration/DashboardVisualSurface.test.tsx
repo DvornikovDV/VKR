@@ -9,114 +9,23 @@ import {
 } from '../fixtures/dashboardVisualLayout'
 import { createDashboardApiHandlers } from '../mocks/handlers'
 import { server } from '../mocks/server'
+import {
+  createDashboardTelemetryEventFixture,
+  dashboardRuntimeSocketHarness as runtimeHarness,
+} from './helpers/mockDashboardRuntimeSocket'
 import { userHubRouteChildren } from '@/app/userHubRoutes'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
-
-const runtimeHarness = vi.hoisted(() => {
-  type SocketEventHandler = (...args: unknown[]) => void
-
-  const listeners = new Map<string, Set<SocketEventHandler>>()
-  const emittedEvents: Array<{ event: string; payload: unknown }> = []
-  let lastSubscribePayload: { edgeId: string } | null = null
-
-  function dispatchEvent(eventName: string, ...args: unknown[]) {
-    const eventListeners = listeners.get(eventName)
-    if (!eventListeners) {
-      return
-    }
-
-    for (const listener of eventListeners) {
-      listener(...args)
-    }
-  }
-
-  const socket = {
-    connected: false,
-    on: vi.fn((event: string, listener: SocketEventHandler) => {
-      const eventListeners = listeners.get(event) ?? new Set<SocketEventHandler>()
-      eventListeners.add(listener)
-      listeners.set(event, eventListeners)
-      return socket
-    }),
-    off: vi.fn((event: string, listener: SocketEventHandler) => {
-      const eventListeners = listeners.get(event)
-      if (!eventListeners) {
-        return socket
-      }
-
-      eventListeners.delete(listener)
-      if (eventListeners.size === 0) {
-        listeners.delete(event)
-      }
-
-      return socket
-    }),
-    emit: vi.fn((event: string, payload?: unknown) => {
-      emittedEvents.push({ event, payload: payload ?? null })
-      if (event === 'subscribe' && payload && typeof payload === 'object' && 'edgeId' in payload) {
-        lastSubscribePayload = { edgeId: String((payload as { edgeId: unknown }).edgeId) }
-      }
-
-      return socket
-    }),
-    connect: vi.fn(() => {
-      socket.connected = true
-      dispatchEvent('connect')
-      return socket
-    }),
-    disconnect: vi.fn(() => {
-      socket.connected = false
-      dispatchEvent('disconnect', 'io client disconnect')
-      return socket
-    }),
-  }
-
-  const socketFactory = vi.fn(() => socket)
-
-  return {
-    socketFactory,
-    getEmittedEvents: () => [...emittedEvents],
-    emitDisconnect: () => {
-      socket.connected = false
-      dispatchEvent('disconnect', 'transport close')
-    },
-    emitTelemetry: (event: {
-      edgeId: string
-      readings: Array<{
-        deviceId: string
-        metric: string
-        last: number | string | boolean | null
-        ts: number
-      }>
-      serverTs: number
-    }) => {
-      dispatchEvent('telemetry', event)
-    },
-    getLastSubscribePayload: () => lastSubscribePayload,
-    reset: () => {
-      listeners.clear()
-      emittedEvents.length = 0
-      lastSubscribePayload = null
-      socket.connected = false
-      socketFactory.mockClear()
-      socket.on.mockClear()
-      socket.off.mockClear()
-      socket.emit.mockClear()
-      socket.connect.mockClear()
-      socket.disconnect.mockClear()
-    },
-  }
-})
 
 vi.mock('@/features/dashboard/services/cloudRuntimeClient', async () => {
   const actual = await vi.importActual<typeof import('@/features/dashboard/services/cloudRuntimeClient')>(
     '@/features/dashboard/services/cloudRuntimeClient',
   )
+  const { dashboardRuntimeSocketHarness } = await import('./helpers/mockDashboardRuntimeSocket')
 
   return {
     ...actual,
-    cloudRuntimeClient: actual.createCloudRuntimeClient(runtimeHarness.socketFactory),
+    cloudRuntimeClient: actual.createCloudRuntimeClient(dashboardRuntimeSocketHarness.socketFactory),
   }
 })
 
@@ -381,7 +290,7 @@ describe('Dashboard visual runtime surface (T040)', () => {
     expect(statusValue).toHaveAttribute('data-font-size', '16')
 
     act(() => {
-      runtimeHarness.emitTelemetry({
+      runtimeHarness.emitTelemetry(createDashboardTelemetryEventFixture({
         edgeId: 'edge-visual-1',
         readings: [
           {
@@ -398,7 +307,7 @@ describe('Dashboard visual runtime surface (T040)', () => {
           },
         ],
         serverTs: 1763895000500,
-      })
+      }))
     })
 
     expect(within(temperatureWidget).getByText('72.4 C')).toBeInTheDocument()

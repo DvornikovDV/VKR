@@ -6,90 +6,33 @@ import { http, HttpResponse } from 'msw'
 import { server } from '../mocks/server'
 import {
   createDashboardVisualRestFixtures,
+  dashboardVisualBindingProfile,
   dashboardVisualDiagram,
+  dashboardVisualLayout,
 } from '../fixtures/dashboardVisualLayout'
 import {
   createDashboardApiFixtures,
   createDashboardApiHandlers,
   type DashboardRestFixtures,
 } from '../mocks/handlers'
-import { createDashboardTelemetryEventFixture } from './helpers/mockDashboardRuntimeSocket'
+import {
+  createDashboardTelemetryEventFixture,
+  dashboardRuntimeClientHarness as runtimeHarness,
+} from './helpers/mockDashboardRuntimeSocket'
 import { userHubRouteChildren } from '@/app/userHubRoutes'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
-
-const runtimeHarness = vi.hoisted(() => {
-  type RuntimeCallbacks = {
-    edgeId: string
-    onTransportStatusChange?: (status: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed') => void
-    onTelemetry?: (event: {
-      edgeId: string
-      readings: Array<{
-        deviceId: string
-        metric: string
-        last: number | string | boolean | null
-        ts: number
-      }>
-      serverTs: number
-    }) => void
-    onEdgeStatus?: (event: { edgeId: string; online: boolean }) => void
-    onRuntimeError?: (error: Error) => void
-  }
-
-  const activeCallbacksByEdge = new Map<string, RuntimeCallbacks>()
-  const disposeCountByEdge = new Map<string, number>()
-  const startSession = vi.fn((options: RuntimeCallbacks) => {
-    activeCallbacksByEdge.set(options.edgeId, options)
-    options.onTransportStatusChange?.('connecting')
-
-    return {
-      edgeId: options.edgeId,
-      dispose: () => {
-        activeCallbacksByEdge.delete(options.edgeId)
-        disposeCountByEdge.set(options.edgeId, (disposeCountByEdge.get(options.edgeId) ?? 0) + 1)
-      },
-      isConnected: () => false,
-    }
-  })
-
-  return {
-    startSession,
-    emitTransportStatus: (edgeId: string, status: 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed') => {
-      activeCallbacksByEdge.get(edgeId)?.onTransportStatusChange?.(status)
-    },
-    emitTelemetry: (event: {
-      edgeId: string
-      readings: Array<{
-        deviceId: string
-        metric: string
-        last: number | string | boolean | null
-        ts: number
-      }>
-      serverTs: number
-    }) => {
-      activeCallbacksByEdge.get(event.edgeId)?.onTelemetry?.(event)
-    },
-    emitEdgeStatus: (event: { edgeId: string; online: boolean }) => {
-      activeCallbacksByEdge.get(event.edgeId)?.onEdgeStatus?.(event)
-    },
-    getDisposeCount: (edgeId: string) => disposeCountByEdge.get(edgeId) ?? 0,
-    reset: () => {
-      activeCallbacksByEdge.clear()
-      disposeCountByEdge.clear()
-      startSession.mockClear()
-    },
-  }
-})
 
 vi.mock('@/features/dashboard/services/cloudRuntimeClient', async () => {
   const actual = await vi.importActual<typeof import('@/features/dashboard/services/cloudRuntimeClient')>(
     '@/features/dashboard/services/cloudRuntimeClient',
   )
+  const { dashboardRuntimeClientHarness } = await import('./helpers/mockDashboardRuntimeSocket')
 
   return {
     ...actual,
     cloudRuntimeClient: {
-      startSession: runtimeHarness.startSession,
+      startSession: dashboardRuntimeClientHarness.startSession,
     },
   }
 })
@@ -386,15 +329,10 @@ describe('DashboardPage (US3)', () => {
         HttpResponse.json({
           status: 'success',
           data: {
+            ...dashboardVisualDiagram,
             _id: 'diagram-1',
             name: 'Boiler',
-            layout: {
-              widgets: [
-                { id: 'widget-number', type: 'number-display' },
-                { id: 'widget-text', type: 'text-display' },
-                { id: 'widget-led', type: 'led' },
-              ],
-            },
+            layout: dashboardVisualLayout,
           },
         }),
       ),
@@ -406,11 +344,7 @@ describe('DashboardPage (US3)', () => {
               _id: 'binding-1',
               diagramId: 'diagram-1',
               edgeServerId: 'edge-1',
-              widgetBindings: [
-                { widgetId: 'widget-number', deviceId: 'pump-1', metric: 'temperature' },
-                { widgetId: 'widget-text', deviceId: 'pump-1', metric: 'status' },
-                { widgetId: 'widget-led', deviceId: 'pump-1', metric: 'alarm' },
-              ],
+              widgetBindings: dashboardVisualBindingProfile.widgetBindings,
             },
           ],
         }),
@@ -433,13 +367,13 @@ describe('DashboardPage (US3)', () => {
         createDashboardTelemetryEventFixture({
           readings: [
             {
-              deviceId: 'pump-1',
+              deviceId: 'boiler-1',
               metric: 'temperature',
               last: '48.5',
               ts: 1763895000000,
             },
             {
-              deviceId: 'pump-1',
+              deviceId: 'boiler-1',
               metric: 'status',
               last: 15,
               ts: 1763895000001,
@@ -459,9 +393,9 @@ describe('DashboardPage (US3)', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
     const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
-    expect(within(diagnosticsPanel).getByText('widget-number')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('widget-text')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('widget-led')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('widget-temperature')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('widget-status')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('widget-alarm')).toBeInTheDocument()
     expect(screen.queryByText('widget-draft-only')).not.toBeInTheDocument()
 
     expect(within(diagnosticsPanel).getByText('Value: 48.5')).toBeInTheDocument()
@@ -472,59 +406,28 @@ describe('DashboardPage (US3)', () => {
 
 describe('DashboardPage (US4)', () => {
   it('keeps command-capable widgets visible but non-operative in monitoring MVP', async () => {
-    setupDashboardApiFixtures({
-      diagramsById: {
-        'diagram-1': {
-          _id: 'diagram-1',
-          name: 'Boiler',
-          layout: {
-            widgets: [
-              { id: 'widget-supported', type: 'number-display' },
-              { id: 'widget-command', type: 'button-control' },
-            ],
-          },
-        },
-      },
-      bindingProfilesByDiagramId: {
-        'diagram-1': [
-          {
-            _id: 'binding-1',
-            diagramId: 'diagram-1',
-            edgeServerId: 'edge-1',
-            widgetBindings: [
-              { widgetId: 'widget-supported', deviceId: 'pump-1', metric: 'temperature' },
-              { widgetId: 'widget-command', deviceId: 'pump-1', metric: 'command-setpoint' },
-            ],
-          },
-        ],
-      },
-    })
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
 
-    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
     expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
     await waitFor(() => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
-        expect.objectContaining({ edgeId: 'edge-1' }),
+        expect.objectContaining({ edgeId: 'edge-visual-1' }),
       )
     })
 
     act(() => {
-      runtimeHarness.emitTransportStatus('edge-1', 'connected')
+      runtimeHarness.emitTransportStatus('edge-visual-1', 'connected')
       runtimeHarness.emitTelemetry(
         createDashboardTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
           readings: [
             {
-              deviceId: 'pump-1',
+              deviceId: 'boiler-1',
               metric: 'temperature',
               last: 49,
               ts: 1763895000000,
-            },
-            {
-              deviceId: 'pump-1',
-              metric: 'command-setpoint',
-              last: 72,
-              ts: 1763895000001,
             },
           ],
         }),
@@ -535,7 +438,7 @@ describe('DashboardPage (US4)', () => {
     await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
     const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
     expect(within(diagnosticsPanel).getByText('widget-command')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('widget-supported')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('widget-temperature')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('Value: 49')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('Visible only. Unsupported in monitoring MVP.')).toBeInTheDocument()
 

@@ -1,5 +1,10 @@
 import { http, HttpResponse, type HttpHandler } from 'msw'
 import type { DashboardLayoutDocument } from '@/features/dashboard/model/types'
+import {
+  dashboardVisualBindingProfile,
+  dashboardVisualDiagram,
+  dashboardVisualLayout,
+} from '../fixtures/dashboardVisualLayout'
 
 export interface DashboardDiagramFixture {
   _id: string
@@ -81,22 +86,14 @@ export interface UserEdgeConsumerFixtures {
 }
 
 function createDefaultDashboardRestFixtures(): DashboardRestFixtures {
+  const diagramOne = createVisualDiagramFixture('diagram-1', 'Boiler')
+  const diagramTwo = createVisualDiagramFixture('diagram-2', 'Pump')
+
   return {
     diagramsById: {
-      'diagram-1': {
-        _id: 'diagram-1',
-        name: 'Boiler',
-        layout: {
-          widgets: [{ id: 'widget-1', type: 'number-display', x: 20, y: 20 }],
-        },
-      },
-      'diagram-2': {
-        _id: 'diagram-2',
-        name: 'Pump',
-        layout: {
-          widgets: [{ id: 'widget-2', type: 'number-display', x: 20, y: 20 }],
-        },
-      },
+      [dashboardVisualDiagram._id]: dashboardVisualDiagram,
+      [diagramOne._id]: diagramOne,
+      [diagramTwo._id]: diagramTwo,
     },
     trustedEdges: [
       {
@@ -111,25 +108,48 @@ function createDefaultDashboardRestFixtures(): DashboardRestFixtures {
         lifecycleState: 'Active',
         availability: { online: false, lastSeenAt: '2026-03-26T10:10:00.000Z' },
       },
+      {
+        _id: dashboardVisualBindingProfile.edgeServerId,
+        name: 'Visual Edge',
+        lifecycleState: 'Active',
+        availability: {
+          online: true,
+          lastSeenAt: '2026-04-24T08:14:30.000Z',
+        },
+      },
     ],
     bindingProfilesByDiagramId: {
+      [dashboardVisualDiagram._id]: [dashboardVisualBindingProfile],
       'diagram-1': [
-        {
-          _id: 'binding-1',
-          diagramId: 'diagram-1',
-          edgeServerId: 'edge-1',
-          widgetBindings: [{ widgetId: 'widget-1', deviceId: 'pump-1', metric: 'temperature' }],
-        },
+        createVisualBindingProfileFixture('binding-1', 'diagram-1', 'edge-1'),
       ],
       'diagram-2': [
-        {
-          _id: 'binding-2',
-          diagramId: 'diagram-2',
-          edgeServerId: 'edge-2',
-          widgetBindings: [{ widgetId: 'widget-2', deviceId: 'pump-2', metric: 'flow' }],
-        },
+        createVisualBindingProfileFixture('binding-2', 'diagram-2', 'edge-2'),
       ],
     },
+  }
+}
+
+function createVisualDiagramFixture(_id: string, name: string): DashboardDiagramFixture {
+  return {
+    ...dashboardVisualDiagram,
+    _id,
+    name,
+    layout: dashboardVisualLayout,
+  }
+}
+
+function createVisualBindingProfileFixture(
+  _id: string,
+  diagramId: string,
+  edgeServerId: string,
+): DashboardBindingProfileFixture {
+  return {
+    ...dashboardVisualBindingProfile,
+    _id,
+    diagramId,
+    edgeServerId,
+    widgetBindings: dashboardVisualBindingProfile.widgetBindings.map((binding) => ({ ...binding })),
   }
 }
 
