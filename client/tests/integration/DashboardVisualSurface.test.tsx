@@ -76,6 +76,7 @@ const runtimeHarness = vi.hoisted(() => {
 
   return {
     socketFactory,
+    getEmittedEvents: () => [...emittedEvents],
     emitDisconnect: () => {
       socket.connected = false
       dispatchEvent('disconnect', 'transport close')
@@ -416,5 +417,50 @@ describe('Dashboard visual runtime surface (T040)', () => {
     })
     expect(within(temperatureWidget).getByText('72.4 C')).toBeInTheDocument()
     expect(within(statusWidget).getByText('Stable output')).toBeInTheDocument()
+  })
+
+  it('keeps led and unsupported future widgets visually present but non-operative through DashboardPage', async () => {
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.getLastSubscribePayload()).toEqual({ edgeId: 'edge-visual-1' })
+    })
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+
+    const ledWidget = screen.getByTestId('dashboard-visual-widget-widget-alarm')
+    const ledIndicator = screen.getByTestId('dashboard-visual-led-indicator-widget-alarm')
+    const commandWidget = screen.getByTestId('dashboard-visual-widget-widget-command')
+    const commandShell = screen.getByTestId('dashboard-visual-widget-shell-widget-command')
+
+    expect(ledWidget).toHaveAttribute('data-listening', 'false')
+    expect(ledIndicator).toHaveAttribute('data-x', '628')
+    expect(ledIndicator).toHaveAttribute('data-y', '146')
+    expect(ledIndicator).toHaveAttribute('data-radius', '18')
+    expect(ledIndicator).toHaveAttribute('data-fill', '#64748b')
+    expect(ledIndicator).toHaveAttribute('data-listening', 'false')
+
+    expect(commandWidget).toHaveAttribute('data-listening', 'false')
+    expect(commandShell).toHaveAttribute('data-x', '560')
+    expect(commandShell).toHaveAttribute('data-y', '184')
+    expect(commandShell).toHaveAttribute('data-width', '120')
+    expect(commandShell).toHaveAttribute('data-height', '40')
+    expect(commandShell).toHaveAttribute('data-listening', 'false')
+    expect(within(commandWidget).getByText('Start Pump')).toBeInTheDocument()
+    expect(within(commandWidget).getByText('Read only')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Start Pump' })).not.toBeInTheDocument()
+
+    const emittedEventsBeforeInteraction = runtimeHarness.getEmittedEvents()
+    expect(emittedEventsBeforeInteraction).toHaveLength(1)
+    expect(emittedEventsBeforeInteraction[0]).toEqual({
+      event: 'subscribe',
+      payload: { edgeId: 'edge-visual-1' },
+    })
+
+    fireEvent.click(commandWidget)
+    fireEvent.click(ledWidget)
+
+    expect(runtimeHarness.getEmittedEvents()).toEqual(emittedEventsBeforeInteraction)
   })
 })

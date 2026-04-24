@@ -53,6 +53,18 @@ function resolveWidgetHeight(widget: DashboardWidget): number {
   return Math.max(0, toFiniteNumber(widget.height, 0))
 }
 
+function selectWidgetCaption(widget: DashboardWidget): string {
+  if (typeof widget.label === 'string' && widget.label.trim().length > 0) {
+    return widget.label.trim()
+  }
+
+  if (typeof widget.text === 'string' && widget.text.trim().length > 0) {
+    return widget.text.trim()
+  }
+
+  return widget.id
+}
+
 function isConnectionPointOffset(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
 }
@@ -109,6 +121,15 @@ function formatRenderIssueSummary(runtimeLayout: DashboardRuntimeLayout): string
   ].filter(Boolean)
 
   return `Visual rendering issues: ${parts.join(', ')}`
+}
+
+function resolveLedRadius(widget: DashboardWidget, width: number, height: number): number {
+  const savedRadius = toFiniteNumber(widget.radius, 0)
+  if (savedRadius > 0) {
+    return savedRadius
+  }
+
+  return Math.max(6, Math.min(width, height) / 2)
 }
 
 function useImageElementsById(images: DashboardSavedImage[]): Map<string, HTMLImageElement> {
@@ -299,31 +320,78 @@ export function DashboardVisualSurface({
               const isVisualValueWidget = widget.type === 'number-display' || widget.type === 'text-display'
               const widgetText =
                 isVisualValueWidget && widgetProjection ? widgetProjection.visualValue : widget.id
+              const isLedWidget = widget.type === 'led'
+              const isReadOnlyVisualWidget = isLedWidget || !isVisualValueWidget
+              const widgetCaption = selectWidgetCaption(widget)
+              const readOnlyTextY = y + Math.max(20, height / 2)
 
               return (
                 <Group key={widget.id} data-testid={`dashboard-visual-widget-${widget.id}`} listening={false}>
-                  <Rect
-                    data-testid={`dashboard-visual-widget-shell-${widget.id}`}
-                    x={x}
-                    y={y}
-                    width={width}
-                    height={height}
-                    cornerRadius={4}
-                    fill={fill}
-                    stroke={stroke}
-                    strokeWidth={2}
-                  />
-                  <Text
-                    data-testid={`dashboard-visual-widget-value-${widget.id}`}
-                    x={x + 8}
-                    y={y + Math.max(6, (height - fontSize) / 2)}
-                    width={Math.max(0, width - 16)}
-                    height={Math.max(0, height - 8)}
-                    text={widgetText}
-                    fontSize={fontSize}
-                    fill={textFill}
-                    listening={false}
-                  />
+                  {isLedWidget ? (
+                    <>
+                      <Circle
+                        data-testid={`dashboard-visual-led-indicator-${widget.id}`}
+                        x={x + width / 2}
+                        y={y + height / 2}
+                        radius={resolveLedRadius(widget, width, height)}
+                        fill={typeof widget.colorOff === 'string' ? widget.colorOff : '#64748b'}
+                        stroke={typeof widget.colorOn === 'string' ? widget.colorOn : '#cbd5e1'}
+                        strokeWidth={2}
+                        listening={false}
+                      />
+                      <Text
+                        data-testid={`dashboard-visual-widget-value-${widget.id}`}
+                        x={x - width / 2}
+                        y={y + height + 6}
+                        width={width * 2}
+                        align="center"
+                        text="Read only"
+                        fontSize={12}
+                        fill="#475569"
+                        listening={false}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Rect
+                        data-testid={`dashboard-visual-widget-shell-${widget.id}`}
+                        x={x}
+                        y={y}
+                        width={width}
+                        height={height}
+                        cornerRadius={4}
+                        fill={isReadOnlyVisualWidget ? '#0f172a' : fill}
+                        stroke={isReadOnlyVisualWidget ? '#94a3b8' : stroke}
+                        strokeWidth={2}
+                        dash={isReadOnlyVisualWidget ? [8, 6] : undefined}
+                        opacity={isReadOnlyVisualWidget ? 0.9 : 1}
+                        listening={false}
+                      />
+                      <Text
+                        data-testid={`dashboard-visual-widget-value-${widget.id}`}
+                        x={x + 8}
+                        y={isReadOnlyVisualWidget ? y + 6 : y + Math.max(6, (height - fontSize) / 2)}
+                        width={Math.max(0, width - 16)}
+                        height={Math.max(0, height - 8)}
+                        text={isReadOnlyVisualWidget ? widgetCaption : widgetText}
+                        fontSize={isReadOnlyVisualWidget ? Math.min(fontSize, 14) : fontSize}
+                        fill={isReadOnlyVisualWidget ? '#e2e8f0' : textFill}
+                        listening={false}
+                      />
+                      {isReadOnlyVisualWidget && (
+                        <Text
+                          data-testid={`dashboard-visual-widget-readonly-${widget.id}`}
+                          x={x + 8}
+                          y={readOnlyTextY}
+                          width={Math.max(0, width - 16)}
+                          text="Read only"
+                          fontSize={12}
+                          fill="#94a3b8"
+                          listening={false}
+                        />
+                      )}
+                    </>
+                  )}
                 </Group>
               )
             })}
