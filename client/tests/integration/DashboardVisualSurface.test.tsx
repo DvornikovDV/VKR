@@ -372,8 +372,12 @@ describe('Dashboard visual runtime surface (T040)', () => {
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     const temperatureWidget = screen.getByTestId('dashboard-visual-widget-widget-temperature')
     const statusWidget = screen.getByTestId('dashboard-visual-widget-widget-status')
-    expect(within(temperatureWidget).getByText('0 C')).toBeInTheDocument()
-    expect(within(statusWidget).getByText('Pending')).toBeInTheDocument()
+    const temperatureValue = within(temperatureWidget).getByText('0 C')
+    const statusValue = within(statusWidget).getByText('Pending')
+    expect(temperatureValue).toBeInTheDocument()
+    expect(temperatureValue).toHaveAttribute('data-font-size', '24')
+    expect(statusValue).toBeInTheDocument()
+    expect(statusValue).toHaveAttribute('data-font-size', '16')
 
     act(() => {
       runtimeHarness.emitTelemetry({

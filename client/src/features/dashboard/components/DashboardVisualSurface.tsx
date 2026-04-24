@@ -320,7 +320,7 @@ export function DashboardVisualSurface({
                     width={Math.max(0, width - 16)}
                     height={Math.max(0, height - 8)}
                     text={widgetText}
-                    fontSize={Math.min(fontSize, 16)}
+                    fontSize={fontSize}
                     fill={textFill}
                     listening={false}
                   />

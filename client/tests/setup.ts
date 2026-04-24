@@ -10,6 +10,7 @@ type MockKonvaNodeProps = {
   'data-source'?: string
   draggable?: boolean
   fill?: string
+  fontSize?: number
   height?: number
   listening?: boolean
   opacity?: number
@@ -35,6 +36,7 @@ function MockKonvaNode({
   'data-source': dataSource,
   draggable,
   fill,
+  fontSize,
   height,
   listening,
   onDragEnd,
@@ -66,6 +68,7 @@ function MockKonvaNode({
       'data-opacity': toDataAttribute(opacity),
       'data-points': points?.join(','),
       'data-fill': fill,
+      'data-font-size': toDataAttribute(fontSize),
       'data-stroke': stroke,
       'data-radius': toDataAttribute(radius),
       'data-scale-x': toDataAttribute(scaleX),
