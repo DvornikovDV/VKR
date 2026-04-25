@@ -20,12 +20,20 @@ interface DashboardVisualSurfaceProps {
   viewport: DashboardViewportState
   viewportSize: DashboardViewportSize
   onPanViewport: (pan: DashboardViewportPanInput) => void
+  onZoomAtCursor?: (anchor: DashboardCanvasPoint, factor: number) => void
 }
 
 type KonvaDragEvent = {
   target: {
     x: () => number
     y: () => number
+  }
+}
+
+type KonvaWheelEvent = {
+  evt: WheelEvent
+  target: {
+    getStage: () => { getPointerPosition: () => { x: number; y: number } | null } | null
   }
 }
 
@@ -176,6 +184,7 @@ export function DashboardVisualSurface({
   viewport,
   viewportSize,
   onPanViewport,
+  onZoomAtCursor,
 }: DashboardVisualSurfaceProps) {
   const imageElementsById = useImageElementsById(runtimeLayout.runtimeRenderableImages)
   const renderIssueSummary = formatRenderIssueSummary(runtimeLayout)
@@ -208,6 +217,15 @@ export function DashboardVisualSurface({
         width={viewportSize.width}
         height={viewportSize.height}
         className="block"
+        onWheel={(e: KonvaWheelEvent) => {
+          if (!onZoomAtCursor) return
+          e.evt.preventDefault()
+          const stage = e.target.getStage()
+          const pointer = stage?.getPointerPosition()
+          if (!pointer) return
+          const factor = e.evt.deltaY > 0 ? 0.9 : 1.1
+          onZoomAtCursor({ x: pointer.x, y: pointer.y }, factor)
+        }}
       >
         <Layer data-testid="dashboard-visual-grid-layer">
           <Group
@@ -254,17 +272,27 @@ export function DashboardVisualSurface({
             ))}
 
             {runtimeLayout.runtimeRenderableImages.map((image) => (
-              <KonvaImage
-                key={image.imageId}
-                data-testid={`dashboard-visual-image-${image.imageId}`}
-                image={imageElementsById.get(image.imageId)}
-                x={toFiniteNumber(image.x, 0)}
-                y={toFiniteNumber(image.y, 0)}
-                width={resolveImageWidth(image)}
-                height={resolveImageHeight(image)}
-                opacity={0.95}
-                listening={false}
-              />
+              <Group key={image.imageId}>
+                <Rect
+                  x={toFiniteNumber(image.x, 0)}
+                  y={toFiniteNumber(image.y, 0)}
+                  width={resolveImageWidth(image)}
+                  height={resolveImageHeight(image)}
+                  stroke="#000000"
+                  strokeWidth={2}
+                  listening={false}
+                />
+                <KonvaImage
+                  data-testid={`dashboard-visual-image-${image.imageId}`}
+                  image={imageElementsById.get(image.imageId)}
+                  x={toFiniteNumber(image.x, 0)}
+                  y={toFiniteNumber(image.y, 0)}
+                  width={resolveImageWidth(image)}
+                  height={resolveImageHeight(image)}
+                  opacity={0.95}
+                  listening={false}
+                />
+              </Group>
             ))}
 
             {runtimeLayout.connectionRenderSegments.map((segment, index) => (

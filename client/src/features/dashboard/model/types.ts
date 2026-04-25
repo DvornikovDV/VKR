@@ -66,6 +66,13 @@ export interface DashboardSavedConnectionSegment {
   y1?: number
   x2?: number
   y2?: number
+  start?: DashboardCanvasPoint
+  end?: DashboardCanvasPoint
+  from?: DashboardCanvasPoint
+  to?: DashboardCanvasPoint
+  points?: DashboardCanvasPoint[]
+  direction?: string
+  index?: number
   [key: string]: unknown
 }
 

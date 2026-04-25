@@ -230,6 +230,13 @@ function resolveSegmentEndpointPair(
     }
   }
 
+  if (isCanvasPoint(segment.start) && isCanvasPoint(segment.end)) {
+    return {
+      from: segment.start,
+      to: segment.end,
+    }
+  }
+
   if (isCanvasPoint(segment.from) && isCanvasPoint(segment.to)) {
     return {
       from: segment.from,

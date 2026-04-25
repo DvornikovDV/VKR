@@ -118,8 +118,8 @@ describe('dashboard saved layout normalization (T036/T038)', () => {
       visualWidgets.map((widget) => widget.id),
     )
     expect(visualConnections[0].segments).toEqual([
-      { x1: 400, y1: 131, x2: 470, y2: 131 },
-      { x1: 470, y1: 131, x2: 520, y2: 156 },
+      { start: { x: 400, y: 131 }, end: { x: 470, y: 131 }, direction: 'horizontal', index: 0 },
+      { start: { x: 470, y: 131 }, end: { x: 520, y: 156 }, direction: 'diagonal', index: 1 },
     ])
     expect(
       runtimeLayout.connectionRenderSegments
@@ -129,7 +129,6 @@ describe('dashboard saved layout normalization (T036/T038)', () => {
           from: segment.from,
           to: segment.to,
           source: segment.source,
-          savedSegment: segment.savedSegment,
         })),
     ).toEqual([
       {
@@ -137,21 +136,18 @@ describe('dashboard saved layout normalization (T036/T038)', () => {
         from: { x: 400, y: 131 },
         to: { x: 470, y: 131 },
         source: 'saved-segment',
-        savedSegment: { x1: 400, y1: 131, x2: 470, y2: 131 },
       },
       {
         connectionId: 'connection-main-line',
         from: { x: 470, y: 131 },
         to: { x: 520, y: 156 },
         source: 'saved-segment',
-        savedSegment: { x1: 470, y1: 131, x2: 520, y2: 156 },
       },
       {
         connectionId: 'connection-damaged-reference',
         from: { x: 141, y: 32 },
         to: { x: 180, y: 8 },
         source: 'saved-segment',
-        savedSegment: { x1: 141, y1: 32, x2: 180, y2: 8 },
       },
     ])
   })
@@ -425,5 +421,58 @@ describe('dashboard saved layout normalization (T036/T038)', () => {
         elementId: 'pin-incomplete-geometry',
       }),
     )
+  })
+})
+
+describe('constructor-format start/end segment parsing (T060)', () => {
+  it('segments with start/end produce valid render segments without unsupported-connection-segment issues', () => {
+    const runtimeLayout = normalizeDashboardRuntimeLayout({
+      ...dashboardVisualLayout,
+      connections: [
+        {
+          id: 'connection-constructor-format',
+          fromPinId: 'pin-boiler-out',
+          toPinId: 'pin-pump-in',
+          segments: [
+            { start: { x: 400, y: 131 }, end: { x: 520, y: 156 }, direction: 'auto', index: 0 },
+          ],
+          userModified: true,
+        },
+      ],
+    })
+
+    const renderSegments = runtimeLayout.connectionRenderSegments.filter(
+      (s) => s.connectionId === 'connection-constructor-format',
+    )
+    expect(renderSegments).toHaveLength(1)
+    expect(renderSegments[0]).toMatchObject({
+      connectionId: 'connection-constructor-format',
+      from: { x: 400, y: 131 },
+      to: { x: 520, y: 156 },
+      source: 'saved-segment',
+    })
+
+    const segmentIssues = runtimeLayout.renderIssues.filter(
+      (issue) =>
+        issue.kind === 'unsupported-connection-segment' &&
+        issue.elementId === 'connection-constructor-format',
+    )
+    expect(segmentIssues).toHaveLength(0)
+  })
+
+  it('fixture connections use constructor start/end format and render without segment issues', () => {
+    const runtimeLayout = normalizeDashboardRuntimeLayout(dashboardVisualLayout)
+
+    const mainLineSegments = runtimeLayout.connectionRenderSegments.filter(
+      (s) => s.connectionId === 'connection-main-line',
+    )
+    expect(mainLineSegments).toHaveLength(2)
+    expect(mainLineSegments[0]).toMatchObject({ from: { x: 400, y: 131 }, to: { x: 470, y: 131 }, source: 'saved-segment' })
+    expect(mainLineSegments[1]).toMatchObject({ from: { x: 470, y: 131 }, to: { x: 520, y: 156 }, source: 'saved-segment' })
+
+    const segmentIssues = runtimeLayout.renderIssues.filter(
+      (issue) => issue.kind === 'unsupported-connection-segment',
+    )
+    expect(segmentIssues).toHaveLength(0)
   })
 })

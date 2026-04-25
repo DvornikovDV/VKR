@@ -4,8 +4,6 @@ import { getDashboardDiagramById, getDashboardDiagrams } from '@/shared/api/diag
 import { getAssignedEdgeServers } from '@/shared/api/edgeServers'
 import { useDashboardRouteState } from '@/features/dashboard/hooks/useDashboardRouteState'
 import { useDashboardRuntimeSession } from '@/features/dashboard/hooks/useDashboardRuntimeSession'
-import { DashboardToolbar } from '@/features/dashboard/components/DashboardToolbar'
-import { DashboardStatePanel } from '@/features/dashboard/components/DashboardStatePanel'
 import { DashboardRuntimeSurface } from '@/features/dashboard/components/DashboardRuntimeSurface'
 import {
   resolveBindingProfileForEdge,
@@ -320,7 +318,6 @@ export function DashboardPage() {
   const isRuntimeEnabled =
     (recoveryState === 'ready' || recoveryState === 'partial-visual-rendering') &&
     Boolean(selectedEdgeId && selectedBindingProfile)
-  const isRecoveryLoading = recoveryState === 'loading'
 
   const runtimeSession = useDashboardRuntimeSession({
     edgeId: selectedEdgeId,
@@ -339,60 +336,41 @@ export function DashboardPage() {
   }, [runtimeSession.latestMetricValueByBindingKey, selectedBindingProfile, selectedSavedDiagram])
 
   return (
-    <section className="mx-auto w-full max-w-6xl px-4 py-6">
-      <div className={`space-y-4 transition-opacity duration-200 ${isRecoveryLoading ? 'opacity-90' : 'opacity-100'}`}>
-        <DashboardToolbar
-          diagrams={diagrams}
-          selectedDiagramId={selectedDiagramId}
-          edgeOptions={edgeOptions}
-          selectedEdgeId={selectedEdgeId}
-          disabled={isToolbarDisabled}
-          diagnosticsOpen={isDiagnosticsOpen}
-          onDiagramChange={(diagramId) =>
-            setRouteState(
-              {
-                diagramId,
-              },
-              { source: 'user-selection' },
-            )
-          }
-          onEdgeChange={(edgeId) =>
-            setRouteState(
-              {
-                edgeId,
-              },
-              { source: 'user-selection' },
-            )
-          }
-          onToggleDiagnostics={() => setIsDiagnosticsOpen((isOpen) => !isOpen)}
-        />
-
-        <DashboardStatePanel
-          state={recoveryState}
-          selectedDiagramName={selectedDiagram?.name ?? null}
-          selectedEdgeName={selectedEdge?.name ?? null}
-          transportStatus={runtimeSession.transportStatus}
-          edgeAvailability={runtimeSession.edgeAvailability}
-          errorMessage={bootstrapError ?? bindingsError ?? savedDiagramError ?? runtimeSession.runtimeError}
-          renderIssues={selectedRuntimeLayout?.renderIssues ?? []}
-        />
-
-        <section className="rounded-xl border border-[#1f2a3d] bg-[#0a1220] p-3 shadow-[inset_0_1px_0_rgba(148,163,184,0.08)]">
-          <div className="rounded-lg border border-[#162033] bg-[radial-gradient(circle_at_top,_#132238,_#0a1220_58%)] p-2">
-            <DashboardRuntimeSurface
-              isActiveContext={isRuntimeEnabled}
-              savedDiagram={selectedSavedDiagram}
-              runtimeProjection={runtimeProjection}
-              transportStatus={runtimeSession.transportStatus}
-              edgeAvailability={runtimeSession.edgeAvailability}
-              latestMetricValueByBindingKey={runtimeSession.latestMetricValueByBindingKey}
-              lastServerTimestamp={runtimeSession.lastServerTimestamp}
-              diagnosticsOpen={isDiagnosticsOpen}
-              onToggleDiagnostics={() => setIsDiagnosticsOpen((isOpen) => !isOpen)}
-            />
-          </div>
-        </section>
-      </div>
-    </section>
+    <div className="flex h-full flex-col overflow-hidden">
+      <DashboardRuntimeSurface
+        isActiveContext={isRuntimeEnabled}
+        recoveryState={recoveryState}
+        savedDiagram={selectedSavedDiagram}
+        runtimeProjection={runtimeProjection}
+        transportStatus={runtimeSession.transportStatus}
+        edgeAvailability={runtimeSession.edgeAvailability}
+        latestMetricValueByBindingKey={runtimeSession.latestMetricValueByBindingKey}
+        lastServerTimestamp={runtimeSession.lastServerTimestamp}
+        diagnosticsOpen={isDiagnosticsOpen}
+        onToggleDiagnostics={() => setIsDiagnosticsOpen((isOpen) => !isOpen)}
+        diagrams={diagrams}
+        selectedDiagramId={selectedDiagramId}
+        edgeOptions={edgeOptions}
+        selectedEdgeId={selectedEdgeId}
+        disabled={isToolbarDisabled}
+        onDiagramChange={(diagramId) =>
+          setRouteState(
+            {
+              diagramId,
+            },
+            { source: 'user-selection' },
+          )
+        }
+        onEdgeChange={(edgeId) =>
+          setRouteState(
+            {
+              edgeId,
+            },
+            { source: 'user-selection' },
+          )
+        }
+        errorMessage={bootstrapError ?? bindingsError ?? savedDiagramError ?? runtimeSession.runtimeError}
+      />
+    </div>
   )
 }
