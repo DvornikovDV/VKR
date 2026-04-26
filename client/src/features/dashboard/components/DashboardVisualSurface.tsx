@@ -3,6 +3,7 @@ import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } fr
 import type {
   DashboardCanvasPoint,
   DashboardConnectionPoint,
+  DashboardDiagramBounds,
   DashboardRuntimeProjection,
   DashboardRuntimeLayout,
   DashboardSavedImage,
@@ -38,8 +39,11 @@ type KonvaWheelEvent = {
 }
 
 const GRID_STEP = 40
-const GRID_PADDING = 240
+const MIN_WORKSPACE_PADDING = 480
+const WORKSPACE_VIEWPORT_PADDING_FACTOR = 2
 const CONNECTION_POINT_RADIUS = 5
+const WORKSPACE_BACKGROUND = '#eaf4ff'
+const WORKSPACE_GRID_LINE = '#cfe0f2'
 
 function toFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
@@ -116,6 +120,41 @@ function createGridLinePositions(start: number, end: number): number[] {
   return positions
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
+}
+
+function resolveWorkspacePadding(viewport: DashboardViewportState, viewportSize: DashboardViewportSize): number {
+  const safeScale = Math.max(0.01, viewport.scale)
+  const visibleWorldSize = Math.max(viewportSize.width, viewportSize.height) / safeScale
+
+  return Math.max(MIN_WORKSPACE_PADDING, visibleWorldSize * WORKSPACE_VIEWPORT_PADDING_FACTOR)
+}
+
+function resolveBoundedViewportOffset(
+  requestedOffset: DashboardCanvasPoint,
+  gridBounds: DashboardDiagramBounds,
+  viewport: DashboardViewportState,
+  viewportSize: DashboardViewportSize,
+): DashboardCanvasPoint {
+  const scale = Math.max(0.01, viewport.scale)
+  const workspaceWidth = (gridBounds.maxX - gridBounds.minX) * scale
+  const workspaceHeight = (gridBounds.maxY - gridBounds.minY) * scale
+
+  const centerX = (viewportSize.width - workspaceWidth) / 2 - gridBounds.minX * scale
+  const centerY = (viewportSize.height - workspaceHeight) / 2 - gridBounds.minY * scale
+
+  const minX = viewportSize.width - gridBounds.maxX * scale
+  const maxX = -gridBounds.minX * scale
+  const minY = viewportSize.height - gridBounds.maxY * scale
+  const maxY = -gridBounds.minY * scale
+
+  return {
+    x: workspaceWidth <= viewportSize.width ? centerX : clamp(requestedOffset.x, minX, maxX),
+    y: workspaceHeight <= viewportSize.height ? centerY : clamp(requestedOffset.y, minY, maxY),
+  }
+}
+
 function formatRenderIssueSummary(runtimeLayout: DashboardRuntimeLayout): string | null {
   if (runtimeLayout.renderIssues.length === 0) {
     return null
@@ -189,13 +228,19 @@ export function DashboardVisualSurface({
   const imageElementsById = useImageElementsById(runtimeLayout.runtimeRenderableImages)
   const renderIssueSummary = formatRenderIssueSummary(runtimeLayout)
   const gridBounds = useMemo(
-    () => ({
-      minX: runtimeLayout.diagramBounds.minX - GRID_PADDING,
-      minY: runtimeLayout.diagramBounds.minY - GRID_PADDING,
-      maxX: runtimeLayout.diagramBounds.maxX + GRID_PADDING,
-      maxY: runtimeLayout.diagramBounds.maxY + GRID_PADDING,
-    }),
-    [runtimeLayout.diagramBounds],
+    () => {
+      const workspacePadding = resolveWorkspacePadding(viewport, viewportSize)
+
+      return {
+        minX: runtimeLayout.diagramBounds.minX - workspacePadding,
+        minY: runtimeLayout.diagramBounds.minY - workspacePadding,
+        maxX: runtimeLayout.diagramBounds.maxX + workspacePadding,
+        maxY: runtimeLayout.diagramBounds.maxY + workspacePadding,
+        width: runtimeLayout.diagramBounds.width + workspacePadding * 2,
+        height: runtimeLayout.diagramBounds.height + workspacePadding * 2,
+      }
+    },
+    [runtimeLayout.diagramBounds, viewport, viewportSize],
   )
   const verticalGridLines = useMemo(
     () => createGridLinePositions(gridBounds.minX, gridBounds.maxX),
@@ -211,7 +256,10 @@ export function DashboardVisualSurface({
   )
 
   return (
-    <div data-testid="dashboard-visual-surface" className="overflow-hidden rounded-md border border-[#cbd5e1] bg-[#f8fafc]">
+    <div
+      data-testid="dashboard-visual-surface"
+      className="absolute inset-0 overflow-hidden rounded-md border border-[#cbd5e1] bg-[#eaf4ff]"
+    >
       <Stage
         data-testid="dashboard-visual-stage"
         width={viewportSize.width}
@@ -228,6 +276,14 @@ export function DashboardVisualSurface({
         }}
       >
         <Layer data-testid="dashboard-visual-grid-layer">
+          <Rect
+            x={0}
+            y={0}
+            width={viewportSize.width}
+            height={viewportSize.height}
+            fill={WORKSPACE_BACKGROUND}
+            listening={false}
+          />
           <Group
             data-testid="dashboard-visual-workspace"
             x={viewport.offsetX}
@@ -235,6 +291,9 @@ export function DashboardVisualSurface({
             scaleX={viewport.scale}
             scaleY={viewport.scale}
             draggable
+            dragBoundFunc={(position) =>
+              resolveBoundedViewportOffset(position, gridBounds, viewport, viewportSize)
+            }
             onDragEnd={(event: KonvaDragEvent) =>
               onPanViewport({
                 deltaX: event.target.x() - viewport.offsetX,
@@ -256,7 +315,7 @@ export function DashboardVisualSurface({
               <Line
                 key={`grid-x-${x}`}
                 points={[x, gridBounds.minY, x, gridBounds.maxY]}
-                stroke="#e2e8f0"
+                stroke={WORKSPACE_GRID_LINE}
                 strokeWidth={1}
                 listening={false}
               />
@@ -265,7 +324,7 @@ export function DashboardVisualSurface({
               <Line
                 key={`grid-y-${y}`}
                 points={[gridBounds.minX, y, gridBounds.maxX, y]}
-                stroke="#e2e8f0"
+                stroke={WORKSPACE_GRID_LINE}
                 strokeWidth={1}
                 listening={false}
               />
@@ -428,7 +487,9 @@ export function DashboardVisualSurface({
       </Stage>
 
       {renderIssueSummary && (
-        <p className="border-t border-[#cbd5e1] px-3 py-2 text-xs text-[#475569]">{renderIssueSummary}</p>
+        <p className="pointer-events-none absolute bottom-3 left-3 rounded border border-[#cbd5e1] bg-white/90 px-3 py-2 text-xs text-[#475569] shadow-sm">
+          {renderIssueSummary}
+        </p>
       )}
     </div>
   )

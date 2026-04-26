@@ -52,6 +52,24 @@ const FALLBACK_VIEWPORT_SIZE: DashboardViewportSize = {
   height: 540,
 }
 
+function normalizeMeasuredSize(width: number, height: number): DashboardViewportSize | null {
+  const normalizedWidth = Math.round(width)
+  const normalizedHeight = Math.round(height)
+
+  if (normalizedWidth <= 0 || normalizedHeight <= 0) {
+    return null
+  }
+
+  return {
+    width: normalizedWidth,
+    height: normalizedHeight,
+  }
+}
+
+function isSameViewportSize(left: DashboardViewportSize, right: DashboardViewportSize): boolean {
+  return left.width === right.width && left.height === right.height
+}
+
 function createFallbackRuntimeLayout(): DashboardRuntimeLayout {
   return normalizeDashboardRuntimeLayout({ widgets: [] })
 }
@@ -166,6 +184,7 @@ export function DashboardRuntimeSurface({
   const [viewport, setViewport] = useState<DashboardViewportState>(() =>
     createDashboardInitialViewport(createFallbackRuntimeLayout().diagramBounds, FALLBACK_VIEWPORT_SIZE),
   )
+  const showCanvas = Boolean(isActiveContext && savedDiagram && runtimeLayout)
 
   // Recalculate viewport when runtimeLayout changes, using current containerSize
   useEffect(() => {
@@ -178,10 +197,40 @@ export function DashboardRuntimeSurface({
 
   // Observe canvas container size and keep containerSize + viewport in sync
   useEffect(() => {
+    if (!showCanvas || !runtimeLayout) {
+      return
+    }
+
     const container = canvasContainerRef.current
     if (!container || typeof ResizeObserver === 'undefined') {
       return
     }
+
+    let lastAppliedSize: DashboardViewportSize | null = null
+
+    const applyContainerSize = (width: number, height: number) => {
+      const nextSize = normalizeMeasuredSize(width, height)
+      if (!nextSize) {
+        return
+      }
+
+      if (lastAppliedSize && isSameViewportSize(lastAppliedSize, nextSize)) {
+        return
+      }
+
+      lastAppliedSize = nextSize
+      setContainerSize((currentSize) =>
+        isSameViewportSize(currentSize, nextSize) ? currentSize : nextSize,
+      )
+      setViewport((currentViewport) =>
+        currentViewport.mode === 'manual'
+          ? currentViewport
+          : createDashboardInitialViewport(runtimeLayout.diagramBounds, nextSize),
+      )
+    }
+
+    const initialRect = container.getBoundingClientRect()
+    applyContainerSize(initialRect.width, initialRect.height)
 
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0]
@@ -190,15 +239,7 @@ export function DashboardRuntimeSurface({
       }
 
       const { width, height } = entry.contentRect
-      if (width <= 0 || height <= 0) {
-        return
-      }
-
-      const nextSize: DashboardViewportSize = { width, height }
-      setContainerSize(nextSize)
-      setViewport((current) =>
-        createDashboardInitialViewport(current.bounds, nextSize),
-      )
+      applyContainerSize(width, height)
     })
 
     observer.observe(container)
@@ -206,14 +247,11 @@ export function DashboardRuntimeSurface({
     return () => {
       observer.disconnect()
     }
-  }, [])
+  }, [runtimeLayout, showCanvas])
 
   const isEdgeDisabled = disabled || !selectedDiagramId || edgeOptions.length === 0
   const hasSelectedDiagramOption = hasOptionWithId(diagrams, selectedDiagramId)
   const hasSelectedEdgeOption = hasOptionWithId(edgeOptions, selectedEdgeId)
-
-  const showCanvas = isActiveContext && savedDiagram && runtimeLayout
-  const showRecovery = !isActiveContext || !savedDiagram || !runtimeLayout
 
   return (
     <section className="relative flex flex-col overflow-hidden h-full">
@@ -293,19 +331,21 @@ export function DashboardRuntimeSurface({
       </div>
 
       {/* Canvas / Recovery area */}
-      <div className="relative flex flex-1 flex-col min-h-0 bg-[radial-gradient(circle_at_top,_#132238,_#0a1220_58%)] pb-10">
+      <div className="relative flex flex-1 flex-col min-h-0 bg-[radial-gradient(circle_at_top,_#132238,_#0a1220_58%)]">
         {showCanvas ? (
-          <div ref={canvasContainerRef} className="flex-1 min-h-0 px-3 pb-3 pt-2">
-            <DashboardVisualSurface
-              runtimeLayout={runtimeLayout!}
-              runtimeProjection={runtimeProjection}
-              viewport={viewport}
-              viewportSize={containerSize}
-              onPanViewport={(pan) => setViewport((current) => panDashboardViewport(current, pan))}
-              onZoomAtCursor={(anchor, factor) =>
-                setViewport((current) => zoomDashboardViewport(current, { factor, anchor }))
-              }
-            />
+          <div className="relative min-h-0 min-w-0 flex-1">
+            <div ref={canvasContainerRef} className="absolute inset-x-3 bottom-3 top-2 overflow-hidden">
+              <DashboardVisualSurface
+                runtimeLayout={runtimeLayout!}
+                runtimeProjection={runtimeProjection}
+                viewport={viewport}
+                viewportSize={containerSize}
+                onPanViewport={(pan) => setViewport((current) => panDashboardViewport(current, pan))}
+                onZoomAtCursor={(anchor, factor) =>
+                  setViewport((current) => zoomDashboardViewport(current, { factor, anchor }))
+                }
+              />
+            </div>
           </div>
         ) : (
           <RecoveryPlaceholder state={recoveryState} onOpenDetails={onToggleDiagnostics} />
