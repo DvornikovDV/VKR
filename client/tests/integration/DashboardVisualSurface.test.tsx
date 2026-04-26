@@ -70,7 +70,6 @@ describe('Dashboard visual runtime surface (T040)', () => {
   it('renders the saved visual layout from GET /api/diagrams/:id as the primary monitoring surface', async () => {
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
     await waitFor(() => {
       expect(runtimeHarness.getLastSubscribePayload()).toEqual({ edgeId: 'edge-visual-1' })
     })
@@ -123,45 +122,22 @@ describe('Dashboard visual runtime surface (T040)', () => {
     expect(screen.queryByText('Saved diagram snapshot')).not.toBeInTheDocument()
   })
 
-  it('updates only viewport state when visual viewport controls are used', async () => {
+  it('keeps the saved visual workspace mounted when fit-to-view is used', async () => {
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
-    expect(screen.getByText('Viewport: fit at 100%')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-visual-stage')).toHaveAttribute('data-konva-node')
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Zoom in' }))
-    expect(screen.getByText('Viewport: manual at 125%')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Zoom out' }))
-    expect(screen.getByText('Viewport: manual at 100%')).toBeInTheDocument()
-
     const workspace = screen.getByTestId('dashboard-visual-workspace')
     expect(screen.getByTestId('dashboard-visual-grid-layer')).toContainElement(workspace)
     expect(workspace).toContainElement(screen.getByTestId('dashboard-visual-image-image-boiler'))
-    const offsetXBeforeDrag = Number(workspace.getAttribute('data-x'))
-    const offsetYBeforeDrag = Number(workspace.getAttribute('data-y'))
-    fireEvent.mouseUp(workspace)
-    await waitFor(() => {
-      expect(screen.getByTestId('dashboard-visual-workspace')).toHaveAttribute(
-        'data-x',
-        String(offsetXBeforeDrag + 64),
-      )
-    })
-    expect(screen.getByTestId('dashboard-visual-workspace')).toHaveAttribute(
-      'data-y',
-      String(offsetYBeforeDrag - 32),
-    )
-    expect(screen.getByText('Viewport: manual at 100%')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Pan right' }))
-    expect(screen.getByText('Viewport: manual at 100%')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Reset view' }))
-    expect(screen.getByText('Viewport: reset at 100%')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Fit to view' }))
-    expect(screen.getByText('Viewport: fit at 100%')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-visual-workspace')).toContainElement(
+      screen.getByTestId('dashboard-visual-image-image-boiler'),
+    )
+    expect(screen.getByTestId('dashboard-visual-image-image-pump')).toBeInTheDocument()
     expect(screen.getByTestId('dashboard-visual-widget-widget-temperature')).toBeInTheDocument()
   })
 
@@ -274,7 +250,6 @@ describe('Dashboard visual runtime surface (T040)', () => {
   it('renders live number and text telemetry inside the saved visual widgets and preserves it while reconnecting', async () => {
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
     await waitFor(() => {
       expect(runtimeHarness.getLastSubscribePayload()).toEqual({ edgeId: 'edge-visual-1' })
     })
@@ -316,6 +291,7 @@ describe('Dashboard visual runtime surface (T040)', () => {
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
     const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
+    await user.click(within(diagnosticsPanel).getByRole('tab', { name: 'Bindings' }))
     expect(within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-temperature')).toHaveTextContent('Value: 72.4')
     expect(within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-status')).toHaveTextContent('Value: Stable output')
 
@@ -335,7 +311,6 @@ describe('Dashboard visual runtime surface (T040)', () => {
   it('keeps led and unsupported future widgets visually present but non-operative through DashboardPage', async () => {
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
     await waitFor(() => {
       expect(runtimeHarness.getLastSubscribePayload()).toEqual({ edgeId: 'edge-visual-1' })
     })

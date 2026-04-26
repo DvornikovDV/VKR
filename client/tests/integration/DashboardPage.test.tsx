@@ -84,6 +84,17 @@ function setupDashboardApiFixtures(overrides: Partial<DashboardRestFixtures> = {
   return fixtures
 }
 
+async function openDiagnosticsPanel(user = userEvent.setup()) {
+  await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
+  return screen.findByTestId('dashboard-diagnostics-panel')
+}
+
+async function openDiagnosticsTab(name: 'Status' | 'Telemetry' | 'Bindings' | 'Render issues') {
+  const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
+  await userEvent.setup().click(within(diagnosticsPanel).getByRole('tab', { name }))
+  return diagnosticsPanel
+}
+
 beforeEach(() => {
   runtimeHarness.reset()
   act(() => {
@@ -98,8 +109,7 @@ describe('DashboardPage (US1)', () => {
 
     mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Diagram')).toHaveValue('diagram-1')
+    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     expect(screen.getByLabelText('Edge Server')).toHaveValue('edge-1')
   })
 
@@ -107,7 +117,7 @@ describe('DashboardPage (US1)', () => {
     setupDashboardApiFixtures()
     const router = mount('/hub/dashboard?edgeId=edge-1')
 
-    expect(await screen.findByText('Invalid dashboard selection.')).toBeInTheDocument()
+    expect(await screen.findByText('Invalid selection')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe('/hub/dashboard')
   })
 
@@ -120,14 +130,15 @@ describe('DashboardPage (US1)', () => {
     mount('/hub/dashboard')
 
     expect(await screen.findByTestId('admin-home')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Dashboard Monitoring' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Diagram')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Edge Server')).not.toBeInTheDocument()
   })
 
   it('synchronizes URL query when user changes diagram and edge selection', async () => {
     setupDashboardApiFixtures()
     const router = mount('/hub/dashboard')
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('Diagram')).toBeInTheDocument()
 
     const user = userEvent.setup()
     await user.selectOptions(screen.getByLabelText('Diagram'), 'diagram-2')
@@ -135,7 +146,7 @@ describe('DashboardPage (US1)', () => {
       expect(router.state.location.search).toContain('diagramId=diagram-2')
       expect(router.state.location.search).not.toContain('edgeId=')
     }, { timeout: 1000 })
-    expect(screen.getByText('Select an edge server to start monitoring.')).toBeInTheDocument()
+    expect(screen.getByText('Select Diagram and Edge Server to start monitoring')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-2')
     await waitFor(() => {
@@ -150,7 +161,7 @@ describe('DashboardPage (US2)', () => {
     setupDashboardApiFixtures()
     mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     await waitFor(() => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
         expect.objectContaining({ edgeId: 'edge-1' }),
@@ -162,15 +173,16 @@ describe('DashboardPage (US2)', () => {
       runtimeHarness.emitEdgeStatus({ edgeId: 'edge-1', online: true })
     })
 
-    expect(screen.getByText('Transport: Connected')).toBeInTheDocument()
-    expect(screen.getByText('Edge: Edge online')).toBeInTheDocument()
+    const diagnosticsPanel = await openDiagnosticsPanel()
+    expect(within(diagnosticsPanel).getByText('Transport: Connected')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Edge: Edge online')).toBeInTheDocument()
   })
 
   it('shows reconnect messaging and preserves last runtime values in place', async () => {
     setupDashboardApiFixtures()
     mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     await waitFor(() => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
         expect.objectContaining({ edgeId: 'edge-1' }),
@@ -195,8 +207,8 @@ describe('DashboardPage (US2)', () => {
     })
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
-    const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
+    await openDiagnosticsPanel(user)
+    let diagnosticsPanel = await openDiagnosticsTab('Telemetry')
     expect(within(diagnosticsPanel).getByText('pump-1::temperature')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('48.7')).toBeInTheDocument()
 
@@ -204,11 +216,13 @@ describe('DashboardPage (US2)', () => {
       runtimeHarness.emitTransportStatus('edge-1', 'reconnecting')
     })
 
+    diagnosticsPanel = await openDiagnosticsTab('Status')
     await waitFor(() => {
       expect(
-        screen.getByText('Transport reconnecting. Last rendered values are preserved.'),
+        within(diagnosticsPanel).getByText('Transport reconnecting. Last rendered values are preserved.'),
       ).toBeInTheDocument()
     }, { timeout: 3000 })
+    diagnosticsPanel = await openDiagnosticsTab('Telemetry')
     expect(within(diagnosticsPanel).getByText('48.7')).toBeInTheDocument()
   })
 
@@ -216,7 +230,7 @@ describe('DashboardPage (US2)', () => {
     setupDashboardApiFixtures()
     mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     await waitFor(() => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
         expect.objectContaining({ edgeId: 'edge-1' }),
@@ -228,10 +242,11 @@ describe('DashboardPage (US2)', () => {
       runtimeHarness.emitEdgeStatus({ edgeId: 'edge-1', online: false })
     })
 
-    expect(screen.getByText('Transport: Connected')).toBeInTheDocument()
-    expect(screen.getByText('Edge: Edge offline')).toBeInTheDocument()
+    const diagnosticsPanel = await openDiagnosticsPanel()
+    expect(within(diagnosticsPanel).getByText('Transport: Connected')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Edge: Edge offline')).toBeInTheDocument()
     expect(
-      screen.queryByText('Transport reconnecting. Last rendered values are preserved.'),
+      within(diagnosticsPanel).queryByText('Transport reconnecting. Last rendered values are preserved.'),
     ).not.toBeInTheDocument()
 
     act(() => {
@@ -239,10 +254,10 @@ describe('DashboardPage (US2)', () => {
     })
 
     await waitFor(() => {
-      expect(screen.getByText('Transport: Reconnecting')).toBeInTheDocument()
-      expect(screen.getByText('Edge: Edge offline')).toBeInTheDocument()
+      expect(within(diagnosticsPanel).getByText('Transport: Reconnecting')).toBeInTheDocument()
+      expect(within(diagnosticsPanel).getByText('Edge: Edge offline')).toBeInTheDocument()
       expect(
-        screen.getByText('Transport reconnecting. Last rendered values are preserved.'),
+        within(diagnosticsPanel).getByText('Transport reconnecting. Last rendered values are preserved.'),
       ).toBeInTheDocument()
     }, { timeout: 3000 })
   })
@@ -251,7 +266,7 @@ describe('DashboardPage (US2)', () => {
     setupDashboardApiFixtures()
     const router = mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     await waitFor(() => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
         expect.objectContaining({ edgeId: 'edge-1' }),
@@ -278,9 +293,12 @@ describe('DashboardPage (US3)', () => {
     setupDashboardApiFixtures()
     mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-2')
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
+    expect(screen.getByText('No saved binding profile for this Diagram + Edge pair')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Open Details for more info' }))
+    const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
     expect(
-      screen.getByText('No saved binding profile for the selected Diagram + Edge pair.'),
+      within(diagnosticsPanel).getByText('No saved binding profile for the selected Diagram + Edge pair.'),
     ).toBeInTheDocument()
   })
 
@@ -304,8 +322,8 @@ describe('DashboardPage (US3)', () => {
 
     mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
-    expect(await screen.findByText('Saved binding profile references stale widget ids.')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
+    expect(await screen.findByText('Saved binding profile references stale widget ids')).toBeInTheDocument()
   })
 
   it('uses saved diagram snapshot for runtime rendering and applies bound values for supported widgets', async () => {
@@ -353,7 +371,7 @@ describe('DashboardPage (US3)', () => {
 
     mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
 
     await waitFor(() => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
@@ -391,8 +409,8 @@ describe('DashboardPage (US3)', () => {
     })
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
-    const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
+    await openDiagnosticsPanel(user)
+    const diagnosticsPanel = await openDiagnosticsTab('Bindings')
     expect(within(diagnosticsPanel).getByText('widget-temperature')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('widget-status')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('widget-alarm')).toBeInTheDocument()
@@ -410,7 +428,7 @@ describe('DashboardPage (US4)', () => {
 
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
         expect.objectContaining({ edgeId: 'edge-visual-1' }),
@@ -435,8 +453,8 @@ describe('DashboardPage (US4)', () => {
     })
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
-    const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
+    await openDiagnosticsPanel(user)
+    const diagnosticsPanel = await openDiagnosticsTab('Bindings')
     expect(within(diagnosticsPanel).getByText('widget-command')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('widget-temperature')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('Value: 49')).toBeInTheDocument()
@@ -458,11 +476,8 @@ describe('DashboardPage visual diagnostics (T051)', () => {
 
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-diagnostics-panel')).not.toBeInTheDocument()
-    expect(screen.queryByText('Runtime diagnostics')).not.toBeInTheDocument()
-    expect(screen.queryByText('Telemetry by binding key')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
 
@@ -472,9 +487,10 @@ describe('DashboardPage visual diagnostics (T051)', () => {
     expect(diagnosticsPanel).toBeInTheDocument()
     expect(scrollRegion).toHaveClass('max-h-80')
     expect(scrollRegion).toHaveClass('overflow-y-auto')
-    expect(within(diagnosticsPanel).getByRole('heading', { name: 'Telemetry' })).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByRole('heading', { name: 'Bindings' })).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByRole('heading', { name: 'Render issues' })).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Status' })).toHaveAttribute('aria-selected', 'true')
+    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Telemetry' })).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Bindings' })).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Render issues' })).toBeInTheDocument()
     expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
   })
 
@@ -484,7 +500,6 @@ describe('DashboardPage visual diagnostics (T051)', () => {
 
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Details' }))
@@ -547,13 +562,11 @@ describe('DashboardPage visual render issue recovery (T052)', () => {
 
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
-    expect(await screen.findByText('Saved diagram visual layout cannot be rendered.')).toBeInTheDocument()
-
-    const renderIssueSummary = screen.getByTestId('dashboard-state-render-issues')
-    expect(renderIssueSummary).toHaveTextContent('Visual render issues: 1 blocking')
-    expect(renderIssueSummary).toHaveTextContent('damaged-image-data')
-    expect(renderIssueSummary).toHaveTextContent('image-broken')
+    expect(await screen.findByText('Saved diagram visual layout cannot be rendered')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Open Details for more info' }))
+    const diagnosticsPanel = await openDiagnosticsTab('Render issues')
+    expect(within(diagnosticsPanel).getByText('blocking: damaged-image-data')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Element: image-broken')).toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-visual-surface')).not.toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-runtime-widget-widget-temperature')).not.toBeInTheDocument()
   })
@@ -563,16 +576,12 @@ describe('DashboardPage visual render issue recovery (T052)', () => {
 
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
-    expect(await screen.findByRole('heading', { name: 'Dashboard Monitoring' })).toBeInTheDocument()
-    expect(
-      await screen.findByText('Saved diagram rendered with recoverable visual issues.'),
-    ).toBeInTheDocument()
-
-    const renderIssueSummary = screen.getByTestId('dashboard-state-render-issues')
-    expect(renderIssueSummary).toHaveTextContent('Visual render issues: 2 recoverable')
-    expect(renderIssueSummary).toHaveTextContent('missing-connection-point')
-    expect(renderIssueSummary).toHaveTextContent('missing-widget-image')
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    expect(screen.getByText('Visual rendering issues: 2 recoverable')).toBeInTheDocument()
+    const diagnosticsPanel = await openDiagnosticsPanel()
+    await userEvent.setup().click(within(diagnosticsPanel).getByRole('tab', { name: 'Render issues' }))
+    expect(within(diagnosticsPanel).getByText('recoverable: missing-connection-point')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('recoverable: missing-widget-image')).toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-runtime-widget-widget-temperature')).not.toBeInTheDocument()
   })
 })
