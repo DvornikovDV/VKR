@@ -45,12 +45,12 @@ var ErrCloudTransportUnavailable = errors.New("cloud transport is not configured
 func NewMissingAuthPathError(lastReason *string) error {
 	if lastReason != nil && strings.TrimSpace(*lastReason) != "" {
 		return fmt.Errorf(
-			"runtime has no valid current auth path after %s; restart with fresh operator onboarding input",
+			"runtime has no valid current auth path after %s; install current credential.json",
 			strings.TrimSpace(*lastReason),
 		)
 	}
 
-	return fmt.Errorf("runtime has no valid current auth path; restart with fresh operator onboarding input")
+	return fmt.Errorf("runtime has no valid current auth path; install current credential.json")
 }
 
 func (r *Runner) StateSnapshot() SessionStateSnapshot {
@@ -67,6 +67,14 @@ func (r *Runner) ActivateTrustedSession(edgeID string, persistentSecret string) 
 
 	if telemetry := r.currentTelemetryPipeline(); telemetry != nil {
 		telemetry.Reset()
+	}
+
+	return nil
+}
+
+func (r *Runner) LoadPersistentCredential(edgeID string, version int, persistentSecret string) error {
+	if err := r.state.LoadPersistentCredential(edgeID, version, persistentSecret); err != nil {
+		return err
 	}
 
 	return nil
@@ -298,17 +306,6 @@ func (r *Runner) Run(ctx context.Context) error {
 		if err != nil {
 			if errors.Is(err, ErrAuthPathUnavailable) {
 				snapshot := r.state.Snapshot()
-				if waitErr := bootstrap.WaitForFreshOnboardingInput(ctx, snapshot.LastReason); waitErr == nil {
-					continue
-				}
-
-				if ctx.Err() != nil {
-					if client != nil {
-						_ = client.Disconnect()
-					}
-					return nil
-				}
-
 				return NewMissingAuthPathError(snapshot.LastReason)
 			}
 
@@ -330,16 +327,6 @@ func (r *Runner) Run(ctx context.Context) error {
 			expectedEdge = auth.EdgeID
 
 			if err := client.RegisterLifecycleHandlers(cloud.LifecycleHandlers{
-				OnActivation: func(event cloud.EdgeActivation) {
-					if err := bootstrap.HandleEdgeActivation(event); err != nil {
-						if markErr := r.MarkUntrusted("activation_rejected", true); markErr != nil {
-							r.reportAsyncError(fmt.Errorf("persist runtime state after activation rejection: %w", markErr))
-						}
-						signalLifecycleEvent(lifecycleEvents, "activation_rejected")
-						return
-					}
-					signalLifecycleEvent(lifecycleEvents, "activation")
-				},
 				OnDisconnect: func(event cloud.EdgeDisconnect) {
 					if sessionFlow.HandleDisconnect(event) {
 						signalLifecycleEvent(lifecycleEvents, "disconnect")
@@ -362,7 +349,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		if err := client.Connect(ctx, auth); err != nil {
 			var connectErr cloud.ConnectError
 			if errors.As(err, &connectErr) {
-				continue
+				return fmt.Errorf("cloud rejected runtime handshake: %w", connectErr)
 			}
 
 			return fmt.Errorf("connect runtime to cloud transport: %w", err)
@@ -379,10 +366,7 @@ func (r *Runner) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				_ = client.Disconnect()
 				return nil
-			case event := <-lifecycleEvents:
-				if event == "activation" {
-					continue
-				}
+			case <-lifecycleEvents:
 				goto nextAttempt
 			}
 		}

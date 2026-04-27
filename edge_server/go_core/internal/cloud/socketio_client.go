@@ -13,7 +13,6 @@ type SocketIOClientConfig struct {
 }
 
 type LifecycleHandlers struct {
-	OnActivation    func(EdgeActivation)
 	OnDisconnect    func(EdgeDisconnect)
 	OnConnectError  func(ConnectErrorCode)
 	OnProtocolError func(ProtocolError)
@@ -47,25 +46,13 @@ func NewSocketIOClient(cfg SocketIOClientConfig) (*SocketIOClient, error) {
 }
 
 func (c *SocketIOClient) RegisterLifecycleHandlers(handlers LifecycleHandlers) error {
-	if handlers.OnActivation == nil &&
-		handlers.OnDisconnect == nil &&
+	if handlers.OnDisconnect == nil &&
 		handlers.OnConnectError == nil &&
 		handlers.OnProtocolError == nil {
 		return fmt.Errorf("at least one lifecycle handler is required")
 	}
 
 	c.handlers = handlers
-	c.transport.OnEdgeActivation(func(payload any) {
-		event, err := ParseEdgeActivation(payload, c.expectedEdgeID)
-		if err != nil {
-			c.reportProtocolError("edge_activation", err)
-			return
-		}
-		if c.handlers.OnActivation == nil {
-			return
-		}
-		c.handlers.OnActivation(event)
-	})
 	c.transport.OnEdgeDisconnect(func(payload any) {
 		event, err := ParseEdgeDisconnect(payload, c.expectedEdgeID)
 		if err != nil {
@@ -126,22 +113,6 @@ func (c *SocketIOClient) Disconnect() error {
 
 func (c *SocketIOClient) EmitTelemetry(payload map[string]any) error {
 	return c.transport.Emit("telemetry", payload)
-}
-
-func (c *SocketIOClient) BuildPersistentReconnectAuth(event EdgeActivation) (HandshakeAuth, error) {
-	auth, err := event.PersistentReconnectAuth()
-	if err != nil {
-		return HandshakeAuth{}, err
-	}
-	if auth.EdgeID != c.expectedEdgeID {
-		return HandshakeAuth{}, fmt.Errorf(
-			"activation edgeId %q does not match expected edgeId %q",
-			auth.EdgeID,
-			c.expectedEdgeID,
-		)
-	}
-
-	return auth, nil
 }
 
 func (c *SocketIOClient) setPendingEdgeDisconnect(event EdgeDisconnect) {

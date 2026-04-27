@@ -29,7 +29,6 @@ type WebSocketTransport struct {
 
 	mu               sync.RWMutex
 	conn             *websocket.Conn
-	onEdgeActivation func(any)
 	onEdgeDisconnect func(any)
 	onConnect        func() error
 	onConnectError   func(error)
@@ -147,12 +146,6 @@ func (t *WebSocketTransport) Emit(event string, payload any) error {
 	return nil
 }
 
-func (t *WebSocketTransport) OnEdgeActivation(handler func(any)) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.onEdgeActivation = handler
-}
-
 func (t *WebSocketTransport) OnEdgeDisconnect(handler func(any)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -198,7 +191,6 @@ func (t *WebSocketTransport) completeEngineHandshake(ctx context.Context, conn *
 func (t *WebSocketTransport) writeNamespaceConnect(conn *websocket.Conn, auth HandshakeAuth) error {
 	connectPayload, err := json.Marshal(map[string]any{
 		"edgeId":           auth.EdgeID,
-		"credentialMode":   auth.CredentialMode,
 		"credentialSecret": auth.CredentialSecret,
 	})
 	if err != nil {
@@ -278,10 +270,6 @@ func (t *WebSocketTransport) dispatchNamespaceEvent(message string) {
 	}
 
 	switch eventName {
-	case "edge_activation":
-		if handler := t.getOnEdgeActivation(); handler != nil {
-			handler(payload)
-		}
 	case "edge_disconnect":
 		if handler := t.getOnEdgeDisconnect(); handler != nil {
 			handler(payload)
@@ -347,12 +335,6 @@ func (t *WebSocketTransport) wasClientClosing(conn *websocket.Conn) bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.conn == conn && t.clientClosing
-}
-
-func (t *WebSocketTransport) getOnEdgeActivation() func(any) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.onEdgeActivation
 }
 
 func (t *WebSocketTransport) getOnEdgeDisconnect() func(any) {

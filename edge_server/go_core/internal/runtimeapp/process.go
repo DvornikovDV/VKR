@@ -32,14 +32,24 @@ func New(ctx context.Context, cfg config.Config, transport cloud.Transport) (*Pr
 	if err := state.EnsureRuntimePersistenceBoundaries(cfg.Runtime.StateDir); err != nil {
 		return nil, fmt.Errorf("initialize runtime persistence boundaries: %w", err)
 	}
-	if _, _, err := state.NewCredentialStore(cfg.Runtime.StateDir).Load(); err != nil {
+	credential, exists, err := state.NewCredentialStore(cfg.Runtime.StateDir).Load()
+	if err != nil {
 		return nil, fmt.Errorf("load startup credential boundary: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("credential.json is required in runtime.stateDir")
+	}
+	if credential.EdgeID != cfg.Runtime.EdgeID {
+		return nil, fmt.Errorf("credential.json edgeId %q does not match runtime.edgeId %q", credential.EdgeID, cfg.Runtime.EdgeID)
 	}
 
 	runner := runtime.NewWithTransport(transport)
 	runtimeStore := state.NewRuntimeStateStore(cfg.Runtime.StateDir)
 	if err := runner.BindRuntimeStateStore(runtimeStore); err != nil {
 		return nil, fmt.Errorf("bind runtime-state store: %w", err)
+	}
+	if err := runner.LoadPersistentCredential(credential.EdgeID, credential.Version, credential.CredentialSecret); err != nil {
+		return nil, fmt.Errorf("load persistent credential into runtime: %w", err)
 	}
 	bootstrap := runtime.NewBootstrapSession(runner)
 

@@ -4,79 +4,61 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 )
 
 type ConnectErrorCode string
 
 const (
-	ConnectErrorEdgeNotFound                ConnectErrorCode = "edge_not_found"
-	ConnectErrorBlocked                     ConnectErrorCode = "blocked"
+	ConnectErrorEdgeNotFound          ConnectErrorCode = "edge_not_found"
+	ConnectErrorBlocked               ConnectErrorCode = "blocked"
+	ConnectErrorInvalidCredential     ConnectErrorCode = "invalid_credential"
+	ConnectErrorEdgeAuthInternalError ConnectErrorCode = "edge_auth_internal_error"
+
+	// Deprecated: onboarding-era rejection codes are no longer active /edge contract values.
 	ConnectErrorOnboardingNotAllowed        ConnectErrorCode = "onboarding_not_allowed"
 	ConnectErrorOnboardingPackageMissing    ConnectErrorCode = "onboarding_package_missing"
 	ConnectErrorOnboardingPackageExpired    ConnectErrorCode = "onboarding_package_expired"
 	ConnectErrorOnboardingPackageReused     ConnectErrorCode = "onboarding_package_reused"
-	ConnectErrorInvalidCredential           ConnectErrorCode = "invalid_credential"
 	ConnectErrorPersistentCredentialRevoked ConnectErrorCode = "persistent_credential_revoked"
-	ConnectErrorEdgeAuthInternalError       ConnectErrorCode = "edge_auth_internal_error"
 )
 
 var knownConnectErrorCodes = map[ConnectErrorCode]struct{}{
-	ConnectErrorEdgeNotFound:                {},
-	ConnectErrorBlocked:                     {},
-	ConnectErrorOnboardingNotAllowed:        {},
-	ConnectErrorOnboardingPackageMissing:    {},
-	ConnectErrorOnboardingPackageExpired:    {},
-	ConnectErrorOnboardingPackageReused:     {},
-	ConnectErrorInvalidCredential:           {},
-	ConnectErrorPersistentCredentialRevoked: {},
-	ConnectErrorEdgeAuthInternalError:       {},
+	ConnectErrorEdgeNotFound:          {},
+	ConnectErrorBlocked:               {},
+	ConnectErrorInvalidCredential:     {},
+	ConnectErrorEdgeAuthInternalError: {},
 }
 
 var connectErrorCodePriority = []ConnectErrorCode{
-	ConnectErrorOnboardingPackageMissing,
-	ConnectErrorOnboardingPackageExpired,
-	ConnectErrorOnboardingPackageReused,
-	ConnectErrorPersistentCredentialRevoked,
-	ConnectErrorOnboardingNotAllowed,
-	ConnectErrorEdgeAuthInternalError,
 	ConnectErrorEdgeNotFound,
-	ConnectErrorInvalidCredential,
 	ConnectErrorBlocked,
+	ConnectErrorInvalidCredential,
+	ConnectErrorEdgeAuthInternalError,
 }
 
 type DisconnectReason string
 
 const (
-	DisconnectReasonForced          DisconnectReason = "edge_forced_disconnect"
-	DisconnectReasonTrustRevoked    DisconnectReason = "trust_revoked"
-	DisconnectReasonBlocked         DisconnectReason = "blocked"
-	DisconnectReasonClientRequested DisconnectReason = "client_requested"
+	DisconnectReasonForced            DisconnectReason = "edge_forced_disconnect"
+	DisconnectReasonCredentialRotated DisconnectReason = "credential_rotated"
+	DisconnectReasonBlocked           DisconnectReason = "blocked"
+	DisconnectReasonClientRequested   DisconnectReason = "client_requested"
+
+	// Deprecated: active /edge lifecycle uses credential_rotated.
+	DisconnectReasonTrustRevoked DisconnectReason = "trust_revoked"
 )
 
 var knownDisconnectReasons = map[DisconnectReason]struct{}{
-	DisconnectReasonForced:          {},
-	DisconnectReasonTrustRevoked:    {},
-	DisconnectReasonBlocked:         {},
-	DisconnectReasonClientRequested: {},
+	DisconnectReasonForced:            {},
+	DisconnectReasonCredentialRotated: {},
+	DisconnectReasonBlocked:           {},
+	DisconnectReasonClientRequested:   {},
 }
 
 var ordinarySocketDisconnectReasonMap = map[string]DisconnectReason{
 	"io client disconnect":        DisconnectReasonClientRequested,
 	"client namespace disconnect": DisconnectReasonClientRequested,
 	"client_requested":            DisconnectReasonClientRequested,
-}
-
-type EdgeActivation struct {
-	EdgeID               string
-	LifecycleState       string
-	PersistentCredential PersistentCredential
-}
-
-type PersistentCredential struct {
-	Version  int
-	Secret   string
-	IssuedAt time.Time
 }
 
 type EdgeDisconnect struct {
@@ -102,77 +84,11 @@ func NewConnectError(message string) error {
 }
 
 func (d EdgeDisconnect) RequiresCredentialReset() bool {
-	return d.Reason == DisconnectReasonTrustRevoked || d.Reason == DisconnectReasonBlocked
+	return d.Reason == DisconnectReasonCredentialRotated || d.Reason == DisconnectReasonBlocked
 }
 
 func (d EdgeDisconnect) AllowsReconnectAttempt() bool {
 	return d.Reason != DisconnectReasonClientRequested
-}
-
-func (a EdgeActivation) PersistentReconnectAuth() (HandshakeAuth, error) {
-	if strings.TrimSpace(a.EdgeID) == "" {
-		return HandshakeAuth{}, fmt.Errorf("edge activation edgeId is required")
-	}
-	if strings.TrimSpace(a.LifecycleState) != "Active" {
-		return HandshakeAuth{}, fmt.Errorf("edge activation lifecycleState must be Active")
-	}
-
-	return BuildPersistentHandshakeAuth(a.EdgeID, a.PersistentCredential.Secret)
-}
-
-func ParseEdgeActivation(payload any, expectedEdgeID string) (EdgeActivation, error) {
-	raw, ok := payload.(map[string]any)
-	if !ok {
-		return EdgeActivation{}, fmt.Errorf("edge_activation payload must be an object")
-	}
-
-	edgeID, err := parseRequiredString(raw, "edgeId")
-	if err != nil {
-		return EdgeActivation{}, err
-	}
-	if strings.TrimSpace(expectedEdgeID) != "" && edgeID != expectedEdgeID {
-		return EdgeActivation{}, fmt.Errorf("edge_activation edgeId mismatch: expected %q got %q", expectedEdgeID, edgeID)
-	}
-
-	lifecycleState, err := parseRequiredString(raw, "lifecycleState")
-	if err != nil {
-		return EdgeActivation{}, err
-	}
-	if lifecycleState != "Active" {
-		return EdgeActivation{}, fmt.Errorf("edge_activation lifecycleState must be Active")
-	}
-
-	credentialRaw, ok := raw["persistentCredential"].(map[string]any)
-	if !ok {
-		return EdgeActivation{}, fmt.Errorf("edge_activation persistentCredential must be an object")
-	}
-
-	version, err := parseRequiredPositiveInt(credentialRaw, "version")
-	if err != nil {
-		return EdgeActivation{}, fmt.Errorf("edge_activation persistentCredential.%w", err)
-	}
-	secret, err := parseRequiredString(credentialRaw, "secret")
-	if err != nil {
-		return EdgeActivation{}, fmt.Errorf("edge_activation persistentCredential.%w", err)
-	}
-	issuedAtRaw, err := parseRequiredString(credentialRaw, "issuedAt")
-	if err != nil {
-		return EdgeActivation{}, fmt.Errorf("edge_activation persistentCredential.%w", err)
-	}
-	issuedAt, err := time.Parse(time.RFC3339, issuedAtRaw)
-	if err != nil {
-		return EdgeActivation{}, fmt.Errorf("edge_activation persistentCredential.issuedAt must be RFC3339: %w", err)
-	}
-
-	return EdgeActivation{
-		EdgeID:         edgeID,
-		LifecycleState: lifecycleState,
-		PersistentCredential: PersistentCredential{
-			Version:  version,
-			Secret:   secret,
-			IssuedAt: issuedAt.UTC(),
-		},
-	}, nil
 }
 
 func ParseEdgeDisconnect(payload any, expectedEdgeID string) (EdgeDisconnect, error) {
@@ -269,33 +185,4 @@ func parseRequiredString(raw map[string]any, key string) (string, error) {
 	}
 
 	return strings.TrimSpace(value), nil
-}
-
-func parseRequiredPositiveInt(raw map[string]any, key string) (int, error) {
-	value, ok := raw[key]
-	if !ok {
-		return 0, fmt.Errorf("%s is required", key)
-	}
-
-	switch typed := value.(type) {
-	case int:
-		if typed > 0 {
-			return typed, nil
-		}
-	case int32:
-		if typed > 0 {
-			return int(typed), nil
-		}
-	case int64:
-		if typed > 0 {
-			return int(typed), nil
-		}
-	case float64:
-		asInt := int(typed)
-		if typed == float64(asInt) && asInt > 0 {
-			return asInt, nil
-		}
-	}
-
-	return 0, errors.New(key + " must be a positive integer")
 }

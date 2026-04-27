@@ -183,11 +183,20 @@ func TestT011RuntimeStartupUsesConfigAndLocalCredentialForTrustedConnect(t *test
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start runtime process: %v", err)
 	}
+	waitDone := make(chan struct{})
+	var waitErr error
+	go func() {
+		waitErr = cmd.Wait()
+		close(waitDone)
+	}()
 	defer func() {
-		if cmd.Process != nil {
+		if cmd.Process != nil && cmd.ProcessState == nil {
 			_ = cmd.Process.Kill()
 		}
-		_ = cmd.Wait()
+		select {
+		case <-waitDone:
+		case <-time.After(2 * time.Second):
+		}
 	}()
 
 	attempt := socketServer.WaitForAttempt(t, 2*time.Second)
@@ -201,13 +210,15 @@ func TestT011RuntimeStartupUsesConfigAndLocalCredentialForTrustedConnect(t *test
 		t.Fatalf("runtime handshake auth must not include legacy onboarding field credentialMode, payload=%v", attempt.AuthPayload)
 	}
 
-	time.Sleep(250 * time.Millisecond)
-	if cmd.ProcessState != nil {
+	select {
+	case <-waitDone:
 		t.Fatalf(
-			"runtime exited too early after accepted trusted connect:\nstdout:\n%s\nstderr:\n%s",
+			"runtime exited too early after accepted trusted connect: %v\nstdout:\n%s\nstderr:\n%s",
+			waitErr,
 			stdout.String(),
 			stderr.String(),
 		)
+	case <-time.After(250 * time.Millisecond):
 	}
 }
 

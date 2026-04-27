@@ -19,10 +19,6 @@ func (f trustSessionFlow) HandleSuccessfulConnect(auth cloud.HandshakeAuth) erro
 		return nil
 	}
 
-	if auth.CredentialMode != cloud.CredentialModePersistent {
-		return nil
-	}
-
 	return f.runner.ActivateTrustedSession(auth.EdgeID, auth.CredentialSecret)
 }
 

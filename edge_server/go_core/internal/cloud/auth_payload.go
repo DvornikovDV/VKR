@@ -22,6 +22,7 @@ func BuildHandshakeAuth(
 	return auth, nil
 }
 
+// Deprecated: active /edge authentication no longer accepts onboarding package secrets.
 func BuildOnboardingHandshakeAuth(edgeID string, onboardingSecret string) (HandshakeAuth, error) {
 	return BuildHandshakeAuth(edgeID, CredentialModeOnboarding, onboardingSecret)
 }

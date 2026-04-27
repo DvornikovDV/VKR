@@ -6,9 +6,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"edge_server/go_core/internal/cloud"
 	"edge_server/go_core/internal/config"
+	"edge_server/go_core/internal/state"
 )
 
 type noopTransport struct{}
@@ -16,7 +18,6 @@ type noopTransport struct{}
 func (noopTransport) Connect(context.Context, cloud.HandshakeAuth) error { return nil }
 func (noopTransport) Disconnect() error                                  { return nil }
 func (noopTransport) Emit(string, any) error                             { return nil }
-func (noopTransport) OnEdgeActivation(func(any))                         {}
 func (noopTransport) OnEdgeDisconnect(func(any))                         {}
 func (noopTransport) OnConnect(func() error)                             {}
 func (noopTransport) OnConnectError(func(error))                         {}
@@ -25,6 +26,7 @@ func (noopTransport) OnDisconnect(func(string))                          {}
 func TestNewInitializesRuntimeStateAndStatusFiles(t *testing.T) {
 	stateDir := t.TempDir()
 	cfg := runtimeConfigFixture(stateDir)
+	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
 
 	_, err := New(context.Background(), cfg, noopTransport{})
 	if err != nil {
@@ -107,5 +109,22 @@ func runtimeConfigFixture(stateDir string) config.Config {
 				},
 			},
 		},
+	}
+}
+
+func writeCredentialFixture(t *testing.T, stateDir string, edgeID string) {
+	t.Helper()
+
+	issuedAt := time.Date(2026, 4, 19, 8, 20, 0, 0, time.UTC)
+	credential := state.Credential{
+		EdgeID:           edgeID,
+		CredentialSecret: "persistent-secret-fixture-valid",
+		Version:          3,
+		IssuedAt:         issuedAt,
+		Source:           "register",
+		InstalledAt:      issuedAt.Add(5 * time.Minute),
+	}
+	if err := state.NewCredentialStore(stateDir).Save(credential); err != nil {
+		t.Fatalf("write credential fixture: %v", err)
 	}
 }

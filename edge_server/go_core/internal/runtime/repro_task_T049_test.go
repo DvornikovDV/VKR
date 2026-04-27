@@ -103,7 +103,7 @@ func TestReproTaskT049TracksTrustedUntrustedAndDisconnectedExecution(t *testing.
 		t.Fatal("expected telemetry to be blocked while disconnected")
 	}
 
-	if err := runner.MarkUntrusted("trust_revoked", true); err != nil {
+	if err := runner.MarkUntrusted("credential_rotated", true); err != nil {
 		t.Fatalf("mark untrusted: %v", err)
 	}
 	untrusted := runner.StateSnapshot()
@@ -125,8 +125,8 @@ func TestReproTaskT049TracksTrustedUntrustedAndDisconnectedExecution(t *testing.
 	if untrusted.RetryEligible {
 		t.Fatal("expected trust-loss to disable retry eligibility")
 	}
-	if untrusted.LastReason == nil || *untrusted.LastReason != "trust_revoked" {
-		t.Fatalf("expected trust-loss lastReason=trust_revoked, got %v", untrusted.LastReason)
+	if untrusted.LastReason == nil || *untrusted.LastReason != "credential_rotated" {
+		t.Fatalf("expected trust-loss lastReason=credential_rotated, got %v", untrusted.LastReason)
 	}
 	if untrusted.SessionEpoch != 0 {
 		t.Fatalf("expected trust-loss to invalidate active epoch, got %d", untrusted.SessionEpoch)

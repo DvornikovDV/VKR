@@ -5,14 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 )
 
 type inMemoryTransport struct {
 	onConnect      func() error
 	onDisconnect   func(reason string)
 	onConnectErr   func(error)
-	edgeActivation func(any)
 	edgeDisconnect func(any)
 	connected      bool
 }
@@ -38,10 +36,6 @@ func (t *inMemoryTransport) Emit(_ string, _ any) error {
 		return errors.New("transport is not connected")
 	}
 	return nil
-}
-
-func (t *inMemoryTransport) OnEdgeActivation(handler func(any)) {
-	t.edgeActivation = handler
 }
 
 func (t *inMemoryTransport) OnEdgeDisconnect(handler func(any)) {
@@ -70,14 +64,10 @@ func TestSocketLifecycleNormalization(t *testing.T) {
 		t.Fatalf("create socket client: %v", err)
 	}
 
-	var gotActivation EdgeActivation
 	var gotDisconnect EdgeDisconnect
 	var gotError ConnectErrorCode
 	var gotProtocolError ProtocolError
 	handlers := LifecycleHandlers{
-		OnActivation: func(event EdgeActivation) {
-			gotActivation = event
-		},
 		OnDisconnect: func(event EdgeDisconnect) {
 			gotDisconnect = event
 		},
@@ -97,42 +87,22 @@ func TestSocketLifecycleNormalization(t *testing.T) {
 		context.Background(),
 		HandshakeAuth{
 			EdgeID:           "edge-1",
-			CredentialMode:   CredentialModeOnboarding,
-			CredentialSecret: "onboarding-secret",
+			CredentialSecret: "credential-secret",
 		},
 	); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 
-	transport.edgeActivation(map[string]any{
-		"edgeId":         "edge-1",
-		"lifecycleState": "Active",
-		"persistentCredential": map[string]any{
-			"version":  2,
-			"secret":   "persist-secret",
-			"issuedAt": "2026-04-06T10:00:00Z",
-		},
-	})
-	if gotActivation.EdgeID != "edge-1" {
-		t.Fatalf("expected normalized activation edgeId, got %+v", gotActivation)
-	}
-	if gotActivation.PersistentCredential.Version != 2 {
-		t.Fatalf("expected activation version=2, got %+v", gotActivation)
-	}
-	if gotActivation.PersistentCredential.IssuedAt.IsZero() {
-		t.Fatalf("expected parsed issuedAt timestamp, got %+v", gotActivation)
-	}
-
 	transport.edgeDisconnect(map[string]any{
 		"edgeId": "edge-1",
-		"reason": "trust_revoked",
+		"reason": "credential_rotated",
 	})
-	if gotDisconnect.Reason != DisconnectReasonTrustRevoked {
-		t.Fatalf("expected normalized disconnect reason trust_revoked, got %+v", gotDisconnect)
+	if gotDisconnect.Reason != DisconnectReasonCredentialRotated {
+		t.Fatalf("expected normalized disconnect reason credential_rotated, got %+v", gotDisconnect)
 	}
 
 	transport.onConnectErr(errors.New("persistent_credential_revoked"))
-	if gotError != ConnectErrorPersistentCredentialRevoked {
+	if gotError != ConnectErrorInvalidCredential {
 		t.Fatalf("expected normalized connect_error code, got %q", gotError)
 	}
 
@@ -146,29 +116,19 @@ func TestSocketLifecycleNormalization(t *testing.T) {
 		t.Fatalf("expected unknown connect_error to normalize to invalid_credential, got %q", gotError)
 	}
 
-	transport.edgeActivation(map[string]any{
-		"edgeId":         "wrong-edge",
-		"lifecycleState": "Active",
-		"persistentCredential": map[string]any{
-			"version":  1,
-			"secret":   "persist-secret",
-			"issuedAt": "2026-04-06T10:00:00Z",
-		},
+	transport.edgeDisconnect(map[string]any{
+		"edgeId": "wrong-edge",
+		"reason": "credential_rotated",
 	})
-	if gotProtocolError.Event != "edge_activation" || gotProtocolError.Err == nil {
-		t.Fatalf("expected protocol error callback for invalid activation payload, got %+v", gotProtocolError)
+	if gotProtocolError.Event != "edge_disconnect" || gotProtocolError.Err == nil {
+		t.Fatalf("expected protocol error callback for invalid disconnect payload, got %+v", gotProtocolError)
 	}
 }
 
-func TestParseEdgeActivationRejectsMismatchedEdgeID(t *testing.T) {
-	_, err := ParseEdgeActivation(map[string]any{
-		"edgeId":         "edge-2",
-		"lifecycleState": "Active",
-		"persistentCredential": map[string]any{
-			"version":  1,
-			"secret":   "secret",
-			"issuedAt": time.Now().UTC().Format(time.RFC3339),
-		},
+func TestParseEdgeDisconnectRejectsMismatchedEdgeID(t *testing.T) {
+	_, err := ParseEdgeDisconnect(map[string]any{
+		"edgeId": "edge-2",
+		"reason": "credential_rotated",
 	}, "edge-1")
 	if err == nil {
 		t.Fatal("expected edgeId mismatch to be rejected")
@@ -178,13 +138,13 @@ func TestParseEdgeActivationRejectsMismatchedEdgeID(t *testing.T) {
 func TestBuildHandshakeAuthNormalizesInput(t *testing.T) {
 	auth, err := BuildOnboardingHandshakeAuth(" edge-1 ", " onboarding-secret ")
 	if err != nil {
-		t.Fatalf("build onboarding auth: %v", err)
+		t.Fatalf("build legacy onboarding auth: %v", err)
 	}
 	if auth.EdgeID != "edge-1" {
 		t.Fatalf("expected trimmed edgeId, got %q", auth.EdgeID)
 	}
-	if auth.CredentialMode != CredentialModeOnboarding {
-		t.Fatalf("expected onboarding mode, got %q", auth.CredentialMode)
+	if auth.CredentialSecret != "onboarding-secret" {
+		t.Fatalf("expected trimmed legacy secret, got %q", auth.CredentialSecret)
 	}
 
 	persistent, err := BuildPersistentHandshakeAuth("edge-1", " persist-secret ")
@@ -193,36 +153,6 @@ func TestBuildHandshakeAuthNormalizesInput(t *testing.T) {
 	}
 	if persistent.CredentialSecret != "persist-secret" {
 		t.Fatalf("expected trimmed persistent secret, got %q", persistent.CredentialSecret)
-	}
-}
-
-func TestSocketClientBuildsPersistentReconnectAuthFromActivation(t *testing.T) {
-	transport := &inMemoryTransport{}
-	client, err := NewSocketIOClient(SocketIOClientConfig{
-		ExpectedEdgeID: "edge-1",
-		Transport:      transport,
-	})
-	if err != nil {
-		t.Fatalf("create socket client: %v", err)
-	}
-
-	auth, err := client.BuildPersistentReconnectAuth(EdgeActivation{
-		EdgeID:         "edge-1",
-		LifecycleState: "Active",
-		PersistentCredential: PersistentCredential{
-			Version:  1,
-			Secret:   "persist-secret",
-			IssuedAt: time.Now().UTC(),
-		},
-	})
-	if err != nil {
-		t.Fatalf("build persistent reconnect auth from activation: %v", err)
-	}
-	if auth.CredentialMode != CredentialModePersistent {
-		t.Fatalf("expected persistent reconnect auth mode, got %q", auth.CredentialMode)
-	}
-	if auth.CredentialSecret != "persist-secret" {
-		t.Fatalf("expected persistent reconnect auth secret, got %q", auth.CredentialSecret)
 	}
 }
 
@@ -247,7 +177,6 @@ func TestSocketLifecycleNormalizationHandlesOrdinaryDisconnect(t *testing.T) {
 
 	if err := client.Connect(context.Background(), HandshakeAuth{
 		EdgeID:           "edge-1",
-		CredentialMode:   CredentialModePersistent,
 		CredentialSecret: "persist-secret",
 	}); err != nil {
 		t.Fatalf("connect: %v", err)
@@ -293,7 +222,6 @@ func TestSocketLifecycleNormalizationPreservesLifecycleReasonAcrossOrdinaryDisco
 
 	if err := client.Connect(context.Background(), HandshakeAuth{
 		EdgeID:           "edge-1",
-		CredentialMode:   CredentialModePersistent,
 		CredentialSecret: "persist-secret",
 	}); err != nil {
 		t.Fatalf("connect: %v", err)
@@ -301,17 +229,17 @@ func TestSocketLifecycleNormalizationPreservesLifecycleReasonAcrossOrdinaryDisco
 
 	transport.edgeDisconnect(map[string]any{
 		"edgeId": "edge-1",
-		"reason": "trust_revoked",
+		"reason": "credential_rotated",
 	})
 	transport.onDisconnect("io server disconnect")
 
 	if len(disconnects) != 2 {
 		t.Fatalf("expected 2 disconnect callbacks, got %d", len(disconnects))
 	}
-	if disconnects[0].Reason != DisconnectReasonTrustRevoked {
-		t.Fatalf("expected lifecycle disconnect reason trust_revoked, got %+v", disconnects[0])
+	if disconnects[0].Reason != DisconnectReasonCredentialRotated {
+		t.Fatalf("expected lifecycle disconnect reason credential_rotated, got %+v", disconnects[0])
 	}
-	if disconnects[1].Reason != DisconnectReasonTrustRevoked {
-		t.Fatalf("expected ordinary disconnect after lifecycle event to preserve trust_revoked, got %+v", disconnects[1])
+	if disconnects[1].Reason != DisconnectReasonCredentialRotated {
+		t.Fatalf("expected ordinary disconnect after lifecycle event to preserve credential_rotated, got %+v", disconnects[1])
 	}
 }

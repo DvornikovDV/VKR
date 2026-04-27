@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"edge_server/go_core/internal/cloud"
@@ -17,22 +16,15 @@ func contractFixturePath(t *testing.T, name string) string {
 	return filepath.Join("..", "..", "..", "tests", "fixtures", "runtime", name)
 }
 
-func contractAuthorityPath(t *testing.T, parts ...string) string {
-	t.Helper()
-	base := []string{"..", "..", "..", ".."}
-	return filepath.Join(append(base, parts...)...)
-}
-
 type contractNoopTransport struct{}
 
 func (contractNoopTransport) Connect(context.Context, cloud.HandshakeAuth) error { return nil }
-func (contractNoopTransport) Disconnect() error                                   { return nil }
-func (contractNoopTransport) Emit(string, any) error                              { return nil }
-func (contractNoopTransport) OnEdgeActivation(func(any))                          {}
-func (contractNoopTransport) OnEdgeDisconnect(func(any))                          {}
-func (contractNoopTransport) OnConnect(func() error)                              {}
-func (contractNoopTransport) OnConnectError(func(error))                          {}
-func (contractNoopTransport) OnDisconnect(func(string))                           {}
+func (contractNoopTransport) Disconnect() error                                  { return nil }
+func (contractNoopTransport) Emit(string, any) error                             { return nil }
+func (contractNoopTransport) OnEdgeDisconnect(func(any))                         {}
+func (contractNoopTransport) OnConnect(func() error)                             {}
+func (contractNoopTransport) OnConnectError(func(error))                         {}
+func (contractNoopTransport) OnDisconnect(func(string))                          {}
 
 func TestT010PersistentBootstrapUsesCredentialFileAsOnlyAuthInput(t *testing.T) {
 	stateDir := t.TempDir()
@@ -72,29 +64,7 @@ func TestT010PersistentBootstrapUsesCredentialFileAsOnlyAuthInput(t *testing.T) 
 	}
 }
 
-func TestT010ActiveEdgeContractCoversUnknownEdgeAndSingleSessionRejection(t *testing.T) {
-	websocketContractBytes, err := os.ReadFile(contractAuthorityPath(
-		t,
-		"specs",
-		"001-cloud-server",
-		"contracts",
-		"websocket.md",
-	))
-	if err != nil {
-		t.Fatalf("read websocket contract: %v", err)
-	}
-
-	websocketContract := string(websocketContractBytes)
-	for _, snippet := range []string{
-		"`edge_not_found`",
-		"additional concurrent connect attempts for the same `edgeId` are rejected with `invalid_credential`",
-		"onboarding-package authentication is not part of the active contract",
-	} {
-		if !strings.Contains(websocketContract, snippet) {
-			t.Fatalf("websocket contract must include %q", snippet)
-		}
-	}
-
+func TestT010ActiveEdgeContractRejectsUnknownEdgeAndSecondSession(t *testing.T) {
 	testCases := []struct {
 		name    string
 		message string
@@ -123,5 +93,23 @@ func TestT010ActiveEdgeContractCoversUnknownEdgeAndSingleSessionRejection(t *tes
 				t.Fatalf("expected normalized connect_error %q, got %q", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestT010LegacyOnboardingRejectionsAreNotActiveEdgeContractCodes(t *testing.T) {
+	for _, message := range []string{
+		"onboarding_not_allowed",
+		"onboarding_package_missing",
+		"onboarding_package_expired",
+		"onboarding_package_reused",
+		"persistent_credential_revoked",
+	} {
+		err := cloud.NewConnectError(message)
+		if typed, ok := err.(cloud.ConnectError); ok {
+			t.Fatalf("legacy rejection %q must not normalize as active connect_error %q", message, typed.Code)
+		}
+		if got := cloud.NormalizeConnectError(err); got != cloud.ConnectErrorInvalidCredential {
+			t.Fatalf("legacy rejection %q should collapse to invalid_credential, got %q", message, got)
+		}
 	}
 }

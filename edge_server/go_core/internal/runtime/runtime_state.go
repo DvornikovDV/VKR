@@ -369,11 +369,11 @@ func classifyUntrustedReason(reason string, clearCredential bool) (state.AuthOut
 	switch strings.TrimSpace(reason) {
 	case "blocked":
 		return state.AuthOutcomeBlocked, state.CredentialStatusBlocked, false, state.SessionStateOperatorActionRequired
-	case "trust_revoked", "persistent_credential_revoked", "credential_rotated":
+	case "credential_rotated":
 		return state.AuthOutcomeCredentialRotated, state.CredentialStatusSuperseded, false, state.SessionStateOperatorActionRequired
 	case "edge_not_found":
 		return state.AuthOutcomeEdgeNotFound, state.CredentialStatusRejected, false, state.SessionStateOperatorActionRequired
-	case "invalid_credential", "onboarding_not_allowed", "onboarding_package_missing", "onboarding_package_expired", "onboarding_package_reused":
+	case "invalid_credential":
 		return state.AuthOutcomeInvalidCredential, state.CredentialStatusRejected, false, state.SessionStateOperatorActionRequired
 	case "edge_auth_internal_error", "protocol_error":
 		if clearCredential {

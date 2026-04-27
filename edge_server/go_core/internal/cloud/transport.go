@@ -9,12 +9,15 @@ import (
 type CredentialMode string
 
 const (
+	// Deprecated: active /edge authentication uses edgeId + credentialSecret only.
 	CredentialModeOnboarding CredentialMode = "onboarding"
+	// Deprecated: active /edge authentication uses edgeId + credentialSecret only.
 	CredentialModePersistent CredentialMode = "persistent"
 )
 
 type HandshakeAuth struct {
-	EdgeID           string
+	EdgeID string
+	// Deprecated: retained only for quarantined legacy reference tests.
 	CredentialMode   CredentialMode
 	CredentialSecret string
 }
@@ -22,9 +25,6 @@ type HandshakeAuth struct {
 func (a HandshakeAuth) Validate() error {
 	if strings.TrimSpace(a.EdgeID) == "" {
 		return fmt.Errorf("handshake.edgeId is required")
-	}
-	if a.CredentialMode != CredentialModeOnboarding && a.CredentialMode != CredentialModePersistent {
-		return fmt.Errorf("handshake.credentialMode must be onboarding or persistent")
 	}
 	if strings.TrimSpace(a.CredentialSecret) == "" {
 		return fmt.Errorf("handshake.credentialSecret is required")
@@ -38,7 +38,6 @@ type Transport interface {
 	Disconnect() error
 	Emit(event string, payload any) error
 
-	OnEdgeActivation(handler func(any))
 	OnEdgeDisconnect(handler func(any))
 	OnConnect(handler func() error)
 	OnConnectError(handler func(error))

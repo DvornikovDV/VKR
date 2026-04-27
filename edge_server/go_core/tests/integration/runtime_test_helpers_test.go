@@ -24,7 +24,6 @@ type noopTransport struct{}
 func (noopTransport) Connect(context.Context, cloud.HandshakeAuth) error { return nil }
 func (noopTransport) Disconnect() error                                  { return nil }
 func (noopTransport) Emit(string, any) error                             { return nil }
-func (noopTransport) OnEdgeActivation(func(any))                         {}
 func (noopTransport) OnEdgeDisconnect(func(any))                         {}
 func (noopTransport) OnConnect(func() error)                             {}
 func (noopTransport) OnConnectError(func(error))                         {}
