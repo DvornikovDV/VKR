@@ -43,6 +43,24 @@ type MockControl interface {
 	ApplyCount() int
 }
 
+type SourceHealthState string
+
+const (
+	SourceHealthRunning  SourceHealthState = "running"
+	SourceHealthDegraded SourceHealthState = "degraded"
+	SourceHealthFailed   SourceHealthState = "failed"
+	SourceHealthStopped  SourceHealthState = "stopped"
+)
+
+type SourceHealthSnapshot struct {
+	SourceID          string
+	State             SourceHealthState
+	LastReadingAt     int64
+	LastFaultCode     string
+	LastFaultAt       int64
+	ConsecutiveFaults int
+}
+
 type ApplyReport struct {
 	Applied []string
 	Reused  []string

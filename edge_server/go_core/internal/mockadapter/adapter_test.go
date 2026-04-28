@@ -6,7 +6,7 @@ import (
 	"edge_server/go_core/internal/source"
 )
 
-func TestReproTaskT008MockAdapterExercisesBoundaryWithoutCloudContext(t *testing.T) {
+func TestMockAdapterRemainsReferenceHarnessWithoutCloudContext(t *testing.T) {
 	adapter := New()
 	sink := &captureSink{}
 
@@ -76,6 +76,36 @@ func TestReproTaskT008MockAdapterExercisesBoundaryWithoutCloudContext(t *testing
 	}
 	if sink.faults[0].SourceID != "source-1" {
 		t.Fatalf("expected adapter to emit applied sourceId on faults, got %+v", sink.faults[0])
+	}
+}
+
+func TestMockAdapterRejectsProductionAdapterKind(t *testing.T) {
+	adapter := New()
+
+	err := adapter.ApplyDefinition(source.Definition{
+		SourceID:       "source-rtu",
+		AdapterKind:    source.ModbusRTUKind,
+		Enabled:        true,
+		PollIntervalMs: 1000,
+		Connection:     map[string]any{"transport": "rtu"},
+		Devices: []source.DeviceDefinition{
+			{
+				DeviceID: "device-1",
+				Metrics: []source.MetricDefinition{
+					{
+						Metric:    "temperature",
+						ValueType: "number",
+						Mapping:   map[string]any{"registerType": "input", "address": 10},
+					},
+				},
+			},
+		},
+	}, &captureSink{})
+	if err == nil {
+		t.Fatal("mock adapter must not accept the production modbus_rtu adapter kind")
+	}
+	if adapter.ApplyCount() != 0 {
+		t.Fatalf("production adapter rejection must not apply mock state, got apply count %d", adapter.ApplyCount())
 	}
 }
 

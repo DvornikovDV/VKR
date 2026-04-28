@@ -20,6 +20,8 @@ type managedSource struct {
 	signature string
 	adapter   Adapter
 	control   MockControl
+	identity  map[string]struct{}
+	health    SourceHealthSnapshot
 }
 
 type managerSink struct {
@@ -55,6 +57,13 @@ func (m *Manager) ApplyDefinitions(definitions []Definition) (ApplyReport, error
 		if sourceID == "" {
 			return report, fmt.Errorf("source definition sourceId is required")
 		}
+		definition.SourceID = sourceID
+
+		adapterKind := strings.TrimSpace(definition.AdapterKind)
+		if adapterKind == "" {
+			return report, fmt.Errorf("source definition %s adapterKind is required", sourceID)
+		}
+		definition.AdapterKind = adapterKind
 
 		existing := m.sources[sourceID]
 		if !definition.Enabled {
@@ -77,9 +86,9 @@ func (m *Manager) ApplyDefinitions(definitions []Definition) (ApplyReport, error
 			continue
 		}
 
-		if existing != nil {
-			_ = existing.adapter.Close()
-			closedSources[sourceID] = struct{}{}
+		identities, err := readingIdentities(definition)
+		if err != nil {
+			return report, fmt.Errorf("validate reading identities for %s: %w", sourceID, err)
 		}
 
 		factory := m.factories[definition.AdapterKind]
@@ -101,9 +110,19 @@ func (m *Manager) ApplyDefinitions(definitions []Definition) (ApplyReport, error
 			return report, fmt.Errorf("apply source definition %s: %w", sourceID, err)
 		}
 
+		if existing != nil {
+			_ = existing.adapter.Close()
+			closedSources[sourceID] = struct{}{}
+		}
+
 		managed := &managedSource{
 			signature: signature,
 			adapter:   adapter,
+			identity:  identities,
+			health: SourceHealthSnapshot{
+				SourceID: sourceID,
+				State:    SourceHealthRunning,
+			},
 		}
 		if control, ok := adapter.(MockControl); ok {
 			managed.control = control
@@ -156,6 +175,18 @@ func (m *Manager) MockControl(sourceID string) (MockControl, error) {
 	return managed.control, nil
 }
 
+func (m *Manager) HealthSnapshot() map[string]SourceHealthSnapshot {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	snapshot := make(map[string]SourceHealthSnapshot, len(m.sources))
+	for sourceID, managed := range m.sources {
+		snapshot[sourceID] = managed.health
+	}
+
+	return snapshot
+}
+
 func (s managerSink) PublishReading(reading RawReading) {
 	if s.manager == nil {
 		return
@@ -163,6 +194,12 @@ func (s managerSink) PublishReading(reading RawReading) {
 
 	normalized, err := NormalizeReading(s.sourceID, reading)
 	if err != nil {
+		return
+	}
+	if !s.manager.acceptReading(normalized) {
+		return
+	}
+	if !s.manager.markReading(normalized) {
 		return
 	}
 
@@ -178,8 +215,56 @@ func (s managerSink) PublishFault(fault Fault) {
 	if err != nil {
 		return
 	}
+	if !s.manager.markFault(normalized) {
+		return
+	}
 
 	s.manager.faults <- normalized
+}
+
+func (m *Manager) acceptReading(reading Reading) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	managed := m.sources[reading.SourceID]
+	if managed == nil {
+		return false
+	}
+	_, ok := managed.identity[readingIdentityKey(reading.DeviceID, reading.Metric)]
+	return ok
+}
+
+func (m *Manager) markReading(reading Reading) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	managed := m.sources[reading.SourceID]
+	if managed == nil {
+		return false
+	}
+	managed.health.State = SourceHealthRunning
+	managed.health.LastReadingAt = reading.TS
+	managed.health.ConsecutiveFaults = 0
+	return true
+}
+
+func (m *Manager) markFault(fault Fault) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	managed := m.sources[fault.SourceID]
+	if managed == nil {
+		return false
+	}
+	if fault.Severity == SeverityWarning {
+		managed.health.State = SourceHealthDegraded
+	} else {
+		managed.health.State = SourceHealthFailed
+	}
+	managed.health.LastFaultCode = fault.Code
+	managed.health.LastFaultAt = fault.TS
+	managed.health.ConsecutiveFaults++
+	return true
 }
 
 func definitionSignature(definition Definition) (string, error) {
@@ -189,4 +274,41 @@ func definitionSignature(definition Definition) (string, error) {
 	}
 
 	return string(payload), nil
+}
+
+func readingIdentities(definition Definition) (map[string]struct{}, error) {
+	if len(definition.Devices) == 0 {
+		return nil, fmt.Errorf("devices must not be empty")
+	}
+
+	identities := make(map[string]struct{})
+	for deviceIndex, device := range definition.Devices {
+		deviceID := strings.TrimSpace(device.DeviceID)
+		if deviceID == "" {
+			return nil, fmt.Errorf("devices[%d].deviceId is required", deviceIndex)
+		}
+		if len(device.Metrics) == 0 {
+			return nil, fmt.Errorf("devices[%d].metrics must not be empty", deviceIndex)
+		}
+		for metricIndex, metric := range device.Metrics {
+			metricID := strings.TrimSpace(metric.Metric)
+			if metricID == "" {
+				return nil, fmt.Errorf("devices[%d].metrics[%d].metric is required", deviceIndex, metricIndex)
+			}
+			if metric.ValueType != "number" && metric.ValueType != "boolean" {
+				return nil, fmt.Errorf("devices[%d].metrics[%d].valueType must be number or boolean", deviceIndex, metricIndex)
+			}
+			key := readingIdentityKey(deviceID, metricID)
+			if _, exists := identities[key]; exists {
+				return nil, fmt.Errorf("duplicate deviceId+metric identity %q/%q", deviceID, metricID)
+			}
+			identities[key] = struct{}{}
+		}
+	}
+
+	return identities, nil
+}
+
+func readingIdentityKey(deviceID string, metric string) string {
+	return strings.TrimSpace(deviceID) + "\x00" + strings.TrimSpace(metric)
 }

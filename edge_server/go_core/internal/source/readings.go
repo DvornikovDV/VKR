@@ -2,6 +2,7 @@ package source
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -104,9 +105,9 @@ func normalizeValue(value any) (any, error) {
 	case bool:
 		return typed, nil
 	case float64:
-		return typed, nil
+		return finiteFloat(typed)
 	case float32:
-		return float64(typed), nil
+		return finiteFloat(float64(typed))
 	case int:
 		return float64(typed), nil
 	case int8:
@@ -130,4 +131,12 @@ func normalizeValue(value any) (any, error) {
 	default:
 		return nil, fmt.Errorf("reading value must be number or boolean")
 	}
+}
+
+func finiteFloat(value float64) (float64, error) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, fmt.Errorf("reading value must be finite")
+	}
+
+	return value, nil
 }
