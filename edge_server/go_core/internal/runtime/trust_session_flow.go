@@ -33,9 +33,13 @@ func (f trustSessionFlow) HandleDisconnect(event cloud.EdgeDisconnect) bool {
 		return false
 	}
 
-	if event.RequiresCredentialReset() {
+	if shouldIgnoreClientDetachAfterTrustLoss(event, snapshot) {
+		return false
+	}
+
+	if event.RequiresCredentialReplacement() {
 		if err := f.runner.MarkUntrusted(reason, true); err != nil {
-			f.runner.reportAsyncError(fmt.Errorf("persist runtime state after credential reset: %w", err))
+			f.runner.reportAsyncError(fmt.Errorf("persist runtime state after credential replacement requirement: %w", err))
 		}
 		return true
 	}
@@ -53,5 +57,24 @@ func (f trustSessionFlow) HandleConnectError(code cloud.ConnectErrorCode) {
 
 	if err := f.runner.MarkUntrusted(string(code), true); err != nil {
 		f.runner.reportAsyncError(fmt.Errorf("persist runtime state after connect error: %w", err))
+	}
+}
+
+func shouldIgnoreClientDetachAfterTrustLoss(event cloud.EdgeDisconnect, snapshot SessionStateSnapshot) bool {
+	if event.Reason != cloud.DisconnectReasonClientRequested && event.Reason != cloud.DisconnectReasonForced {
+		return false
+	}
+	if snapshot.Trusted || snapshot.Connected {
+		return false
+	}
+	if snapshot.LastReason == nil {
+		return false
+	}
+
+	switch *snapshot.LastReason {
+	case string(cloud.DisconnectReasonCredentialRotated), string(cloud.DisconnectReasonBlocked):
+		return true
+	default:
+		return false
 	}
 }

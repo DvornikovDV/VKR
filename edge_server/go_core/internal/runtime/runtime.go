@@ -20,6 +20,7 @@ type runtimeStateSaver interface {
 type Runner struct {
 	state       *RuntimeState
 	mu          sync.RWMutex
+	persistMu   sync.Mutex
 	bootstrap   *BootstrapSession
 	transport   cloud.Transport
 	telemetry   *TelemetryPipeline
@@ -196,6 +197,9 @@ func (r *Runner) currentRuntimeStateStore() runtimeStateSaver {
 }
 
 func (r *Runner) persistRuntimeState() error {
+	r.persistMu.Lock()
+	defer r.persistMu.Unlock()
+
 	store := r.currentRuntimeStateStore()
 	if store == nil {
 		return nil
@@ -367,6 +371,7 @@ func (r *Runner) Run(ctx context.Context) error {
 				_ = client.Disconnect()
 				return nil
 			case <-lifecycleEvents:
+				_ = client.Disconnect()
 				goto nextAttempt
 			}
 		}

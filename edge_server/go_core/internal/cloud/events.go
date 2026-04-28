@@ -83,12 +83,8 @@ func NewConnectError(message string) error {
 	return ConnectError{Code: code}
 }
 
-func (d EdgeDisconnect) RequiresCredentialReset() bool {
+func (d EdgeDisconnect) RequiresCredentialReplacement() bool {
 	return d.Reason == DisconnectReasonCredentialRotated || d.Reason == DisconnectReasonBlocked
-}
-
-func (d EdgeDisconnect) AllowsReconnectAttempt() bool {
-	return d.Reason != DisconnectReasonClientRequested
 }
 
 func ParseEdgeDisconnect(payload any, expectedEdgeID string) (EdgeDisconnect, error) {

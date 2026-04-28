@@ -16,9 +16,12 @@ import (
 )
 
 type Process struct {
-	Runner    *runtime.Runner
-	Bootstrap *runtime.BootstrapSession
-	Sources   *source.Manager
+	Runner               *runtime.Runner
+	Bootstrap            *runtime.BootstrapSession
+	Sources              *source.Manager
+	credentialStore      *state.CredentialStore
+	expectedEdgeID       string
+	sourceConfigRevision string
 }
 
 func New(ctx context.Context, cfg config.Config, transport cloud.Transport) (*Process, error) {
@@ -50,7 +53,8 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	if err := state.EnsureRuntimePersistenceBoundaries(cfg.Runtime.StateDir); err != nil {
 		return nil, fmt.Errorf("initialize runtime persistence boundaries: %w", err)
 	}
-	credential, exists, err := state.NewCredentialStore(cfg.Runtime.StateDir).Load()
+	credentialStore := state.NewCredentialStore(cfg.Runtime.StateDir)
+	credential, exists, err := credentialStore.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load startup credential boundary: %w", err)
 	}
@@ -98,10 +102,42 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	}
 
 	return &Process{
-		Runner:    runner,
-		Bootstrap: bootstrap,
-		Sources:   sources,
+		Runner:               runner,
+		Bootstrap:            bootstrap,
+		Sources:              sources,
+		credentialStore:      credentialStore,
+		expectedEdgeID:       cfg.Runtime.EdgeID,
+		sourceConfigRevision: sourceConfigRevision,
 	}, nil
+}
+
+func (p *Process) ReloadInstalledCredential() error {
+	if p == nil || p.Runner == nil {
+		return fmt.Errorf("runtime process is required")
+	}
+	if p.credentialStore == nil {
+		return fmt.Errorf("runtime credential store is required")
+	}
+
+	credential, exists, err := p.credentialStore.Load()
+	if err != nil {
+		return fmt.Errorf("load installed credential: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("credential.json is required in runtime.stateDir")
+	}
+	if credential.EdgeID != p.expectedEdgeID {
+		return fmt.Errorf("credential.json edgeId %q does not match runtime.edgeId %q", credential.EdgeID, p.expectedEdgeID)
+	}
+
+	if err := p.Runner.LoadPersistentCredential(credential.EdgeID, credential.Version, credential.CredentialSecret); err != nil {
+		return fmt.Errorf("load installed credential into runtime: %w", err)
+	}
+	if err := p.Runner.ConfigureRuntimeState(p.expectedEdgeID, p.sourceConfigRevision); err != nil {
+		return fmt.Errorf("persist runtime state after credential reload: %w", err)
+	}
+
+	return nil
 }
 
 func initializeStatusSnapshot(stateDir string, runtimeStore *state.RuntimeStateStore) error {
