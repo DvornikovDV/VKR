@@ -35,6 +35,21 @@ type modbusSerialConnection struct {
 	timeout  time.Duration
 }
 
+type ModbusRegisterClient = modbusRegisterClient
+
+type ModbusSerialConnection = modbusSerialConnection
+
+type ModbusSerialClientFactory = modbusSerialClientFactory
+
+var defaultModbusSerialClient = struct {
+	mu      sync.RWMutex
+	factory modbusSerialClientFactory
+	now     func() time.Time
+}{
+	factory: newSimonvetterModbusClient,
+	now:     time.Now,
+}
+
 type modbusMetricMapping struct {
 	deviceID     string
 	metric       string
@@ -58,7 +73,35 @@ type ModbusSerialAdapter struct {
 }
 
 func NewModbusSerialAdapter() *ModbusSerialAdapter {
-	return newModbusSerialAdapterWithFactory(newSimonvetterModbusClient, time.Now)
+	factory, now := currentModbusSerialDefaults()
+	return newModbusSerialAdapterWithFactory(factory, now)
+}
+
+func OverrideModbusSerialClientFactoryForTest(factory ModbusSerialClientFactory, now func() time.Time) func() {
+	defaultModbusSerialClient.mu.Lock()
+	previousFactory := defaultModbusSerialClient.factory
+	previousNow := defaultModbusSerialClient.now
+	defaultModbusSerialClient.factory = factory
+	if now == nil {
+		defaultModbusSerialClient.now = time.Now
+	} else {
+		defaultModbusSerialClient.now = now
+	}
+	defaultModbusSerialClient.mu.Unlock()
+
+	return func() {
+		defaultModbusSerialClient.mu.Lock()
+		defaultModbusSerialClient.factory = previousFactory
+		defaultModbusSerialClient.now = previousNow
+		defaultModbusSerialClient.mu.Unlock()
+	}
+}
+
+func currentModbusSerialDefaults() (modbusSerialClientFactory, func() time.Time) {
+	defaultModbusSerialClient.mu.RLock()
+	defer defaultModbusSerialClient.mu.RUnlock()
+
+	return defaultModbusSerialClient.factory, defaultModbusSerialClient.now
 }
 
 func newModbusSerialAdapterWithFactory(factory modbusSerialClientFactory, now func() time.Time) *ModbusSerialAdapter {

@@ -9,7 +9,6 @@ import (
 
 	"edge_server/go_core/internal/cloud"
 	"edge_server/go_core/internal/config"
-	"edge_server/go_core/internal/mockadapter"
 	"edge_server/go_core/internal/operator"
 	"edge_server/go_core/internal/runtime"
 	"edge_server/go_core/internal/source"
@@ -23,11 +22,30 @@ type Process struct {
 }
 
 func New(ctx context.Context, cfg config.Config, transport cloud.Transport) (*Process, error) {
+	return newWithSourceFactories(ctx, cfg, transport, productionSourceFactories())
+}
+
+func NewWithSourceFactoriesForTest(ctx context.Context, cfg config.Config, transport cloud.Transport, factories source.FactoryRegistry) (*Process, error) {
+	return newWithSourceFactories(ctx, cfg, transport, factories)
+}
+
+func productionSourceFactories() source.FactoryRegistry {
+	return source.FactoryRegistry{
+		source.ModbusRTUKind: func() (source.Adapter, error) {
+			return source.NewModbusSerialAdapter(), nil
+		},
+	}
+}
+
+func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cloud.Transport, factories source.FactoryRegistry) (*Process, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("runtime app context is required")
 	}
 	if transport == nil {
 		return nil, fmt.Errorf("runtime app transport is required")
+	}
+	if len(factories) == 0 {
+		return nil, fmt.Errorf("runtime app source factory registry is required")
 	}
 	if err := state.EnsureRuntimePersistenceBoundaries(cfg.Runtime.StateDir); err != nil {
 		return nil, fmt.Errorf("initialize runtime persistence boundaries: %w", err)
@@ -54,11 +72,7 @@ func New(ctx context.Context, cfg config.Config, transport cloud.Transport) (*Pr
 	bootstrap := runtime.NewBootstrapSession(runner)
 
 	definitions := source.DefinitionsFromConfig(cfg.Sources)
-	sources := source.NewManager(source.FactoryRegistry{
-		mockadapter.Kind: func() (source.Adapter, error) {
-			return mockadapter.New(), nil
-		},
-	})
+	sources := source.NewManager(factories)
 
 	if _, err := sources.ApplyDefinitions(definitions); err != nil {
 		return nil, fmt.Errorf("apply source definitions: %w", err)

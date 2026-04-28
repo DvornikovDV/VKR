@@ -10,6 +10,8 @@ import (
 
 	"edge_server/go_core/internal/cloud"
 	"edge_server/go_core/internal/config"
+	"edge_server/go_core/internal/mockadapter"
+	"edge_server/go_core/internal/source"
 	"edge_server/go_core/internal/state"
 )
 
@@ -28,7 +30,7 @@ func TestNewInitializesRuntimeStateAndStatusFiles(t *testing.T) {
 	cfg := runtimeConfigFixture(stateDir)
 	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
 
-	_, err := New(context.Background(), cfg, noopTransport{})
+	_, err := NewWithSourceFactoriesForTest(context.Background(), cfg, noopTransport{}, mockSourceFactories())
 	if err != nil {
 		t.Fatalf("construct runtime process: %v", err)
 	}
@@ -55,6 +57,14 @@ func TestNewRejectsCredentialPathBoundaryViolation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "credential.json") {
 		t.Fatalf("expected credential boundary error, got %v", err)
+	}
+}
+
+func mockSourceFactories() source.FactoryRegistry {
+	return source.FactoryRegistry{
+		mockadapter.Kind: func() (source.Adapter, error) {
+			return mockadapter.New(), nil
+		},
 	}
 }
 
