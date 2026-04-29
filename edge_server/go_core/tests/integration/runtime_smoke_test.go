@@ -16,6 +16,12 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"edge_server/go_core/internal/cloud"
+	"edge_server/go_core/internal/config"
+	"edge_server/go_core/internal/runtimeapp"
+	"edge_server/go_core/internal/source"
+	"edge_server/go_core/internal/state"
 )
 
 type runtimeHandshakeAttempt struct {
@@ -292,6 +298,170 @@ func TestT011RuntimeStartupHandlesConcurrentSessionDenialWithoutOnboardingFallba
 	}
 	if strings.Contains(strings.ToLower(stderr), "onboarding") {
 		t.Fatalf("concurrent-session denial must not fallback to onboarding semantics, got stderr:\n%s", stderr)
+	}
+}
+
+func TestT026RuntimeStartupHandlesBlockedWithoutRetryOrOnboardingFallback(t *testing.T) {
+	stateDir := t.TempDir()
+	issuedAt := time.Date(2026, 4, 19, 8, 20, 0, 0, time.UTC)
+	if err := state.NewCredentialStore(stateDir).Save(state.Credential{
+		EdgeID:           "507f1f77bcf86cd799439011",
+		CredentialSecret: "persistent-secret-fixture-valid",
+		Version:          3,
+		IssuedAt:         issuedAt,
+		Source:           "register",
+		InstalledAt:      issuedAt.Add(time.Minute),
+	}); err != nil {
+		t.Fatalf("write credential.json: %v", err)
+	}
+
+	transport := newT026BlockedTransport()
+	cfg := config.Config{
+		Runtime: config.RuntimeConfig{
+			EdgeID:       "507f1f77bcf86cd799439011",
+			StateDir:     stateDir,
+			InstanceName: "blocked-smoke-edge",
+		},
+		Cloud: config.CloudConfig{
+			URL:              "https://cloud.example.test",
+			Namespace:        "/edge",
+			ConnectTimeoutMs: 10000,
+			Reconnect: config.ReconnectConfig{
+				BaseDelayMs: 1000,
+				MaxDelayMs:  30000,
+				MaxAttempts: 0,
+			},
+		},
+		Batch: config.BatchConfig{
+			IntervalMs:  25,
+			MaxReadings: 1,
+		},
+		Sources: []config.PollingSourceDefinition{
+			{
+				SourceID:       "smoke-source",
+				AdapterKind:    "smoke_noop",
+				Enabled:        true,
+				PollIntervalMs: 100,
+				Devices: []config.LocalDeviceDefinition{
+					{
+						DeviceID: "pump-1",
+						Metrics: []config.MetricDefinition{
+							{
+								Metric:    "pressure",
+								ValueType: "number",
+								Mapping:   map[string]any{"registerType": "input", "address": 0},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	process, err := runtimeapp.NewWithSourceFactoriesForTest(ctx, cfg, transport, source.FactoryRegistry{
+		"smoke_noop": func() (source.Adapter, error) { return t026NoopAdapter{}, nil },
+	})
+	if err != nil {
+		t.Fatalf("construct runtime app: %v", err)
+	}
+
+	runErr := runT021Runner(ctx, process)
+	attempt := transport.WaitForAttempt(t, 2*time.Second)
+	if attempt.CredentialSecret != "persistent-secret-fixture-valid" {
+		t.Fatalf("expected blocked handshake to use installed credential, got %q", attempt.CredentialSecret)
+	}
+	transport.AssertNoAttempt(t, 300*time.Millisecond)
+
+	err = waitT021RunnerExit(runErr, 2*time.Second)
+	if err == nil {
+		t.Fatal("expected blocked connect_error to fail runtime")
+	}
+	if !strings.Contains(err.Error(), "blocked") {
+		t.Fatalf("expected runtime error to surface blocked rejection, got: %v", err)
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "onboarding") {
+		t.Fatalf("blocked handling must not fallback to onboarding semantics, got: %v", err)
+	}
+
+	snapshot := process.Runner.StateSnapshot()
+	if snapshot.CredentialStatus != state.CredentialStatusBlocked {
+		t.Fatalf("expected credentialStatus=blocked after blocked connect_error, got %q", snapshot.CredentialStatus)
+	}
+	if snapshot.RetryEligible {
+		t.Fatalf("expected blocked connect_error to suppress retry, got %+v", snapshot)
+	}
+	if snapshot.Trusted || snapshot.Connected {
+		t.Fatalf("expected blocked connect_error to stop trusted state, got %+v", snapshot)
+	}
+}
+
+type t026NoopAdapter struct{}
+
+func (t026NoopAdapter) ApplyDefinition(source.Definition, source.Sink) error { return nil }
+func (t026NoopAdapter) Close() error                                         { return nil }
+
+type t026BlockedTransport struct {
+	mu                sync.Mutex
+	attempts          chan cloud.HandshakeAuth
+	connectErrHandler func(error)
+}
+
+func newT026BlockedTransport() *t026BlockedTransport {
+	return &t026BlockedTransport{
+		attempts: make(chan cloud.HandshakeAuth, 8),
+	}
+}
+
+func (t *t026BlockedTransport) Connect(_ context.Context, auth cloud.HandshakeAuth) error {
+	t.attempts <- auth
+
+	t.mu.Lock()
+	handler := t.connectErrHandler
+	t.mu.Unlock()
+	if handler != nil {
+		handler(cloud.ConnectError{Code: cloud.ConnectErrorBlocked})
+	}
+
+	return cloud.ConnectError{Code: cloud.ConnectErrorBlocked}
+}
+
+func (t *t026BlockedTransport) Disconnect() error { return nil }
+
+func (t *t026BlockedTransport) Emit(string, any) error { return nil }
+
+func (t *t026BlockedTransport) OnEdgeDisconnect(func(any)) {}
+
+func (t *t026BlockedTransport) OnConnect(func() error) {}
+
+func (t *t026BlockedTransport) OnConnectError(handler func(error)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.connectErrHandler = handler
+}
+
+func (t *t026BlockedTransport) OnDisconnect(func(string)) {}
+
+func (t *t026BlockedTransport) WaitForAttempt(tb testing.TB, timeout time.Duration) cloud.HandshakeAuth {
+	tb.Helper()
+
+	select {
+	case attempt := <-t.attempts:
+		return attempt
+	case <-time.After(timeout):
+		tb.Fatal("timed out waiting for runtime handshake attempt")
+		return cloud.HandshakeAuth{}
+	}
+}
+
+func (t *t026BlockedTransport) AssertNoAttempt(tb testing.TB, timeout time.Duration) {
+	tb.Helper()
+
+	select {
+	case attempt := <-t.attempts:
+		tb.Fatalf("expected no runtime handshake attempt, got %+v", attempt)
+	case <-time.After(timeout):
 	}
 }
 

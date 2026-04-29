@@ -84,6 +84,10 @@ func NewConnectError(message string) error {
 }
 
 func (d EdgeDisconnect) RequiresCredentialReplacement() bool {
+	return d.RequiresFreshCredential()
+}
+
+func (d EdgeDisconnect) RequiresFreshCredential() bool {
 	return d.Reason == DisconnectReasonCredentialRotated || d.Reason == DisconnectReasonBlocked
 }
 

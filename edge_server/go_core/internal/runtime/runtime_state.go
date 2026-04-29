@@ -114,9 +114,8 @@ func (s *RuntimeState) LoadPersistentCredential(edgeID string, version int, pers
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.session.CredentialStatus == state.CredentialStatusSuperseded &&
-		!state.CredentialVersionReplacesSuperseded(version, s.session.CredentialVersion) {
-		return fmt.Errorf("credential.json version %d does not replace superseded credential version %d", version, *s.session.CredentialVersion)
+	if err := s.validateCredentialReplacementLocked(version); err != nil {
+		return err
 	}
 
 	s.session.EdgeID = normalizedEdgeID
@@ -131,6 +130,10 @@ func (s *RuntimeState) LoadPersistentCredential(edgeID string, version int, pers
 	s.touchLocked()
 
 	return nil
+}
+
+func (s *RuntimeState) validateCredentialReplacementLocked(version int) error {
+	return state.ValidateCredentialReplacement(s.session.CredentialStatus, version, s.session.CredentialVersion)
 }
 
 func (s *RuntimeState) MarkConnectAttempt(edgeID string) error {

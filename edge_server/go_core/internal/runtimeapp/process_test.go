@@ -156,6 +156,44 @@ func TestNewAcceptsReplacedCredentialAfterSupersededRuntimeState(t *testing.T) {
 	}
 }
 
+func TestNewRejectsOldCredentialAfterBlockedRuntimeState(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := runtimeConfigFixture(stateDir)
+	writeCredentialVersionFixture(t, stateDir, cfg.Runtime.EdgeID, "persistent-secret-v1", 3, "register")
+	writeBlockedRuntimeStateFixture(t, stateDir, cfg.Runtime.EdgeID, 3)
+
+	_, err := NewWithSourceFactoriesForTest(context.Background(), cfg, noopTransport{}, mockSourceFactories())
+	if err == nil {
+		t.Fatal("expected startup to reject old credential after blocked runtime-state")
+	}
+	if !strings.Contains(err.Error(), "does not replace blocked credential") {
+		t.Fatalf("expected blocked credential replacement error, got %v", err)
+	}
+}
+
+func TestNewAcceptsFreshCredentialAfterBlockedRuntimeState(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := runtimeConfigFixture(stateDir)
+	writeBlockedRuntimeStateFixture(t, stateDir, cfg.Runtime.EdgeID, 3)
+	writeCredentialVersionFixture(t, stateDir, cfg.Runtime.EdgeID, "persistent-secret-v2", 4, "unblock")
+
+	process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, noopTransport{}, mockSourceFactories())
+	if err != nil {
+		t.Fatalf("expected startup with fresh unblock credential to succeed: %v", err)
+	}
+
+	snapshot := process.Runner.StateSnapshot()
+	if snapshot.CredentialVersion == nil || *snapshot.CredentialVersion != 4 {
+		t.Fatalf("expected fresh unblock credential version 4 to load, got %+v", snapshot.CredentialVersion)
+	}
+	if snapshot.CredentialStatus != state.CredentialStatusLoaded {
+		t.Fatalf("expected credentialStatus=loaded after fresh unblock startup, got %q", snapshot.CredentialStatus)
+	}
+	if snapshot.PersistentCredentialSecret == nil || *snapshot.PersistentCredentialSecret != "persistent-secret-v2" {
+		t.Fatalf("expected fresh unblock credential secret to load, got %v", snapshot.PersistentCredentialSecret)
+	}
+}
+
 func TestRuntimeTrustLossUpdatesOperatorStatus(t *testing.T) {
 	stateDir := t.TempDir()
 	cfg := runtimeConfigFixture(stateDir)
@@ -296,5 +334,23 @@ func writeSupersededRuntimeStateFixture(t *testing.T, stateDir string, edgeID st
 		UpdatedAt:            now,
 	}); err != nil {
 		t.Fatalf("write superseded runtime-state fixture: %v", err)
+	}
+}
+
+func writeBlockedRuntimeStateFixture(t *testing.T, stateDir string, edgeID string, version int) {
+	t.Helper()
+
+	now := time.Date(2026, 4, 19, 9, 0, 0, 0, time.UTC)
+	if err := state.NewRuntimeStateStore(stateDir).Save(state.RuntimeState{
+		EdgeID:               edgeID,
+		CredentialVersion:    &version,
+		CredentialStatus:     state.CredentialStatusBlocked,
+		SessionState:         state.SessionStateOperatorActionRequired,
+		AuthOutcome:          state.AuthOutcomeBlocked,
+		RetryEligible:        false,
+		SourceConfigRevision: "rev-existing",
+		UpdatedAt:            now,
+	}); err != nil {
+		t.Fatalf("write blocked runtime-state fixture: %v", err)
 	}
 }

@@ -71,10 +71,14 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	if err != nil {
 		return nil, fmt.Errorf("load existing runtime-state boundary: %w", err)
 	}
-	if existingRuntimeStateFound &&
-		existingRuntimeState.CredentialStatus == state.CredentialStatusSuperseded &&
-		!state.CredentialVersionReplacesSuperseded(credential.Version, existingRuntimeState.CredentialVersion) {
-		return nil, fmt.Errorf("credential.json version %d does not replace superseded credential version %d", credential.Version, *existingRuntimeState.CredentialVersion)
+	if existingRuntimeStateFound {
+		if err := state.ValidateCredentialReplacement(
+			existingRuntimeState.CredentialStatus,
+			credential.Version,
+			existingRuntimeState.CredentialVersion,
+		); err != nil {
+			return nil, err
+		}
 	}
 	statusStore := state.NewStatusStore(cfg.Runtime.StateDir)
 	if _, _, err := statusStore.Load(); err != nil {
@@ -145,9 +149,12 @@ func (p *Process) ReloadInstalledCredential() error {
 	}
 
 	snapshot := p.Runner.StateSnapshot()
-	if snapshot.CredentialStatus == state.CredentialStatusSuperseded &&
-		!state.CredentialVersionReplacesSuperseded(credential.Version, snapshot.CredentialVersion) {
-		return fmt.Errorf("credential.json version %d does not replace superseded credential version %d", credential.Version, *snapshot.CredentialVersion)
+	if err := state.ValidateCredentialReplacement(
+		snapshot.CredentialStatus,
+		credential.Version,
+		snapshot.CredentialVersion,
+	); err != nil {
+		return err
 	}
 
 	if err := p.Runner.LoadPersistentCredential(credential.EdgeID, credential.Version, credential.CredentialSecret); err != nil {

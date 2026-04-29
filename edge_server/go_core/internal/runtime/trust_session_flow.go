@@ -37,7 +37,7 @@ func (f trustSessionFlow) HandleDisconnect(event cloud.EdgeDisconnect) bool {
 		return false
 	}
 
-	if event.RequiresCredentialReplacement() {
+	if event.RequiresFreshCredential() {
 		if err := f.runner.MarkUntrusted(reason, true); err != nil {
 			f.runner.reportAsyncError(fmt.Errorf("persist runtime state after credential replacement requirement: %w", err))
 		}

@@ -57,11 +57,30 @@ func (s *CredentialStore) Load() (Credential, bool, error) {
 }
 
 func CredentialVersionReplacesSuperseded(candidateVersion int, supersededVersion *int) bool {
-	if supersededVersion == nil {
+	return CredentialVersionReplacesTrustLoss(candidateVersion, supersededVersion)
+}
+
+func CredentialStatusRequiresFreshCredential(status CredentialStatus) bool {
+	return status == CredentialStatusSuperseded || status == CredentialStatusBlocked
+}
+
+func CredentialVersionReplacesTrustLoss(candidateVersion int, previousVersion *int) bool {
+	if previousVersion == nil {
 		return true
 	}
 
-	return candidateVersion > *supersededVersion
+	return candidateVersion > *previousVersion
+}
+
+func ValidateCredentialReplacement(status CredentialStatus, candidateVersion int, previousVersion *int) error {
+	if !CredentialStatusRequiresFreshCredential(status) {
+		return nil
+	}
+	if CredentialVersionReplacesTrustLoss(candidateVersion, previousVersion) {
+		return nil
+	}
+
+	return fmt.Errorf("credential.json version %d does not replace %s credential version %d", candidateVersion, status, *previousVersion)
 }
 
 func validateCredential(credential Credential) error {

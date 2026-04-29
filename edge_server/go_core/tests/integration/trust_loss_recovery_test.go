@@ -27,6 +27,8 @@ const (
 	t021EdgeID        = "507f1f77bcf86cd799439011"
 	t021InitialSecret = "persistent-secret-before-rotation"
 	t021FreshSecret   = "persistent-secret-after-rotation"
+	t026InitialSecret = "persistent-secret-before-block"
+	t026FreshSecret   = "persistent-secret-after-unblock"
 )
 
 func TestT021CredentialRotationStopsTrustedTelemetryAndRejectsOldCredential(t *testing.T) {
@@ -107,6 +109,87 @@ func TestT021CredentialRotationStopsTrustedTelemetryAndRejectsOldCredential(t *t
 	cancel()
 	if err := waitT021RunnerExit(recoveredRunErr, 2*time.Second); err != nil {
 		t.Fatalf("expected clean shutdown after replaced credential recovery, got %v", err)
+	}
+}
+
+func TestT026BlockedStopsTrustedTelemetryAndRejectsPreviousCredential(t *testing.T) {
+	t.Setenv("CLOUD_SOCKET_URL", "https://cloud.example.test")
+
+	stateDir := t.TempDir()
+	writeT021Credential(t, stateDir, t026InitialSecret, 3, "register")
+
+	cfg := loadT021RuntimeConfig(t, stateDir)
+	modbusClient := newIntegrationModbusClient(map[integrationModbusReadKey]uint16{
+		{address: 0, registerType: modbus.INPUT_REGISTER}: 125,
+	}, nil)
+	restoreModbus := source.OverrideModbusSerialClientFactoryForTest(
+		func(source.ModbusSerialConnection) (source.ModbusRegisterClient, error) {
+			return modbusClient, nil
+		},
+		func() time.Time {
+			return time.UnixMilli(1710000000123)
+		},
+	)
+	defer restoreModbus()
+
+	server := newT026BlockedSocketIOServer(t, t021EdgeID, t026InitialSecret, t026FreshSecret)
+	defer server.Close()
+
+	process, runCtx, runErr, cancel := startT021RuntimeProcess(t, cfg, server.URL())
+	defer cancel()
+
+	initialAttempt := server.WaitForAttempt(t, 2*time.Second)
+	assertT021PersistentAttempt(t, initialAttempt, t026InitialSecret)
+
+	waitForTrustedSession(t, process, 2*time.Second)
+	assertCanonicalTelemetryPayloadWithoutLocalFields(t, server.WaitForPayload(t, 2*time.Second), []map[string]any{
+		{"deviceId": "pump-1", "metric": "pressure", "value": 31.25},
+	})
+
+	server.BlockAfterPayload(t, 2*time.Second)
+	server.WaitForBlockedDisconnect(t, 2*time.Second)
+	waitForTelemetryStop(t, process, 2*time.Second)
+
+	server.AssertNoPayload(t, 250*time.Millisecond)
+	server.AssertNoAttempt(t, 250*time.Millisecond)
+
+	if err := waitT021RunnerExit(runErr, 2*time.Second); err == nil {
+		t.Fatal("expected blocked runtime to stop because cloud blocked the installed credential")
+	} else if !strings.Contains(err.Error(), "blocked") || strings.Contains(strings.ToLower(err.Error()), "onboarding") {
+		t.Fatalf("expected blocked stop without onboarding fallback, got %v", err)
+	}
+
+	writeT021Credential(t, stateDir, t026InitialSecret, 3, "register")
+	if err := process.ReloadInstalledCredential(); err == nil {
+		t.Fatal("expected previous credential file to be rejected locally after blocked")
+	} else if !strings.Contains(err.Error(), "blocked credential") || strings.Contains(strings.ToLower(err.Error()), "onboarding") {
+		t.Fatalf("expected local blocked-credential rejection without onboarding fallback, got %v", err)
+	}
+	server.AssertNoAttempt(t, 250*time.Millisecond)
+	if snapshot := process.Runner.StateSnapshot(); snapshot.Trusted || snapshot.Connected || snapshot.RetryEligible {
+		t.Fatalf("previous credential must not recover or retry a trusted session, got %+v", snapshot)
+	}
+
+	writeT021Credential(t, stateDir, t026FreshSecret, 4, "unblock")
+	if err := process.ReloadInstalledCredential(); err != nil {
+		t.Fatalf("reload fresh unblock credential from credential.json: %v", err)
+	}
+	modbusClient.ReplaceValues(map[integrationModbusReadKey]uint16{
+		{address: 0, registerType: modbus.INPUT_REGISTER}: 135,
+	})
+	recoveredRunErr := runT021Runner(runCtx, process)
+
+	recoveryAttempt := server.WaitForAttempt(t, 2*time.Second)
+	assertT021PersistentAttempt(t, recoveryAttempt, t026FreshSecret)
+	waitForTrustedSession(t, process, 2*time.Second)
+
+	assertCanonicalTelemetryPayloadWithoutLocalFields(t, server.WaitForPayload(t, 2*time.Second), []map[string]any{
+		{"deviceId": "pump-1", "metric": "pressure", "value": 33.75},
+	})
+
+	cancel()
+	if err := waitT021RunnerExit(recoveredRunErr, 2*time.Second); err != nil {
+		t.Fatalf("expected clean shutdown after fresh unblock credential recovery, got %v", err)
 	}
 }
 
@@ -368,6 +451,291 @@ func (s *t021CredentialRotationSocketIOServer) waitForClientNamespaceDisconnect(
 }
 
 func (s *t021CredentialRotationSocketIOServer) readTelemetryUntilClose(conn *websocket.Conn) {
+	for {
+		messageType, payload, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		if messageType != websocket.TextMessage || !isNamespaceEventForTest(string(payload), "/edge") {
+			continue
+		}
+
+		eventName, eventPayload, err := parseNamespaceEventForTest(string(payload), "/edge")
+		if err != nil {
+			s.t.Errorf("parse namespace event: %v", err)
+			return
+		}
+		if eventName != "telemetry" {
+			continue
+		}
+
+		encoded, err := json.Marshal(eventPayload)
+		if err != nil {
+			s.t.Errorf("encode telemetry payload: %v", err)
+			return
+		}
+		s.telemetry <- string(encoded)
+	}
+}
+
+type t026BlockedSocketIOServer struct {
+	t *testing.T
+
+	edgeID        string
+	initialSecret string
+	freshSecret   string
+
+	mu              sync.Mutex
+	blockIssued     bool
+	authEvents      chan runtimeHandshakeAttempt
+	telemetry       chan string
+	blockedDetached chan struct{}
+	blockRequests   chan struct{}
+
+	server *httptest.Server
+}
+
+func newT026BlockedSocketIOServer(
+	t *testing.T,
+	edgeID string,
+	initialSecret string,
+	freshSecret string,
+) *t026BlockedSocketIOServer {
+	t.Helper()
+
+	srv := &t026BlockedSocketIOServer{
+		t:               t,
+		edgeID:          edgeID,
+		initialSecret:   initialSecret,
+		freshSecret:     freshSecret,
+		authEvents:      make(chan runtimeHandshakeAttempt, 8),
+		telemetry:       make(chan string, 8),
+		blockedDetached: make(chan struct{}, 1),
+		blockRequests:   make(chan struct{}, 1),
+	}
+
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(_ *http.Request) bool { return true },
+	}
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/socket.io/" {
+			http.NotFound(w, r)
+			return
+		}
+
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(`0{"sid":"t026-sid","upgrades":[],"pingInterval":25000,"pingTimeout":20000,"maxPayload":1000000}`)); err != nil {
+			return
+		}
+
+		_, rawMessage, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+
+		attempt, err := parseRuntimeHandshakeAttempt(rawMessage)
+		if err != nil {
+			t.Errorf("parse runtime handshake attempt: %v", err)
+			return
+		}
+		srv.authEvents <- attempt
+
+		switch {
+		case attempt.CredentialSecret == srv.initialSecret && srv.markBlockIssued():
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(`40/edge,{"sid":"edge-before-block"}`)); err != nil {
+				return
+			}
+			srv.readUntilFirstTelemetryThenBlock(conn)
+		case attempt.CredentialSecret == srv.initialSecret:
+			connectErrorMessage := fmt.Sprintf(`44/edge,{"message":%q}`, string(cloud.ConnectErrorBlocked))
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(connectErrorMessage))
+			time.Sleep(25 * time.Millisecond)
+		case attempt.CredentialSecret == srv.freshSecret:
+			if err := conn.WriteMessage(websocket.TextMessage, []byte(`40/edge,{"sid":"edge-after-unblock"}`)); err != nil {
+				return
+			}
+			srv.readTelemetryUntilClose(conn)
+		default:
+			connectErrorMessage := fmt.Sprintf(`44/edge,{"message":%q}`, string(cloud.ConnectErrorInvalidCredential))
+			_ = conn.WriteMessage(websocket.TextMessage, []byte(connectErrorMessage))
+			t.Errorf("unexpected credential secret in handshake: %q", attempt.CredentialSecret)
+		}
+	})
+
+	srv.server = httptest.NewServer(handler)
+	return srv
+}
+
+func (s *t026BlockedSocketIOServer) Close() {
+	if s.server != nil {
+		s.server.Close()
+	}
+}
+
+func (s *t026BlockedSocketIOServer) URL() string {
+	return s.server.URL
+}
+
+func (s *t026BlockedSocketIOServer) WaitForAttempt(t *testing.T, timeout time.Duration) runtimeHandshakeAttempt {
+	t.Helper()
+
+	select {
+	case attempt := <-s.authEvents:
+		return attempt
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for runtime handshake attempt")
+		return runtimeHandshakeAttempt{}
+	}
+}
+
+func (s *t026BlockedSocketIOServer) AssertNoAttempt(t *testing.T, timeout time.Duration) {
+	t.Helper()
+
+	select {
+	case attempt := <-s.authEvents:
+		t.Fatalf("expected no runtime handshake attempt, got %+v", attempt)
+	case <-time.After(timeout):
+	}
+}
+
+func (s *t026BlockedSocketIOServer) WaitForPayload(t *testing.T, timeout time.Duration) string {
+	t.Helper()
+
+	select {
+	case payload := <-s.telemetry:
+		return payload
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for telemetry payload")
+		return ""
+	}
+}
+
+func (s *t026BlockedSocketIOServer) AssertNoPayload(t *testing.T, timeout time.Duration) {
+	t.Helper()
+
+	select {
+	case payload := <-s.telemetry:
+		t.Fatalf("expected no telemetry payload, got %s", payload)
+	case <-time.After(timeout):
+	}
+}
+
+func (s *t026BlockedSocketIOServer) WaitForBlockedDisconnect(t *testing.T, timeout time.Duration) {
+	t.Helper()
+
+	select {
+	case <-s.blockedDetached:
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for runtime to detach the blocked trusted session")
+	}
+}
+
+func (s *t026BlockedSocketIOServer) BlockAfterPayload(t *testing.T, timeout time.Duration) {
+	t.Helper()
+
+	select {
+	case s.blockRequests <- struct{}{}:
+	case <-time.After(timeout):
+		t.Fatal("timed out requesting blocked disconnect")
+	}
+}
+
+func (s *t026BlockedSocketIOServer) markBlockIssued() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.blockIssued {
+		return false
+	}
+	s.blockIssued = true
+	return true
+}
+
+func (s *t026BlockedSocketIOServer) readUntilFirstTelemetryThenBlock(conn *websocket.Conn) {
+	for {
+		messageType, payload, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		if messageType != websocket.TextMessage || !isNamespaceEventForTest(string(payload), "/edge") {
+			continue
+		}
+
+		eventName, eventPayload, err := parseNamespaceEventForTest(string(payload), "/edge")
+		if err != nil {
+			s.t.Errorf("parse namespace event: %v", err)
+			return
+		}
+		if eventName != "telemetry" {
+			continue
+		}
+
+		encoded, err := json.Marshal(eventPayload)
+		if err != nil {
+			s.t.Errorf("encode telemetry payload: %v", err)
+			return
+		}
+		s.telemetry <- string(encoded)
+
+		select {
+		case <-s.blockRequests:
+		case <-time.After(2 * time.Second):
+			s.t.Errorf("timed out waiting for blocked disconnect request")
+			return
+		}
+
+		disconnectMessage := fmt.Sprintf(
+			`42/edge,["edge_disconnect",{"edgeId":%q,"reason":"blocked"}]`,
+			s.edgeID,
+		)
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(disconnectMessage)); err != nil {
+			s.t.Errorf("write blocked disconnect: %v", err)
+			return
+		}
+		s.waitForClientNamespaceDisconnect(conn)
+		return
+	}
+}
+
+func (s *t026BlockedSocketIOServer) waitForClientNamespaceDisconnect(conn *websocket.Conn) {
+	_ = conn.SetReadDeadline(time.Now().Add(1500 * time.Millisecond))
+	for {
+		messageType, payload, err := conn.ReadMessage()
+		if err != nil {
+			return
+		}
+		if messageType == websocket.TextMessage && strings.HasPrefix(string(payload), "41/edge") {
+			select {
+			case s.blockedDetached <- struct{}{}:
+			default:
+			}
+			return
+		}
+		if messageType == websocket.TextMessage && isNamespaceEventForTest(string(payload), "/edge") {
+			eventName, eventPayload, err := parseNamespaceEventForTest(string(payload), "/edge")
+			if err != nil {
+				s.t.Errorf("parse post-block namespace event: %v", err)
+				return
+			}
+			if eventName == "telemetry" {
+				encoded, err := json.Marshal(eventPayload)
+				if err != nil {
+					s.t.Errorf("encode post-block telemetry payload: %v", err)
+					return
+				}
+				s.telemetry <- string(encoded)
+			}
+		}
+	}
+}
+
+func (s *t026BlockedSocketIOServer) readTelemetryUntilClose(conn *websocket.Conn) {
 	for {
 		messageType, payload, err := conn.ReadMessage()
 		if err != nil {
