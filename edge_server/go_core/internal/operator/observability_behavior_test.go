@@ -35,9 +35,9 @@ func TestOutcomeMappingFromCloudSignals(t *testing.T) {
 			wantAuthSummary:   "blocked",
 		},
 		{
-			name:              "trust revoked disconnect maps to waiting_for_credential status contract",
-			got:               MapDisconnectReason(cloud.DisconnectReasonTrustRevoked),
-			wantCode:          "trust_revoked",
+			name:              "credential rotated disconnect maps to waiting_for_credential status contract",
+			got:               MapDisconnectReason(cloud.DisconnectReasonCredentialRotated),
+			wantCode:          "credential_rotated",
 			wantRuntimeStatus: "waiting_for_credential",
 			wantCloud:         "rejected",
 			wantAuthSummary:   "credential_replaced",

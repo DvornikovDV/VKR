@@ -32,12 +32,7 @@ func MapConnectError(code cloud.ConnectErrorCode) RuntimeOutcome {
 			CloudConnection: "rejected",
 			AuthSummary:     "internal_error",
 		}
-	case cloud.ConnectErrorInvalidCredential,
-		cloud.ConnectErrorOnboardingNotAllowed,
-		cloud.ConnectErrorOnboardingPackageMissing,
-		cloud.ConnectErrorOnboardingPackageExpired,
-		cloud.ConnectErrorOnboardingPackageReused,
-		cloud.ConnectErrorPersistentCredentialRevoked:
+	case cloud.ConnectErrorInvalidCredential:
 		return RuntimeOutcome{
 			Code:            string(code),
 			RuntimeStatus:   "waiting_for_credential",
@@ -56,9 +51,9 @@ func MapConnectError(code cloud.ConnectErrorCode) RuntimeOutcome {
 
 func MapDisconnectReason(reason cloud.DisconnectReason) RuntimeOutcome {
 	switch reason {
-	case cloud.DisconnectReasonTrustRevoked:
+	case cloud.DisconnectReasonCredentialRotated:
 		return RuntimeOutcome{
-			Code:            "trust_revoked",
+			Code:            string(cloud.DisconnectReasonCredentialRotated),
 			RuntimeStatus:   "waiting_for_credential",
 			CloudConnection: "rejected",
 			AuthSummary:     "credential_replaced",

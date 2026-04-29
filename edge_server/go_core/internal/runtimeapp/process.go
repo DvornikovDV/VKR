@@ -67,7 +67,24 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 
 	runner := runtime.NewWithTransport(transport)
 	runtimeStore := state.NewRuntimeStateStore(cfg.Runtime.StateDir)
-	if err := runner.BindRuntimeStateStore(runtimeStore); err != nil {
+	existingRuntimeState, existingRuntimeStateFound, err := runtimeStore.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load existing runtime-state boundary: %w", err)
+	}
+	if existingRuntimeStateFound &&
+		existingRuntimeState.CredentialStatus == state.CredentialStatusSuperseded &&
+		!state.CredentialVersionReplacesSuperseded(credential.Version, existingRuntimeState.CredentialVersion) {
+		return nil, fmt.Errorf("credential.json version %d does not replace superseded credential version %d", credential.Version, *existingRuntimeState.CredentialVersion)
+	}
+	statusStore := state.NewStatusStore(cfg.Runtime.StateDir)
+	if _, _, err := statusStore.Load(); err != nil {
+		return nil, fmt.Errorf("load existing status snapshot: %w", err)
+	}
+	if err := runner.BindRuntimeStateStore(runtimeStatusProjector{
+		runtimeStore:  runtimeStore,
+		statusStore:   statusStore,
+		sourceSummary: "healthy",
+	}); err != nil {
 		return nil, fmt.Errorf("bind runtime-state store: %w", err)
 	}
 	if err := runner.LoadPersistentCredential(credential.EdgeID, credential.Version, credential.CredentialSecret); err != nil {
@@ -87,9 +104,6 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	}
 	if err := runner.ConfigureRuntimeState(cfg.Runtime.EdgeID, sourceConfigRevision); err != nil {
 		return nil, fmt.Errorf("initialize runtime-state snapshot: %w", err)
-	}
-	if err := initializeStatusSnapshot(cfg.Runtime.StateDir, runtimeStore); err != nil {
-		return nil, fmt.Errorf("initialize status snapshot: %w", err)
 	}
 
 	if err := runner.BindTelemetryReadings(
@@ -130,6 +144,12 @@ func (p *Process) ReloadInstalledCredential() error {
 		return fmt.Errorf("credential.json edgeId %q does not match runtime.edgeId %q", credential.EdgeID, p.expectedEdgeID)
 	}
 
+	snapshot := p.Runner.StateSnapshot()
+	if snapshot.CredentialStatus == state.CredentialStatusSuperseded &&
+		!state.CredentialVersionReplacesSuperseded(credential.Version, snapshot.CredentialVersion) {
+		return fmt.Errorf("credential.json version %d does not replace superseded credential version %d", credential.Version, *snapshot.CredentialVersion)
+	}
+
 	if err := p.Runner.LoadPersistentCredential(credential.EdgeID, credential.Version, credential.CredentialSecret); err != nil {
 		return fmt.Errorf("load installed credential into runtime: %w", err)
 	}
@@ -140,35 +160,35 @@ func (p *Process) ReloadInstalledCredential() error {
 	return nil
 }
 
-func initializeStatusSnapshot(stateDir string, runtimeStore *state.RuntimeStateStore) error {
-	if runtimeStore == nil {
+type runtimeStatusProjector struct {
+	runtimeStore  *state.RuntimeStateStore
+	statusStore   *state.StatusStore
+	sourceSummary string
+}
+
+func (p runtimeStatusProjector) Save(runtimeState state.RuntimeState) error {
+	if p.runtimeStore == nil {
 		return fmt.Errorf("runtime-state store is required")
 	}
-
-	statusStore := state.NewStatusStore(stateDir)
-	if _, _, err := statusStore.Load(); err != nil {
-		return fmt.Errorf("load existing status snapshot: %w", err)
+	if p.statusStore == nil {
+		return fmt.Errorf("status store is required")
 	}
 
-	runtimeSnapshot, exists, err := runtimeStore.Load()
-	if err != nil {
-		return fmt.Errorf("load initialized runtime-state snapshot: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("runtime-state snapshot must exist after initialization")
+	if err := p.runtimeStore.Save(runtimeState); err != nil {
+		return err
 	}
 
 	statusSnapshot, err := operator.ProjectStatusSnapshot(operator.StatusProjectionInput{
-		RuntimeState:  runtimeSnapshot,
-		SourceSummary: "healthy",
-		LastReason:    runtimeSnapshot.LastDisconnectReason,
+		RuntimeState:  runtimeState,
+		SourceSummary: p.sourceSummary,
+		LastReason:    runtimeState.LastDisconnectReason,
 	})
 	if err != nil {
-		return fmt.Errorf("project startup status snapshot: %w", err)
+		return fmt.Errorf("project status snapshot: %w", err)
 	}
 
-	if err := statusStore.Save(statusSnapshot); err != nil {
-		return fmt.Errorf("persist startup status snapshot: %w", err)
+	if err := p.statusStore.Save(statusSnapshot); err != nil {
+		return fmt.Errorf("persist status snapshot: %w", err)
 	}
 
 	return nil

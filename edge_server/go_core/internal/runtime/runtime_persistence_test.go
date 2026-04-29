@@ -32,7 +32,7 @@ func TestRunnerReturnsPersistErrorsForStateTransitions(t *testing.T) {
 	if err := runner.MarkDisconnected("transport_closed"); err == nil || !strings.Contains(err.Error(), "persist runtime state after disconnect") {
 		t.Fatalf("expected disconnect transition to return persist error, got %v", err)
 	}
-	if err := runner.MarkUntrusted("trust_revoked", true); err == nil || !strings.Contains(err.Error(), "persist runtime state after trust loss") {
+	if err := runner.MarkUntrusted("credential_rotated", true); err == nil || !strings.Contains(err.Error(), "persist runtime state after trust loss") {
 		t.Fatalf("expected untrusted transition to return persist error, got %v", err)
 	}
 	if err := runner.RecordTelemetrySent(time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)); err == nil || !strings.Contains(err.Error(), "persist runtime state after telemetry emit") {

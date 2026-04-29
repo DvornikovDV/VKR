@@ -77,17 +77,12 @@ func TestT021CredentialRotationStopsTrustedTelemetryAndRejectsOldCredential(t *t
 	}
 
 	writeT021Credential(t, stateDir, t021InitialSecret, 3, "register")
-	if err := process.ReloadInstalledCredential(); err != nil {
-		t.Fatalf("reload old credential from credential.json: %v", err)
+	if err := process.ReloadInstalledCredential(); err == nil {
+		t.Fatal("expected old credential file to be rejected locally after rotation")
+	} else if !strings.Contains(err.Error(), "superseded credential") || strings.Contains(strings.ToLower(err.Error()), "onboarding") {
+		t.Fatalf("expected local superseded-credential rejection without onboarding fallback, got %v", err)
 	}
-	oldRunErr := runT021Runner(runCtx, process)
-	oldAttempt := server.WaitForAttempt(t, 2*time.Second)
-	assertT021PersistentAttempt(t, oldAttempt, t021InitialSecret)
-	if err := waitT021RunnerExit(oldRunErr, 2*time.Second); err == nil {
-		t.Fatal("expected old credential to be rejected after rotation")
-	} else if !strings.Contains(err.Error(), "invalid_credential") || strings.Contains(strings.ToLower(err.Error()), "onboarding") {
-		t.Fatalf("expected old credential rejection without onboarding fallback, got %v", err)
-	}
+	server.AssertNoAttempt(t, 250*time.Millisecond)
 	if snapshot := process.Runner.StateSnapshot(); snapshot.Trusted || snapshot.Connected {
 		t.Fatalf("old credential must not recover a trusted session, got %+v", snapshot)
 	}

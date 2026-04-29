@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"strings"
 	"testing"
 
 	"edge_server/go_core/internal/state"
@@ -145,5 +146,62 @@ func TestReproTaskT049TracksTrustedUntrustedAndDisconnectedExecution(t *testing.
 	}
 	if !runner.TelemetryAllowed() {
 		t.Fatal("expected telemetry to be allowed again after trusted session recovery")
+	}
+}
+
+func TestReproTaskT049RequiresReplacedCredentialAfterRotation(t *testing.T) {
+	runner := New()
+	if err := runner.LoadPersistentCredential("edge-1", 3, "persist-secret-v1"); err != nil {
+		t.Fatalf("load initial persistent credential: %v", err)
+	}
+	if err := runner.ActivateTrustedSession("edge-1", "persist-secret-v1"); err != nil {
+		t.Fatalf("activate trusted session: %v", err)
+	}
+
+	if err := runner.MarkUntrusted("credential_rotated", true); err != nil {
+		t.Fatalf("mark credential rotated: %v", err)
+	}
+	superseded := runner.StateSnapshot()
+	if superseded.CredentialStatus != state.CredentialStatusSuperseded {
+		t.Fatalf("expected credentialStatus=superseded after rotation, got %q", superseded.CredentialStatus)
+	}
+	if superseded.SessionState != state.SessionStateOperatorActionRequired {
+		t.Fatalf("expected operator_action_required after rotation, got %q", superseded.SessionState)
+	}
+	if superseded.RetryEligible {
+		t.Fatal("expected superseded credential to disable automatic retry")
+	}
+
+	err := runner.LoadPersistentCredential("edge-1", 3, "persist-secret-v1")
+	if err == nil {
+		t.Fatal("expected old credential version to be rejected after rotation")
+	}
+	if strings.Contains(strings.ToLower(err.Error()), "onboarding") {
+		t.Fatalf("old credential rejection must not mention onboarding, got %v", err)
+	}
+	stillSuperseded := runner.StateSnapshot()
+	if stillSuperseded.CredentialStatus != state.CredentialStatusSuperseded {
+		t.Fatalf("expected stale reload to preserve superseded status, got %q", stillSuperseded.CredentialStatus)
+	}
+	if stillSuperseded.PersistentCredentialSecret != nil {
+		t.Fatalf("expected stale reload to keep credential secret cleared, got %v", stillSuperseded.PersistentCredentialSecret)
+	}
+
+	if err := runner.LoadPersistentCredential("edge-1", 4, "persist-secret-v2"); err != nil {
+		t.Fatalf("load replaced credential: %v", err)
+	}
+	if err := runner.ActivateTrustedSession("edge-1", "persist-secret-v2"); err != nil {
+		t.Fatalf("activate trusted session with replaced credential: %v", err)
+	}
+
+	recovered := runner.StateSnapshot()
+	if recovered.CredentialVersion == nil || *recovered.CredentialVersion != 4 {
+		t.Fatalf("expected recovered credential version 4, got %+v", recovered.CredentialVersion)
+	}
+	if recovered.PersistentCredentialSecret == nil || *recovered.PersistentCredentialSecret != "persist-secret-v2" {
+		t.Fatalf("expected recovery to use replaced credential secret, got %v", recovered.PersistentCredentialSecret)
+	}
+	if !runner.TelemetryAllowed() {
+		t.Fatal("expected telemetry to recover only after replaced credential is trusted")
 	}
 }

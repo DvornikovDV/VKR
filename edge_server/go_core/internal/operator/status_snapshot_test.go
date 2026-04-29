@@ -98,7 +98,7 @@ func TestProjectStatusSnapshotUsesOutcomeOverride(t *testing.T) {
 		},
 		SourceSummary: "degraded",
 		Outcome: &RuntimeOutcome{
-			Code:            "trust_revoked",
+			Code:            "credential_rotated",
 			RuntimeStatus:   "waiting_for_credential",
 			CloudConnection: "rejected",
 			AuthSummary:     "credential_replaced",

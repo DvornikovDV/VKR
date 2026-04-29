@@ -56,6 +56,14 @@ func (s *CredentialStore) Load() (Credential, bool, error) {
 	return credential, true, nil
 }
 
+func CredentialVersionReplacesSuperseded(candidateVersion int, supersededVersion *int) bool {
+	if supersededVersion == nil {
+		return true
+	}
+
+	return candidateVersion > *supersededVersion
+}
+
 func validateCredential(credential Credential) error {
 	if strings.TrimSpace(credential.EdgeID) == "" {
 		return fmt.Errorf("credential.edgeId is required")

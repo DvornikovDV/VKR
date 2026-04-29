@@ -315,6 +315,49 @@ func TestRuntimeStateStoreRejectsRetryEligibleBlockedOutcomes(t *testing.T) {
 	}
 }
 
+func TestRuntimeStateStoreAcceptsSupersededOperatorActionRequired(t *testing.T) {
+	store := NewRuntimeStateStore(t.TempDir())
+	now := time.Date(2026, 4, 6, 10, 25, 0, 0, time.UTC)
+	credentialVersion := 3
+	reason := "credential_rotated"
+
+	err := store.Save(RuntimeState{
+		EdgeID:               "507f1f77bcf86cd799439011",
+		CredentialVersion:    &credentialVersion,
+		CredentialStatus:     CredentialStatusSuperseded,
+		SessionState:         SessionStateOperatorActionRequired,
+		AuthOutcome:          AuthOutcomeCredentialRotated,
+		RetryEligible:        false,
+		LastDisconnectAt:     &now,
+		LastDisconnectReason: &reason,
+		SourceConfigRevision: "rev-rotate",
+		UpdatedAt:            now,
+	})
+	if err != nil {
+		t.Fatalf("expected superseded credential runtime-state to persist, got %v", err)
+	}
+
+	got, exists, err := store.Load()
+	if err != nil {
+		t.Fatalf("load superseded runtime-state: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected superseded runtime-state file to exist")
+	}
+	if got.CredentialStatus != CredentialStatusSuperseded {
+		t.Fatalf("expected credentialStatus=superseded, got %q", got.CredentialStatus)
+	}
+	if got.SessionState != SessionStateOperatorActionRequired {
+		t.Fatalf("expected sessionState=operator_action_required, got %q", got.SessionState)
+	}
+	if got.AuthOutcome != AuthOutcomeCredentialRotated {
+		t.Fatalf("expected authOutcome=credential_rotated, got %q", got.AuthOutcome)
+	}
+	if got.RetryEligible {
+		t.Fatal("expected superseded credential to disable retry eligibility")
+	}
+}
+
 func TestStatusStoreRejectsMissingEdgeID(t *testing.T) {
 	store := NewStatusStore(t.TempDir())
 	status := StatusSnapshot{
