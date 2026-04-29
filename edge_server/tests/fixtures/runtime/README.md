@@ -26,3 +26,10 @@ These fixtures freeze the minimum local input shapes for the `007-edge-server` p
 - `wrong-edge-id/edge_activation.json`
   - `wrong-edge-id/edge_activation.json` - quarantined legacy reference only; not part of production acceptance.
   - Must fail when parsed against the expected runtime edge id.
+
+## Legacy TypeScript reference path
+
+- Retained TypeScript reference helpers live under `edge_server/legacy/typescript-reference/**`.
+- The production runtime authority is the Go runtime under `edge_server/go_core`; default acceptance must not import, execute, or document the TypeScript path as authoritative runtime behavior.
+- TypeScript files may be compiled for archival reference checks, but they are not a production onboarding, credential, socket, or default-runtime implementation.
+- Retained TypeScript credential helpers must accept explicit file paths or payloads only. They must not read env-driven credential defaults, onboarding packages, or `edge_activation` payloads.

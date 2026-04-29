@@ -37,15 +37,15 @@ func TestReproTaskT049TracksTrustedUntrustedAndDisconnectedExecution(t *testing.
 	}
 
 	if err := runner.ActivateTrustedSession("edge-1", "persist-secret-v1"); err != nil {
-		t.Fatalf("activate trusted session: %v", err)
+		t.Fatalf("accept trusted persistent session: %v", err)
 	}
 
 	trusted := runner.StateSnapshot()
 	if !trusted.Trusted || !trusted.Connected {
-		t.Fatalf("expected trusted+connected state after activation, got %+v", trusted)
+		t.Fatalf("expected trusted+connected state after accepted persistent session, got %+v", trusted)
 	}
 	if trusted.CredentialMode != CredentialModePersistent {
-		t.Fatalf("expected persistent credential mode after activation, got %q", trusted.CredentialMode)
+		t.Fatalf("expected persistent credential mode after accepted session, got %q", trusted.CredentialMode)
 	}
 	if trusted.PersistentCredentialSecret == nil || *trusted.PersistentCredentialSecret != "persist-secret-v1" {
 		t.Fatalf("expected persistent credential secret to be retained in-memory, got %v", trusted.PersistentCredentialSecret)
@@ -63,7 +63,7 @@ func TestReproTaskT049TracksTrustedUntrustedAndDisconnectedExecution(t *testing.
 		t.Fatal("expected trusted session to remain retry eligible")
 	}
 	if trusted.SessionEpoch != 1 {
-		t.Fatalf("expected first trusted activation to set sessionEpoch=1, got %d", trusted.SessionEpoch)
+		t.Fatalf("expected first accepted trusted session to set sessionEpoch=1, got %d", trusted.SessionEpoch)
 	}
 	if !runner.TelemetryAllowed() {
 		t.Fatal("expected telemetry to be allowed while trusted and connected")
@@ -134,7 +134,7 @@ func TestReproTaskT049TracksTrustedUntrustedAndDisconnectedExecution(t *testing.
 	}
 
 	if err := runner.ActivateTrustedSession("edge-1", "persist-secret-v2"); err != nil {
-		t.Fatalf("reactivate trusted session: %v", err)
+		t.Fatalf("accept recovered trusted session: %v", err)
 	}
 
 	recovered := runner.StateSnapshot()
@@ -155,7 +155,7 @@ func TestReproTaskT049RequiresReplacedCredentialAfterRotation(t *testing.T) {
 		t.Fatalf("load initial persistent credential: %v", err)
 	}
 	if err := runner.ActivateTrustedSession("edge-1", "persist-secret-v1"); err != nil {
-		t.Fatalf("activate trusted session: %v", err)
+		t.Fatalf("accept trusted persistent session: %v", err)
 	}
 
 	if err := runner.MarkUntrusted("credential_rotated", true); err != nil {
@@ -191,7 +191,7 @@ func TestReproTaskT049RequiresReplacedCredentialAfterRotation(t *testing.T) {
 		t.Fatalf("load replaced credential: %v", err)
 	}
 	if err := runner.ActivateTrustedSession("edge-1", "persist-secret-v2"); err != nil {
-		t.Fatalf("activate trusted session with replaced credential: %v", err)
+		t.Fatalf("accept trusted session with replaced credential: %v", err)
 	}
 
 	recovered := runner.StateSnapshot()

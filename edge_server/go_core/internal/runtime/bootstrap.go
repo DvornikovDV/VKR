@@ -11,11 +11,6 @@ import (
 
 var ErrAuthPathUnavailable = errors.New("runtime auth path is unavailable")
 
-type BootstrapInput struct {
-	OnboardingPackagePath string
-	OnboardingPackageJSON string
-}
-
 type PersistentCredentialInput struct {
 	EdgeID           string
 	CredentialSecret string
@@ -36,14 +31,6 @@ func NewBootstrapSession(runner *Runner) *BootstrapSession {
 	}
 
 	return session
-}
-
-func (s *BootstrapSession) Bootstrap(input BootstrapInput) error {
-	if s == nil || s.runner == nil {
-		return fmt.Errorf("runtime bootstrap session requires a runner")
-	}
-
-	return fmt.Errorf("%w: current credential.json is required", ErrAuthPathUnavailable)
 }
 
 func (s *BootstrapSession) LoadPersistentCredential(input PersistentCredentialInput) error {

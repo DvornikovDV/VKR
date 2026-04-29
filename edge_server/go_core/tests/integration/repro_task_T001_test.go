@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"edge_server/go_core/internal/config"
+	"edge_server/go_core/internal/mockadapter"
 	"edge_server/go_core/internal/runtimeapp"
+	"edge_server/go_core/internal/source"
 	"edge_server/go_core/internal/state"
 )
 
@@ -16,13 +18,18 @@ func TestReproTaskT001RuntimeFixtureConfigLoadsThroughRuntimeOwnedPath(t *testin
 	stateDir := t.TempDir()
 	t.Setenv("RUNTIME_STATE_DIR", stateDir)
 	t.Setenv("CLOUD_SOCKET_URL", "http://127.0.0.1:4000")
+	installRuntimeFixtureCredential(t, stateDir)
 
 	cfg, err := config.LoadFromFile(runtimeFixturePath(t, "config.yaml"))
 	if err != nil {
 		t.Fatalf("load runtime fixture config through production loader: %v", err)
 	}
 
-	_, err = runtimeapp.New(context.Background(), cfg, noopTransport{})
+	_, err = runtimeapp.NewWithSourceFactoriesForTest(context.Background(), cfg, noopTransport{}, source.FactoryRegistry{
+		mockadapter.Kind: func() (source.Adapter, error) {
+			return mockadapter.New(), nil
+		},
+	})
 	if err != nil {
 		t.Fatalf("consume runtime fixture config through runtime app wiring: %v", err)
 	}
@@ -79,6 +86,18 @@ func TestReproTaskT001CredentialFixturesLoadThroughRuntimeOwnedStore(t *testing.
 	}
 }
 
+func installRuntimeFixtureCredential(t *testing.T, stateDir string) {
+	t.Helper()
+
+	validBytes, err := os.ReadFile(runtimeFixturePath(t, "valid/credential.json"))
+	if err != nil {
+		t.Fatalf("read valid credential fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "credential.json"), validBytes, 0o600); err != nil {
+		t.Fatalf("write valid credential fixture into state dir: %v", err)
+	}
+}
+
 func TestReproTaskT001RuntimeFixtureReadmeDocuments007Baseline(t *testing.T) {
 	readmeBytes, err := os.ReadFile(runtimeFixturePath(t, "README.md"))
 	if err != nil {
@@ -91,7 +110,7 @@ func TestReproTaskT001RuntimeFixtureReadmeDocuments007Baseline(t *testing.T) {
 			t.Fatalf("fixture README must document %s in the 007 baseline", snippet)
 		}
 	}
-	for _, legacySnippet := range []string{"001-edge-runtime", "client/tests/unit/edgeActivationCredentialBehavior.test.ts", "edge_server/src/onboarding/activateEdge.ts"} {
+	for _, legacySnippet := range []string{"001-edge-runtime", "client/tests/unit/edgeActivationCredentialBehavior.test.ts", "edge_server/src"} {
 		if strings.Contains(readme, legacySnippet) {
 			t.Fatalf("fixture README must drop legacy derivation reference %s", legacySnippet)
 		}
