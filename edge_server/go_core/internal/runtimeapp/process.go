@@ -66,15 +66,16 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	}
 
 	runner := runtime.NewWithTransport(transport)
+	bootstrap := runtime.NewBootstrapSession(runner)
 	runtimeStore := state.NewRuntimeStateStore(cfg.Runtime.StateDir)
 	existingRuntimeState, existingRuntimeStateFound, err := runtimeStore.Load()
 	if err != nil {
 		return nil, fmt.Errorf("load existing runtime-state boundary: %w", err)
 	}
 	if existingRuntimeStateFound {
-		if err := state.ValidateCredentialReplacement(
+		if err := state.ValidateFreshCredentialInstallation(
+			credential,
 			existingRuntimeState.CredentialStatus,
-			credential.Version,
 			existingRuntimeState.CredentialVersion,
 		); err != nil {
 			return nil, err
@@ -91,10 +92,13 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	}); err != nil {
 		return nil, fmt.Errorf("bind runtime-state store: %w", err)
 	}
-	if err := runner.LoadPersistentCredential(credential.EdgeID, credential.Version, credential.CredentialSecret); err != nil {
+	if err := bootstrap.LoadPersistentCredential(runtime.PersistentCredentialInput{
+		EdgeID:           credential.EdgeID,
+		Version:          credential.Version,
+		CredentialSecret: credential.CredentialSecret,
+	}); err != nil {
 		return nil, fmt.Errorf("load persistent credential into runtime: %w", err)
 	}
-	bootstrap := runtime.NewBootstrapSession(runner)
 
 	definitions := source.DefinitionsFromConfig(cfg.Sources)
 	sources := source.NewManager(factories)
@@ -136,6 +140,9 @@ func (p *Process) ReloadInstalledCredential() error {
 	if p.credentialStore == nil {
 		return fmt.Errorf("runtime credential store is required")
 	}
+	if p.Bootstrap == nil {
+		return fmt.Errorf("runtime bootstrap session is required")
+	}
 
 	credential, exists, err := p.credentialStore.Load()
 	if err != nil {
@@ -149,15 +156,19 @@ func (p *Process) ReloadInstalledCredential() error {
 	}
 
 	snapshot := p.Runner.StateSnapshot()
-	if err := state.ValidateCredentialReplacement(
+	if err := state.ValidateFreshCredentialInstallation(
+		credential,
 		snapshot.CredentialStatus,
-		credential.Version,
 		snapshot.CredentialVersion,
 	); err != nil {
 		return err
 	}
 
-	if err := p.Runner.LoadPersistentCredential(credential.EdgeID, credential.Version, credential.CredentialSecret); err != nil {
+	if err := p.Bootstrap.LoadPersistentCredential(runtime.PersistentCredentialInput{
+		EdgeID:           credential.EdgeID,
+		Version:          credential.Version,
+		CredentialSecret: credential.CredentialSecret,
+	}); err != nil {
 		return fmt.Errorf("load installed credential into runtime: %w", err)
 	}
 	if err := p.Runner.ConfigureRuntimeState(p.expectedEdgeID, p.sourceConfigRevision); err != nil {

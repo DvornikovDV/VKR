@@ -83,6 +83,14 @@ func ValidateCredentialReplacement(status CredentialStatus, candidateVersion int
 	return fmt.Errorf("credential.json version %d does not replace %s credential version %d", candidateVersion, status, *previousVersion)
 }
 
+func ValidateFreshCredentialInstallation(credential Credential, previousStatus CredentialStatus, previousVersion *int) error {
+	if err := validateCredential(credential); err != nil {
+		return err
+	}
+
+	return ValidateCredentialReplacement(previousStatus, credential.Version, previousVersion)
+}
+
 func validateCredential(credential Credential) error {
 	if strings.TrimSpace(credential.EdgeID) == "" {
 		return fmt.Errorf("credential.edgeId is required")

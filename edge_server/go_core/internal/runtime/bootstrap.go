@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"edge_server/go_core/internal/cloud"
+	"edge_server/go_core/internal/state"
 )
 
 var ErrAuthPathUnavailable = errors.New("runtime auth path is unavailable")
@@ -13,6 +14,12 @@ var ErrAuthPathUnavailable = errors.New("runtime auth path is unavailable")
 type BootstrapInput struct {
 	OnboardingPackagePath string
 	OnboardingPackageJSON string
+}
+
+type PersistentCredentialInput struct {
+	EdgeID           string
+	CredentialSecret string
+	Version          int
 }
 
 type BootstrapSession struct {
@@ -37,6 +44,23 @@ func (s *BootstrapSession) Bootstrap(input BootstrapInput) error {
 	}
 
 	return fmt.Errorf("%w: current credential.json is required", ErrAuthPathUnavailable)
+}
+
+func (s *BootstrapSession) LoadPersistentCredential(input PersistentCredentialInput) error {
+	if s == nil || s.runner == nil {
+		return fmt.Errorf("runtime bootstrap session requires a runner")
+	}
+
+	snapshot := s.runner.StateSnapshot()
+	if err := state.ValidateCredentialReplacement(
+		snapshot.CredentialStatus,
+		input.Version,
+		snapshot.CredentialVersion,
+	); err != nil {
+		return err
+	}
+
+	return s.runner.LoadPersistentCredential(input.EdgeID, input.Version, input.CredentialSecret)
 }
 
 func (s *BootstrapSession) BuildHandshakeAuth() (cloud.HandshakeAuth, error) {
