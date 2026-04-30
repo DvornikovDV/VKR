@@ -1,10 +1,13 @@
 runtime:
-  edgeId: 507f1f77bcf86cd799439011
+  # Required: replace with the cloud-issued edge id. Must match state/credential.json edgeId.
+  edgeId: 69f1b617b1728b89d4293a34
+  # Required: directory that contains credential.json, runtime-state.json, and status.json.
   stateDir: C:\ProgramData\vkr-edge\state
   instanceName: arduino-stand-edge
 
 cloud:
-  url: ${EDGE_CLOUD_URL}
+  # Required: set EDGE_CLOUD_URL before startup or replace this with the cloud http(s) URL.
+  url: http://localhost:4000
   namespace: /edge
   connectTimeoutMs: 10000
   reconnect:
@@ -22,7 +25,8 @@ sources:
     enabled: true
     pollIntervalMs: 1000
     connection:
-      port: ${EDGE_MODBUS_PORT}
+      # Required: set EDGE_MODBUS_PORT before startup or replace this with the Arduino COM port.
+      port: COM7
       baudRate: 9600
       dataBits: 8
       parity: none
