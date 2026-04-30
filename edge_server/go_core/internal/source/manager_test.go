@@ -1,11 +1,15 @@
 package source
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"edge_server/go_core/internal/config"
 
 	"github.com/simonvetter/modbus"
 )
@@ -217,6 +221,209 @@ func TestManagerPreservesExistingSourceWhenReconfigurationFails(t *testing.T) {
 	}
 }
 
+func TestDefinitionsFromConfigPreservesCommands(t *testing.T) {
+	cfgDefinitions := []config.PollingSourceDefinition{
+		{
+			SourceID:       "source-commands",
+			AdapterKind:    ModbusRTUKind,
+			Enabled:        true,
+			PollIntervalMs: 500,
+			Connection:     map[string]any{"port": "COM3"},
+			Devices: []config.LocalDeviceDefinition{
+				{
+					DeviceID: "pump-main",
+					Metrics: []config.MetricDefinition{
+						{
+							Metric:    "actual_state",
+							ValueType: "boolean",
+							Mapping:   map[string]any{"registerType": "input", "address": 12},
+						},
+					},
+					Commands: []config.CommandDefinition{
+						{
+							Command:        "set_bool",
+							Mapping:        map[string]any{"registerType": "holding", "address": 160},
+							ReportedMetric: "actual_state",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	definitions := DefinitionsFromConfig(cfgDefinitions)
+	if len(definitions) != 1 || len(definitions[0].Devices) != 1 || len(definitions[0].Devices[0].Commands) != 1 {
+		t.Fatalf("expected command definition to be preserved, got %+v", definitions)
+	}
+
+	command := definitions[0].Devices[0].Commands[0]
+	if command.Command != "set_bool" || command.ReportedMetric != "actual_state" || command.Mapping["address"] != 160 {
+		t.Fatalf("unexpected converted command: %+v", command)
+	}
+
+	cfgDefinitions[0].Devices[0].Commands[0].Mapping["address"] = 161
+	if definitions[0].Devices[0].Commands[0].Mapping["address"] != 160 {
+		t.Fatal("converted command mapping must be cloned from config")
+	}
+}
+
+func TestManagerRoutesCommandThroughConfiguredSource(t *testing.T) {
+	adapter := &commandBoundaryAdapter{
+		result: CommandResult{Status: CommandStatusConfirmed},
+	}
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			return adapter, nil
+		},
+	})
+	defer manager.ApplyDefinitions(nil)
+
+	if _, err := manager.ApplyDefinitions([]Definition{commandDefinition("source-command", "pump-main", "set_bool")}); err != nil {
+		t.Fatalf("apply command source definition: %v", err)
+	}
+
+	result, err := manager.ExecuteCommand(context.Background(), CommandRequest{
+		DeviceID: "pump-main",
+		Command:  "set_bool",
+		Value:    true,
+	})
+	if err != nil {
+		t.Fatalf("execute command through manager: %v", err)
+	}
+	if result.Status != CommandStatusConfirmed {
+		t.Fatalf("expected confirmed command result, got %+v", result)
+	}
+	if adapter.callCount() != 1 {
+		t.Fatalf("expected one adapter delegation, got %d", adapter.callCount())
+	}
+	if adapter.lastRequest.DeviceID != "pump-main" || adapter.lastRequest.Command != "set_bool" || adapter.lastRequest.Value != true {
+		t.Fatalf("manager delegated unexpected command request: %+v", adapter.lastRequest)
+	}
+}
+
+func TestManagerFailsUnknownCommandTargets(t *testing.T) {
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			return &commandBoundaryAdapter{result: CommandResult{Status: CommandStatusConfirmed}}, nil
+		},
+	})
+	defer manager.ApplyDefinitions(nil)
+
+	if _, err := manager.ApplyDefinitions([]Definition{commandDefinition("source-command", "pump-main", "set_bool")}); err != nil {
+		t.Fatalf("apply command source definition: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		request CommandRequest
+	}{
+		{
+			name:    "unknown device",
+			request: CommandRequest{DeviceID: "pump-secondary", Command: "set_bool", Value: true},
+		},
+		{
+			name:    "unknown command",
+			request: CommandRequest{DeviceID: "pump-main", Command: "set_number", Value: 1},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := manager.ExecuteCommand(context.Background(), tc.request)
+			if err != nil {
+				t.Fatalf("unknown command target should return failed result, got error %v", err)
+			}
+			if result.Status != CommandStatusFailed {
+				t.Fatalf("expected failed result for %s, got %+v", tc.name, result)
+			}
+		})
+	}
+}
+
+func TestManagerFailsWhenAdapterIsNotCommandCapable(t *testing.T) {
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			return &boundaryAdapter{}, nil
+		},
+	})
+	defer manager.ApplyDefinitions(nil)
+
+	if _, err := manager.ApplyDefinitions([]Definition{commandDefinition("source-command", "pump-main", "set_bool")}); err != nil {
+		t.Fatalf("apply command source definition: %v", err)
+	}
+
+	result, err := manager.ExecuteCommand(context.Background(), CommandRequest{
+		DeviceID: "pump-main",
+		Command:  "set_bool",
+		Value:    true,
+	})
+	if err != nil {
+		t.Fatalf("non-command-capable adapter should return failed result, got error %v", err)
+	}
+	if result.Status != CommandStatusFailed {
+		t.Fatalf("expected failed result for non-command-capable adapter, got %+v", result)
+	}
+}
+
+func TestManagerRejectsBusyCommandTarget(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	adapter := &commandBoundaryAdapter{
+		blockStarted: started,
+		blockRelease: release,
+		result:       CommandResult{Status: CommandStatusConfirmed},
+	}
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			return adapter, nil
+		},
+	})
+	defer manager.ApplyDefinitions(nil)
+
+	if _, err := manager.ApplyDefinitions([]Definition{commandDefinition("source-command", "pump-main", "set_bool")}); err != nil {
+		t.Fatalf("apply command source definition: %v", err)
+	}
+
+	firstDone := make(chan CommandResult, 1)
+	go func() {
+		result, _ := manager.ExecuteCommand(context.Background(), CommandRequest{
+			DeviceID: "pump-main",
+			Command:  "set_bool",
+			Value:    true,
+		})
+		firstDone <- result
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first command to enter adapter")
+	}
+
+	busyResult, err := manager.ExecuteCommand(context.Background(), CommandRequest{
+		DeviceID: "pump-main",
+		Command:  "set_bool",
+		Value:    false,
+	})
+	if err != nil {
+		t.Fatalf("busy command should return failed result, got error %v", err)
+	}
+	if busyResult.Status != CommandStatusFailed {
+		t.Fatalf("expected failed busy result, got %+v", busyResult)
+	}
+
+	close(release)
+	select {
+	case result := <-firstDone:
+		if result.Status != CommandStatusConfirmed {
+			t.Fatalf("expected first command to complete confirmed, got %+v", result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first command to finish")
+	}
+	if adapter.callCount() != 1 {
+		t.Fatalf("busy command must not delegate a second adapter call, got %d", adapter.callCount())
+	}
+}
+
 func assertCloudSafeReading(t *testing.T, reading Reading, sourceID string, deviceID string, metric string, value any) {
 	t.Helper()
 
@@ -255,6 +462,19 @@ func boundaryDefinition(sourceID string, deviceID string, metric string) Definit
 			},
 		},
 	}
+}
+
+func commandDefinition(sourceID string, deviceID string, commandType string) Definition {
+	definition := boundaryDefinition(sourceID, deviceID, "actual_state")
+	definition.Devices[0].Metrics[0].ValueType = "boolean"
+	definition.Devices[0].Commands = []CommandDefinition{
+		{
+			Command:        commandType,
+			Mapping:        map[string]any{"registerType": "holding", "address": 160},
+			ReportedMetric: "actual_state",
+		},
+	}
+	return definition
 }
 
 type boundaryAdapter struct {
@@ -297,4 +517,45 @@ func (a *boundaryAdapter) publishFault(fault Fault) {
 		return
 	}
 	a.sink.PublishFault(fault)
+}
+
+type commandBoundaryAdapter struct {
+	boundaryAdapter
+	mu           sync.Mutex
+	lastRequest  CommandRequest
+	calls        int
+	result       CommandResult
+	blockStarted chan struct{}
+	blockRelease chan struct{}
+}
+
+func (a *commandBoundaryAdapter) ExecuteCommand(ctx context.Context, request CommandRequest) (CommandResult, error) {
+	a.mu.Lock()
+	a.lastRequest = request
+	a.calls++
+	started := a.blockStarted
+	release := a.blockRelease
+	a.mu.Unlock()
+
+	if started != nil {
+		close(started)
+	}
+	if release != nil {
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return CommandResult{Status: CommandStatusFailed, Reason: ctx.Err().Error()}, nil
+		}
+	}
+
+	result := a.result
+	result.DeviceID = request.DeviceID
+	result.Command = request.Command
+	return result, nil
+}
+
+func (a *commandBoundaryAdapter) callCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.calls
 }

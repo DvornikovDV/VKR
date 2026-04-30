@@ -137,6 +137,123 @@ sources:
 	}
 }
 
+func TestParseAcceptsArduinoStandCommandMapping(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "samples", "arduino-stand", "edge-runtime.yaml"))
+	if err != nil {
+		t.Fatalf("read Arduino stand sample: %v", err)
+	}
+
+	cfg, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("parse Arduino stand sample with command mapping: %v", err)
+	}
+
+	var pump *LocalDeviceDefinition
+	for sourceIndex := range cfg.Sources {
+		for deviceIndex := range cfg.Sources[sourceIndex].Devices {
+			device := &cfg.Sources[sourceIndex].Devices[deviceIndex]
+			if device.DeviceID == "pump_main" {
+				pump = device
+			}
+		}
+	}
+	if pump == nil {
+		t.Fatal("expected pump_main device in Arduino stand sample")
+	}
+	if len(pump.Commands) != 1 {
+		t.Fatalf("expected one pump_main command mapping, got %d", len(pump.Commands))
+	}
+
+	command := pump.Commands[0]
+	if command.Command != "set_bool" {
+		t.Fatalf("unexpected command type: %q", command.Command)
+	}
+	if command.ReportedMetric != "actual_state" {
+		t.Fatalf("unexpected reported metric: %q", command.ReportedMetric)
+	}
+	if command.Mapping["registerType"] != "holding" {
+		t.Fatalf("unexpected command register type: %#v", command.Mapping["registerType"])
+	}
+	if command.Mapping["address"] != 160 {
+		t.Fatalf("unexpected command address: %#v", command.Mapping["address"])
+	}
+}
+
+func TestParseRejectsInvalidDeviceCommandMappings(t *testing.T) {
+	t.Setenv("CLOUD_SOCKET_URL", "https://runtime.example.test")
+	t.Setenv("RUNTIME_STATE_DIR", t.TempDir())
+
+	valid := validCommandConfigYAML()
+	cases := []struct {
+		name       string
+		body       string
+		errSnippet string
+	}{
+		{
+			name:       "unsupported command type",
+			body:       strings.Replace(valid, "command: set_bool", "command: set_number", 1),
+			errSnippet: "command must be set_bool",
+		},
+		{
+			name:       "missing command mapping",
+			body:       strings.Replace(valid, "          - command: set_bool\n            mapping:\n              registerType: holding\n              address: 160\n            reportedMetric: actual_state\n", "          - command: set_bool\n            reportedMetric: actual_state\n", 1),
+			errSnippet: "mapping is required",
+		},
+		{
+			name:       "non holding register",
+			body:       strings.Replace(valid, "registerType: holding", "registerType: input", 1),
+			errSnippet: "mapping.registerType must be holding",
+		},
+		{
+			name:       "missing command address",
+			body:       strings.Replace(valid, "              address: 160\n", "", 1),
+			errSnippet: "mapping.address is required",
+		},
+		{
+			name:       "out of range command address",
+			body:       strings.Replace(valid, "address: 160", "address: 70000", 1),
+			errSnippet: "mapping.address must be between 0 and 65535",
+		},
+		{
+			name:       "unknown mapping field",
+			body:       strings.Replace(valid, "              address: 160\n", "              address: 160\n              functionCode: 6\n", 1),
+			errSnippet: "mapping must contain only address and registerType",
+		},
+		{
+			name:       "unknown reported metric",
+			body:       strings.Replace(valid, "reportedMetric: actual_state", "reportedMetric: desired_state", 1),
+			errSnippet: "reportedMetric must reference a device metric",
+		},
+		{
+			name:       "non boolean reported metric",
+			body:       strings.Replace(valid, "valueType: boolean", "valueType: number", 1),
+			errSnippet: "reportedMetric must reference a boolean metric",
+		},
+		{
+			name:       "source level commands are rejected",
+			body:       strings.Replace(valid, "    devices:\n", "    commands:\n      - command: set_bool\n        mapping:\n          registerType: holding\n          address: 160\n        reportedMetric: actual_state\n    devices:\n", 1),
+			errSnippet: "field commands not found",
+		},
+		{
+			name:       "disabled source command mapping is still validated",
+			body:       strings.Replace(strings.Replace(valid, "enabled: true", "enabled: false", 1), "registerType: holding", "registerType: input", 1),
+			errSnippet: "mapping.registerType must be holding",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse([]byte(tc.body))
+			if err == nil {
+				t.Fatalf("expected validation error containing %q", tc.errSnippet)
+			}
+			if !strings.Contains(err.Error(), tc.errSnippet) {
+				t.Fatalf("expected error to contain %q, got %v", tc.errSnippet, err)
+			}
+		})
+	}
+}
+
 func TestParseRejectsInvalidOperatorConfig(t *testing.T) {
 	t.Setenv("CLOUD_SOCKET_URL", "https://runtime.example.test")
 	t.Setenv("RUNTIME_STATE_DIR", t.TempDir())
@@ -363,5 +480,52 @@ sources:
             valueType: boolean
             mapping:
               coil: 1
+`
+}
+
+func validCommandConfigYAML() string {
+	return `
+runtime:
+  edgeId: 507f1f77bcf86cd799439011
+  stateDir: ${RUNTIME_STATE_DIR}
+
+cloud:
+  url: ${CLOUD_SOCKET_URL}
+  namespace: /edge
+  connectTimeoutMs: 10000
+  reconnect:
+    baseDelayMs: 1000
+    maxDelayMs: 30000
+    maxAttempts: 0
+
+sources:
+  - sourceId: source-1
+    adapterKind: modbus_rtu
+    enabled: true
+    pollIntervalMs: 1000
+    connection:
+      port: COM7
+      baudRate: 9600
+      dataBits: 8
+      parity: none
+      stopBits: 1
+      slaveId: 1
+      timeoutMs: 500
+    devices:
+      - deviceId: pump_main
+        address:
+          node: 2
+        metrics:
+          - metric: actual_state
+            valueType: boolean
+            mapping:
+              registerType: input
+              address: 16
+        commands:
+          - command: set_bool
+            mapping:
+              registerType: holding
+              address: 160
+            reportedMetric: actual_state
 `
 }

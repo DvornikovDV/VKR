@@ -15,12 +15,19 @@ type DeviceDefinition struct {
 	DeviceID string
 	Address  map[string]any
 	Metrics  []MetricDefinition
+	Commands []CommandDefinition
 }
 
 type MetricDefinition struct {
 	Metric    string
 	ValueType string
 	Mapping   map[string]any
+}
+
+type CommandDefinition struct {
+	Command        string
+	Mapping        map[string]any
+	ReportedMetric string
 }
 
 type Sink interface {
@@ -80,11 +87,20 @@ func DefinitionsFromConfig(definitions []config.PollingSourceDefinition) []Defin
 					Mapping:   cloneMap(metric.Mapping),
 				})
 			}
+			commandDefinitions := make([]CommandDefinition, 0, len(device.Commands))
+			for _, command := range device.Commands {
+				commandDefinitions = append(commandDefinitions, CommandDefinition{
+					Command:        command.Command,
+					Mapping:        cloneMap(command.Mapping),
+					ReportedMetric: command.ReportedMetric,
+				})
+			}
 
 			deviceDefinitions = append(deviceDefinitions, DeviceDefinition{
 				DeviceID: device.DeviceID,
 				Address:  cloneMap(device.Address),
 				Metrics:  metricDefinitions,
+				Commands: commandDefinitions,
 			})
 		}
 
@@ -102,34 +118,50 @@ func DefinitionsFromConfig(definitions []config.PollingSourceDefinition) []Defin
 }
 
 func cloneDefinition(definition Definition) Definition {
-	return DefinitionsFromConfig([]config.PollingSourceDefinition{
-		{
-			SourceID:       definition.SourceID,
-			AdapterKind:    definition.AdapterKind,
-			Enabled:        definition.Enabled,
-			PollIntervalMs: definition.PollIntervalMs,
-			Connection:     cloneMap(definition.Connection),
-			Devices:        cloneConfigDevices(definition.Devices),
-		},
-	})[0]
+	return Definition{
+		SourceID:       definition.SourceID,
+		AdapterKind:    definition.AdapterKind,
+		Enabled:        definition.Enabled,
+		PollIntervalMs: definition.PollIntervalMs,
+		Connection:     cloneMap(definition.Connection),
+		Devices:        cloneDeviceDefinitions(definition.Devices),
+	}
 }
 
-func cloneConfigDevices(devices []DeviceDefinition) []config.LocalDeviceDefinition {
-	cloned := make([]config.LocalDeviceDefinition, 0, len(devices))
+func cloneDeviceDefinitions(devices []DeviceDefinition) []DeviceDefinition {
+	cloned := make([]DeviceDefinition, 0, len(devices))
 	for _, device := range devices {
-		metrics := make([]config.MetricDefinition, 0, len(device.Metrics))
-		for _, metric := range device.Metrics {
-			metrics = append(metrics, config.MetricDefinition{
-				Metric:    metric.Metric,
-				ValueType: metric.ValueType,
-				Mapping:   cloneMap(metric.Mapping),
-			})
-		}
-
-		cloned = append(cloned, config.LocalDeviceDefinition{
+		cloned = append(cloned, DeviceDefinition{
 			DeviceID: device.DeviceID,
 			Address:  cloneMap(device.Address),
-			Metrics:  metrics,
+			Metrics:  cloneMetricDefinitions(device.Metrics),
+			Commands: cloneCommandDefinitions(device.Commands),
+		})
+	}
+
+	return cloned
+}
+
+func cloneMetricDefinitions(metrics []MetricDefinition) []MetricDefinition {
+	cloned := make([]MetricDefinition, 0, len(metrics))
+	for _, metric := range metrics {
+		cloned = append(cloned, MetricDefinition{
+			Metric:    metric.Metric,
+			ValueType: metric.ValueType,
+			Mapping:   cloneMap(metric.Mapping),
+		})
+	}
+
+	return cloned
+}
+
+func cloneCommandDefinitions(commands []CommandDefinition) []CommandDefinition {
+	cloned := make([]CommandDefinition, 0, len(commands))
+	for _, command := range commands {
+		cloned = append(cloned, CommandDefinition{
+			Command:        command.Command,
+			Mapping:        cloneMap(command.Mapping),
+			ReportedMetric: command.ReportedMetric,
 		})
 	}
 

@@ -64,6 +64,12 @@ sources:
             mapping:
               registerType: input
               address: 2
+        commands:
+          - command: set_bool
+            mapping:
+              registerType: holding
+              address: 160
+            reportedMetric: actual_state
       - deviceId: siren_alert
         address:
           node: 3

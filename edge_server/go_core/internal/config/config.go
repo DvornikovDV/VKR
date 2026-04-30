@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"strings"
@@ -65,15 +66,22 @@ type PollingSourceDefinition struct {
 }
 
 type LocalDeviceDefinition struct {
-	DeviceID string             `yaml:"deviceId"`
-	Address  map[string]any     `yaml:"address"`
-	Metrics  []MetricDefinition `yaml:"metrics"`
+	DeviceID string              `yaml:"deviceId"`
+	Address  map[string]any      `yaml:"address"`
+	Metrics  []MetricDefinition  `yaml:"metrics"`
+	Commands []CommandDefinition `yaml:"commands"`
 }
 
 type MetricDefinition struct {
 	Metric    string         `yaml:"metric"`
 	ValueType string         `yaml:"valueType"`
 	Mapping   map[string]any `yaml:"mapping"`
+}
+
+type CommandDefinition struct {
+	Command        string         `yaml:"command"`
+	Mapping        map[string]any `yaml:"mapping"`
+	ReportedMetric string         `yaml:"reportedMetric"`
 }
 
 func LoadFromFile(path string) (Config, error) {
@@ -203,6 +211,9 @@ func validateSourceDefinitions(sources []PollingSourceDefinition) error {
 		sourceIDs[sourceID] = struct{}{}
 
 		if !source.Enabled {
+			if err := validateDisabledSourceCommands(i, source.Devices); err != nil {
+				return err
+			}
 			// Disabled sources are retained as operator-managed definitions and may
 			// stay incomplete until they are enabled for runtime use.
 			continue
@@ -229,23 +240,13 @@ func validateSourceDefinitions(sources []PollingSourceDefinition) error {
 			}
 			deviceIDs[deviceID] = struct{}{}
 
-			if len(device.Metrics) == 0 {
-				return fmt.Errorf("sources[%d].devices[%d].metrics must not be empty", i, j)
+			metricTypes, err := validateDeviceMetrics(i, j, deviceID, device.Metrics)
+			if err != nil {
+				return err
 			}
 
-			metricIDs := make(map[string]struct{}, len(device.Metrics))
-			for k, metric := range device.Metrics {
-				metricID := strings.TrimSpace(metric.Metric)
-				if metricID == "" {
-					return fmt.Errorf("sources[%d].devices[%d].metrics[%d].metric is required", i, j, k)
-				}
-				if _, exists := metricIDs[metricID]; exists {
-					return fmt.Errorf("duplicate metric %q for device %q", metricID, deviceID)
-				}
-				metricIDs[metricID] = struct{}{}
-				if metric.ValueType != "number" && metric.ValueType != "boolean" {
-					return fmt.Errorf("sources[%d].devices[%d].metrics[%d].valueType must be number or boolean", i, j, k)
-				}
+			if err := validateDeviceCommands(i, j, deviceID, device.Commands, metricTypes); err != nil {
+				return err
 			}
 		}
 	}
@@ -255,6 +256,158 @@ func validateSourceDefinitions(sources []PollingSourceDefinition) error {
 	}
 
 	return nil
+}
+
+func validateDisabledSourceCommands(sourceIndex int, devices []LocalDeviceDefinition) error {
+	for deviceIndex, device := range devices {
+		if len(device.Commands) == 0 {
+			continue
+		}
+		deviceID := strings.TrimSpace(device.DeviceID)
+		if deviceID == "" {
+			return fmt.Errorf("sources[%d].devices[%d].deviceId is required", sourceIndex, deviceIndex)
+		}
+		metricTypes, err := validateDeviceMetrics(sourceIndex, deviceIndex, deviceID, device.Metrics)
+		if err != nil {
+			return err
+		}
+		if err := validateDeviceCommands(sourceIndex, deviceIndex, deviceID, device.Commands, metricTypes); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func validateDeviceMetrics(sourceIndex int, deviceIndex int, deviceID string, metrics []MetricDefinition) (map[string]string, error) {
+	if len(metrics) == 0 {
+		return nil, fmt.Errorf("sources[%d].devices[%d].metrics must not be empty", sourceIndex, deviceIndex)
+	}
+
+	metricTypes := make(map[string]string, len(metrics))
+	for metricIndex, metric := range metrics {
+		metricID := strings.TrimSpace(metric.Metric)
+		if metricID == "" {
+			return nil, fmt.Errorf("sources[%d].devices[%d].metrics[%d].metric is required", sourceIndex, deviceIndex, metricIndex)
+		}
+		if _, exists := metricTypes[metricID]; exists {
+			return nil, fmt.Errorf("duplicate metric %q for device %q", metricID, deviceID)
+		}
+		if metric.ValueType != "number" && metric.ValueType != "boolean" {
+			return nil, fmt.Errorf("sources[%d].devices[%d].metrics[%d].valueType must be number or boolean", sourceIndex, deviceIndex, metricIndex)
+		}
+		metricTypes[metricID] = metric.ValueType
+	}
+
+	return metricTypes, nil
+}
+
+func validateDeviceCommands(sourceIndex int, deviceIndex int, deviceID string, commands []CommandDefinition, metricTypes map[string]string) error {
+	commandIDs := make(map[string]struct{}, len(commands))
+	for commandIndex, command := range commands {
+		field := fmt.Sprintf("sources[%d].devices[%d].commands[%d]", sourceIndex, deviceIndex, commandIndex)
+		commandType := strings.TrimSpace(command.Command)
+		if commandType == "" {
+			return fmt.Errorf("%s.command is required", field)
+		}
+		if commandType != "set_bool" {
+			return fmt.Errorf("%s.command must be set_bool", field)
+		}
+		if _, exists := commandIDs[commandType]; exists {
+			return fmt.Errorf("duplicate command %q for device %q", commandType, deviceID)
+		}
+		commandIDs[commandType] = struct{}{}
+
+		if err := validateSetBoolCommandMapping(field, command.Mapping); err != nil {
+			return err
+		}
+
+		reportedMetric := strings.TrimSpace(command.ReportedMetric)
+		if reportedMetric == "" {
+			return fmt.Errorf("%s.reportedMetric is required", field)
+		}
+		valueType, exists := metricTypes[reportedMetric]
+		if !exists {
+			return fmt.Errorf("%s.reportedMetric must reference a device metric", field)
+		}
+		if valueType != "boolean" {
+			return fmt.Errorf("%s.reportedMetric must reference a boolean metric", field)
+		}
+	}
+
+	return nil
+}
+
+func validateSetBoolCommandMapping(field string, mapping map[string]any) error {
+	if len(mapping) == 0 {
+		return fmt.Errorf("%s.mapping is required", field)
+	}
+	if _, exists := mapping["address"]; !exists {
+		return fmt.Errorf("%s.mapping.address is required", field)
+	}
+	if _, exists := mapping["registerType"]; !exists {
+		return fmt.Errorf("%s.mapping.registerType is required", field)
+	}
+	if len(mapping) != 2 {
+		return fmt.Errorf("%s.mapping must contain only address and registerType", field)
+	}
+
+	registerType, ok := mapping["registerType"].(string)
+	if !ok || strings.TrimSpace(registerType) == "" {
+		return fmt.Errorf("%s.mapping.registerType is required", field)
+	}
+	if strings.ToLower(strings.TrimSpace(registerType)) != "holding" {
+		return fmt.Errorf("%s.mapping.registerType must be holding", field)
+	}
+
+	if _, err := commandMappingAddress(mapping["address"], field+".mapping.address"); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func commandMappingAddress(raw any, field string) (uint16, error) {
+	value, ok := numberAsFloat64(raw)
+	if !ok || math.Trunc(value) != value {
+		return 0, fmt.Errorf("%s must be an integer", field)
+	}
+	if value < 0 || value > math.MaxUint16 {
+		return 0, fmt.Errorf("%s must be between 0 and 65535", field)
+	}
+
+	return uint16(value), nil
+}
+
+func numberAsFloat64(raw any) (float64, bool) {
+	switch typed := raw.(type) {
+	case int:
+		return float64(typed), true
+	case int8:
+		return float64(typed), true
+	case int16:
+		return float64(typed), true
+	case int32:
+		return float64(typed), true
+	case int64:
+		return float64(typed), true
+	case uint:
+		return float64(typed), true
+	case uint8:
+		return float64(typed), true
+	case uint16:
+		return float64(typed), true
+	case uint32:
+		return float64(typed), true
+	case uint64:
+		return float64(typed), true
+	case float32:
+		return float64(typed), true
+	case float64:
+		return typed, true
+	default:
+		return 0, false
+	}
 }
 
 func validateCloudURL(raw string) error {

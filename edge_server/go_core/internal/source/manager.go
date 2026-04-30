@@ -1,6 +1,7 @@
 package source
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -12,6 +13,7 @@ type Manager struct {
 	mu        sync.RWMutex
 	factories FactoryRegistry
 	sources   map[string]*managedSource
+	inFlight  map[string]struct{}
 	readings  chan Reading
 	faults    chan Fault
 }
@@ -21,6 +23,7 @@ type managedSource struct {
 	adapter   Adapter
 	control   MockControl
 	identity  map[string]struct{}
+	commands  map[string]struct{}
 	health    SourceHealthSnapshot
 }
 
@@ -38,6 +41,7 @@ func NewManager(factories FactoryRegistry) *Manager {
 	return &Manager{
 		factories: clonedFactories,
 		sources:   make(map[string]*managedSource),
+		inFlight:  make(map[string]struct{}),
 		readings:  make(chan Reading, 64),
 		faults:    make(chan Fault, 64),
 	}
@@ -90,6 +94,10 @@ func (m *Manager) ApplyDefinitions(definitions []Definition) (ApplyReport, error
 		if err != nil {
 			return report, fmt.Errorf("validate reading identities for %s: %w", sourceID, err)
 		}
+		commandIdentities, err := commandIdentities(definition)
+		if err != nil {
+			return report, fmt.Errorf("validate command identities for %s: %w", sourceID, err)
+		}
 
 		factory := m.factories[definition.AdapterKind]
 		if factory == nil {
@@ -119,6 +127,7 @@ func (m *Manager) ApplyDefinitions(definitions []Definition) (ApplyReport, error
 			signature: signature,
 			adapter:   adapter,
 			identity:  identities,
+			commands:  commandIdentities,
 			health: SourceHealthSnapshot{
 				SourceID: sourceID,
 				State:    SourceHealthRunning,
@@ -173,6 +182,93 @@ func (m *Manager) MockControl(sourceID string) (MockControl, error) {
 	}
 
 	return managed.control, nil
+}
+
+func (m *Manager) ExecuteCommand(ctx context.Context, request CommandRequest) (CommandResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	normalized := CommandRequest{
+		DeviceID: strings.TrimSpace(request.DeviceID),
+		Command:  strings.TrimSpace(request.Command),
+		Value:    request.Value,
+	}
+	result := CommandResult{
+		DeviceID: normalized.DeviceID,
+		Command:  normalized.Command,
+		Status:   CommandStatusFailed,
+	}
+	if normalized.DeviceID == "" {
+		result.Reason = "deviceId is required"
+		return result, nil
+	}
+	if normalized.Command == "" {
+		result.Reason = "command is required"
+		return result, nil
+	}
+
+	key := commandIdentityKey(normalized.DeviceID, normalized.Command)
+	adapter, ok, busy := m.reserveCommandTarget(key)
+	if busy {
+		result.Reason = "command target is busy"
+		return result, nil
+	}
+	if !ok {
+		result.Reason = "command target is not configured"
+		return result, nil
+	}
+	defer m.releaseCommandTarget(key)
+
+	commandAdapter, ok := adapter.(CommandCapable)
+	if !ok {
+		result.Reason = "source adapter is not command-capable"
+		return result, nil
+	}
+
+	delegatedResult, err := commandAdapter.ExecuteCommand(ctx, normalized)
+	if delegatedResult.DeviceID == "" {
+		delegatedResult.DeviceID = normalized.DeviceID
+	}
+	if delegatedResult.Command == "" {
+		delegatedResult.Command = normalized.Command
+	}
+	if err != nil {
+		delegatedResult.Status = CommandStatusFailed
+		delegatedResult.Reason = err.Error()
+		return delegatedResult, nil
+	}
+	if delegatedResult.Status == "" {
+		delegatedResult.Status = CommandStatusFailed
+		delegatedResult.Reason = "source adapter returned empty command status"
+	}
+
+	return delegatedResult, nil
+}
+
+func (m *Manager) reserveCommandTarget(key string) (Adapter, bool, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, managed := range m.sources {
+		if _, exists := managed.commands[key]; !exists {
+			continue
+		}
+		if _, busy := m.inFlight[key]; busy {
+			return nil, true, true
+		}
+		m.inFlight[key] = struct{}{}
+		return managed.adapter, true, false
+	}
+
+	return nil, false, false
+}
+
+func (m *Manager) releaseCommandTarget(key string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	delete(m.inFlight, key)
 }
 
 func (m *Manager) HealthSnapshot() map[string]SourceHealthSnapshot {
@@ -311,4 +407,38 @@ func readingIdentities(definition Definition) (map[string]struct{}, error) {
 
 func readingIdentityKey(deviceID string, metric string) string {
 	return strings.TrimSpace(deviceID) + "\x00" + strings.TrimSpace(metric)
+}
+
+func commandIdentities(definition Definition) (map[string]struct{}, error) {
+	identities := make(map[string]struct{})
+	for deviceIndex, device := range definition.Devices {
+		deviceID := strings.TrimSpace(device.DeviceID)
+		if deviceID == "" {
+			return nil, fmt.Errorf("devices[%d].deviceId is required", deviceIndex)
+		}
+
+		deviceCommands := make(map[string]struct{}, len(device.Commands))
+		for commandIndex, command := range device.Commands {
+			commandType := strings.TrimSpace(command.Command)
+			if commandType == "" {
+				return nil, fmt.Errorf("devices[%d].commands[%d].command is required", deviceIndex, commandIndex)
+			}
+			if _, exists := deviceCommands[commandType]; exists {
+				return nil, fmt.Errorf("duplicate command %q for device %q", commandType, deviceID)
+			}
+			deviceCommands[commandType] = struct{}{}
+
+			key := commandIdentityKey(deviceID, commandType)
+			if _, exists := identities[key]; exists {
+				return nil, fmt.Errorf("duplicate deviceId+command identity %q/%q", deviceID, commandType)
+			}
+			identities[key] = struct{}{}
+		}
+	}
+
+	return identities, nil
+}
+
+func commandIdentityKey(deviceID string, command string) string {
+	return strings.TrimSpace(deviceID) + "\x00" + strings.TrimSpace(command)
 }

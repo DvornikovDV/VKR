@@ -17,10 +17,17 @@ import (
 
 const ModbusRTUKind = "modbus_rtu"
 
+const (
+	modbusCommandConfirmationObservationCount = 2
+	modbusCommandConfirmationTimeout          = 3 * time.Second
+	modbusObservationHistoryLimit             = 32
+)
+
 type modbusRegisterClient interface {
 	Open() error
 	Close() error
 	ReadRegister(address uint16, registerType modbus.RegType) (uint16, error)
+	WriteRegister(address uint16, value uint16) error
 }
 
 type modbusSerialClientFactory func(connection modbusSerialConnection) (modbusRegisterClient, error)
@@ -59,17 +66,44 @@ type modbusMetricMapping struct {
 	scale        float64
 }
 
+type modbusCommandMapping struct {
+	deviceID       string
+	command        string
+	registerType   modbus.RegType
+	address        uint16
+	reportedMetric string
+}
+
+type modbusObservationKey struct {
+	deviceID string
+	metric   string
+}
+
+type modbusObservation struct {
+	sequence uint64
+	value    any
+}
+
+type modbusObservationState struct {
+	sequence uint64
+	history  []modbusObservation
+}
+
 type ModbusSerialAdapter struct {
-	mu            sync.RWMutex
-	transactionMu sync.Mutex
-	clientFactory modbusSerialClientFactory
-	now           func() time.Time
-	sourceID      string
-	sink          Sink
-	client        modbusRegisterClient
-	mappings      []modbusMetricMapping
-	cancel        context.CancelFunc
-	closed        bool
+	mu                  sync.RWMutex
+	transactionMu       sync.Mutex
+	commandMu           sync.Mutex
+	clientFactory       modbusSerialClientFactory
+	now                 func() time.Time
+	sourceID            string
+	sink                Sink
+	client              modbusRegisterClient
+	mappings            []modbusMetricMapping
+	commandMappings     []modbusCommandMapping
+	commandObservations map[modbusObservationKey]modbusObservationState
+	observationNotify   chan struct{}
+	cancel              context.CancelFunc
+	closed              bool
 }
 
 func NewModbusSerialAdapter() *ModbusSerialAdapter {
@@ -110,9 +144,11 @@ func newModbusSerialAdapterWithFactory(factory modbusSerialClientFactory, now fu
 	}
 
 	return &ModbusSerialAdapter{
-		clientFactory: factory,
-		now:           now,
-		closed:        true,
+		clientFactory:       factory,
+		now:                 now,
+		commandObservations: make(map[modbusObservationKey]modbusObservationState),
+		observationNotify:   make(chan struct{}),
+		closed:              true,
 	}
 }
 
@@ -136,7 +172,7 @@ func (a *ModbusSerialAdapter) ApplyDefinition(definition Definition, sink Sink) 
 	if err != nil {
 		return err
 	}
-	mappings, err := parseModbusMappings(definition.Devices)
+	mappings, commandMappings, err := parseModbusMappings(definition.Devices)
 	if err != nil {
 		return err
 	}
@@ -152,6 +188,8 @@ func (a *ModbusSerialAdapter) ApplyDefinition(definition Definition, sink Sink) 
 		return fmt.Errorf("open modbus serial connection: %w", err)
 	}
 
+	a.resetCommandObservations()
+
 	a.mu.Lock()
 	if a.cancel != nil {
 		a.cancel()
@@ -163,6 +201,7 @@ func (a *ModbusSerialAdapter) ApplyDefinition(definition Definition, sink Sink) 
 	a.sink = sink
 	a.client = client
 	a.mappings = mappings
+	a.commandMappings = commandMappings
 	a.cancel = cancel
 	a.closed = false
 	a.mu.Unlock()
@@ -189,8 +228,11 @@ func (a *ModbusSerialAdapter) Close() error {
 	a.client = nil
 	a.sink = nil
 	a.mappings = nil
+	a.commandMappings = nil
 	a.closed = true
 	a.mu.Unlock()
+
+	a.resetCommandObservations()
 
 	if client == nil {
 		return nil
@@ -230,10 +272,10 @@ func (a *ModbusSerialAdapter) pollOnce() (int, error) {
 	for _, mapping := range mappings {
 		a.transactionMu.Lock()
 		value, readErr := client.ReadRegister(mapping.address, mapping.registerType)
-		a.transactionMu.Unlock()
 
 		ts := a.now().UnixMilli()
 		if readErr != nil {
+			a.transactionMu.Unlock()
 			sink.PublishFault(Fault{
 				SourceID: sourceID,
 				Severity: SeverityError,
@@ -244,17 +286,77 @@ func (a *ModbusSerialAdapter) pollOnce() (int, error) {
 			continue
 		}
 
+		converted := convertModbusValue(value, mapping)
+		a.recordReportedMetricObservation(mapping.deviceID, mapping.metric, converted)
+		a.transactionMu.Unlock()
 		sink.PublishReading(RawReading{
 			SourceID: sourceID,
 			DeviceID: mapping.deviceID,
 			Metric:   mapping.metric,
-			Value:    convertModbusValue(value, mapping),
+			Value:    converted,
 			TS:       ts,
 		})
 		published++
 	}
 
 	return published, nil
+}
+
+func (a *ModbusSerialAdapter) ExecuteCommand(ctx context.Context, request CommandRequest) (CommandResult, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	normalized := CommandRequest{
+		DeviceID: strings.TrimSpace(request.DeviceID),
+		Command:  strings.TrimSpace(request.Command),
+		Value:    request.Value,
+	}
+	result := CommandResult{
+		DeviceID: normalized.DeviceID,
+		Command:  normalized.Command,
+		Status:   CommandStatusFailed,
+	}
+	if err := ctx.Err(); err != nil {
+		result.Reason = err.Error()
+		return result, nil
+	}
+
+	client, commandMapping, ok, err := a.commandSnapshot(normalized.DeviceID, normalized.Command)
+	if err != nil {
+		result.Reason = err.Error()
+		return result, nil
+	}
+	if !ok {
+		result.Reason = "command target is not configured"
+		return result, nil
+	}
+
+	value, ok := normalized.Value.(bool)
+	if !ok {
+		result.Reason = "set_bool value must be boolean"
+		return result, nil
+	}
+
+	writeValue := uint16(0)
+	if value {
+		writeValue = 1
+	}
+
+	observationKey := modbusObservationKey{deviceID: commandMapping.deviceID, metric: commandMapping.reportedMetric}
+	a.transactionMu.Lock()
+	err = client.WriteRegister(commandMapping.address, writeValue)
+	observationMarker := uint64(0)
+	if err == nil {
+		observationMarker = a.currentObservationSequence(observationKey)
+	}
+	a.transactionMu.Unlock()
+	if err != nil {
+		result.Reason = fmt.Sprintf("write modbus command: %v", err)
+		return result, nil
+	}
+
+	return a.waitForCommandConfirmation(ctx, result, observationKey, observationMarker, value), nil
 }
 
 func (a *ModbusSerialAdapter) snapshot() (string, Sink, modbusRegisterClient, []modbusMetricMapping, error) {
@@ -267,6 +369,104 @@ func (a *ModbusSerialAdapter) snapshot() (string, Sink, modbusRegisterClient, []
 
 	mappings := append([]modbusMetricMapping(nil), a.mappings...)
 	return a.sourceID, a.sink, a.client, mappings, nil
+}
+
+func (a *ModbusSerialAdapter) commandSnapshot(deviceID string, command string) (modbusRegisterClient, modbusCommandMapping, bool, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.closed || a.client == nil {
+		return nil, modbusCommandMapping{}, false, fmt.Errorf("modbus serial adapter is not running")
+	}
+
+	for _, commandMapping := range a.commandMappings {
+		if commandMapping.deviceID == deviceID && commandMapping.command == command {
+			return a.client, commandMapping, true, nil
+		}
+	}
+
+	return a.client, modbusCommandMapping{}, false, nil
+}
+
+func (a *ModbusSerialAdapter) recordReportedMetricObservation(deviceID string, metric string, value any) {
+	key := modbusObservationKey{deviceID: deviceID, metric: metric}
+
+	a.commandMu.Lock()
+	defer a.commandMu.Unlock()
+
+	state := a.commandObservations[key]
+	state.sequence++
+	state.history = append(state.history, modbusObservation{
+		sequence: state.sequence,
+		value:    value,
+	})
+	if len(state.history) > modbusObservationHistoryLimit {
+		state.history = append([]modbusObservation(nil), state.history[len(state.history)-modbusObservationHistoryLimit:]...)
+	}
+	a.commandObservations[key] = state
+	a.notifyCommandObservationLocked()
+}
+
+func (a *ModbusSerialAdapter) currentObservationSequence(key modbusObservationKey) uint64 {
+	a.commandMu.Lock()
+	defer a.commandMu.Unlock()
+
+	return a.commandObservations[key].sequence
+}
+
+func (a *ModbusSerialAdapter) waitForCommandConfirmation(ctx context.Context, result CommandResult, key modbusObservationKey, marker uint64, expected bool) CommandResult {
+	waitCtx, cancel := context.WithTimeout(ctx, modbusCommandConfirmationTimeout)
+	defer cancel()
+
+	matchingObservations := 0
+	seen := marker
+	for {
+		a.commandMu.Lock()
+		state := a.commandObservations[key]
+		for _, observation := range state.history {
+			if observation.sequence <= seen {
+				continue
+			}
+			seen = observation.sequence
+			observed, ok := observation.value.(bool)
+			if ok && observed == expected {
+				matchingObservations++
+			} else {
+				matchingObservations = 0
+			}
+		}
+		if matchingObservations >= modbusCommandConfirmationObservationCount {
+			a.commandMu.Unlock()
+			result.Status = CommandStatusConfirmed
+			return result
+		}
+		notify := a.observationNotify
+		a.commandMu.Unlock()
+
+		select {
+		case <-notify:
+		case <-waitCtx.Done():
+			result.Status = CommandStatusTimeout
+			result.Reason = "timed out waiting for reported metric confirmation"
+			if err := waitCtx.Err(); err != nil {
+				result.Reason = fmt.Sprintf("%s: %v", result.Reason, err)
+			}
+			return result
+		}
+	}
+}
+
+func (a *ModbusSerialAdapter) resetCommandObservations() {
+	a.commandMu.Lock()
+	defer a.commandMu.Unlock()
+
+	a.commandObservations = make(map[modbusObservationKey]modbusObservationState)
+	a.notifyCommandObservationLocked()
+}
+
+func (a *ModbusSerialAdapter) notifyCommandObservationLocked() {
+	close(a.observationNotify)
+	a.observationNotify = make(chan struct{})
 }
 
 func newSimonvetterModbusClient(connection modbusSerialConnection) (modbusRegisterClient, error) {
@@ -303,6 +503,10 @@ func (c *simonvetterModbusClient) Close() error {
 
 func (c *simonvetterModbusClient) ReadRegister(address uint16, registerType modbus.RegType) (uint16, error) {
 	return c.client.ReadRegister(address, registerType)
+}
+
+func (c *simonvetterModbusClient) WriteRegister(address uint16, value uint16) error {
+	return c.client.WriteRegister(address, value)
 }
 
 func parseModbusSerialConnection(raw map[string]any) (modbusSerialConnection, error) {
@@ -364,41 +568,47 @@ func parseParity(raw any) (uint, error) {
 	}
 }
 
-func parseModbusMappings(devices []DeviceDefinition) ([]modbusMetricMapping, error) {
+func parseModbusMappings(devices []DeviceDefinition) ([]modbusMetricMapping, []modbusCommandMapping, error) {
 	if len(devices) == 0 {
-		return nil, fmt.Errorf("modbus serial devices must not be empty")
+		return nil, nil, fmt.Errorf("modbus serial devices must not be empty")
 	}
 
 	mappings := make([]modbusMetricMapping, 0)
+	commandMappings := make([]modbusCommandMapping, 0)
 	for i, device := range devices {
 		deviceID := strings.TrimSpace(device.DeviceID)
 		if deviceID == "" {
-			return nil, fmt.Errorf("devices[%d].deviceId is required", i)
+			return nil, nil, fmt.Errorf("devices[%d].deviceId is required", i)
 		}
 		if len(device.Metrics) == 0 {
-			return nil, fmt.Errorf("devices[%d].metrics must not be empty", i)
+			return nil, nil, fmt.Errorf("devices[%d].metrics must not be empty", i)
 		}
 
+		metricTypes := make(map[string]string, len(device.Metrics))
 		for j, metric := range device.Metrics {
 			metricID := strings.TrimSpace(metric.Metric)
 			if metricID == "" {
-				return nil, fmt.Errorf("devices[%d].metrics[%d].metric is required", i, j)
+				return nil, nil, fmt.Errorf("devices[%d].metrics[%d].metric is required", i, j)
 			}
 			if metric.ValueType != "number" && metric.ValueType != "boolean" {
-				return nil, fmt.Errorf("devices[%d].metrics[%d].valueType must be number or boolean", i, j)
+				return nil, nil, fmt.Errorf("devices[%d].metrics[%d].valueType must be number or boolean", i, j)
 			}
+			if _, exists := metricTypes[metricID]; exists {
+				return nil, nil, fmt.Errorf("duplicate metric %q for device %q", metricID, deviceID)
+			}
+			metricTypes[metricID] = metric.ValueType
 
 			registerType, err := parseRegisterType(metric.Mapping["registerType"])
 			if err != nil {
-				return nil, fmt.Errorf("devices[%d].metrics[%d].mapping.registerType: %w", i, j, err)
+				return nil, nil, fmt.Errorf("devices[%d].metrics[%d].mapping.registerType: %w", i, j, err)
 			}
 			address, err := requiredUintRange(metric.Mapping, "address", "mapping.address", 0, 65535)
 			if err != nil {
-				return nil, fmt.Errorf("devices[%d].metrics[%d].%w", i, j, err)
+				return nil, nil, fmt.Errorf("devices[%d].metrics[%d].%w", i, j, err)
 			}
 			scale, err := optionalScale(metric.Mapping["scale"])
 			if err != nil {
-				return nil, fmt.Errorf("devices[%d].metrics[%d].mapping.scale must be a number", i, j)
+				return nil, nil, fmt.Errorf("devices[%d].metrics[%d].mapping.scale must be a number", i, j)
 			}
 
 			mappings = append(mappings, modbusMetricMapping{
@@ -410,9 +620,60 @@ func parseModbusMappings(devices []DeviceDefinition) ([]modbusMetricMapping, err
 				scale:        scale,
 			})
 		}
+
+		for j, command := range device.Commands {
+			parsed, err := parseModbusCommandMapping(i, j, deviceID, command, metricTypes)
+			if err != nil {
+				return nil, nil, err
+			}
+			commandMappings = append(commandMappings, parsed)
+		}
 	}
 
-	return mappings, nil
+	return mappings, commandMappings, nil
+}
+
+func parseModbusCommandMapping(deviceIndex int, commandIndex int, deviceID string, command CommandDefinition, metricTypes map[string]string) (modbusCommandMapping, error) {
+	field := fmt.Sprintf("devices[%d].commands[%d]", deviceIndex, commandIndex)
+	commandType := strings.TrimSpace(command.Command)
+	if commandType == "" {
+		return modbusCommandMapping{}, fmt.Errorf("%s.command is required", field)
+	}
+	if commandType != "set_bool" {
+		return modbusCommandMapping{}, fmt.Errorf("%s.command must be set_bool", field)
+	}
+
+	registerType, err := parseRegisterType(command.Mapping["registerType"])
+	if err != nil {
+		return modbusCommandMapping{}, fmt.Errorf("%s.mapping.registerType: %w", field, err)
+	}
+	if registerType != modbus.HOLDING_REGISTER {
+		return modbusCommandMapping{}, fmt.Errorf("%s.mapping.registerType must be holding", field)
+	}
+	address, err := requiredUintRange(command.Mapping, "address", "mapping.address", 0, 65535)
+	if err != nil {
+		return modbusCommandMapping{}, fmt.Errorf("%s.%w", field, err)
+	}
+
+	reportedMetric := strings.TrimSpace(command.ReportedMetric)
+	if reportedMetric == "" {
+		return modbusCommandMapping{}, fmt.Errorf("%s.reportedMetric is required", field)
+	}
+	valueType, exists := metricTypes[reportedMetric]
+	if !exists {
+		return modbusCommandMapping{}, fmt.Errorf("%s.reportedMetric must reference a device metric", field)
+	}
+	if valueType != "boolean" {
+		return modbusCommandMapping{}, fmt.Errorf("%s.reportedMetric must reference a boolean metric", field)
+	}
+
+	return modbusCommandMapping{
+		deviceID:       deviceID,
+		command:        commandType,
+		registerType:   registerType,
+		address:        uint16(address),
+		reportedMetric: reportedMetric,
+	}, nil
 }
 
 func parseRegisterType(raw any) (modbus.RegType, error) {
