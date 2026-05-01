@@ -33,6 +33,7 @@ sources:
       stopBits: 1
       slaveId: 1
       timeoutMs: 500
+      settleDelayMs: 2000
     devices:
       - deviceId: environment
         address:
@@ -79,6 +80,12 @@ sources:
             mapping:
               registerType: input
               address: 17
+        commands:
+          - command: set_bool
+            mapping:
+              registerType: holding
+              address: 161
+            reportedMetric: actual_state
       - deviceId: valve_pwm
         address:
           node: 4

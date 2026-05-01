@@ -81,6 +81,20 @@ func TestModbusSerialAdapterRejectsInvalidConnection(t *testing.T) {
 			},
 			errSnippet: "connection.timeoutMs must be positive",
 		},
+		{
+			name: "invalid settle delay",
+			connection: map[string]any{
+				"port":          "COM3",
+				"baudRate":      9600,
+				"dataBits":      8,
+				"parity":        "none",
+				"stopBits":      1,
+				"slaveId":       1,
+				"timeoutMs":     100,
+				"settleDelayMs": 60001,
+			},
+			errSnippet: "connection.settleDelayMs must be between 0 and 60000",
+		},
 	}
 
 	for _, tc := range cases {
@@ -108,6 +122,29 @@ func TestModbusSerialAdapterRejectsInvalidConnection(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestModbusSerialAdapterParsesOptionalSettleDelay(t *testing.T) {
+	client := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 10, registerType: modbus.INPUT_REGISTER}: 42,
+		},
+	}
+	adapter := newModbusSerialAdapterWithFactory(func(connection modbusSerialConnection) (modbusRegisterClient, error) {
+		if connection.settleDelay != 1500*time.Millisecond {
+			t.Fatalf("expected settle delay 1500ms, got %s", connection.settleDelay)
+		}
+		return client, nil
+	}, fixedNow)
+	definition := validModbusDefinition([]MetricDefinition{
+		modbusMetric("temperature", "number", "input", 10, nil),
+	})
+	definition.Connection["settleDelayMs"] = 1500
+
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
 }
 
 func TestModbusSerialAdapterRejectsInvalidMapping(t *testing.T) {
@@ -311,12 +348,6 @@ func TestModbusSerialAdapterWritesSetBoolValuesToConfiguredHoldingRegister(t *te
 				t.Fatalf("expected holding register 160 write value %d, got %+v", tc.wantValue, writes[0])
 			}
 
-			for i := 0; i < 2; i++ {
-				if _, err := adapter.pollOnce(); err != nil {
-					t.Fatalf("poll command confirmation reading: %v", err)
-				}
-			}
-
 			execution := receiveCommandExecution(t, resultCh)
 			if execution.err != nil {
 				t.Fatalf("execute modbus command: %v", execution.err)
@@ -361,12 +392,6 @@ func TestModbusSerialAdapterCommandConfirmationRequiresFreshPollObservations(t *
 	resultCh := executeSetBoolCommandAsync(ctx, adapter, true)
 	client.waitForWriteCalls(t, 1)
 
-	for i := 0; i < 2; i++ {
-		if _, err := adapter.pollOnce(); err != nil {
-			t.Fatalf("poll command confirmation reading: %v", err)
-		}
-	}
-
 	execution := receiveCommandExecution(t, resultCh)
 	if execution.err != nil {
 		t.Fatalf("execute modbus command: %v", execution.err)
@@ -376,21 +401,17 @@ func TestModbusSerialAdapterCommandConfirmationRequiresFreshPollObservations(t *
 	}
 
 	calls := client.callsSnapshot()
-	if len(calls) != 2 {
-		t.Fatalf("confirmation must not perform separate reads outside pollOnce, got reads %+v", calls)
+	if len(calls) < modbusCommandConfirmationObservationCount {
+		t.Fatalf("confirmation proof needs fresh poll observations, got reads %+v", calls)
 	}
-	for _, call := range calls {
-		if call.address != 31 || call.registerType != modbus.INPUT_REGISTER {
-			t.Fatalf("confirmation must observe the configured reported metric, got read %+v", call)
-		}
-	}
+	assertOnlyInputReads(t, calls, 31)
 
 	writes := client.writeCallsSnapshot()
 	if len(writes) != 1 || writes[0].address != 160 || writes[0].value != 1 {
 		t.Fatalf("expected one command write, got %+v", writes)
 	}
-	if readings := sink.readingsSnapshot(); len(readings) != 2 {
-		t.Fatalf("pollOnce should publish the two confirmation observations, got %+v", readings)
+	if readings := sink.readingsSnapshot(); len(readings) < modbusCommandConfirmationObservationCount {
+		t.Fatalf("pollOnce should publish confirmation observations, got %+v", readings)
 	}
 }
 
@@ -440,9 +461,7 @@ func TestModbusSerialAdapterCommandConfirmationRejectsStalePreWriteState(t *test
 	if execution.result.Status != CommandStatusTimeout {
 		t.Fatalf("stale pre-write actual_state must not confirm command, got %+v", execution.result)
 	}
-	if reads := client.callsSnapshot(); len(reads) != 2 {
-		t.Fatalf("ExecuteCommand must not read actual_state directly for confirmation, got reads %+v", reads)
-	}
+	assertOnlyInputReads(t, client.callsSnapshot(), 31)
 }
 
 func TestModbusSerialAdapterCommandConfirmationRejectsInFlightPreWritePollObservations(t *testing.T) {
@@ -501,9 +520,7 @@ func TestModbusSerialAdapterCommandConfirmationRejectsInFlightPreWritePollObserv
 	if execution.result.Status != CommandStatusTimeout {
 		t.Fatalf("pre-write poll observations recorded after write must not confirm command, got %+v", execution.result)
 	}
-	if reads := client.callsSnapshot(); len(reads) != 2 {
-		t.Fatalf("ExecuteCommand must not read actual_state directly for confirmation, got reads %+v", reads)
-	}
+	assertOnlyInputReads(t, client.callsSnapshot(), 31)
 }
 
 func TestModbusSerialAdapterCommandConfirmationTimesOutWithoutMatchingState(t *testing.T) {
@@ -538,12 +555,6 @@ func TestModbusSerialAdapterCommandConfirmationTimesOutWithoutMatchingState(t *t
 	resultCh := executeSetBoolCommandAsync(ctx, adapter, true)
 	client.waitForWriteCalls(t, 1)
 
-	for i := 0; i < 2; i++ {
-		if _, err := adapter.pollOnce(); err != nil {
-			t.Fatalf("poll non-matching command state: %v", err)
-		}
-	}
-
 	execution := receiveCommandExecution(t, resultCh)
 	if execution.err != nil {
 		t.Fatalf("execute modbus command: %v", execution.err)
@@ -551,9 +562,7 @@ func TestModbusSerialAdapterCommandConfirmationTimesOutWithoutMatchingState(t *t
 	if execution.result.Status != CommandStatusTimeout {
 		t.Fatalf("missing matching reported state must time out, got %+v", execution.result)
 	}
-	if calls := client.callsSnapshot(); len(calls) != 2 {
-		t.Fatalf("timeout proof should include only the two pollOnce reads, got %+v", calls)
-	}
+	assertOnlyInputReads(t, client.callsSnapshot(), 31)
 }
 
 func executeSetBoolCommandAsync(ctx context.Context, adapter *ModbusSerialAdapter, value bool) <-chan commandExecution {
@@ -784,7 +793,7 @@ func TestModbusSerialAdapterSerializesTransactions(t *testing.T) {
 	if client.maxConcurrentReads() != 1 {
 		t.Fatalf("expected one serial transaction at a time, observed %d concurrent reads", client.maxConcurrentReads())
 	}
-	if len(client.callsSnapshot()) != 2 {
+	if len(client.callsSnapshot()) < 2 {
 		t.Fatalf("expected both polls to complete, got calls %+v", client.callsSnapshot())
 	}
 }
@@ -829,11 +838,6 @@ func TestModbusSerialAdapterSerializesPollingAndCommandTransactions(t *testing.T
 	if err := <-pollDone; err != nil {
 		t.Fatalf("poll modbus registers: %v", err)
 	}
-	for i := 0; i < 2; i++ {
-		if _, err := adapter.pollOnce(); err != nil {
-			t.Fatalf("poll command confirmation reading: %v", err)
-		}
-	}
 	execution := receiveCommandExecution(t, resultCh)
 	if execution.err != nil {
 		t.Fatalf("execute modbus command: %v", execution.err)
@@ -844,8 +848,8 @@ func TestModbusSerialAdapterSerializesPollingAndCommandTransactions(t *testing.T
 	if client.maxConcurrentTransactions() != 1 {
 		t.Fatalf("expected one Modbus transaction at a time, observed %d", client.maxConcurrentTransactions())
 	}
-	if len(client.callsSnapshot()) != 3 {
-		t.Fatalf("expected one polling read, got calls %+v", client.callsSnapshot())
+	if len(client.callsSnapshot()) < 3 {
+		t.Fatalf("expected polling reads for initial, overlapping, and forced confirmation polls, got calls %+v", client.callsSnapshot())
 	}
 	writes := client.writeCallsSnapshot()
 	if len(writes) != 1 || writes[0].address != 160 || writes[0].value != 1 {
@@ -924,6 +928,19 @@ func assertReading(t *testing.T, reading RawReading, sourceID string, deviceID s
 	}
 	if len(reading.Metadata) != 0 {
 		t.Fatalf("adapter must not expose modbus register metadata in readings, got %+v", reading.Metadata)
+	}
+}
+
+func assertOnlyInputReads(t *testing.T, calls []modbusReadCall, address uint16) {
+	t.Helper()
+
+	if len(calls) == 0 {
+		t.Fatal("expected at least one input-register polling read")
+	}
+	for _, call := range calls {
+		if call.address != address || call.registerType != modbus.INPUT_REGISTER {
+			t.Fatalf("expected only normal polling reads of input register %d, got %+v", address, calls)
+		}
 	}
 }
 

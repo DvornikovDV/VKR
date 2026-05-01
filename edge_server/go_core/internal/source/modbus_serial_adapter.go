@@ -20,6 +20,7 @@ const ModbusRTUKind = "modbus_rtu"
 const (
 	modbusCommandConfirmationObservationCount = 2
 	modbusCommandConfirmationTimeout          = 3 * time.Second
+	modbusCommandForcedPollAttempts           = 2
 	modbusObservationHistoryLimit             = 32
 )
 
@@ -33,13 +34,14 @@ type modbusRegisterClient interface {
 type modbusSerialClientFactory func(connection modbusSerialConnection) (modbusRegisterClient, error)
 
 type modbusSerialConnection struct {
-	port     string
-	baudRate uint
-	dataBits uint
-	parity   uint
-	stopBits uint
-	slaveID  uint8
-	timeout  time.Duration
+	port        string
+	baudRate    uint
+	dataBits    uint
+	parity      uint
+	stopBits    uint
+	slaveID     uint8
+	timeout     time.Duration
+	settleDelay time.Duration
 }
 
 type ModbusRegisterClient = modbusRegisterClient
@@ -187,6 +189,9 @@ func (a *ModbusSerialAdapter) ApplyDefinition(definition Definition, sink Sink) 
 	if err := client.Open(); err != nil {
 		return fmt.Errorf("open modbus serial connection: %w", err)
 	}
+	if connection.settleDelay > 0 {
+		time.Sleep(connection.settleDelay)
+	}
 
 	a.resetCommandObservations()
 
@@ -251,6 +256,8 @@ func (a *ModbusSerialAdapter) run(ctx context.Context, interval time.Duration) {
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+
+	_, _ = a.pollOnce()
 
 	for {
 		select {
@@ -354,6 +361,14 @@ func (a *ModbusSerialAdapter) ExecuteCommand(ctx context.Context, request Comman
 	if err != nil {
 		result.Reason = fmt.Sprintf("write modbus command: %v", err)
 		return result, nil
+	}
+
+	for i := 0; i < modbusCommandForcedPollAttempts; i++ {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			result.Reason = ctxErr.Error()
+			return result, nil
+		}
+		_, _ = a.pollOnce()
 	}
 
 	return a.waitForCommandConfirmation(ctx, result, observationKey, observationMarker, value), nil
@@ -538,15 +553,20 @@ func parseModbusSerialConnection(raw map[string]any) (modbusSerialConnection, er
 	if err != nil {
 		return modbusSerialConnection{}, err
 	}
+	settleDelayMs, err := optionalUintRange(raw, "settleDelayMs", "connection.settleDelayMs", 0, 60000)
+	if err != nil {
+		return modbusSerialConnection{}, err
+	}
 
 	return modbusSerialConnection{
-		port:     port,
-		baudRate: baudRate,
-		dataBits: dataBits,
-		parity:   parity,
-		stopBits: stopBits,
-		slaveID:  uint8(slaveID),
-		timeout:  time.Duration(timeoutMs) * time.Millisecond,
+		port:        port,
+		baudRate:    baudRate,
+		dataBits:    dataBits,
+		parity:      parity,
+		stopBits:    stopBits,
+		slaveID:     uint8(slaveID),
+		timeout:     time.Duration(timeoutMs) * time.Millisecond,
+		settleDelay: time.Duration(settleDelayMs) * time.Millisecond,
 	}, nil
 }
 
@@ -729,6 +749,14 @@ func requiredPositiveUint(raw map[string]any, key string, field string) (uint, e
 	}
 
 	return uint(value), nil
+}
+
+func optionalUintRange(raw map[string]any, key string, field string, min uint, max uint) (uint, error) {
+	if _, exists := raw[key]; !exists {
+		return 0, nil
+	}
+
+	return requiredUintRange(raw, key, field, min, max)
 }
 
 func requiredUintRange(raw map[string]any, key string, field string, min uint, max uint) (uint, error) {
