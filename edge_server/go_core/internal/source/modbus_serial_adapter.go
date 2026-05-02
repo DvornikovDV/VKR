@@ -85,8 +85,9 @@ type modbusObservationKey struct {
 }
 
 type modbusObservation struct {
-	sequence uint64
-	value    any
+	sequence            uint64
+	transactionSequence uint64
+	value               any
 }
 
 type modbusObservationState struct {
@@ -97,6 +98,7 @@ type modbusObservationState struct {
 type ModbusSerialAdapter struct {
 	mu                  sync.RWMutex
 	transactionMu       sync.Mutex
+	transactionSequence uint64
 	commandMu           sync.Mutex
 	clientFactory       modbusSerialClientFactory
 	now                 func() time.Time
@@ -280,12 +282,9 @@ func (a *ModbusSerialAdapter) pollOnce() (int, error) {
 
 	published := 0
 	for _, mapping := range mappings {
-		a.transactionMu.Lock()
-		value, readErr := client.ReadRegister(mapping.address, mapping.registerType)
-
+		value, observationTransaction, readErr := a.readModbusRegister(client, mapping)
 		ts := a.now().UnixMilli()
 		if readErr != nil {
-			a.transactionMu.Unlock()
 			sink.PublishFault(Fault{
 				SourceID: sourceID,
 				Severity: SeverityError,
@@ -297,8 +296,7 @@ func (a *ModbusSerialAdapter) pollOnce() (int, error) {
 		}
 
 		converted := convertModbusValue(value, mapping)
-		a.recordReportedMetricObservation(mapping.deviceID, mapping.metric, converted)
-		a.transactionMu.Unlock()
+		a.recordReportedMetricObservation(mapping.deviceID, mapping.metric, converted, observationTransaction)
 		sink.PublishReading(RawReading{
 			SourceID: sourceID,
 			DeviceID: mapping.deviceID,
@@ -349,13 +347,7 @@ func (a *ModbusSerialAdapter) ExecuteCommand(ctx context.Context, request Comman
 	}
 
 	observationKey := modbusObservationKey{deviceID: commandMapping.deviceID, metric: commandMapping.reportedMetric}
-	a.transactionMu.Lock()
-	err = client.WriteRegister(commandMapping.address, writeValue)
-	observationMarker := uint64(0)
-	if err == nil {
-		observationMarker = a.currentObservationSequence(observationKey)
-	}
-	a.transactionMu.Unlock()
+	observationMarker, err := a.writeModbusCommandRegister(client, commandMapping.address, writeValue)
 	if err != nil {
 		result.Reason = fmt.Sprintf("write modbus command: %v", err)
 		return result, nil
@@ -408,6 +400,27 @@ func modbusCommandWriteValue(commandMapping modbusCommandMapping, raw any) (uint
 	}
 }
 
+func (a *ModbusSerialAdapter) readModbusRegister(client modbusRegisterClient, mapping modbusMetricMapping) (uint16, uint64, error) {
+	a.transactionMu.Lock()
+	defer a.transactionMu.Unlock()
+
+	value, err := client.ReadRegister(mapping.address, mapping.registerType)
+	return value, a.nextModbusTransactionSequenceLocked(), err
+}
+
+func (a *ModbusSerialAdapter) writeModbusCommandRegister(client modbusRegisterClient, address uint16, value uint16) (uint64, error) {
+	a.transactionMu.Lock()
+	defer a.transactionMu.Unlock()
+
+	err := client.WriteRegister(address, value)
+	return a.nextModbusTransactionSequenceLocked(), err
+}
+
+func (a *ModbusSerialAdapter) nextModbusTransactionSequenceLocked() uint64 {
+	a.transactionSequence++
+	return a.transactionSequence
+}
+
 func (a *ModbusSerialAdapter) snapshot() (string, Sink, modbusRegisterClient, []modbusMetricMapping, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -437,7 +450,7 @@ func (a *ModbusSerialAdapter) commandSnapshot(deviceID string, command string) (
 	return a.client, modbusCommandMapping{}, false, nil
 }
 
-func (a *ModbusSerialAdapter) recordReportedMetricObservation(deviceID string, metric string, value any) {
+func (a *ModbusSerialAdapter) recordReportedMetricObservation(deviceID string, metric string, value any, transactionSequence uint64) {
 	key := modbusObservationKey{deviceID: deviceID, metric: metric}
 
 	a.commandMu.Lock()
@@ -446,8 +459,9 @@ func (a *ModbusSerialAdapter) recordReportedMetricObservation(deviceID string, m
 	state := a.commandObservations[key]
 	state.sequence++
 	state.history = append(state.history, modbusObservation{
-		sequence: state.sequence,
-		value:    value,
+		sequence:            state.sequence,
+		transactionSequence: transactionSequence,
+		value:               value,
 	})
 	if len(state.history) > modbusObservationHistoryLimit {
 		state.history = append([]modbusObservation(nil), state.history[len(state.history)-modbusObservationHistoryLimit:]...)
@@ -456,24 +470,17 @@ func (a *ModbusSerialAdapter) recordReportedMetricObservation(deviceID string, m
 	a.notifyCommandObservationLocked()
 }
 
-func (a *ModbusSerialAdapter) currentObservationSequence(key modbusObservationKey) uint64 {
-	a.commandMu.Lock()
-	defer a.commandMu.Unlock()
-
-	return a.commandObservations[key].sequence
-}
-
 func (a *ModbusSerialAdapter) waitForCommandConfirmation(ctx context.Context, result CommandResult, key modbusObservationKey, marker uint64, expected any) CommandResult {
 	waitCtx, cancel := context.WithTimeout(ctx, modbusCommandConfirmationTimeout)
 	defer cancel()
 
 	matchingObservations := 0
-	seen := marker
+	seen := uint64(0)
 	for {
 		a.commandMu.Lock()
 		state := a.commandObservations[key]
 		for _, observation := range state.history {
-			if observation.sequence <= seen {
+			if observation.sequence <= seen || observation.transactionSequence <= marker {
 				continue
 			}
 			seen = observation.sequence

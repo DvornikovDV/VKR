@@ -1083,6 +1083,81 @@ func TestModbusSerialAdapterSerializesPollingAndCommandTransactions(t *testing.T
 	}
 }
 
+func TestModbusSerialAdapterSerializesPollingAndSetNumberCommandTransactions(t *testing.T) {
+	client := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 52, registerType: modbus.INPUT_REGISTER}: 128,
+		},
+		delay: 50 * time.Millisecond,
+	}
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		return client, nil
+	}, fixedNow)
+
+	if err := adapter.ApplyDefinition(validModbusDefinitionWithCommands(
+		[]MetricDefinition{
+			modbusMetric("actual_value", "number", "input", 52, nil),
+		},
+		[]CommandDefinition{
+			modbusNumberCommand("set_number", "holding", 162, 0, 255, "actual_value"),
+		},
+	), &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+
+	adapter.commandMu.Lock()
+	commandMuLocked := true
+	defer func() {
+		if commandMuLocked {
+			adapter.commandMu.Unlock()
+		}
+	}()
+
+	pollDone := make(chan error, 1)
+	go func() {
+		_, err := adapter.pollOnce()
+		pollDone <- err
+	}()
+
+	client.waitForReadCalls(t, 1)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	resultCh := executeSetNumberCommandAsync(ctx, adapter, 128)
+	if !client.waitForWriteCallsWithin(1, 500*time.Millisecond) {
+		adapter.commandMu.Unlock()
+		commandMuLocked = false
+		if err := <-pollDone; err != nil {
+			t.Fatalf("poll modbus registers after releasing observation lock: %v", err)
+		}
+		t.Fatal("set_number write waited for command observation lock held after a polling read")
+	}
+
+	adapter.commandMu.Unlock()
+	commandMuLocked = false
+
+	if err := <-pollDone; err != nil {
+		t.Fatalf("poll modbus registers: %v", err)
+	}
+	execution := receiveCommandExecution(t, resultCh)
+	if execution.err != nil {
+		t.Fatalf("execute modbus set_number command: %v", execution.err)
+	}
+	if execution.result.Status != CommandStatusConfirmed {
+		t.Fatalf("successful set_number write should wait for reported value confirmation, got %+v", execution.result)
+	}
+	if client.maxConcurrentTransactions() != 1 {
+		t.Fatalf("expected max concurrent Modbus transactions to be 1, observed %d", client.maxConcurrentTransactions())
+	}
+	assertOnlyInputReads(t, client.callsSnapshot(), 52)
+	writes := client.writeCallsSnapshot()
+	if len(writes) != 1 || writes[0].address != 162 || writes[0].value != 128 {
+		t.Fatalf("expected one set_number command write, got %+v", writes)
+	}
+}
+
 const fixedUnixMilli int64 = 1710000000123
 
 func fixedNow() time.Time {
@@ -1422,6 +1497,26 @@ func (c *fakeModbusClient) waitForInFlightTransactions(t *testing.T, want int) {
 	t.Fatalf("timed out waiting for %d in-flight Modbus transactions, observed %d", want, inFlight)
 }
 
+func (c *fakeModbusClient) waitForReadCalls(t *testing.T, want int) {
+	t.Helper()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		c.mu.Lock()
+		reads := len(c.calls)
+		c.mu.Unlock()
+		if reads >= want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	c.mu.Lock()
+	reads := len(c.calls)
+	c.mu.Unlock()
+	t.Fatalf("timed out waiting for %d Modbus reads, observed %d", want, reads)
+}
+
 func (c *fakeModbusClient) waitForWriteCalls(t *testing.T, want int) {
 	t.Helper()
 
@@ -1440,6 +1535,23 @@ func (c *fakeModbusClient) waitForWriteCalls(t *testing.T, want int) {
 	writes := len(c.writeCalls)
 	c.mu.Unlock()
 	t.Fatalf("timed out waiting for %d Modbus writes, observed %d", want, writes)
+}
+
+func (c *fakeModbusClient) waitForWriteCallsWithin(want int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		c.mu.Lock()
+		writes := len(c.writeCalls)
+		c.mu.Unlock()
+		if writes >= want {
+			return true
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.writeCalls) >= want
 }
 
 type timeoutErr struct{}
