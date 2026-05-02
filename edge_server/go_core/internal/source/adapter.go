@@ -27,6 +27,8 @@ type MetricDefinition struct {
 type CommandDefinition struct {
 	Command        string
 	Mapping        map[string]any
+	Min            any
+	Max            any
 	ReportedMetric string
 }
 
@@ -92,6 +94,8 @@ func DefinitionsFromConfig(definitions []config.PollingSourceDefinition) []Defin
 				commandDefinitions = append(commandDefinitions, CommandDefinition{
 					Command:        command.Command,
 					Mapping:        cloneMap(command.Mapping),
+					Min:            cloneValue(command.Min),
+					Max:            cloneValue(command.Max),
 					ReportedMetric: command.ReportedMetric,
 				})
 			}
@@ -161,6 +165,8 @@ func cloneCommandDefinitions(commands []CommandDefinition) []CommandDefinition {
 		cloned = append(cloned, CommandDefinition{
 			Command:        command.Command,
 			Mapping:        cloneMap(command.Mapping),
+			Min:            cloneValue(command.Min),
+			Max:            cloneValue(command.Max),
 			ReportedMetric: command.ReportedMetric,
 		})
 	}

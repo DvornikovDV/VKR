@@ -241,8 +241,10 @@ func TestDefinitionsFromConfigPreservesCommands(t *testing.T) {
 					},
 					Commands: []config.CommandDefinition{
 						{
-							Command:        "set_bool",
+							Command:        "set_number",
 							Mapping:        map[string]any{"registerType": "holding", "address": 160},
+							Min:            0,
+							Max:            255,
 							ReportedMetric: "actual_state",
 						},
 					},
@@ -257,13 +259,55 @@ func TestDefinitionsFromConfigPreservesCommands(t *testing.T) {
 	}
 
 	command := definitions[0].Devices[0].Commands[0]
-	if command.Command != "set_bool" || command.ReportedMetric != "actual_state" || command.Mapping["address"] != 160 {
+	if command.Command != "set_number" || command.ReportedMetric != "actual_state" || command.Mapping["address"] != 160 {
 		t.Fatalf("unexpected converted command: %+v", command)
+	}
+	if command.Min != 0 || command.Max != 255 {
+		t.Fatalf("expected converted command range 0..255, got min=%#v max=%#v", command.Min, command.Max)
 	}
 
 	cfgDefinitions[0].Devices[0].Commands[0].Mapping["address"] = 161
 	if definitions[0].Devices[0].Commands[0].Mapping["address"] != 160 {
 		t.Fatal("converted command mapping must be cloned from config")
+	}
+	cfgDefinitions[0].Devices[0].Commands[0].Min = 1
+	cfgDefinitions[0].Devices[0].Commands[0].Max = 254
+	if definitions[0].Devices[0].Commands[0].Min != 0 || definitions[0].Devices[0].Commands[0].Max != 255 {
+		t.Fatal("converted command range must be copied from config")
+	}
+}
+
+func TestManagerApplyDefinitionsClonesCommandRangeMetadata(t *testing.T) {
+	adapter := &boundaryAdapter{}
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			return adapter, nil
+		},
+	})
+	defer manager.ApplyDefinitions(nil)
+
+	definition := commandDefinition("source-command", "pump-main", "set_number")
+	definition.Devices[0].Commands[0].Min = 0
+	definition.Devices[0].Commands[0].Max = 255
+
+	if _, err := manager.ApplyDefinitions([]Definition{definition}); err != nil {
+		t.Fatalf("apply command source definition: %v", err)
+	}
+
+	command := adapter.appliedDefinition.Devices[0].Commands[0]
+	if command.Min != 0 || command.Max != 255 {
+		t.Fatalf("expected cloned command range 0..255, got min=%#v max=%#v", command.Min, command.Max)
+	}
+
+	definition.Devices[0].Commands[0].Mapping["address"] = 161
+	definition.Devices[0].Commands[0].Min = 1
+	definition.Devices[0].Commands[0].Max = 254
+	command = adapter.appliedDefinition.Devices[0].Commands[0]
+	if command.Mapping["address"] != 160 {
+		t.Fatal("manager-applied command mapping must be cloned from caller-owned definition")
+	}
+	if command.Min != 0 || command.Max != 255 {
+		t.Fatal("manager-applied command range must be copied from caller-owned definition")
 	}
 }
 
@@ -478,12 +522,13 @@ func commandDefinition(sourceID string, deviceID string, commandType string) Def
 }
 
 type boundaryAdapter struct {
-	sourceID   string
-	sink       Sink
-	applyCount int
-	closed     bool
-	adapters   map[string]*boundaryAdapter
-	applyErr   error
+	sourceID          string
+	sink              Sink
+	applyCount        int
+	closed            bool
+	adapters          map[string]*boundaryAdapter
+	applyErr          error
+	appliedDefinition Definition
 }
 
 func (a *boundaryAdapter) ApplyDefinition(definition Definition, sink Sink) error {
@@ -492,6 +537,7 @@ func (a *boundaryAdapter) ApplyDefinition(definition Definition, sink Sink) erro
 	}
 	a.sourceID = definition.SourceID
 	a.sink = sink
+	a.appliedDefinition = definition
 	a.applyCount++
 	a.closed = false
 	if a.adapters != nil {
