@@ -69,11 +69,14 @@ type modbusMetricMapping struct {
 }
 
 type modbusCommandMapping struct {
-	deviceID       string
-	command        string
-	registerType   modbus.RegType
-	address        uint16
-	reportedMetric string
+	deviceID           string
+	command            string
+	registerType       modbus.RegType
+	address            uint16
+	min                uint16
+	max                uint16
+	reportedMetric     string
+	reportedMetricType string
 }
 
 type modbusObservationKey struct {
@@ -659,8 +662,8 @@ func parseModbusCommandMapping(deviceIndex int, commandIndex int, deviceID strin
 	if commandType == "" {
 		return modbusCommandMapping{}, fmt.Errorf("%s.command is required", field)
 	}
-	if commandType != "set_bool" {
-		return modbusCommandMapping{}, fmt.Errorf("%s.command must be set_bool", field)
+	if commandType != "set_bool" && commandType != "set_number" {
+		return modbusCommandMapping{}, fmt.Errorf("%s.command must be set_bool or set_number", field)
 	}
 
 	registerType, err := parseRegisterType(command.Mapping["registerType"])
@@ -683,17 +686,63 @@ func parseModbusCommandMapping(deviceIndex int, commandIndex int, deviceID strin
 	if !exists {
 		return modbusCommandMapping{}, fmt.Errorf("%s.reportedMetric must reference a device metric", field)
 	}
-	if valueType != "boolean" {
-		return modbusCommandMapping{}, fmt.Errorf("%s.reportedMetric must reference a boolean metric", field)
+
+	min := uint16(0)
+	max := uint16(0)
+	switch commandType {
+	case "set_bool":
+		if command.Min != nil {
+			return modbusCommandMapping{}, fmt.Errorf("%s.min is only allowed for set_number", field)
+		}
+		if command.Max != nil {
+			return modbusCommandMapping{}, fmt.Errorf("%s.max is only allowed for set_number", field)
+		}
+		if valueType != "boolean" {
+			return modbusCommandMapping{}, fmt.Errorf("%s.reportedMetric must reference a boolean metric", field)
+		}
+	case "set_number":
+		if valueType != "number" {
+			return modbusCommandMapping{}, fmt.Errorf("%s.reportedMetric must reference a number metric", field)
+		}
+		min, max, err = parseModbusSetNumberCommandRange(field, command.Min, command.Max)
+		if err != nil {
+			return modbusCommandMapping{}, err
+		}
 	}
 
 	return modbusCommandMapping{
-		deviceID:       deviceID,
-		command:        commandType,
-		registerType:   registerType,
-		address:        uint16(address),
-		reportedMetric: reportedMetric,
+		deviceID:           deviceID,
+		command:            commandType,
+		registerType:       registerType,
+		address:            uint16(address),
+		min:                min,
+		max:                max,
+		reportedMetric:     reportedMetric,
+		reportedMetricType: valueType,
 	}, nil
+}
+
+func parseModbusSetNumberCommandRange(field string, rawMin any, rawMax any) (uint16, uint16, error) {
+	if rawMin == nil {
+		return 0, 0, fmt.Errorf("%s.min is required", field)
+	}
+	if rawMax == nil {
+		return 0, 0, fmt.Errorf("%s.max is required", field)
+	}
+
+	min, err := requiredUintRange(map[string]any{"min": rawMin}, "min", "min", 0, math.MaxUint16)
+	if err != nil {
+		return 0, 0, fmt.Errorf("%s.%w", field, err)
+	}
+	max, err := requiredUintRange(map[string]any{"max": rawMax}, "max", "max", 0, math.MaxUint16)
+	if err != nil {
+		return 0, 0, fmt.Errorf("%s.%w", field, err)
+	}
+	if min > max {
+		return 0, 0, fmt.Errorf("%s.min must be less than or equal to max", field)
+	}
+
+	return uint16(min), uint16(max), nil
 }
 
 func parseRegisterType(raw any) (modbus.RegType, error) {

@@ -197,20 +197,21 @@ func TestModbusSerialAdapterRejectsInvalidMapping(t *testing.T) {
 	}
 }
 
-func TestModbusSerialAdapterParsesConfiguredCommandMapping(t *testing.T) {
+func TestModbusSerialAdapterParsesConfiguredCommandMappings(t *testing.T) {
 	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
 		return &fakeModbusClient{}, nil
 	}, fixedNow)
 	definition := validModbusDefinitionWithCommands(
 		[]MetricDefinition{
 			modbusMetric("feedback_enabled", "boolean", "input", 31, nil),
-			modbusMetric("temperature", "number", "input", 32, nil),
+			modbusMetric("level_feedback", "number", "input", 52, nil),
 		},
 		[]CommandDefinition{
 			modbusCommand("set_bool", "holding", 321, "feedback_enabled"),
+			modbusNumberCommand("set_number", "holding", 444, 10, 90, "level_feedback"),
 		},
 	)
-	definition.Devices[0].DeviceID = "valve_aux"
+	definition.Devices[0].DeviceID = "mixing-skid"
 
 	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
 		t.Fatalf("apply modbus definition: %v", err)
@@ -221,15 +222,26 @@ func TestModbusSerialAdapterParsesConfiguredCommandMapping(t *testing.T) {
 	commandMappings := append([]modbusCommandMapping(nil), adapter.commandMappings...)
 	adapter.mu.RUnlock()
 
-	if len(commandMappings) != 1 {
-		t.Fatalf("expected one command mapping, got %+v", commandMappings)
+	if len(commandMappings) != 2 {
+		t.Fatalf("expected two command mappings, got %+v", commandMappings)
 	}
-	command := commandMappings[0]
-	if command.deviceID != "valve_aux" || command.command != "set_bool" {
-		t.Fatalf("unexpected command identity: %+v", command)
+	boolCommand := commandMappings[0]
+	if boolCommand.deviceID != "mixing-skid" || boolCommand.command != "set_bool" {
+		t.Fatalf("unexpected set_bool command identity: %+v", boolCommand)
 	}
-	if command.registerType != modbus.HOLDING_REGISTER || command.address != 321 || command.reportedMetric != "feedback_enabled" {
-		t.Fatalf("unexpected configured command mapping: %+v", command)
+	if boolCommand.registerType != modbus.HOLDING_REGISTER || boolCommand.address != 321 || boolCommand.reportedMetric != "feedback_enabled" || boolCommand.reportedMetricType != "boolean" {
+		t.Fatalf("unexpected configured set_bool command mapping: %+v", boolCommand)
+	}
+
+	numberCommand := commandMappings[1]
+	if numberCommand.deviceID != "mixing-skid" || numberCommand.command != "set_number" {
+		t.Fatalf("unexpected set_number command identity: %+v", numberCommand)
+	}
+	if numberCommand.registerType != modbus.HOLDING_REGISTER || numberCommand.address != 444 || numberCommand.reportedMetric != "level_feedback" || numberCommand.reportedMetricType != "number" {
+		t.Fatalf("unexpected configured set_number command mapping: %+v", numberCommand)
+	}
+	if numberCommand.min != 10 || numberCommand.max != 90 {
+		t.Fatalf("expected configured set_number range 10..90, got min=%d max=%d", numberCommand.min, numberCommand.max)
 	}
 }
 
@@ -245,11 +257,11 @@ func TestModbusSerialAdapterRejectsInvalidCommandMappings(t *testing.T) {
 			metrics: []MetricDefinition{
 				modbusMetric("feedback_enabled", "boolean", "input", 31, nil),
 			},
-			command:    modbusCommand("set_number", "holding", 321, "feedback_enabled"),
-			errSnippet: "command must be set_bool",
+			command:    modbusCommand("set_float", "holding", 321, "feedback_enabled"),
+			errSnippet: "command must be set_bool or set_number",
 		},
 		{
-			name: "non-holding register",
+			name: "set_bool non-holding register",
 			metrics: []MetricDefinition{
 				modbusMetric("feedback_enabled", "boolean", "input", 31, nil),
 			},
@@ -271,6 +283,86 @@ func TestModbusSerialAdapterRejectsInvalidCommandMappings(t *testing.T) {
 			},
 			command:    modbusCommand("set_bool", "holding", 321, "feedback_level"),
 			errSnippet: "reportedMetric must reference a boolean metric",
+		},
+		{
+			name: "set_number non-holding register",
+			metrics: []MetricDefinition{
+				modbusMetric("level_feedback", "number", "input", 52, nil),
+			},
+			command:    modbusNumberCommand("set_number", "input", 444, 10, 90, "level_feedback"),
+			errSnippet: "mapping.registerType must be holding",
+		},
+		{
+			name: "set_number unknown reported metric",
+			metrics: []MetricDefinition{
+				modbusMetric("level_feedback", "number", "input", 52, nil),
+			},
+			command:    modbusNumberCommand("set_number", "holding", 444, 10, 90, "missing_feedback"),
+			errSnippet: "reportedMetric must reference a device metric",
+		},
+		{
+			name: "set_number non-number reported metric",
+			metrics: []MetricDefinition{
+				modbusMetric("level_feedback", "boolean", "input", 52, nil),
+			},
+			command:    modbusNumberCommand("set_number", "holding", 444, 10, 90, "level_feedback"),
+			errSnippet: "reportedMetric must reference a number metric",
+		},
+		{
+			name: "set_number missing min",
+			metrics: []MetricDefinition{
+				modbusMetric("level_feedback", "number", "input", 52, nil),
+			},
+			command: CommandDefinition{
+				Command: "set_number",
+				Mapping: map[string]any{
+					"registerType": "holding",
+					"address":      444,
+				},
+				Max:            90,
+				ReportedMetric: "level_feedback",
+			},
+			errSnippet: "min is required",
+		},
+		{
+			name: "set_number missing max",
+			metrics: []MetricDefinition{
+				modbusMetric("level_feedback", "number", "input", 52, nil),
+			},
+			command: CommandDefinition{
+				Command: "set_number",
+				Mapping: map[string]any{
+					"registerType": "holding",
+					"address":      444,
+				},
+				Min:            10,
+				ReportedMetric: "level_feedback",
+			},
+			errSnippet: "max is required",
+		},
+		{
+			name: "set_number min must be integer",
+			metrics: []MetricDefinition{
+				modbusMetric("level_feedback", "number", "input", 52, nil),
+			},
+			command:    modbusNumberCommand("set_number", "holding", 444, 10.5, 90, "level_feedback"),
+			errSnippet: "min must be an integer",
+		},
+		{
+			name: "set_number max cannot exceed uint16",
+			metrics: []MetricDefinition{
+				modbusMetric("level_feedback", "number", "input", 52, nil),
+			},
+			command:    modbusNumberCommand("set_number", "holding", 444, 10, 70000, "level_feedback"),
+			errSnippet: "max must be between 0 and 65535",
+		},
+		{
+			name: "set_number min must not exceed max",
+			metrics: []MetricDefinition{
+				modbusMetric("level_feedback", "number", "input", 52, nil),
+			},
+			command:    modbusNumberCommand("set_number", "holding", 444, 90, 10, "level_feedback"),
+			errSnippet: "min must be less than or equal to max",
 		},
 	}
 
@@ -918,6 +1010,13 @@ func modbusCommand(command string, registerType string, address int, reportedMet
 		},
 		ReportedMetric: reportedMetric,
 	}
+}
+
+func modbusNumberCommand(command string, registerType string, address int, min any, max any, reportedMetric string) CommandDefinition {
+	definition := modbusCommand(command, registerType, address, reportedMetric)
+	definition.Min = min
+	definition.Max = max
+	return definition
 }
 
 func assertReading(t *testing.T, reading RawReading, sourceID string, deviceID string, metric string, value any) {
