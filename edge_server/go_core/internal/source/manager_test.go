@@ -345,6 +345,74 @@ func TestManagerRoutesCommandThroughConfiguredSource(t *testing.T) {
 	}
 }
 
+func TestManagerRoutesSetNumberCommandThroughConfiguredSource(t *testing.T) {
+	adapter := &commandBoundaryAdapter{
+		result: CommandResult{Status: CommandStatusConfirmed},
+	}
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			return adapter, nil
+		},
+	})
+	defer manager.ApplyDefinitions(nil)
+
+	if _, err := manager.ApplyDefinitions([]Definition{setNumberCommandDefinition("source-command", "valve-pwm")}); err != nil {
+		t.Fatalf("apply set_number command source definition: %v", err)
+	}
+
+	result, err := manager.ExecuteCommand(context.Background(), CommandRequest{
+		DeviceID: "valve-pwm",
+		Command:  "set_number",
+		Value:    128,
+	})
+	if err != nil {
+		t.Fatalf("execute set_number command through manager: %v", err)
+	}
+	if result.Status != CommandStatusConfirmed {
+		t.Fatalf("expected confirmed set_number command result, got %+v", result)
+	}
+	if adapter.callCount() != 1 {
+		t.Fatalf("expected one adapter delegation, got %d", adapter.callCount())
+	}
+	if adapter.lastRequest.DeviceID != "valve-pwm" || adapter.lastRequest.Command != "set_number" || adapter.lastRequest.Value != 128 {
+		t.Fatalf("manager delegated unexpected set_number request: %+v", adapter.lastRequest)
+	}
+}
+
+func TestManagerFailsMissingSetNumberCommandMapping(t *testing.T) {
+	adapter := &commandBoundaryAdapter{
+		result: CommandResult{Status: CommandStatusConfirmed},
+	}
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			return adapter, nil
+		},
+	})
+	defer manager.ApplyDefinitions(nil)
+
+	if _, err := manager.ApplyDefinitions([]Definition{commandDefinition("source-command", "valve-pwm", "set_bool")}); err != nil {
+		t.Fatalf("apply set_bool-only source definition: %v", err)
+	}
+
+	result, err := manager.ExecuteCommand(context.Background(), CommandRequest{
+		DeviceID: "valve-pwm",
+		Command:  "set_number",
+		Value:    128,
+	})
+	if err != nil {
+		t.Fatalf("missing set_number mapping should return failed result, got error %v", err)
+	}
+	if result.Status != CommandStatusFailed {
+		t.Fatalf("expected failed result for missing set_number mapping, got %+v", result)
+	}
+	if result.Reason != "command target is not configured" {
+		t.Fatalf("expected clear missing mapping reason, got %q", result.Reason)
+	}
+	if adapter.callCount() != 0 {
+		t.Fatalf("missing set_number mapping must not delegate to adapter, got %d calls", adapter.callCount())
+	}
+}
+
 func TestManagerFailsUnknownCommandTargets(t *testing.T) {
 	manager := NewManager(FactoryRegistry{
 		ModbusRTUKind: func() (Adapter, error) {
@@ -468,6 +536,70 @@ func TestManagerRejectsBusyCommandTarget(t *testing.T) {
 	}
 }
 
+func TestManagerRejectsBusySetNumberCommandTarget(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	adapter := &commandBoundaryAdapter{
+		blockStarted: started,
+		blockRelease: release,
+		result:       CommandResult{Status: CommandStatusConfirmed},
+	}
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			return adapter, nil
+		},
+	})
+	defer manager.ApplyDefinitions(nil)
+
+	if _, err := manager.ApplyDefinitions([]Definition{setNumberCommandDefinition("source-command", "valve-pwm")}); err != nil {
+		t.Fatalf("apply set_number command source definition: %v", err)
+	}
+
+	firstDone := make(chan CommandResult, 1)
+	go func() {
+		result, _ := manager.ExecuteCommand(context.Background(), CommandRequest{
+			DeviceID: "valve-pwm",
+			Command:  "set_number",
+			Value:    128,
+		})
+		firstDone <- result
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first set_number command to enter adapter")
+	}
+
+	busyResult, err := manager.ExecuteCommand(context.Background(), CommandRequest{
+		DeviceID: "valve-pwm",
+		Command:  "set_number",
+		Value:    129,
+	})
+	if err != nil {
+		t.Fatalf("busy set_number command should return failed result, got error %v", err)
+	}
+	if busyResult.Status != CommandStatusFailed {
+		t.Fatalf("expected failed busy set_number result, got %+v", busyResult)
+	}
+	if busyResult.Reason != "command target is busy" {
+		t.Fatalf("expected busy command reason, got %q", busyResult.Reason)
+	}
+
+	close(release)
+	select {
+	case result := <-firstDone:
+		if result.Status != CommandStatusConfirmed {
+			t.Fatalf("expected first set_number command to complete confirmed, got %+v", result)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first set_number command to finish")
+	}
+	if adapter.callCount() != 1 {
+		t.Fatalf("busy set_number command must not delegate a second adapter call, got %d", adapter.callCount())
+	}
+}
+
 func assertCloudSafeReading(t *testing.T, reading Reading, sourceID string, deviceID string, metric string, value any) {
 	t.Helper()
 
@@ -516,6 +648,21 @@ func commandDefinition(sourceID string, deviceID string, commandType string) Def
 			Command:        commandType,
 			Mapping:        map[string]any{"registerType": "holding", "address": 160},
 			ReportedMetric: "actual_state",
+		},
+	}
+	return definition
+}
+
+func setNumberCommandDefinition(sourceID string, deviceID string) Definition {
+	definition := boundaryDefinition(sourceID, deviceID, "actual_value")
+	definition.Devices[0].Metrics[0].ValueType = "number"
+	definition.Devices[0].Commands = []CommandDefinition{
+		{
+			Command:        "set_number",
+			Mapping:        map[string]any{"registerType": "holding", "address": 160},
+			Min:            0,
+			Max:            255,
+			ReportedMetric: "actual_value",
 		},
 	}
 	return definition
