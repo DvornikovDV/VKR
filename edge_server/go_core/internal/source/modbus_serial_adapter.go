@@ -342,15 +342,10 @@ func (a *ModbusSerialAdapter) ExecuteCommand(ctx context.Context, request Comman
 		return result, nil
 	}
 
-	value, ok := normalized.Value.(bool)
-	if !ok {
-		result.Reason = "set_bool value must be boolean"
+	writeValue, expectedObservation, err := modbusCommandWriteValue(commandMapping, normalized.Value)
+	if err != nil {
+		result.Reason = err.Error()
 		return result, nil
-	}
-
-	writeValue := uint16(0)
-	if value {
-		writeValue = 1
 	}
 
 	observationKey := modbusObservationKey{deviceID: commandMapping.deviceID, metric: commandMapping.reportedMetric}
@@ -374,7 +369,43 @@ func (a *ModbusSerialAdapter) ExecuteCommand(ctx context.Context, request Comman
 		_, _ = a.pollOnce()
 	}
 
-	return a.waitForCommandConfirmation(ctx, result, observationKey, observationMarker, value), nil
+	return a.waitForCommandConfirmation(ctx, result, observationKey, observationMarker, expectedObservation), nil
+}
+
+func modbusCommandWriteValue(commandMapping modbusCommandMapping, raw any) (uint16, any, error) {
+	switch commandMapping.command {
+	case "set_bool":
+		value, ok := raw.(bool)
+		if !ok {
+			return 0, nil, fmt.Errorf("set_bool value must be boolean")
+		}
+		if value {
+			return 1, true, nil
+		}
+		return 0, false, nil
+	case "set_number":
+		value, ok := numberAsFloat64(raw)
+		if !ok {
+			return 0, nil, fmt.Errorf("set_number value must be numeric")
+		}
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return 0, nil, fmt.Errorf("set_number value must be finite")
+		}
+		if math.Trunc(value) != value {
+			return 0, nil, fmt.Errorf("set_number value must be an integer")
+		}
+		if value > math.MaxUint16 {
+			return 0, nil, fmt.Errorf("set_number value must be between 0 and %d", math.MaxUint16)
+		}
+		if value < float64(commandMapping.min) || value > float64(commandMapping.max) {
+			return 0, nil, fmt.Errorf("set_number value must be between %d and %d", commandMapping.min, commandMapping.max)
+		}
+
+		registerValue := uint16(value)
+		return registerValue, float64(registerValue), nil
+	default:
+		return 0, nil, fmt.Errorf("unsupported command %q", commandMapping.command)
+	}
 }
 
 func (a *ModbusSerialAdapter) snapshot() (string, Sink, modbusRegisterClient, []modbusMetricMapping, error) {
@@ -432,7 +463,7 @@ func (a *ModbusSerialAdapter) currentObservationSequence(key modbusObservationKe
 	return a.commandObservations[key].sequence
 }
 
-func (a *ModbusSerialAdapter) waitForCommandConfirmation(ctx context.Context, result CommandResult, key modbusObservationKey, marker uint64, expected bool) CommandResult {
+func (a *ModbusSerialAdapter) waitForCommandConfirmation(ctx context.Context, result CommandResult, key modbusObservationKey, marker uint64, expected any) CommandResult {
 	waitCtx, cancel := context.WithTimeout(ctx, modbusCommandConfirmationTimeout)
 	defer cancel()
 
@@ -446,8 +477,7 @@ func (a *ModbusSerialAdapter) waitForCommandConfirmation(ctx context.Context, re
 				continue
 			}
 			seen = observation.sequence
-			observed, ok := observation.value.(bool)
-			if ok && observed == expected {
+			if modbusCommandObservationMatches(observation.value, expected) {
 				matchingObservations++
 			} else {
 				matchingObservations = 0
@@ -471,6 +501,19 @@ func (a *ModbusSerialAdapter) waitForCommandConfirmation(ctx context.Context, re
 			}
 			return result
 		}
+	}
+}
+
+func modbusCommandObservationMatches(observed any, expected any) bool {
+	switch typedExpected := expected.(type) {
+	case bool:
+		typedObserved, ok := observed.(bool)
+		return ok && typedObserved == typedExpected
+	case float64:
+		typedObserved, ok := numberAsFloat64(observed)
+		return ok && typedObserved == typedExpected
+	default:
+		return false
 	}
 }
 

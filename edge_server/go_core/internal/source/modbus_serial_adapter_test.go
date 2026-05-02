@@ -3,6 +3,7 @@ package source
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -451,6 +452,69 @@ func TestModbusSerialAdapterWritesSetBoolValuesToConfiguredHoldingRegister(t *te
 	}
 }
 
+func TestModbusSerialAdapterWritesSetNumberValuesToConfiguredHoldingRegister(t *testing.T) {
+	cases := []struct {
+		name  string
+		value any
+		want  uint16
+	}{
+		{name: "zero", value: 0, want: 0},
+		{name: "mid range", value: 128, want: 128},
+		{name: "max", value: 255, want: 255},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeModbusClient{
+				values: map[modbusReadKey]uint16{
+					{address: 52, registerType: modbus.INPUT_REGISTER}: tc.want,
+				},
+				delay: 10 * time.Millisecond,
+			}
+			adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+				return client, nil
+			}, fixedNow)
+
+			definition := validModbusDefinitionWithCommands(
+				[]MetricDefinition{
+					modbusMetric("actual_value", "number", "input", 52, nil),
+				},
+				[]CommandDefinition{
+					modbusNumberCommand("set_number", "holding", 162, 0, 255, "actual_value"),
+				},
+			)
+			definition.PollIntervalMs = 60000
+
+			if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+				t.Fatalf("apply modbus definition: %v", err)
+			}
+			defer adapter.Close()
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+
+			resultCh := executeSetNumberCommandAsync(ctx, adapter, tc.value)
+			client.waitForWriteCalls(t, 1)
+
+			writes := client.writeCallsSnapshot()
+			if len(writes) != 1 {
+				t.Fatalf("expected one Modbus write, got %+v", writes)
+			}
+			if writes[0].address != 162 || writes[0].value != tc.want {
+				t.Fatalf("expected holding register 162 write value %d, got %+v", tc.want, writes[0])
+			}
+
+			execution := receiveCommandExecution(t, resultCh)
+			if execution.err != nil {
+				t.Fatalf("execute modbus command: %v", execution.err)
+			}
+			if execution.result.Status != CommandStatusConfirmed {
+				t.Fatalf("successful set_number write should wait for reported value confirmation, got %+v", execution.result)
+			}
+		})
+	}
+}
+
 func TestModbusSerialAdapterCommandConfirmationRequiresFreshPollObservations(t *testing.T) {
 	client := &fakeModbusClient{
 		values: map[modbusReadKey]uint16{
@@ -671,6 +735,20 @@ func executeSetBoolCommandAsync(ctx context.Context, adapter *ModbusSerialAdapte
 	return resultCh
 }
 
+func executeSetNumberCommandAsync(ctx context.Context, adapter *ModbusSerialAdapter, value any) <-chan commandExecution {
+	resultCh := make(chan commandExecution, 1)
+	go func() {
+		result, err := adapter.ExecuteCommand(ctx, CommandRequest{
+			DeviceID: "device-1",
+			Command:  "set_number",
+			Value:    value,
+		})
+		resultCh <- commandExecution{result: result, err: err}
+	}()
+
+	return resultCh
+}
+
 type commandExecution struct {
 	result CommandResult
 	err    error
@@ -763,6 +841,62 @@ func TestModbusSerialAdapterRejectsNonBooleanSetBoolValueWithoutWriting(t *testi
 	}
 	if writes := client.writeCallsSnapshot(); len(writes) != 0 {
 		t.Fatalf("invalid value must not invoke Modbus write, got %+v", writes)
+	}
+}
+
+func TestModbusSerialAdapterRejectsInvalidSetNumberValuesWithoutWriting(t *testing.T) {
+	cases := []struct {
+		name       string
+		value      any
+		errSnippet string
+	}{
+		{name: "non-number", value: "128", errSnippet: "set_number value must be numeric"},
+		{name: "fractional", value: 12.5, errSnippet: "set_number value must be an integer"},
+		{name: "NaN", value: math.NaN(), errSnippet: "set_number value must be finite"},
+		{name: "infinity", value: math.Inf(1), errSnippet: "set_number value must be finite"},
+		{name: "below configured range", value: -1, errSnippet: "set_number value must be between 0 and 255"},
+		{name: "above configured range", value: 256, errSnippet: "set_number value must be between 0 and 255"},
+		{name: "outside uint16", value: 70000, errSnippet: "set_number value must be between 0 and 65535"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeModbusClient{}
+			adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+				return client, nil
+			}, fixedNow)
+
+			err := adapter.ApplyDefinition(validModbusDefinitionWithCommands(
+				[]MetricDefinition{
+					modbusMetric("actual_value", "number", "input", 52, nil),
+				},
+				[]CommandDefinition{
+					modbusNumberCommand("set_number", "holding", 162, 0, 255, "actual_value"),
+				},
+			), &captureModbusSink{})
+			if err != nil {
+				t.Fatalf("apply modbus definition: %v", err)
+			}
+			defer adapter.Close()
+
+			result, err := adapter.ExecuteCommand(context.Background(), CommandRequest{
+				DeviceID: "device-1",
+				Command:  "set_number",
+				Value:    tc.value,
+			})
+			if err != nil {
+				t.Fatalf("execute modbus command: %v", err)
+			}
+			if result.Status != CommandStatusFailed {
+				t.Fatalf("invalid set_number value must fail, got %+v", result)
+			}
+			if !strings.Contains(result.Reason, tc.errSnippet) {
+				t.Fatalf("expected reason containing %q, got %+v", tc.errSnippet, result)
+			}
+			if writes := client.writeCallsSnapshot(); len(writes) != 0 {
+				t.Fatalf("invalid set_number value must not invoke Modbus write, got %+v", writes)
+			}
+		})
 	}
 }
 
