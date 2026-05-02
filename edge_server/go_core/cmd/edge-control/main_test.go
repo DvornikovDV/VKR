@@ -40,6 +40,26 @@ func TestEdgeControlValidatesRequiredArguments(t *testing.T) {
 			args:       []string{"--config", "edge-runtime.yaml", "--device", "pump_main", "--command", "set_bool"},
 			errSnippet: "--value is required",
 		},
+		{
+			name:       "set_number non-numeric value",
+			args:       []string{"--config", "edge-runtime.yaml", "--device", "valve_pwm", "--command", "set_number", "--value", "abc"},
+			errSnippet: "--value must be an integer register value for set_number",
+		},
+		{
+			name:       "set_number fractional value",
+			args:       []string{"--config", "edge-runtime.yaml", "--device", "valve_pwm", "--command", "set_number", "--value", "12.5"},
+			errSnippet: "--value must be an integer register value for set_number",
+		},
+		{
+			name:       "set_number negative value",
+			args:       []string{"--config", "edge-runtime.yaml", "--device", "valve_pwm", "--command", "set_number", "--value", "-1"},
+			errSnippet: "--value must be between 0 and 65535 for set_number",
+		},
+		{
+			name:       "set_number above uint16 value",
+			args:       []string{"--config", "edge-runtime.yaml", "--device", "valve_pwm", "--command", "set_number", "--value", "70000"},
+			errSnippet: "--value must be between 0 and 65535 for set_number",
+		},
 	}
 
 	for _, tc := range cases {
@@ -72,48 +92,79 @@ func TestEdgeControlValidatesRequiredArguments(t *testing.T) {
 }
 
 func TestEdgeControlExecutesThroughLocalSourceManagerPath(t *testing.T) {
-	adapter := &capturingCommandAdapter{
-		result: source.CommandResult{Status: source.CommandStatusConfirmed},
-	}
-	cfgPath := writeEdgeControlConfig(t)
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := runEdgeControl(
-		context.Background(),
-		[]string{"--config", cfgPath, "--device", "pump_main", "--command", "set_bool", "--value", "true"},
-		&stdout,
-		&stderr,
-		edgeControlDependencies{
-			factories: source.FactoryRegistry{
-				source.ModbusRTUKind: func() (source.Adapter, error) {
-					return adapter, nil
-				},
-			},
+	cases := []struct {
+		name          string
+		args          []string
+		wantDeviceID  string
+		wantCommand   string
+		wantValue     any
+		wantOutputCmd string
+	}{
+		{
+			name:          "set_bool regression",
+			args:          []string{"--device", "pump_main", "--command", "set_bool", "--value", "true"},
+			wantDeviceID:  "pump_main",
+			wantCommand:   "set_bool",
+			wantValue:     true,
+			wantOutputCmd: "set_bool",
 		},
-	)
-
-	if code != 0 {
-		t.Fatalf("expected confirmed command exit code 0, got %d; stderr=%q", code, stderr.String())
-	}
-	if !adapter.applied {
-		t.Fatal("CLI must apply config source definitions to the source manager")
-	}
-	if adapter.definition.SourceID != "arduino_stand" || adapter.definition.AdapterKind != source.ModbusRTUKind {
-		t.Fatalf("unexpected applied source definition: %+v", adapter.definition)
+		{
+			name:          "set_number valid integer",
+			args:          []string{"--device", "valve_pwm", "--command", "set_number", "--value", "128"},
+			wantDeviceID:  "valve_pwm",
+			wantCommand:   "set_number",
+			wantValue:     128,
+			wantOutputCmd: "set_number",
+		},
 	}
 
-	request := adapter.lastRequest
-	if request.DeviceID != "pump_main" || request.Command != "set_bool" || request.Value != true {
-		t.Fatalf("CLI delegated unexpected source manager command request: %+v", request)
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			adapter := &capturingCommandAdapter{
+				result: source.CommandResult{Status: source.CommandStatusConfirmed},
+			}
+			cfgPath := writeEdgeControlConfig(t)
+			args := append([]string{"--config", cfgPath}, tc.args...)
 
-	var output commandResultOutput
-	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
-		t.Fatalf("decode CLI result JSON %q: %v", stdout.String(), err)
-	}
-	if output.DeviceID != "pump_main" || output.Command != "set_bool" || output.Status != source.CommandStatusConfirmed {
-		t.Fatalf("unexpected CLI result output: %+v", output)
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			code := runEdgeControl(
+				context.Background(),
+				args,
+				&stdout,
+				&stderr,
+				edgeControlDependencies{
+					factories: source.FactoryRegistry{
+						source.ModbusRTUKind: func() (source.Adapter, error) {
+							return adapter, nil
+						},
+					},
+				},
+			)
+
+			if code != 0 {
+				t.Fatalf("expected confirmed command exit code 0, got %d; stderr=%q", code, stderr.String())
+			}
+			if !adapter.applied {
+				t.Fatal("CLI must apply config source definitions to the source manager")
+			}
+			if adapter.definition.SourceID != "arduino_stand" || adapter.definition.AdapterKind != source.ModbusRTUKind {
+				t.Fatalf("unexpected applied source definition: %+v", adapter.definition)
+			}
+
+			request := adapter.lastRequest
+			if request.DeviceID != tc.wantDeviceID || request.Command != tc.wantCommand || request.Value != tc.wantValue {
+				t.Fatalf("CLI delegated unexpected source manager command request: %+v", request)
+			}
+
+			var output commandResultOutput
+			if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+				t.Fatalf("decode CLI result JSON %q: %v", stdout.String(), err)
+			}
+			if output.DeviceID != tc.wantDeviceID || output.Command != tc.wantOutputCmd || output.Status != source.CommandStatusConfirmed {
+				t.Fatalf("unexpected CLI result output: %+v", output)
+			}
+		})
 	}
 }
 
@@ -163,6 +214,23 @@ sources:
               registerType: holding
               address: 160
             reportedMetric: actual_state
+      - deviceId: valve_pwm
+        address:
+          node: 2
+        metrics:
+          - metric: actual_value
+            valueType: number
+            mapping:
+              registerType: input
+              address: 18
+        commands:
+          - command: set_number
+            mapping:
+              registerType: holding
+              address: 162
+            min: 0
+            max: 255
+            reportedMetric: actual_value
 `
 	path := filepath.Join(t.TempDir(), "edge-runtime.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

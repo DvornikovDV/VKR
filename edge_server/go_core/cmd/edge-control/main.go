@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"edge_server/go_core/internal/config"
@@ -17,7 +19,7 @@ type edgeControlOptions struct {
 	configPath string
 	deviceID   string
 	command    string
-	value      bool
+	value      any
 }
 
 type edgeControlDependencies struct {
@@ -104,19 +106,32 @@ func parseEdgeControlArgs(args []string, stderr io.Writer) (edgeControlOptions, 
 	if options.command == "" {
 		return edgeControlOptions{}, fmt.Errorf("--command is required")
 	}
-	if options.command != "set_bool" {
-		return edgeControlOptions{}, fmt.Errorf("--command must be set_bool")
+	if options.command != "set_bool" && options.command != "set_number" {
+		return edgeControlOptions{}, fmt.Errorf("--command must be set_bool or set_number")
 	}
 	if valueRaw == "" {
 		return edgeControlOptions{}, fmt.Errorf("--value is required")
 	}
-	switch strings.ToLower(valueRaw) {
-	case "true":
-		options.value = true
-	case "false":
-		options.value = false
-	default:
-		return edgeControlOptions{}, fmt.Errorf("--value must be true or false for set_bool")
+
+	switch options.command {
+	case "set_bool":
+		switch strings.ToLower(valueRaw) {
+		case "true":
+			options.value = true
+		case "false":
+			options.value = false
+		default:
+			return edgeControlOptions{}, fmt.Errorf("--value must be true or false for set_bool")
+		}
+	case "set_number":
+		parsed, err := strconv.ParseUint(valueRaw, 10, 16)
+		if err != nil {
+			if strings.HasPrefix(valueRaw, "-") || errors.Is(err, strconv.ErrRange) {
+				return edgeControlOptions{}, fmt.Errorf("--value must be between 0 and 65535 for set_number")
+			}
+			return edgeControlOptions{}, fmt.Errorf("--value must be an integer register value for set_number")
+		}
+		options.value = int(parsed)
 	}
 
 	return options, nil

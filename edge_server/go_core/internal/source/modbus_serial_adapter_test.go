@@ -721,6 +721,228 @@ func TestModbusSerialAdapterCommandConfirmationTimesOutWithoutMatchingState(t *t
 	assertOnlyInputReads(t, client.callsSnapshot(), 31)
 }
 
+func TestModbusSerialAdapterSetNumberCommandConfirmationRequiresFreshActualValuePolling(t *testing.T) {
+	actualValueKey := modbusReadKey{address: 52, registerType: modbus.INPUT_REGISTER}
+	client := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			actualValueKey: 128,
+		},
+		readSequences: map[modbusReadKey][]uint16{
+			actualValueKey: {7, 128, 128},
+		},
+	}
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		return client, nil
+	}, fixedNow)
+	sink := &captureModbusSink{}
+
+	definition := validModbusDefinitionWithCommands(
+		[]MetricDefinition{
+			modbusMetric("actual_value", "number", "input", 52, nil),
+		},
+		[]CommandDefinition{
+			modbusNumberCommand("set_number", "holding", 162, 0, 255, "actual_value"),
+		},
+	)
+	definition.PollIntervalMs = 60000
+
+	if err := adapter.ApplyDefinition(definition, sink); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+
+	client.waitForReadCalls(t, 1)
+	client.clearCalls()
+	sink.clearReadings()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	resultCh := executeSetNumberCommandAsync(ctx, adapter, 128)
+	client.waitForWriteCalls(t, 1)
+
+	execution := receiveCommandExecution(t, resultCh)
+	if execution.err != nil {
+		t.Fatalf("execute modbus set_number command: %v", execution.err)
+	}
+	if execution.result.Status != CommandStatusConfirmed {
+		t.Fatalf("fresh post-write actual_value readings must confirm set_number, got %+v", execution.result)
+	}
+
+	calls := client.callsSnapshot()
+	if len(calls) != modbusCommandForcedPollAttempts {
+		t.Fatalf("confirmation should use exactly bounded forced normal polls after write, got reads %+v", calls)
+	}
+	assertOnlyInputReads(t, calls, 52)
+
+	writes := client.writeCallsSnapshot()
+	if len(writes) != 1 || writes[0].address != 162 || writes[0].value != 128 {
+		t.Fatalf("expected one set_number command write, got %+v", writes)
+	}
+	readings := sink.readingsSnapshot()
+	if len(readings) != modbusCommandForcedPollAttempts {
+		t.Fatalf("forced poll observations should publish as normal telemetry, got %+v", readings)
+	}
+	for _, reading := range readings {
+		assertReading(t, reading, "source-rtu", "device-1", "actual_value", 128.0)
+	}
+}
+
+func TestModbusSerialAdapterSetNumberCommandConfirmationRejectsStaleSameValueActualValue(t *testing.T) {
+	actualValueKey := modbusReadKey{address: 52, registerType: modbus.INPUT_REGISTER}
+	client := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			actualValueKey: 128,
+		},
+		readSequences: map[modbusReadKey][]uint16{
+			actualValueKey: {128},
+		},
+	}
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		return client, nil
+	}, fixedNow)
+
+	definition := validModbusDefinitionWithCommands(
+		[]MetricDefinition{
+			modbusMetric("actual_value", "number", "input", 52, nil),
+		},
+		[]CommandDefinition{
+			modbusNumberCommand("set_number", "holding", 162, 0, 255, "actual_value"),
+		},
+	)
+	definition.PollIntervalMs = 60000
+
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+
+	client.waitForReadCalls(t, 1)
+	client.setValue(actualValueKey, 0)
+	client.clearCalls()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	resultCh := executeSetNumberCommandAsync(ctx, adapter, 128)
+	client.waitForWriteCalls(t, 1)
+
+	execution := receiveCommandExecution(t, resultCh)
+	if execution.err != nil {
+		t.Fatalf("execute modbus set_number command: %v", execution.err)
+	}
+	if execution.result.Status != CommandStatusTimeout {
+		t.Fatalf("stale same-value pre-write actual_value must not confirm set_number, got %+v", execution.result)
+	}
+	assertOnlyInputReads(t, client.callsSnapshot(), 52)
+}
+
+func TestModbusSerialAdapterSetNumberCommandConfirmationTimesOutWithoutMatchingActualValue(t *testing.T) {
+	client := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 52, registerType: modbus.INPUT_REGISTER}: 64,
+		},
+	}
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		return client, nil
+	}, fixedNow)
+
+	definition := validModbusDefinitionWithCommands(
+		[]MetricDefinition{
+			modbusMetric("actual_value", "number", "input", 52, nil),
+		},
+		[]CommandDefinition{
+			modbusNumberCommand("set_number", "holding", 162, 0, 255, "actual_value"),
+		},
+	)
+	definition.PollIntervalMs = 60000
+
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+
+	client.waitForReadCalls(t, 1)
+	client.clearCalls()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	resultCh := executeSetNumberCommandAsync(ctx, adapter, 128)
+	client.waitForWriteCalls(t, 1)
+
+	execution := receiveCommandExecution(t, resultCh)
+	if execution.err != nil {
+		t.Fatalf("execute modbus set_number command: %v", execution.err)
+	}
+	if execution.result.Status != CommandStatusTimeout {
+		t.Fatalf("missing matching actual_value must time out, got %+v", execution.result)
+	}
+	assertOnlyInputReads(t, client.callsSnapshot(), 52)
+}
+
+func TestModbusSerialAdapterSetNumberCommandDoesNotPublishDesiredValueAsTelemetry(t *testing.T) {
+	actualValueKey := modbusReadKey{address: 52, registerType: modbus.INPUT_REGISTER}
+	client := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			actualValueKey: 7,
+		},
+	}
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		return client, nil
+	}, fixedNow)
+	sink := &captureModbusSink{}
+
+	definition := validModbusDefinitionWithCommands(
+		[]MetricDefinition{
+			modbusMetric("actual_value", "number", "input", 52, nil),
+		},
+		[]CommandDefinition{
+			modbusNumberCommand("set_number", "holding", 162, 0, 255, "actual_value"),
+		},
+	)
+	definition.PollIntervalMs = 60000
+
+	if err := adapter.ApplyDefinition(definition, sink); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+
+	client.waitForReadCalls(t, 1)
+	client.clearCalls()
+	sink.clearReadings()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	resultCh := executeSetNumberCommandAsync(ctx, adapter, 128)
+	client.waitForWriteCalls(t, 1)
+
+	execution := receiveCommandExecution(t, resultCh)
+	if execution.err != nil {
+		t.Fatalf("execute modbus set_number command: %v", execution.err)
+	}
+	if execution.result.Status != CommandStatusTimeout {
+		t.Fatalf("non-matching actual_value fixture should time out, got %+v", execution.result)
+	}
+
+	for _, reading := range sink.readingsSnapshot() {
+		if reading.Metric != "actual_value" {
+			t.Fatalf("unexpected telemetry metric during confirmation: %+v", reading)
+		}
+		if reading.Value == 128.0 {
+			t.Fatalf("desired set_number value must not be emitted as telemetry, got %+v", reading)
+		}
+		if reading.Value != 7.0 {
+			t.Fatalf("telemetry must publish polled actual_value only, got %+v", reading)
+		}
+	}
+	writes := client.writeCallsSnapshot()
+	if len(writes) != 1 || writes[0].address != 162 || writes[0].value != 128 {
+		t.Fatalf("expected one set_number command write, got %+v", writes)
+	}
+}
+
 func executeSetBoolCommandAsync(ctx context.Context, adapter *ModbusSerialAdapter, value bool) <-chan commandExecution {
 	resultCh := make(chan commandExecution, 1)
 	go func() {
@@ -1279,6 +1501,13 @@ func (s *captureModbusSink) readingsSnapshot() []RawReading {
 	return append([]RawReading(nil), s.readings...)
 }
 
+func (s *captureModbusSink) clearReadings() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.readings = nil
+}
+
 func (s *captureModbusSink) faultsSnapshot() []Fault {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1357,6 +1586,7 @@ type modbusWriteCall struct {
 type fakeModbusClient struct {
 	mu                        sync.Mutex
 	values                    map[modbusReadKey]uint16
+	readSequences             map[modbusReadKey][]uint16
 	err                       error
 	writeErr                  error
 	delay                     time.Duration
@@ -1412,7 +1642,14 @@ func (c *fakeModbusClient) ReadRegister(address uint16, registerType modbus.RegT
 		return 0, c.err
 	}
 
-	value, ok := c.values[modbusReadKey{address: address, registerType: registerType}]
+	key := modbusReadKey{address: address, registerType: registerType}
+	if sequence := c.readSequences[key]; len(sequence) > 0 {
+		value := sequence[0]
+		c.readSequences[key] = sequence[1:]
+		return value, nil
+	}
+
+	value, ok := c.values[key]
 	if !ok {
 		return 0, errors.New("register not found")
 	}
@@ -1444,6 +1681,14 @@ func (c *fakeModbusClient) callsSnapshot() []modbusReadCall {
 	defer c.mu.Unlock()
 
 	return append([]modbusReadCall(nil), c.calls...)
+}
+
+func (c *fakeModbusClient) clearCalls() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.calls = nil
+	c.writeCalls = nil
 }
 
 func (c *fakeModbusClient) writeCallsSnapshot() []modbusWriteCall {
