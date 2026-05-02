@@ -95,6 +95,14 @@ sources:
             mapping:
               registerType: input
               address: 18
+        commands:
+          - command: set_number
+            mapping:
+              registerType: holding
+              address: 162
+            min: 0
+            max: 255
+            reportedMetric: actual_value
 
 logging:
   level: info

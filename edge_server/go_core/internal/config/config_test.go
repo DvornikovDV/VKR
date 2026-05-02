@@ -148,15 +148,14 @@ func TestParseAcceptsArduinoStandCommandMapping(t *testing.T) {
 		t.Fatalf("parse Arduino stand sample with command mapping: %v", err)
 	}
 
-	var pump *LocalDeviceDefinition
+	devices := make(map[string]*LocalDeviceDefinition)
 	for sourceIndex := range cfg.Sources {
 		for deviceIndex := range cfg.Sources[sourceIndex].Devices {
 			device := &cfg.Sources[sourceIndex].Devices[deviceIndex]
-			if device.DeviceID == "pump_main" {
-				pump = device
-			}
+			devices[device.DeviceID] = device
 		}
 	}
+	pump := devices["pump_main"]
 	if pump == nil {
 		t.Fatal("expected pump_main device in Arduino stand sample")
 	}
@@ -177,6 +176,31 @@ func TestParseAcceptsArduinoStandCommandMapping(t *testing.T) {
 	if command.Mapping["address"] != 160 {
 		t.Fatalf("unexpected command address: %#v", command.Mapping["address"])
 	}
+
+	valve := devices["valve_pwm"]
+	if valve == nil {
+		t.Fatal("expected valve_pwm device in Arduino stand sample")
+	}
+	if len(valve.Commands) != 1 {
+		t.Fatalf("expected one valve_pwm command mapping, got %d", len(valve.Commands))
+	}
+
+	command = valve.Commands[0]
+	if command.Command != "set_number" {
+		t.Fatalf("unexpected valve_pwm command type: %q", command.Command)
+	}
+	if command.ReportedMetric != "actual_value" {
+		t.Fatalf("unexpected valve_pwm reported metric: %q", command.ReportedMetric)
+	}
+	if command.Mapping["registerType"] != "holding" {
+		t.Fatalf("unexpected valve_pwm command register type: %#v", command.Mapping["registerType"])
+	}
+	if command.Mapping["address"] != 162 {
+		t.Fatalf("unexpected valve_pwm command address: %#v", command.Mapping["address"])
+	}
+	if command.Min != 0 || command.Max != 255 {
+		t.Fatalf("unexpected valve_pwm command range: min=%#v max=%#v", command.Min, command.Max)
+	}
 }
 
 func TestParseRejectsInvalidDeviceCommandMappings(t *testing.T) {
@@ -190,9 +214,19 @@ func TestParseRejectsInvalidDeviceCommandMappings(t *testing.T) {
 		errSnippet string
 	}{
 		{
+			name:       "set_bool regression accepts existing command shape",
+			body:       valid,
+			errSnippet: "",
+		},
+		{
+			name:       "valid set_number command shape",
+			body:       validSetNumberCommandConfigYAML(),
+			errSnippet: "",
+		},
+		{
 			name:       "unsupported command type",
-			body:       strings.Replace(valid, "command: set_bool", "command: set_number", 1),
-			errSnippet: "command must be set_bool",
+			body:       strings.Replace(valid, "command: set_bool", "command: set_float", 1),
+			errSnippet: "command must be set_bool or set_number",
 		},
 		{
 			name:       "missing command mapping",
@@ -230,6 +264,71 @@ func TestParseRejectsInvalidDeviceCommandMappings(t *testing.T) {
 			errSnippet: "reportedMetric must reference a boolean metric",
 		},
 		{
+			name:       "set_bool rejects min metadata",
+			body:       strings.Replace(valid, "            reportedMetric: actual_state\n", "            min: 0\n            reportedMetric: actual_state\n", 1),
+			errSnippet: "min is only allowed for set_number",
+		},
+		{
+			name:       "set_bool rejects max metadata",
+			body:       strings.Replace(valid, "            reportedMetric: actual_state\n", "            max: 1\n            reportedMetric: actual_state\n", 1),
+			errSnippet: "max is only allowed for set_number",
+		},
+		{
+			name:       "set_bool rejects range metadata",
+			body:       strings.Replace(valid, "            reportedMetric: actual_state\n", "            min: 0\n            max: 1\n            reportedMetric: actual_state\n", 1),
+			errSnippet: "min is only allowed for set_number",
+		},
+		{
+			name:       "set_number missing min",
+			body:       strings.Replace(validSetNumberCommandConfigYAML(), "            min: 0\n", "", 1),
+			errSnippet: "min is required",
+		},
+		{
+			name:       "set_number missing max",
+			body:       strings.Replace(validSetNumberCommandConfigYAML(), "            max: 255\n", "", 1),
+			errSnippet: "max is required",
+		},
+		{
+			name:       "set_number min must be integer",
+			body:       strings.Replace(validSetNumberCommandConfigYAML(), "min: 0", "min: 0.5", 1),
+			errSnippet: "min must be an integer",
+		},
+		{
+			name:       "set_number max must be integer",
+			body:       strings.Replace(validSetNumberCommandConfigYAML(), "max: 255", "max: 255.5", 1),
+			errSnippet: "max must be an integer",
+		},
+		{
+			name:       "set_number min cannot be below uint16",
+			body:       strings.Replace(validSetNumberCommandConfigYAML(), "min: 0", "min: -1", 1),
+			errSnippet: "min must be between 0 and 65535",
+		},
+		{
+			name:       "set_number max cannot exceed uint16",
+			body:       strings.Replace(validSetNumberCommandConfigYAML(), "max: 255", "max: 70000", 1),
+			errSnippet: "max must be between 0 and 65535",
+		},
+		{
+			name:       "set_number min must not exceed max",
+			body:       strings.Replace(strings.Replace(validSetNumberCommandConfigYAML(), "min: 0", "min: 300", 1), "max: 255", "max: 255", 1),
+			errSnippet: "min must be less than or equal to max",
+		},
+		{
+			name:       "set_number non holding register",
+			body:       strings.Replace(validSetNumberCommandConfigYAML(), "registerType: holding", "registerType: input", 1),
+			errSnippet: "mapping.registerType must be holding",
+		},
+		{
+			name:       "set_number unknown reported metric",
+			body:       strings.Replace(validSetNumberCommandConfigYAML(), "reportedMetric: actual_value", "reportedMetric: desired_value", 1),
+			errSnippet: "reportedMetric must reference a device metric",
+		},
+		{
+			name:       "set_number non number reported metric",
+			body:       strings.Replace(validSetNumberCommandConfigYAML(), "valueType: number", "valueType: boolean", 1),
+			errSnippet: "reportedMetric must reference a number metric",
+		},
+		{
 			name:       "source level commands are rejected",
 			body:       strings.Replace(valid, "    devices:\n", "    commands:\n      - command: set_bool\n        mapping:\n          registerType: holding\n          address: 160\n        reportedMetric: actual_state\n    devices:\n", 1),
 			errSnippet: "field commands not found",
@@ -244,6 +343,12 @@ func TestParseRejectsInvalidDeviceCommandMappings(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Parse([]byte(tc.body))
+			if tc.errSnippet == "" {
+				if err != nil {
+					t.Fatalf("expected config to be valid: %v", err)
+				}
+				return
+			}
 			if err == nil {
 				t.Fatalf("expected validation error containing %q", tc.errSnippet)
 			}
@@ -527,5 +632,54 @@ sources:
               registerType: holding
               address: 160
             reportedMetric: actual_state
+`
+}
+
+func validSetNumberCommandConfigYAML() string {
+	return `
+runtime:
+  edgeId: 507f1f77bcf86cd799439011
+  stateDir: ${RUNTIME_STATE_DIR}
+
+cloud:
+  url: ${CLOUD_SOCKET_URL}
+  namespace: /edge
+  connectTimeoutMs: 10000
+  reconnect:
+    baseDelayMs: 1000
+    maxDelayMs: 30000
+    maxAttempts: 0
+
+sources:
+  - sourceId: source-1
+    adapterKind: modbus_rtu
+    enabled: true
+    pollIntervalMs: 1000
+    connection:
+      port: COM7
+      baudRate: 9600
+      dataBits: 8
+      parity: none
+      stopBits: 1
+      slaveId: 1
+      timeoutMs: 500
+    devices:
+      - deviceId: valve_pwm
+        address:
+          node: 4
+        metrics:
+          - metric: actual_value
+            valueType: number
+            mapping:
+              registerType: input
+              address: 18
+        commands:
+          - command: set_number
+            mapping:
+              registerType: holding
+              address: 162
+            min: 0
+            max: 255
+            reportedMetric: actual_value
 `
 }

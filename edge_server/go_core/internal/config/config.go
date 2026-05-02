@@ -81,6 +81,8 @@ type MetricDefinition struct {
 type CommandDefinition struct {
 	Command        string         `yaml:"command"`
 	Mapping        map[string]any `yaml:"mapping"`
+	Min            any            `yaml:"min"`
+	Max            any            `yaml:"max"`
 	ReportedMetric string         `yaml:"reportedMetric"`
 }
 
@@ -310,15 +312,15 @@ func validateDeviceCommands(sourceIndex int, deviceIndex int, deviceID string, c
 		if commandType == "" {
 			return fmt.Errorf("%s.command is required", field)
 		}
-		if commandType != "set_bool" {
-			return fmt.Errorf("%s.command must be set_bool", field)
+		if commandType != "set_bool" && commandType != "set_number" {
+			return fmt.Errorf("%s.command must be set_bool or set_number", field)
 		}
 		if _, exists := commandIDs[commandType]; exists {
 			return fmt.Errorf("duplicate command %q for device %q", commandType, deviceID)
 		}
 		commandIDs[commandType] = struct{}{}
 
-		if err := validateSetBoolCommandMapping(field, command.Mapping); err != nil {
+		if err := validateCommandMapping(field, command.Mapping); err != nil {
 			return err
 		}
 
@@ -330,15 +332,40 @@ func validateDeviceCommands(sourceIndex int, deviceIndex int, deviceID string, c
 		if !exists {
 			return fmt.Errorf("%s.reportedMetric must reference a device metric", field)
 		}
-		if valueType != "boolean" {
-			return fmt.Errorf("%s.reportedMetric must reference a boolean metric", field)
+
+		switch commandType {
+		case "set_bool":
+			if err := validateSetBoolCommandShape(field, command.Min, command.Max); err != nil {
+				return err
+			}
+			if valueType != "boolean" {
+				return fmt.Errorf("%s.reportedMetric must reference a boolean metric", field)
+			}
+		case "set_number":
+			if valueType != "number" {
+				return fmt.Errorf("%s.reportedMetric must reference a number metric", field)
+			}
+			if _, _, err := validateSetNumberCommandRange(field, command.Min, command.Max); err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
 }
 
-func validateSetBoolCommandMapping(field string, mapping map[string]any) error {
+func validateSetBoolCommandShape(field string, rawMin any, rawMax any) error {
+	if rawMin != nil {
+		return fmt.Errorf("%s.min is only allowed for set_number", field)
+	}
+	if rawMax != nil {
+		return fmt.Errorf("%s.max is only allowed for set_number", field)
+	}
+
+	return nil
+}
+
+func validateCommandMapping(field string, mapping map[string]any) error {
 	if len(mapping) == 0 {
 		return fmt.Errorf("%s.mapping is required", field)
 	}
@@ -365,6 +392,29 @@ func validateSetBoolCommandMapping(field string, mapping map[string]any) error {
 	}
 
 	return nil
+}
+
+func validateSetNumberCommandRange(field string, rawMin any, rawMax any) (uint16, uint16, error) {
+	if rawMin == nil {
+		return 0, 0, fmt.Errorf("%s.min is required", field)
+	}
+	if rawMax == nil {
+		return 0, 0, fmt.Errorf("%s.max is required", field)
+	}
+
+	min, err := commandMappingAddress(rawMin, field+".min")
+	if err != nil {
+		return 0, 0, err
+	}
+	max, err := commandMappingAddress(rawMax, field+".max")
+	if err != nil {
+		return 0, 0, err
+	}
+	if min > max {
+		return 0, 0, fmt.Errorf("%s.min must be less than or equal to max", field)
+	}
+
+	return min, max, nil
 }
 
 func commandMappingAddress(raw any, field string) (uint16, error) {
