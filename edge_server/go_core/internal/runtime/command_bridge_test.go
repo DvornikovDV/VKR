@@ -38,7 +38,7 @@ func TestCommandRequestRegistry(t *testing.T) {
 	}
 
 	// 5. TryReserve/Complete another request to check capacity
-	if !registry.TryReserve("req-2", now) {
+	if !registry.TryReserve("req-2", now.Add(1*time.Microsecond)) {
 		t.Errorf("expected TryReserve to succeed for req-2")
 	}
 

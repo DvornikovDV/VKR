@@ -100,6 +100,61 @@ func (b *CommandBridge) Timeout() time.Duration {
 	return b.timeout
 }
 
+func (b *CommandBridge) HandleExecuteCommand(ctx context.Context, payload any, client interface{ EmitCommandResult(any) error }) {
+	if b == nil {
+		return
+	}
+
+	cmd, err := cloud.ParseExecuteCommand(payload, b.edgeID)
+	if err != nil {
+		// T019: Missing or invalid requestId emits no command_result and is just logged.
+		// For now, we drop invalid commands.
+		return
+	}
+
+	now := time.Now().UTC()
+	if !b.TryReserve(cmd.RequestID, now) {
+		// T021: Duplicate requestId suppressed by at-most-once state
+		return
+	}
+
+	// T020: Async dispatch
+	go func() {
+		execCtx, cancel := context.WithTimeout(context.Background(), b.Timeout())
+		defer cancel()
+
+		req := CommandExecutionRequest{
+			RequestID:   cmd.RequestID,
+			EdgeID:      cmd.EdgeID,
+			DeviceID:    cmd.DeviceID,
+			CommandType: cmd.CommandType,
+			Value:       cmd.Payload.Value,
+		}
+
+		res, err := b.executor.ExecuteCommand(execCtx, req)
+
+		var status cloud.CommandTerminalStatus
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				status = cloud.CommandStatusTimeout
+			} else {
+				status = cloud.CommandStatusFailed
+			}
+		} else {
+			if res.Status != "" {
+				status = res.Status
+			} else {
+				status = cloud.CommandStatusFailed
+			}
+		}
+
+		b.TryComplete(cmd.RequestID, time.Now().UTC())
+		
+		resultPayload := cloud.NewCommandResult(b.edgeID, cmd.RequestID, status)
+		_ = client.EmitCommandResult(resultPayload)
+	}()
+}
+
 func (b *CommandBridge) TryReserve(requestID string, now time.Time) bool {
 	if b == nil || b.registry == nil {
 		return false

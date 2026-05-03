@@ -372,6 +372,13 @@ func (r *Runner) Run(ctx context.Context) error {
 			}); err != nil {
 				return fmt.Errorf("register lifecycle handlers: %w", err)
 			}
+
+			if bridge := r.CurrentCommandBridge(); bridge != nil {
+				currentClient := client
+				client.OnExecuteCommand(func(payload any) {
+					bridge.HandleExecuteCommand(ctx, payload, currentClient)
+				})
+			}
 		}
 
 		if err := client.Connect(ctx, auth); err != nil {
