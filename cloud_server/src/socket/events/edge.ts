@@ -3,9 +3,11 @@ import { markEdgeOffline } from '../../services/edge-servers.service';
 import { authenticatePersistentEdgeRuntime } from './edge-runtime-auth';
 import {
     attachAuthenticatedEdgeContext,
+    isTrustedEdgeSocket,
     markTrustedSessionLost,
     shouldSkipOfflineTransition,
 } from './edge-runtime-session';
+import { registerCommandResultHandler } from './command';
 import { registerTelemetryHandler } from './telemetry';
 
 export const EDGE_NAMESPACE = '/edge';
@@ -78,6 +80,15 @@ export function getActiveEdgeSocketCount(edgeId?: string): number {
     }
 
     return activeEdgeSockets.size;
+}
+
+export function getActiveTrustedEdgeSocket(edgeId: string): Socket | null {
+    const socket = activeEdgeSockets.get(edgeId);
+    if (!socket || !isTrustedEdgeSocket(socket, edgeId)) {
+        return null;
+    }
+
+    return socket;
 }
 
 export function disconnectEdgeSockets(
@@ -155,6 +166,7 @@ export function registerEdgeNamespace(io: IOServer): void {
         console.log(`[edge] Edge connected: ${edgeId} (socket: ${socket.id})`);
 
         registerTelemetryHandler(socket, io, edgeId);
+        registerCommandResultHandler(socket, edgeId);
 
         socket.on('disconnect', (reason: string) => {
             untrackActiveEdgeSocket(edgeId, socket);

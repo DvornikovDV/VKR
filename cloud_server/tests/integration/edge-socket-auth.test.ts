@@ -3,7 +3,13 @@ import { connectDatabase, disconnectDatabase } from '../../src/database/mongoose
 import { EdgeServer } from '../../src/models/EdgeServer';
 import { User } from '../../src/models/User';
 import { lastSeenRegistry } from '../../src/services/edge-servers.service';
+import {
+    getPendingCommandCount,
+    registerPendingCommand,
+    resetPendingCommandRegistryForTests,
+} from '../../src/services/command-pending-registry';
 import { getConnectedEdgeSocketCount } from '../../src/socket/io';
+import { getActiveTrustedEdgeSocket } from '../../src/socket/events/edge';
 import type { TelemetryBroadcast } from '../../src/socket/events/telemetry';
 import {
     bindEdgeToUser,
@@ -47,10 +53,12 @@ describe('Edge socket auth runtime path', () => {
         await EdgeServer.deleteMany({});
         await User.deleteMany({});
         lastSeenRegistry.clear();
+        resetPendingCommandRegistryForTests();
     });
 
     afterEach(async () => {
         await cleanupClientSockets(activeSockets);
+        resetPendingCommandRegistryForTests();
     });
 
     it('accepts /edge connect only with the current persistent credential and never emits edge_activation', async () => {
@@ -246,5 +254,66 @@ describe('Edge socket auth runtime path', () => {
         expect(secondError).toBe('invalid_credential');
         expect(getConnectedEdgeSocketCount(registered.edgeId)).toBe(1);
         expect(firstSocket.connected).toBe(true);
+    });
+
+    it('routes command_result from the real trusted /edge path into the pending registry', async () => {
+        const { adminToken } = await createAdminSession('edge_socket_command_admin@test.com');
+        const firstEdge = await registerEdge(adminToken, 'Command Result Edge');
+        const secondEdge = await registerEdge(adminToken, 'Command Result Other Edge');
+
+        const secondEdgeSocket = await connectEdgeSocket(socketBaseUrl, activeSockets, {
+            edgeId: secondEdge.edgeId,
+            credentialSecret: secondEdge.credentialSecret,
+        });
+
+        const requestId = 'request-real-edge-path';
+        const pending = registerPendingCommand({
+            edgeId: firstEdge.edgeId,
+            requestId,
+            timeoutMs: 1000,
+        });
+
+        secondEdgeSocket.emit('command_result', {
+            edgeId: firstEdge.edgeId,
+            requestId,
+            status: 'confirmed',
+            completedAt: '2026-05-03T00:00:00.000Z',
+        });
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(getPendingCommandCount()).toBe(1);
+
+        const firstEdgeSocket = await connectEdgeSocket(socketBaseUrl, activeSockets, {
+            edgeId: firstEdge.edgeId,
+            credentialSecret: firstEdge.credentialSecret,
+        });
+        const activeTrustedSocket = getActiveTrustedEdgeSocket(firstEdge.edgeId);
+        expect(activeTrustedSocket?.data['edgeId']).toBe(firstEdge.edgeId);
+
+        firstEdgeSocket.emit('command_result', {
+            edgeId: firstEdge.edgeId,
+            requestId,
+            status: 'confirmed',
+            completedAt: '2026-05-03T00:00:01.000Z',
+        });
+
+        await expect(pending.promise).resolves.toEqual({
+            kind: 'result',
+            result: {
+                requestId,
+                status: 'confirmed',
+                completedAt: '2026-05-03T00:00:01.000Z',
+            },
+        });
+        expect(getPendingCommandCount()).toBe(0);
+
+        firstEdgeSocket.emit('command_result', {
+            edgeId: firstEdge.edgeId,
+            requestId,
+            status: 'failed',
+            failureReason: 'edge_command_failed',
+            completedAt: '2026-05-03T00:00:02.000Z',
+        });
+        expect(getPendingCommandCount()).toBe(0);
     });
 });
