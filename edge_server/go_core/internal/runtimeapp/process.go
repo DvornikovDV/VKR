@@ -28,8 +28,8 @@ func New(ctx context.Context, cfg config.Config, transport cloud.Transport) (*Pr
 	return newWithSourceFactories(ctx, cfg, transport, productionSourceFactories())
 }
 
-func NewWithSourceFactoriesForTest(ctx context.Context, cfg config.Config, transport cloud.Transport, factories source.FactoryRegistry) (*Process, error) {
-	return newWithSourceFactories(ctx, cfg, transport, factories)
+func NewWithSourceFactoriesForTest(ctx context.Context, cfg config.Config, transport cloud.Transport, factories source.FactoryRegistry, bridgeOpts ...runtime.CommandBridgeOption) (*Process, error) {
+	return newWithSourceFactories(ctx, cfg, transport, factories, bridgeOpts...)
 }
 
 func productionSourceFactories() source.FactoryRegistry {
@@ -40,7 +40,7 @@ func productionSourceFactories() source.FactoryRegistry {
 	}
 }
 
-func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cloud.Transport, factories source.FactoryRegistry) (*Process, error) {
+func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cloud.Transport, factories source.FactoryRegistry, bridgeOpts ...runtime.CommandBridgeOption) (*Process, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("runtime app context is required")
 	}
@@ -117,7 +117,7 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	bridge, err := runtime.NewCommandBridge(runtime.CommandBridgeConfig{
 		EdgeID:   cfg.Runtime.EdgeID,
 		Executor: &sourceManagerExecutor{sources: sources},
-	})
+	}, bridgeOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("create runtime command bridge: %w", err)
 	}

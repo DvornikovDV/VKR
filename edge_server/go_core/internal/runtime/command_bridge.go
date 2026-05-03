@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,8 @@ import (
 )
 
 const DefaultCommandBridgeTimeout = 4 * time.Second
+
+const commandRequestInFlightGrace = time.Second
 
 type CommandExecutionRequest struct {
 	RequestID   string
@@ -75,7 +78,9 @@ func NewCommandBridge(cfg CommandBridgeConfig, opts ...CommandBridgeOption) (*Co
 
 	registry := cfg.Registry
 	if registry == nil {
-		registry = NewCommandRequestRegistry(CommandRequestRegistryConfig{})
+		registry = NewCommandRequestRegistry(CommandRequestRegistryConfig{
+			InFlightTTL: timeout + commandRequestInFlightGrace,
+		})
 	}
 
 	return &CommandBridge{
@@ -105,22 +110,40 @@ func (b *CommandBridge) HandleExecuteCommand(ctx context.Context, payload any, c
 		return
 	}
 
-	cmd, err := cloud.ParseExecuteCommand(payload, b.edgeID)
-	if err != nil {
-		// T019: Missing or invalid requestId emits no command_result and is just logged.
-		// For now, we drop invalid commands.
+	outcome := cloud.ParseExecuteCommand(payload, b.edgeID)
+	if outcome.ProtocolError != nil {
+		log.Printf("command bridge protocol error: %v", outcome.ProtocolError)
 		return
 	}
 
 	now := time.Now().UTC()
-	if !b.TryReserve(cmd.RequestID, now) {
+	switch b.Reserve(outcome.RequestID, now) {
+	case CommandRequestReserved:
+	case CommandRequestDuplicate:
 		// T021: Duplicate requestId suppressed by at-most-once state
+		return
+	case CommandRequestRegistryFull:
+		resultPayload := cloud.NewCommandResult(b.edgeID, outcome.RequestID, cloud.CommandStatusFailed)
+		_ = client.EmitCommandResult(resultPayload)
+		return
+	default:
 		return
 	}
 
+	if outcome.ValidationError != nil {
+		if !b.TryComplete(outcome.RequestID, time.Now().UTC()) {
+			return
+		}
+		resultPayload := cloud.NewCommandResult(b.edgeID, outcome.RequestID, cloud.CommandStatusFailed)
+		_ = client.EmitCommandResult(resultPayload)
+		return
+	}
+
+	cmd := outcome.Command
+
 	// T020: Async dispatch
 	go func() {
-		execCtx, cancel := context.WithTimeout(context.Background(), b.Timeout())
+		execCtx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		req := CommandExecutionRequest{
@@ -131,28 +154,66 @@ func (b *CommandBridge) HandleExecuteCommand(ctx context.Context, payload any, c
 			Value:       cmd.Payload.Value,
 		}
 
-		res, err := b.executor.ExecuteCommand(execCtx, req)
+		resultCh := make(chan commandExecutionOutcome, 1)
+		go func() {
+			res, err := b.executor.ExecuteCommand(execCtx, req)
+			resultCh <- commandExecutionOutcome{result: res, err: err}
+		}()
+
+		timer := time.NewTimer(b.Timeout())
+		defer timer.Stop()
 
 		var status cloud.CommandTerminalStatus
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				status = cloud.CommandStatusTimeout
-			} else {
-				status = cloud.CommandStatusFailed
-			}
-		} else {
-			if res.Status != "" {
-				status = res.Status
-			} else {
-				status = cloud.CommandStatusFailed
-			}
+		select {
+		case outcome := <-resultCh:
+			status = mapCommandExecutionOutcome(outcome.result, outcome.err)
+		case <-timer.C:
+			cancel()
+			status = cloud.CommandStatusTimeout
+		case <-ctx.Done():
+			cancel()
+			status = cloud.CommandStatusFailed
 		}
 
-		b.TryComplete(cmd.RequestID, time.Now().UTC())
-		
+		if !b.TryComplete(cmd.RequestID, time.Now().UTC()) {
+			return
+		}
+
 		resultPayload := cloud.NewCommandResult(b.edgeID, cmd.RequestID, status)
 		_ = client.EmitCommandResult(resultPayload)
 	}()
+}
+
+type commandExecutionOutcome struct {
+	result CommandExecutionResult
+	err    error
+}
+
+func mapCommandExecutionOutcome(res CommandExecutionResult, err error) cloud.CommandTerminalStatus {
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return cloud.CommandStatusTimeout
+		}
+		return cloud.CommandStatusFailed
+	}
+
+	switch res.Status {
+	case cloud.CommandStatusConfirmed:
+		return cloud.CommandStatusConfirmed
+	case cloud.CommandStatusTimeout:
+		return cloud.CommandStatusTimeout
+	case cloud.CommandStatusFailed:
+		return cloud.CommandStatusFailed
+	default:
+		return cloud.CommandStatusFailed
+	}
+}
+
+func (b *CommandBridge) Reserve(requestID string, now time.Time) CommandRequestReservationStatus {
+	if b == nil || b.registry == nil {
+		return CommandRequestReservationInvalid
+	}
+	return b.registry.Reserve(requestID, now)
 }
 
 func (b *CommandBridge) TryReserve(requestID string, now time.Time) bool {
@@ -177,20 +238,23 @@ func (b *CommandBridge) Registry() *CommandRequestRegistry {
 }
 
 type CommandRequestRegistryConfig struct {
-	TTL        time.Duration
-	MaxEntries int
+	TTL         time.Duration
+	InFlightTTL time.Duration
+	MaxEntries  int
 }
 
 type requestState struct {
-	reservedAt time.Time
-	completed  bool
+	reservedAt  time.Time
+	completedAt time.Time
+	completed   bool
 }
 
 type CommandRequestRegistry struct {
-	mu         sync.Mutex
-	ttl        time.Duration
-	maxEntries int
-	requests   map[string]requestState
+	mu          sync.Mutex
+	ttl         time.Duration
+	inFlightTTL time.Duration
+	maxEntries  int
+	requests    map[string]requestState
 }
 
 const (
@@ -204,26 +268,41 @@ func NewCommandRequestRegistry(cfg CommandRequestRegistryConfig) *CommandRequest
 		ttl = defaultCommandRequestRegistryTTL
 	}
 
+	inFlightTTL := cfg.InFlightTTL
+	if inFlightTTL <= 0 {
+		inFlightTTL = time.Minute
+	}
+
 	maxEntries := cfg.MaxEntries
 	if maxEntries <= 0 {
 		maxEntries = defaultCommandRequestRegistryMaxEntries
 	}
 
 	return &CommandRequestRegistry{
-		ttl:        ttl,
-		maxEntries: maxEntries,
-		requests:   make(map[string]requestState),
+		ttl:         ttl,
+		inFlightTTL: inFlightTTL,
+		maxEntries:  maxEntries,
+		requests:    make(map[string]requestState),
 	}
 }
 
-func (r *CommandRequestRegistry) TryReserve(requestID string, now time.Time) bool {
+type CommandRequestReservationStatus int
+
+const (
+	CommandRequestReservationInvalid CommandRequestReservationStatus = iota
+	CommandRequestReserved
+	CommandRequestDuplicate
+	CommandRequestRegistryFull
+)
+
+func (r *CommandRequestRegistry) Reserve(requestID string, now time.Time) CommandRequestReservationStatus {
 	if r == nil {
-		return false
+		return CommandRequestReservationInvalid
 	}
 
 	requestID = strings.TrimSpace(requestID)
 	if requestID == "" {
-		return false
+		return CommandRequestReservationInvalid
 	}
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -234,18 +313,24 @@ func (r *CommandRequestRegistry) TryReserve(requestID string, now time.Time) boo
 
 	r.cleanupExpiredLocked(now)
 	if _, exists := r.requests[requestID]; exists {
-		return false
+		return CommandRequestDuplicate
 	}
 
-	for len(r.requests) >= r.maxEntries {
-		r.evictOldestLocked()
+	if r.activeCountLocked() >= r.maxEntries {
+		r.rememberCompletedLocked(requestID, now)
+		return CommandRequestRegistryFull
 	}
 
+	r.evictCompletedOverflowLocked()
 	r.requests[requestID] = requestState{
 		reservedAt: now,
 		completed:  false,
 	}
-	return true
+	return CommandRequestReserved
+}
+
+func (r *CommandRequestRegistry) TryReserve(requestID string, now time.Time) bool {
+	return r.Reserve(requestID, now) == CommandRequestReserved
 }
 
 func (r *CommandRequestRegistry) TryComplete(requestID string, now time.Time) bool {
@@ -269,12 +354,14 @@ func (r *CommandRequestRegistry) TryComplete(requestID string, now time.Time) bo
 	if !exists {
 		return false
 	}
-	
+
 	if state.completed {
 		return false
 	}
 
+	r.evictCompletedOverflowLocked()
 	state.completed = true
+	state.completedAt = now
 	r.requests[requestID] = state
 	return true
 }
@@ -316,28 +403,85 @@ func (r *CommandRequestRegistry) Len(now time.Time) int {
 }
 
 func (r *CommandRequestRegistry) cleanupExpiredLocked(now time.Time) {
-	expiresBefore := now.Add(-r.ttl)
+	expiresBeforeCompleted := now.Add(-r.ttl)
+	expiresBeforeReserved := now.Add(-r.inFlightTTL)
+
 	for requestID, state := range r.requests {
-		if state.reservedAt.Before(expiresBefore) {
-			delete(r.requests, requestID)
+		if state.completed {
+			completedAt := state.completedAt
+			if completedAt.IsZero() {
+				completedAt = state.reservedAt
+			}
+			if completedAt.Before(expiresBeforeCompleted) {
+				delete(r.requests, requestID)
+			}
+		} else {
+			if state.reservedAt.Before(expiresBeforeReserved) {
+				delete(r.requests, requestID)
+			}
 		}
 	}
 }
 
-func (r *CommandRequestRegistry) evictOldestLocked() {
+func (r *CommandRequestRegistry) activeCountLocked() int {
+	count := 0
+	for _, state := range r.requests {
+		if !state.completed {
+			count++
+		}
+	}
+	return count
+}
+
+func (r *CommandRequestRegistry) completedCountLocked() int {
+	count := 0
+	for _, state := range r.requests {
+		if state.completed {
+			count++
+		}
+	}
+	return count
+}
+
+func (r *CommandRequestRegistry) rememberCompletedLocked(requestID string, now time.Time) {
+	r.evictCompletedOverflowLocked()
+	r.requests[requestID] = requestState{
+		reservedAt:  now,
+		completedAt: now,
+		completed:   true,
+	}
+}
+
+func (r *CommandRequestRegistry) evictCompletedOverflowLocked() {
+	for r.completedCountLocked() >= r.maxEntries {
+		if !r.evictOldestCompletedLocked() {
+			return
+		}
+	}
+}
+
+func (r *CommandRequestRegistry) evictOldestCompletedLocked() bool {
 	var (
-		oldestID string
-		oldestAt time.Time
+		oldestCompletedID string
+		oldestCompletedAt time.Time
 	)
 
 	for requestID, state := range r.requests {
-		if oldestID == "" || state.reservedAt.Before(oldestAt) {
-			oldestID = requestID
-			oldestAt = state.reservedAt
+		if state.completed {
+			completedAt := state.completedAt
+			if completedAt.IsZero() {
+				completedAt = state.reservedAt
+			}
+			if oldestCompletedID == "" || completedAt.Before(oldestCompletedAt) {
+				oldestCompletedID = requestID
+				oldestCompletedAt = completedAt
+			}
 		}
 	}
 
-	if oldestID != "" {
-		delete(r.requests, oldestID)
+	if oldestCompletedID != "" {
+		delete(r.requests, oldestCompletedID)
+		return true
 	}
+	return false
 }

@@ -14,6 +14,7 @@ import (
 	"edge_server/go_core/internal/cloud"
 	"edge_server/go_core/internal/config"
 	"edge_server/go_core/internal/mockadapter"
+	"edge_server/go_core/internal/runtime"
 	"edge_server/go_core/internal/source"
 	"edge_server/go_core/internal/state"
 )
@@ -689,3 +690,230 @@ func TestExecuteCommandHappyPath_EmitsConfirmedResult(t *testing.T) {
 		t.Error("Runner.Run did not exit after context cancellation")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// T013: Negative runtime proof
+// ---------------------------------------------------------------------------
+
+type hangingCommandAdapter struct {
+	mu         sync.Mutex
+	calls      int
+	blockCh    chan struct{}
+}
+
+func (a *hangingCommandAdapter) ApplyDefinition(_ source.Definition, _ source.Sink) error { return nil }
+func (a *hangingCommandAdapter) Close() error { return nil }
+func (a *hangingCommandAdapter) ExecuteCommand(ctx context.Context, req source.CommandRequest) (source.CommandResult, error) {
+	a.mu.Lock()
+	a.calls++
+	a.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return source.CommandResult{}, ctx.Err()
+	case <-a.blockCh:
+		return source.CommandResult{
+			DeviceID: req.DeviceID,
+			Command:  req.Command,
+			Status:   source.CommandStatusFailed,
+			Reason:   "unblocked as failed",
+		}, nil
+	}
+}
+
+func TestExecuteCommand_TimeoutAndDuplicateSuppression(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := commandCapableRuntimeConfig(stateDir)
+	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
+
+	adapter := &hangingCommandAdapter{blockCh: make(chan struct{})}
+	factories := source.FactoryRegistry{
+		"mock-cmd": func() (source.Adapter, error) {
+			return adapter, nil
+		},
+	}
+	transport := newSignalingTransport()
+
+	// Short bridge timeout override (50ms)
+	shortTimeout := 50 * time.Millisecond
+	process, err := NewWithSourceFactoriesForTest(
+		context.Background(),
+		cfg,
+		transport,
+		factories,
+		runtime.WithCommandBridgeTimeout(shortTimeout),
+	)
+	if err != nil {
+		t.Fatalf("construct runtime process: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- process.Runner.Run(ctx)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !transport.connected {
+		if time.Now().After(deadline) {
+			t.Fatal("timeout waiting for transport to connect")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	const testRequestID = "req-neg-001"
+	payload := map[string]any{
+		"requestId":   testRequestID,
+		"edgeId":      cfg.Runtime.EdgeID,
+		"deviceId":    "pump-01",
+		"commandType": "set_bool",
+		"payload":     map[string]any{"value": true},
+	}
+
+	// Inject duplicate events to prove at-most-once behavior
+	transport.InjectExecuteCommand(payload)
+	transport.InjectExecuteCommand(payload)
+	transport.InjectExecuteCommand(payload)
+
+	// Wait for command_result
+	var emitted emittedEvent
+	select {
+	case emitted = <-transport.resultCh:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout: no command_result emitted for timeout within 1s")
+	}
+
+	// Ensure duplicate suppression means we only get one result
+	select {
+	case duplicate := <-transport.resultCh:
+		t.Fatalf("expected exactly one command_result, got duplicate: %+v", duplicate)
+	case <-time.After(100 * time.Millisecond):
+		// Expected: no duplicate
+	}
+
+	// Assert Cloud contract shape for timeout
+	raw, _ := json.Marshal(emitted.Payload)
+	var result cloud.CommandResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("unmarshal command_result to struct: %v", err)
+	}
+
+	if result.Status != cloud.CommandStatusTimeout {
+		t.Errorf("expected status %q, got %q", cloud.CommandStatusTimeout, result.Status)
+	}
+	if result.FailureReason == "" || result.FailureReason != cloud.CommandFailureReasonEdgeTimeout {
+		t.Errorf("expected failureReason %q, got %q", cloud.CommandFailureReasonEdgeTimeout, result.FailureReason)
+	}
+	if result.RequestID != testRequestID {
+		t.Errorf("expected requestId %q, got %q", testRequestID, result.RequestID)
+	}
+
+	// Now check adapter calls to verify duplicate suppression at the executor boundary
+	adapter.mu.Lock()
+	calls := adapter.calls
+	adapter.mu.Unlock()
+	if calls != 1 {
+		t.Errorf("expected duplicate suppression to pass exactly 1 call to adapter, got %d", calls)
+	}
+
+	cancel()
+	<-runDone
+}
+
+// ---------------------------------------------------------------------------
+// T018: Mismatched EdgeID validation
+// ---------------------------------------------------------------------------
+
+func TestExecuteCommand_MismatchedEdgeIDEmitFailed(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := commandCapableRuntimeConfig(stateDir)
+	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
+
+	adapter := &hangingCommandAdapter{blockCh: make(chan struct{})}
+	factories := source.FactoryRegistry{
+		"mock-cmd": func() (source.Adapter, error) {
+			return adapter, nil
+		},
+	}
+	transport := newSignalingTransport()
+
+	process, err := NewWithSourceFactoriesForTest(
+		context.Background(),
+		cfg,
+		transport,
+		factories,
+	)
+	if err != nil {
+		t.Fatalf("construct runtime process: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- process.Runner.Run(ctx)
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for !transport.connected {
+		if time.Now().After(deadline) {
+			t.Fatal("timeout waiting for transport to connect")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	const testRequestID = "req-edge-mismatch-001"
+	payload := map[string]any{
+		"requestId":   testRequestID,
+		"edgeId":      "wrong-edge-id",
+		"deviceId":    "pump-01",
+		"commandType": "set_bool",
+		"payload":     map[string]any{"value": true},
+	}
+
+	transport.InjectExecuteCommand(payload)
+	transport.InjectExecuteCommand(payload)
+
+	var emitted emittedEvent
+	select {
+	case emitted = <-transport.resultCh:
+	case <-time.After(1 * time.Second):
+		t.Fatal("timeout: no command_result emitted for validation error within 1s")
+	}
+
+	select {
+	case duplicate := <-transport.resultCh:
+		t.Fatalf("expected exactly one command_result, got duplicate: %+v", duplicate)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	raw, _ := json.Marshal(emitted.Payload)
+	var result cloud.CommandResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("unmarshal command_result to struct: %v", err)
+	}
+
+	if result.Status != cloud.CommandStatusFailed {
+		t.Errorf("expected status %q, got %q", cloud.CommandStatusFailed, result.Status)
+	}
+	if result.FailureReason != cloud.CommandFailureReasonEdgeFailed {
+		t.Errorf("expected failureReason %q, got %q", cloud.CommandFailureReasonEdgeFailed, result.FailureReason)
+	}
+	if result.EdgeID != cfg.Runtime.EdgeID {
+		t.Errorf("expected edgeId in response to be configured edgeId %q, got %q", cfg.Runtime.EdgeID, result.EdgeID)
+	}
+
+	adapter.mu.Lock()
+	calls := adapter.calls
+	adapter.mu.Unlock()
+	if calls != 0 {
+		t.Errorf("expected executor not to be called, got %d calls", calls)
+	}
+
+	cancel()
+	<-runDone
+}
+

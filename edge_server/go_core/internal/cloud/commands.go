@@ -83,15 +83,22 @@ type CommandResult struct {
 	FailureReason CommandFailureReason  `json:"failureReason,omitempty"`
 }
 
-func ParseExecuteCommand(raw any, expectedEdgeID string) (*ExecuteCommand, error) {
+type ParseExecuteCommandOutcome struct {
+	Command         *ExecuteCommand
+	RequestID       string
+	ValidationError error
+	ProtocolError   error
+}
+
+func ParseExecuteCommand(raw any, expectedEdgeID string) ParseExecuteCommandOutcome {
 	b, err := json.Marshal(raw)
 	if err != nil {
-		return nil, fmt.Errorf("marshal raw payload: %w", err)
+		return ParseExecuteCommandOutcome{ProtocolError: fmt.Errorf("marshal raw payload: %w", err)}
 	}
 
 	var cmd ExecuteCommand
 	if err := json.Unmarshal(b, &cmd); err != nil {
-		return nil, fmt.Errorf("unmarshal execute_command: %w", err)
+		return ParseExecuteCommandOutcome{ProtocolError: fmt.Errorf("unmarshal execute_command: %w", err)}
 	}
 
 	cmd.RequestID = strings.TrimSpace(cmd.RequestID)
@@ -99,36 +106,47 @@ func ParseExecuteCommand(raw any, expectedEdgeID string) (*ExecuteCommand, error
 	cmd.DeviceID = strings.TrimSpace(cmd.DeviceID)
 
 	if cmd.RequestID == "" {
-		return nil, fmt.Errorf("requestId is required")
+		return ParseExecuteCommandOutcome{ProtocolError: fmt.Errorf("requestId is required")}
 	}
+	
+	outcome := ParseExecuteCommandOutcome{RequestID: cmd.RequestID}
+
 	if cmd.EdgeID == "" {
-		return nil, fmt.Errorf("edgeId is required")
+		outcome.ValidationError = fmt.Errorf("edgeId is required")
+		return outcome
 	}
 	if cmd.EdgeID != expectedEdgeID {
-		return nil, fmt.Errorf("edgeId mismatch: expected %s, got %s", expectedEdgeID, cmd.EdgeID)
+		outcome.ValidationError = fmt.Errorf("edgeId mismatch: expected %s, got %s", expectedEdgeID, cmd.EdgeID)
+		return outcome
 	}
 	if cmd.DeviceID == "" {
-		return nil, fmt.Errorf("deviceId is required")
+		outcome.ValidationError = fmt.Errorf("deviceId is required")
+		return outcome
 	}
 	if !IsSupportedCommandType(cmd.CommandType) {
-		return nil, fmt.Errorf("unsupported commandType: %s", cmd.CommandType)
+		outcome.ValidationError = fmt.Errorf("unsupported commandType: %s", cmd.CommandType)
+		return outcome
 	}
 	if cmd.Payload.Value == nil {
-		return nil, fmt.Errorf("payload.value is required")
+		outcome.ValidationError = fmt.Errorf("payload.value is required")
+		return outcome
 	}
 
 	switch cmd.CommandType {
 	case CommandTypeSetBool:
 		if _, ok := cmd.Payload.Value.(bool); !ok {
-			return nil, fmt.Errorf("payload.value must be a boolean for set_bool")
+			outcome.ValidationError = fmt.Errorf("payload.value must be a boolean for set_bool")
+			return outcome
 		}
 	case CommandTypeSetNumber:
 		if _, ok := cmd.Payload.Value.(float64); !ok {
-			return nil, fmt.Errorf("payload.value must be a number for set_number")
+			outcome.ValidationError = fmt.Errorf("payload.value must be a number for set_number")
+			return outcome
 		}
 	}
 
-	return &cmd, nil
+	outcome.Command = &cmd
+	return outcome
 }
 
 func NewCommandResult(edgeID string, requestID string, status CommandTerminalStatus) *CommandResult {

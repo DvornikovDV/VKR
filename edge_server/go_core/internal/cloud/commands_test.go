@@ -21,13 +21,13 @@ func TestParseExecuteCommand_HappyPath(t *testing.T) {
 			},
 		}
 
-		cmd, err := cloud.ParseExecuteCommand(raw, expectedEdgeID)
-		if err != nil {
-			t.Fatalf("expected success, got %v", err)
+		outcome := cloud.ParseExecuteCommand(raw, expectedEdgeID)
+		if outcome.ProtocolError != nil || outcome.ValidationError != nil {
+			t.Fatalf("expected success, got protocol err: %v, validation err: %v", outcome.ProtocolError, outcome.ValidationError)
 		}
 
-		if val, ok := cmd.Payload.Value.(bool); !ok || !val {
-			t.Fatalf("expected true boolean, got %v", cmd.Payload.Value)
+		if val, ok := outcome.Command.Payload.Value.(bool); !ok || !val {
+			t.Fatalf("expected true boolean, got %v", outcome.Command.Payload.Value)
 		}
 	})
 
@@ -42,13 +42,13 @@ func TestParseExecuteCommand_HappyPath(t *testing.T) {
 			},
 		}
 
-		cmd, err := cloud.ParseExecuteCommand(raw, expectedEdgeID)
-		if err != nil {
-			t.Fatalf("expected success, got %v", err)
+		outcome := cloud.ParseExecuteCommand(raw, expectedEdgeID)
+		if outcome.ProtocolError != nil || outcome.ValidationError != nil {
+			t.Fatalf("expected success, got protocol err: %v, validation err: %v", outcome.ProtocolError, outcome.ValidationError)
 		}
 
-		if val, ok := cmd.Payload.Value.(float64); !ok || val != 128 {
-			t.Fatalf("expected 128 float64, got %v", cmd.Payload.Value)
+		if val, ok := outcome.Command.Payload.Value.(float64); !ok || val != 128 {
+			t.Fatalf("expected 128 float64, got %v", outcome.Command.Payload.Value)
 		}
 	})
 }
@@ -67,8 +67,8 @@ func TestParseExecuteCommand_Negative(t *testing.T) {
 			},
 		}
 
-		_, err := cloud.ParseExecuteCommand(raw, expectedEdgeID)
-		if err == nil {
+		outcome := cloud.ParseExecuteCommand(raw, expectedEdgeID)
+		if outcome.ProtocolError == nil && outcome.ValidationError == nil {
 			t.Fatal("expected error, got nil")
 		}
 	})
@@ -84,8 +84,8 @@ func TestParseExecuteCommand_Negative(t *testing.T) {
 			},
 		}
 
-		_, err := cloud.ParseExecuteCommand(raw, expectedEdgeID)
-		if err == nil {
+		outcome := cloud.ParseExecuteCommand(raw, expectedEdgeID)
+		if outcome.ProtocolError == nil && outcome.ValidationError == nil {
 			t.Fatal("expected error, got nil")
 		}
 	})
