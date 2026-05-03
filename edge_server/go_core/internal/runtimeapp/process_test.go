@@ -2,10 +2,12 @@ package runtimeapp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -399,5 +401,291 @@ func writeBlockedRuntimeStateFixture(t *testing.T, stateDir string, edgeID strin
 		UpdatedAt:            now,
 	}); err != nil {
 		t.Fatalf("write blocked runtime-state fixture: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// T012: Happy path runtime proof helpers
+// ---------------------------------------------------------------------------
+
+// commandCallRecord stores the arguments received by a single ExecuteCommand call.
+type commandCallRecord struct {
+	DeviceID string
+	Command  string
+	Value    any
+}
+
+// commandCapableTestAdapter implements source.Adapter and source.CommandCapable.
+// It records every ExecuteCommand call and applies fail-fast validation:
+// if the incoming request does not match the expected pump-01/set_bool/true
+// arguments it returns a failed result so that the proof cannot pass on
+// a mis-routed or mis-parsed command.
+type commandCapableTestAdapter struct {
+	mu    sync.Mutex
+	calls []commandCallRecord
+}
+
+func (a *commandCapableTestAdapter) ApplyDefinition(_ source.Definition, _ source.Sink) error {
+	return nil
+}
+
+func (a *commandCapableTestAdapter) Close() error { return nil }
+
+func (a *commandCapableTestAdapter) ExecuteCommand(_ context.Context, req source.CommandRequest) (source.CommandResult, error) {
+	a.mu.Lock()
+	a.calls = append(a.calls, commandCallRecord{
+		DeviceID: req.DeviceID,
+		Command:  req.Command,
+		Value:    req.Value,
+	})
+	a.mu.Unlock()
+
+	// Fail-fast: return failed for any mis-routed or mis-parsed input so the
+	// proof cannot pass on a wrong deviceId, commandType, or payload.value.
+	if req.DeviceID != "pump-01" || req.Command != "set_bool" || req.Value != true {
+		return source.CommandResult{
+			DeviceID: req.DeviceID,
+			Command:  req.Command,
+			Status:   source.CommandStatusFailed,
+			Reason:   "unexpected command arguments in T012 proof adapter",
+		}, nil
+	}
+
+	return source.CommandResult{
+		DeviceID: req.DeviceID,
+		Command:  req.Command,
+		Status:   source.CommandStatusConfirmed,
+	}, nil
+}
+
+func (a *commandCapableTestAdapter) Calls() []commandCallRecord {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	out := make([]commandCallRecord, len(a.calls))
+	copy(out, a.calls)
+	return out
+}
+
+// signalingTransport extends fakeTransport with a channel that receives a copy
+// of every successfully emitted event so tests can synchronize without sleeps.
+type signalingTransport struct {
+	fakeTransport
+	resultCh chan emittedEvent
+}
+
+type emittedEvent struct {
+	Event   string
+	Payload any
+}
+
+func newSignalingTransport() *signalingTransport {
+	return &signalingTransport{resultCh: make(chan emittedEvent, 8)}
+}
+
+func (t *signalingTransport) Emit(event string, payload any) error {
+	if err := t.fakeTransport.Emit(event, payload); err != nil {
+		return err
+	}
+	select {
+	case t.resultCh <- emittedEvent{Event: event, Payload: payload}:
+	default:
+	}
+	return nil
+}
+
+// newCommandCapableSetup constructs a shared commandCapableTestAdapter and the
+// source.FactoryRegistry that produces it. The adapter pointer is returned so
+// the test can inspect recorded calls after the proof completes.
+func newCommandCapableSetup() (*commandCapableTestAdapter, source.FactoryRegistry) {
+	adapter := &commandCapableTestAdapter{}
+	factories := source.FactoryRegistry{
+		"mock-cmd": func() (source.Adapter, error) {
+			return adapter, nil
+		},
+	}
+	return adapter, factories
+}
+
+// commandCapableRuntimeConfig returns a Config whose single source exposes
+// device "pump-01" with a set_bool command, allowing source.Manager to route
+// execute_command through the commandCapableTestAdapter via the registered
+// deviceId + commandType mapping.
+func commandCapableRuntimeConfig(stateDir string) config.Config {
+	return config.Config{
+		Runtime: config.RuntimeConfig{
+			EdgeID:   "507f1f77bcf86cd799439011",
+			StateDir: stateDir,
+		},
+		Cloud: config.CloudConfig{
+			URL:              "http://127.0.0.1:4000",
+			Namespace:        "/edge",
+			ConnectTimeoutMs: 1000,
+			Reconnect: config.ReconnectConfig{
+				BaseDelayMs: 1000,
+				MaxDelayMs:  30000,
+				MaxAttempts: 0,
+			},
+		},
+		Batch: config.BatchConfig{
+			IntervalMs:  1000,
+			MaxReadings: 100,
+		},
+		Logging: config.LoggingConfig{
+			Level: "info",
+		},
+		Sources: []config.PollingSourceDefinition{
+			{
+				SourceID:       "mock-cmd-source",
+				AdapterKind:    "mock-cmd",
+				Enabled:        true,
+				PollIntervalMs: 1000,
+				Connection:     map[string]any{"port": "COM1"},
+				Devices: []config.LocalDeviceDefinition{
+					{
+						DeviceID: "pump-01",
+						Address:  map[string]any{"unitId": 1},
+						Metrics: []config.MetricDefinition{
+							{Metric: "status", ValueType: "boolean"},
+						},
+						Commands: []config.CommandDefinition{
+							{Command: "set_bool"},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// TestExecuteCommandHappyPath_EmitsConfirmedResult is the T012 happy path proof.
+//
+// It proves the complete runtime-owned execution chain:
+//
+//	execute_command (fake transport) →
+//	  SocketIOClient handler →
+//	  Runner.Run dispatch →
+//	  CommandBridge →
+//	  sourceManagerExecutor →
+//	  source.Manager.ExecuteCommand (deviceId+commandType mapping) →
+//	  commandCapableTestAdapter.ExecuteCommand →
+//	  command_result (Cloud contract shape)
+//
+// Assertions:
+//   - adapter called exactly once with DeviceID "pump-01", Command "set_bool", Value true
+//   - event name is "command_result"
+//   - status: "confirmed"
+//   - requestId echoed
+//   - edgeId matches config
+//   - completedAt parses as RFC3339
+//   - "failureReason" key absent in raw JSON map (Cloud contract shape)
+func TestExecuteCommandHappyPath_EmitsConfirmedResult(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := commandCapableRuntimeConfig(stateDir)
+	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
+
+	adapter, factories := newCommandCapableSetup()
+	transport := newSignalingTransport()
+
+	process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, transport, factories)
+	if err != nil {
+		t.Fatalf("construct runtime process: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- process.Runner.Run(ctx)
+	}()
+
+	// Wait until transport is connected: Runner.Run calls client.Connect which
+	// sets fakeTransport.connected = true before entering the inner select loop.
+	deadline := time.Now().Add(2 * time.Second)
+	for !transport.connected {
+		if time.Now().After(deadline) {
+			t.Fatal("timeout waiting for transport to connect")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	const testRequestID = "req-happy-001"
+	transport.InjectExecuteCommand(map[string]any{
+		"requestId":   testRequestID,
+		"edgeId":      cfg.Runtime.EdgeID,
+		"deviceId":    "pump-01",
+		"commandType": "set_bool",
+		"payload":     map[string]any{"value": true},
+	})
+
+	// Wait for command_result via the signaling channel — no sleeps.
+	var emitted emittedEvent
+	select {
+	case emitted = <-transport.resultCh:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout: no command_result emitted within 3 seconds")
+	}
+
+	// --- assert event name ---
+	if emitted.Event != "command_result" {
+		t.Fatalf("expected event %q, got %q", "command_result", emitted.Event)
+	}
+
+	// --- assert source manager path: adapter called exactly once with correct args ---
+	calls := adapter.Calls()
+	if len(calls) != 1 {
+		t.Errorf("expected adapter.ExecuteCommand called exactly once, got %d", len(calls))
+	} else {
+		c := calls[0]
+		if c.DeviceID != "pump-01" {
+			t.Errorf("expected DeviceID %q reaching adapter, got %q", "pump-01", c.DeviceID)
+		}
+		if c.Command != "set_bool" {
+			t.Errorf("expected Command %q reaching adapter, got %q", "set_bool", c.Command)
+		}
+		if c.Value != true {
+			t.Errorf("expected Value true reaching adapter, got %v", c.Value)
+		}
+	}
+
+	// --- assert Cloud contract shape: marshal to map to check key presence ---
+	raw, marshalErr := json.Marshal(emitted.Payload)
+	if marshalErr != nil {
+		t.Fatalf("marshal command_result payload: %v", marshalErr)
+	}
+
+	// Check failureReason key absence at the JSON map level (not Go zero-value).
+	var payloadMap map[string]any
+	if err := json.Unmarshal(raw, &payloadMap); err != nil {
+		t.Fatalf("unmarshal command_result to map: %v", err)
+	}
+	if _, exists := payloadMap["failureReason"]; exists {
+		t.Errorf("expected failureReason key to be omitted for confirmed, got %v", payloadMap["failureReason"])
+	}
+
+	// Decode into typed struct for remaining field assertions.
+	var result cloud.CommandResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("unmarshal command_result to struct: %v", err)
+	}
+
+	if result.Status != cloud.CommandStatusConfirmed {
+		t.Errorf("expected status %q, got %q", cloud.CommandStatusConfirmed, result.Status)
+	}
+	if result.RequestID != testRequestID {
+		t.Errorf("expected requestId %q, got %q", testRequestID, result.RequestID)
+	}
+	if result.EdgeID != cfg.Runtime.EdgeID {
+		t.Errorf("expected edgeId %q, got %q", cfg.Runtime.EdgeID, result.EdgeID)
+	}
+	if _, parseErr := time.Parse(time.RFC3339, result.CompletedAt); parseErr != nil {
+		t.Errorf("expected completedAt to be RFC3339, got %q: %v", result.CompletedAt, parseErr)
+	}
+
+	cancel()
+	select {
+	case <-runDone:
+	case <-time.After(2 * time.Second):
+		t.Error("Runner.Run did not exit after context cancellation")
 	}
 }
