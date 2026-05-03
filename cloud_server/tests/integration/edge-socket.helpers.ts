@@ -363,6 +363,85 @@ export async function expectNoEvent(
     });
 }
 
+// --- Command RPC test helpers (T009) ---
+
+/**
+ * Fires a POST /api/edge-servers/:edgeId/commands to the REAL listening server.
+ *
+ * Uses native fetch (Node 18+) instead of supertest request(app) so that the
+ * HTTP request is sent eagerly — critical for tests that need to capture
+ * execute_command before awaiting the HTTP response.
+ *
+ * Returns a Promise<Response> that resolves when the long-polling HTTP response
+ * arrives (confirmed, timeout, etc.).
+ */
+export function postEdgeCommand(
+    socketBaseUrl: string,
+    userToken: string,
+    edgeId: string,
+    body: Record<string, unknown>,
+): Promise<Response> {
+    return fetch(`${socketBaseUrl}/api/edge-servers/${edgeId}/commands`, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${userToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+    });
+}
+
+export interface ExecuteCommandPayload {
+    requestId: string;
+    edgeId: string;
+    deviceId: string;
+    commandType: string;
+    payload: { value: boolean | number };
+}
+
+/**
+ * Registers a one-time listener on the Edge client socket for `execute_command`
+ * and resolves with the received payload or rejects on timeout.
+ * Must be set up BEFORE the HTTP POST that triggers the command.
+ */
+export function captureExecuteCommand(
+    edgeSocket: ClientSocket,
+    timeoutMs = 4000,
+): Promise<ExecuteCommandPayload> {
+    return new Promise<ExecuteCommandPayload>((resolve, reject) => {
+        const timer = setTimeout(() => {
+            edgeSocket.off('execute_command', onEvent);
+            reject(new Error('execute_command_capture_timeout'));
+        }, timeoutMs);
+
+        const onEvent = (payload: ExecuteCommandPayload) => {
+            clearTimeout(timer);
+            resolve(payload);
+        };
+
+        edgeSocket.once('execute_command', onEvent);
+    });
+}
+
+export interface CommandResultPayload {
+    edgeId: string;
+    requestId: string;
+    status: 'confirmed' | 'timeout' | 'failed';
+    failureReason?: 'edge_command_timeout' | 'edge_command_failed';
+    completedAt: string;
+}
+
+/**
+ * Emits a synthetic `command_result` from the Edge client socket back to Cloud.
+ * The caller is responsible for providing a valid, trusted payload shape.
+ */
+export function emitCommandResult(
+    edgeSocket: ClientSocket,
+    payload: CommandResultPayload,
+): void {
+    edgeSocket.emit('command_result', payload);
+}
+
 export async function waitForForcedDisconnect(
     socket: ClientSocket,
 ): Promise<{ edgeReason: string | null; disconnectReason: string }> {

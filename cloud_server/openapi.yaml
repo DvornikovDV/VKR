@@ -593,6 +593,115 @@ paths:
         '403':
           description: Forbidden
 
+  /api/edge-servers/{edgeId}/commands:
+    post:
+      operationId: executeEdgeServerCommand
+      summary: Send a command to a trusted Edge Server (USER only)
+      description: >
+        Accepts a `set_bool` or `set_number` command for a device on the
+        specified Edge Server. Cloud creates a `CommandAudit` record, emits
+        `execute_command` to the active trusted Edge socket, and waits
+        synchronously for a trusted `command_result` or a 5-second Cloud RPC
+        timeout. The terminal audit result is returned through the same HTTP
+        response. The requesting USER must be in `EdgeServer.trustedUsers`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the target Edge Server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - deviceId
+                - commandType
+                - payload
+              properties:
+                deviceId:
+                  type: string
+                  description: Target device identifier (A-Za-z0-9._-)
+                  example: pump_01
+                commandType:
+                  type: string
+                  enum: [set_bool, set_number]
+                  description: Type of write operation
+                payload:
+                  type: object
+                  required:
+                    - value
+                  properties:
+                    value:
+                      oneOf:
+                        - type: boolean
+                        - type: number
+                  description: Command payload — boolean for set_bool, finite number for set_number
+      responses:
+        '200':
+          description: Command confirmed by Edge
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandSuccessResponse'
+        '400':
+          description: Invalid request body (bad deviceId, commandType, or payload)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized — missing or invalid JWT
+        '403':
+          description: Forbidden — USER is not trusted for this Edge Server
+        '404':
+          description: Edge Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Edge Server is not in Active lifecycle state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many command requests — rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: >
+            Bad Gateway — Edge reported command failure or Edge-side timeout.
+            `failureReason` is `edge_command_timeout` or `edge_command_failed`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandErrorResponse'
+        '503':
+          description: >
+            Service Unavailable — no active trusted Edge socket found for this
+            Edge Server at the time of the request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandErrorResponse'
+        '504':
+          description: >
+            Gateway Timeout — Cloud RPC timeout: Edge did not respond within
+            the 5-second window. `failureReason` is `cloud_rpc_timeout`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandErrorResponse'
+
   /api/edge-servers/{edgeId}/bind:
     post:
       operationId: bindEdgeServerToUser
@@ -946,6 +1055,78 @@ paths:
 
 components:
   schemas:
+    CommandSuccessResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          required:
+            - requestId
+            - commandStatus
+            - completedAt
+          properties:
+            requestId:
+              type: string
+              format: uuid
+              description: Unique RPC request identifier
+            commandStatus:
+              type: string
+              enum: [confirmed]
+              description: Terminal command status
+            completedAt:
+              type: string
+              format: date-time
+              description: ISO timestamp of terminal audit update
+    CommandErrorResponse:
+      type: object
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+          description: Human-readable error description
+        requestId:
+          type: string
+          format: uuid
+          description: RPC request identifier (present when a CommandAudit was created)
+        commandStatus:
+          type: string
+          enum: [timeout, failed]
+          description: Terminal command status
+        failureReason:
+          type: string
+          enum:
+            - cloud_rpc_timeout
+            - edge_command_timeout
+            - edge_unavailable
+            - edge_command_failed
+          description: Machine-readable failure category
+        completedAt:
+          type: string
+          format: date-time
+          description: ISO timestamp of terminal audit update
+    ErrorResponse:
+      type: object
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+          description: Human-readable error description
     JSendSuccess:
       type: object
       properties:

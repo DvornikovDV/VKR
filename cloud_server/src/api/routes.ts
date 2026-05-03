@@ -3,8 +3,10 @@ import { DiagramsController } from './diagrams.controller';
 import { EdgeServersController } from './edge-servers.controller';
 import { UsersController } from './users.controller';
 import { AdminController } from './admin.controller';
+import { CommandsController } from './commands.controller';
 import { authMiddleware } from './middlewares/auth.middleware';
 import { requireRole } from './middlewares/role.middleware';
+import { commandRateLimit } from './commands.rate-limit';
 
 // Mounted at /api in app.ts — all paths here become /api/*
 const apiRouter = Router();
@@ -52,6 +54,15 @@ apiRouter.post(
 );
 apiRouter.get('/edge-servers/:edgeId/catalog', authMiddleware, requireRole('USER'), EdgeServersController.getEdgeServerCatalog);
 apiRouter.get('/edge-servers/:edgeId/ping', authMiddleware, requireRole('ADMIN'), EdgeServersController.pingEdgeServer);
+
+// ── Commands (USER only: trusted access validated inside controller) ──────────
+apiRouter.post(
+    '/edge-servers/:edgeId/commands',
+    commandRateLimit,
+    authMiddleware,
+    requireRole('USER'),
+    CommandsController.executeCommand,
+);
 
 // ── Users (self-service) ──────────────────────────────────────────────────
 apiRouter.get('/users/me', authMiddleware, UsersController.getMe);
