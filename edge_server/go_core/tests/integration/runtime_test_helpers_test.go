@@ -25,6 +25,9 @@ func (noopTransport) Connect(context.Context, cloud.HandshakeAuth) error { retur
 func (noopTransport) Disconnect() error                                  { return nil }
 func (noopTransport) Emit(string, any) error                             { return nil }
 func (noopTransport) OnEdgeDisconnect(func(any))                         {}
+func (noopTransport) OnExecuteCommand(func(any))                         {}
 func (noopTransport) OnConnect(func() error)                             {}
 func (noopTransport) OnConnectError(func(error))                         {}
 func (noopTransport) OnDisconnect(func(string))                          {}
+
+var _ cloud.Transport = noopTransport{}

@@ -24,6 +24,7 @@ type Runner struct {
 	bootstrap   *BootstrapSession
 	transport   cloud.Transport
 	telemetry   *TelemetryPipeline
+	bridge      *CommandBridge
 	stateStore  runtimeStateSaver
 	asyncErrors chan error
 }
@@ -194,6 +195,29 @@ func (r *Runner) currentRuntimeStateStore() runtimeStateSaver {
 	defer r.mu.RUnlock()
 
 	return r.stateStore
+}
+
+func (r *Runner) BindCommandBridge(bridge *CommandBridge) error {
+	if bridge == nil {
+		return errors.New("command bridge is required")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.bridge != nil {
+		return errors.New("runtime command bridge is already bound")
+	}
+
+	r.bridge = bridge
+	return nil
+}
+
+func (r *Runner) CurrentCommandBridge() *CommandBridge {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.bridge
 }
 
 func (r *Runner) persistRuntimeState() error {

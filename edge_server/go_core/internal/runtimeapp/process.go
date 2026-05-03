@@ -114,6 +114,17 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 		return nil, fmt.Errorf("initialize runtime-state snapshot: %w", err)
 	}
 
+	bridge, err := runtime.NewCommandBridge(runtime.CommandBridgeConfig{
+		EdgeID:   cfg.Runtime.EdgeID,
+		Executor: &sourceManagerExecutor{sources: sources},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create runtime command bridge: %w", err)
+	}
+	if err := runner.BindCommandBridge(bridge); err != nil {
+		return nil, fmt.Errorf("bind runtime command bridge: %w", err)
+	}
+
 	if err := runner.BindTelemetryReadings(
 		ctx,
 		sources.Readings(),

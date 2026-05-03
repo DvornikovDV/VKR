@@ -12,8 +12,15 @@ type inMemoryTransport struct {
 	onDisconnect   func(reason string)
 	onConnectErr   func(error)
 	edgeDisconnect func(any)
+	executeCommand func(any)
 	connected      bool
+	emitted        []struct {
+		Event   string
+		Payload any
+	}
 }
+
+var _ Transport = (*inMemoryTransport)(nil)
 
 func (t *inMemoryTransport) Connect(_ context.Context, _ HandshakeAuth) error {
 	t.connected = true
@@ -31,15 +38,29 @@ func (t *inMemoryTransport) Disconnect() error {
 	return nil
 }
 
-func (t *inMemoryTransport) Emit(_ string, _ any) error {
+func (t *inMemoryTransport) Emit(event string, payload any) error {
 	if !t.connected {
 		return errors.New("transport is not connected")
 	}
+	t.emitted = append(t.emitted, struct {
+		Event   string
+		Payload any
+	}{event, payload})
 	return nil
 }
 
 func (t *inMemoryTransport) OnEdgeDisconnect(handler func(any)) {
 	t.edgeDisconnect = handler
+}
+
+func (t *inMemoryTransport) OnExecuteCommand(handler func(any)) {
+	t.executeCommand = handler
+}
+
+func (t *inMemoryTransport) InjectExecuteCommand(payload any) {
+	if t.executeCommand != nil {
+		t.executeCommand(payload)
+	}
 }
 
 func (t *inMemoryTransport) OnConnect(handler func() error) {

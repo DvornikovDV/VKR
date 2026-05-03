@@ -433,6 +433,8 @@ func (t *t026BlockedTransport) Emit(string, any) error { return nil }
 
 func (t *t026BlockedTransport) OnEdgeDisconnect(func(any)) {}
 
+func (t *t026BlockedTransport) OnExecuteCommand(func(any)) {}
+
 func (t *t026BlockedTransport) OnConnect(func() error) {}
 
 func (t *t026BlockedTransport) OnConnectError(handler func(error)) {
@@ -442,6 +444,8 @@ func (t *t026BlockedTransport) OnConnectError(handler func(error)) {
 }
 
 func (t *t026BlockedTransport) OnDisconnect(func(string)) {}
+
+var _ cloud.Transport = (*t026BlockedTransport)(nil)
 
 func (t *t026BlockedTransport) WaitForAttempt(tb testing.TB, timeout time.Duration) cloud.HandshakeAuth {
 	tb.Helper()

@@ -139,8 +139,9 @@ func TestT020ProductionRuntimeRejectsMockAdapterKindByDefault(t *testing.T) {
 }
 
 type telemetryCaptureTransport struct {
-	connects chan cloud.HandshakeAuth
-	payloads chan string
+	connects       chan cloud.HandshakeAuth
+	payloads       chan string
+	executeCommand func(any)
 }
 
 func newTelemetryCaptureTransport() *telemetryCaptureTransport {
@@ -174,6 +175,18 @@ func (t *telemetryCaptureTransport) Emit(event string, payload any) error {
 }
 
 func (t *telemetryCaptureTransport) OnEdgeDisconnect(_ func(any)) {}
+
+func (t *telemetryCaptureTransport) OnExecuteCommand(handler func(any)) {
+	t.executeCommand = handler
+}
+
+func (t *telemetryCaptureTransport) InjectExecuteCommand(payload any) {
+	if t.executeCommand != nil {
+		t.executeCommand(payload)
+	}
+}
+
+var _ cloud.Transport = (*telemetryCaptureTransport)(nil)
 
 func (t *telemetryCaptureTransport) OnConnect(_ func() error) {}
 
@@ -255,11 +268,17 @@ type integrationModbusReadCall struct {
 	registerType modbus.RegType
 }
 
+type integrationModbusWriteCall struct {
+	address uint16
+	value   uint16
+}
+
 type integrationModbusClient struct {
 	mu         sync.Mutex
 	values     map[integrationModbusReadKey]uint16
 	errors     map[uint16]error
 	calls      []integrationModbusReadCall
+	writeCalls []integrationModbusWriteCall
 	openCount  int
 	closeCount int
 }
@@ -300,6 +319,17 @@ func (c *integrationModbusClient) ReadRegister(address uint16, registerType modb
 		return 0, fmt.Errorf("register %d not configured", address)
 	}
 	return value, nil
+}
+
+func (c *integrationModbusClient) WriteRegister(address uint16, value uint16) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.writeCalls = append(c.writeCalls, integrationModbusWriteCall{address: address, value: value})
+	if err := c.errors[address]; err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *integrationModbusClient) ReplaceValues(values map[integrationModbusReadKey]uint16) {

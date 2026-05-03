@@ -30,6 +30,7 @@ type WebSocketTransport struct {
 	mu               sync.RWMutex
 	conn             *websocket.Conn
 	onEdgeDisconnect func(any)
+	onExecuteCommand func(any)
 	onConnect        func() error
 	onConnectError   func(error)
 	onDisconnect     func(string)
@@ -150,6 +151,12 @@ func (t *WebSocketTransport) OnEdgeDisconnect(handler func(any)) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.onEdgeDisconnect = handler
+}
+
+func (t *WebSocketTransport) OnExecuteCommand(handler func(any)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onExecuteCommand = handler
 }
 
 func (t *WebSocketTransport) OnConnect(handler func() error) {
@@ -274,6 +281,10 @@ func (t *WebSocketTransport) dispatchNamespaceEvent(message string) {
 		if handler := t.getOnEdgeDisconnect(); handler != nil {
 			handler(payload)
 		}
+	case "execute_command":
+		if handler := t.getOnExecuteCommand(); handler != nil {
+			handler(payload)
+		}
 	}
 }
 
@@ -341,6 +352,12 @@ func (t *WebSocketTransport) getOnEdgeDisconnect() func(any) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.onEdgeDisconnect
+}
+
+func (t *WebSocketTransport) getOnExecuteCommand() func(any) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.onExecuteCommand
 }
 
 func (t *WebSocketTransport) getOnConnect() func() error {

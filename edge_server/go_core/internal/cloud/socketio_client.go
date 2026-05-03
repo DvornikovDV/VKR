@@ -115,6 +115,14 @@ func (c *SocketIOClient) EmitTelemetry(payload map[string]any) error {
 	return c.transport.Emit("telemetry", payload)
 }
 
+func (c *SocketIOClient) OnExecuteCommand(handler func(any)) {
+	c.transport.OnExecuteCommand(handler)
+}
+
+func (c *SocketIOClient) EmitCommandResult(payload any) error {
+	return c.transport.Emit("command_result", payload)
+}
+
 func (c *SocketIOClient) setPendingEdgeDisconnect(event EdgeDisconnect) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

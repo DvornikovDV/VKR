@@ -2,6 +2,7 @@ package runtimeapp
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,9 +22,55 @@ func (noopTransport) Connect(context.Context, cloud.HandshakeAuth) error { retur
 func (noopTransport) Disconnect() error                                  { return nil }
 func (noopTransport) Emit(string, any) error                             { return nil }
 func (noopTransport) OnEdgeDisconnect(func(any))                         {}
+func (noopTransport) OnExecuteCommand(func(any))                         {}
 func (noopTransport) OnConnect(func() error)                             {}
 func (noopTransport) OnConnectError(func(error))                         {}
 func (noopTransport) OnDisconnect(func(string))                          {}
+
+var _ cloud.Transport = noopTransport{}
+
+type fakeTransport struct {
+	noopTransport
+	executeCommand func(any)
+	emitted        []struct {
+		Event   string
+		Payload any
+	}
+	connected bool
+}
+
+var _ cloud.Transport = (*fakeTransport)(nil)
+
+func (t *fakeTransport) Connect(_ context.Context, _ cloud.HandshakeAuth) error {
+	t.connected = true
+	return nil
+}
+
+func (t *fakeTransport) Disconnect() error {
+	t.connected = false
+	return nil
+}
+
+func (t *fakeTransport) Emit(event string, payload any) error {
+	if !t.connected {
+		return errors.New("transport is not connected")
+	}
+	t.emitted = append(t.emitted, struct {
+		Event   string
+		Payload any
+	}{event, payload})
+	return nil
+}
+
+func (t *fakeTransport) OnExecuteCommand(handler func(any)) {
+	t.executeCommand = handler
+}
+
+func (t *fakeTransport) InjectExecuteCommand(payload any) {
+	if t.executeCommand != nil {
+		t.executeCommand(payload)
+	}
+}
 
 func TestNewInitializesRuntimeStateAndStatusFiles(t *testing.T) {
 	stateDir := t.TempDir()
