@@ -6,6 +6,43 @@ import (
 	"strings"
 )
 
+type EdgeEventName string
+
+const (
+	EdgeEventCapabilitiesCatalog EdgeEventName = "capabilities_catalog"
+)
+
+type CatalogValueType string
+
+const (
+	CatalogValueTypeBoolean CatalogValueType = "boolean"
+	CatalogValueTypeNumber  CatalogValueType = "number"
+	CatalogValueTypeString  CatalogValueType = "string"
+)
+
+type EdgeCapabilitiesCatalog struct {
+	EdgeServerID string                         `json:"edgeServerId"`
+	Telemetry    []EdgeCatalogTelemetryMetric   `json:"telemetry"`
+	Commands     []EdgeCatalogCommandCapability `json:"commands"`
+}
+
+type EdgeCatalogTelemetryMetric struct {
+	DeviceID  string           `json:"deviceId"`
+	Metric    string           `json:"metric"`
+	ValueType CatalogValueType `json:"valueType,omitempty"`
+	Label     string           `json:"label"`
+}
+
+type EdgeCatalogCommandCapability struct {
+	DeviceID       string           `json:"deviceId"`
+	CommandType    CommandType      `json:"commandType"`
+	ValueType      CatalogValueType `json:"valueType"`
+	Min            *float64         `json:"min,omitempty"`
+	Max            *float64         `json:"max,omitempty"`
+	ReportedMetric string           `json:"reportedMetric"`
+	Label          string           `json:"label"`
+}
+
 type ConnectErrorCode string
 
 const (
