@@ -90,8 +90,8 @@ export function FullConstructorPage() {
         return []
       }
 
-      const catalogRows = await getEdgeServerCatalog(edgeServerId)
-      return mapCatalogRowsToDeviceMetricCatalog(edgeServerId, catalogRows)
+      const catalogSnapshot = await getEdgeServerCatalog(edgeServerId)
+      return mapCatalogRowsToDeviceMetricCatalog(edgeServerId, catalogSnapshot)
     },
     [],
   )

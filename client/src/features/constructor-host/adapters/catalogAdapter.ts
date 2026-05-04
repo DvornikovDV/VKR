@@ -2,7 +2,7 @@ import {
   getAssignedEdgeServers,
   getEdgeServerCatalog,
   type AssignedEdgeServer,
-  type EdgeServerCatalogRow,
+  type EdgeCapabilitiesCatalogSnapshot,
 } from '@/shared/api/edgeServers'
 import {
   formatEdgeMachineLabel,
@@ -65,7 +65,7 @@ export function mapAssignedEdgeServersToMachineOptions(
 
 export function mapCatalogRowsToDeviceMetricCatalog(
   edgeServerId: string,
-  catalogRows: EdgeServerCatalogRow[],
+  catalogSnapshot: EdgeCapabilitiesCatalogSnapshot,
 ): EditorDeviceMetricCatalogEntry[] {
   const normalizedEdgeServerId = normalizeString(edgeServerId)
   if (normalizedEdgeServerId.length === 0) {
@@ -74,21 +74,22 @@ export function mapCatalogRowsToDeviceMetricCatalog(
 
   const byDeviceId = new Map<string, DeviceCatalogAccumulator>()
 
-  for (const catalogRow of catalogRows) {
-    const deviceId = normalizeString(catalogRow.deviceId)
-    const metric = normalizeString(catalogRow.metric)
+  const sourceEdgeServerId = normalizeString(catalogSnapshot.edgeServerId) || normalizedEdgeServerId
+
+  for (const telemetryItem of catalogSnapshot.telemetry) {
+    const deviceId = normalizeString(telemetryItem.deviceId)
+    const metric = normalizeString(telemetryItem.metric)
 
     if (deviceId.length === 0 || metric.length === 0) {
       continue
     }
 
-    const rowEdgeServerId = normalizeString(catalogRow.edgeServerId) || normalizedEdgeServerId
     const existingEntry = byDeviceId.get(deviceId)
     const entry =
       existingEntry ??
       (() => {
         const createdEntry: DeviceCatalogAccumulator = {
-          edgeServerId: rowEdgeServerId,
+          edgeServerId: sourceEdgeServerId,
           deviceId,
           deviceLabel: buildDeviceLabel(deviceId),
           deviceType: undefined,
@@ -127,6 +128,6 @@ export async function loadHostedDeviceMetricCatalog(
     return []
   }
 
-  const catalogRows = await getEdgeServerCatalog(normalizedEdgeServerId)
-  return mapCatalogRowsToDeviceMetricCatalog(normalizedEdgeServerId, catalogRows)
+  const catalogSnapshot = await getEdgeServerCatalog(normalizedEdgeServerId)
+  return mapCatalogRowsToDeviceMetricCatalog(normalizedEdgeServerId, catalogSnapshot)
 }

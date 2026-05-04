@@ -20,6 +20,7 @@ import {
   blockAdminEdgeServer,
   getAdminEdgeFleet,
   getAssignedEdgeServers,
+  getEdgeServerCatalog,
   getEdgeServerPingSnapshot,
   registerAdminEdgeServer,
   revokeEdgeServerAccess,
@@ -245,6 +246,88 @@ describe('edgeServers canonical normalization (T052)', () => {
       createdBy: null,
       persistentCredentialVersion: 4,
       lastLifecycleEventAt: '2026-04-15T12:15:00.000Z',
+    })
+  })
+
+  it('normalizes edge catalog snapshot object with telemetry and commands (T022)', async () => {
+    apiGet.mockResolvedValueOnce({
+      edgeServerId: 'edge-1',
+      telemetry: [
+        {
+          deviceId: 'boiler-1',
+          metric: 'temperature',
+          valueType: 'number',
+          label: 'Boiler temperature',
+        },
+      ],
+      commands: [
+        {
+          deviceId: 'boiler-1',
+          commandType: 'set_number',
+          valueType: 'number',
+          min: 20,
+          max: 80,
+          reportedMetric: 'temperature',
+          label: 'Set boiler temperature',
+        },
+      ],
+    })
+
+    await expect(getEdgeServerCatalog('edge-1')).resolves.toEqual({
+      edgeServerId: 'edge-1',
+      telemetry: [
+        {
+          deviceId: 'boiler-1',
+          metric: 'temperature',
+          valueType: 'number',
+          label: 'Boiler temperature',
+        },
+      ],
+      commands: [
+        {
+          deviceId: 'boiler-1',
+          commandType: 'set_number',
+          valueType: 'number',
+          min: 20,
+          max: 80,
+          reportedMetric: 'temperature',
+          label: 'Set boiler temperature',
+        },
+      ],
+    })
+  })
+
+  it('maps legacy row-array catalog only into telemetry and empty commands during rollout', async () => {
+    apiGet.mockResolvedValueOnce([
+      {
+        edgeServerId: 'edge-legacy',
+        deviceId: 'boiler-1',
+        metric: 'temperature',
+        label: 'Boiler temperature',
+      },
+      {
+        edgeServerId: 'edge-legacy',
+        deviceId: 'boiler-2',
+        metric: 'pressure',
+        label: '',
+      },
+    ])
+
+    await expect(getEdgeServerCatalog('edge-fallback')).resolves.toEqual({
+      edgeServerId: 'edge-legacy',
+      telemetry: [
+        {
+          deviceId: 'boiler-1',
+          metric: 'temperature',
+          label: 'Boiler temperature',
+        },
+        {
+          deviceId: 'boiler-2',
+          metric: 'pressure',
+          label: 'boiler-2 / pressure',
+        },
+      ],
+      commands: [],
     })
   })
 })

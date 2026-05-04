@@ -54,6 +54,30 @@ export interface EdgePingSnapshot {
   availability: EdgeAvailabilitySnapshot
 }
 
+export interface EdgeCatalogTelemetryMetric {
+  deviceId: string
+  metric: string
+  valueType?: 'boolean' | 'number' | 'string'
+  label: string
+}
+
+export interface EdgeCatalogCommandCapability {
+  deviceId: string
+  commandType: 'set_bool' | 'set_number'
+  valueType: 'boolean' | 'number'
+  min?: number
+  max?: number
+  reportedMetric: string
+  label: string
+}
+
+export interface EdgeCapabilitiesCatalogSnapshot {
+  edgeServerId: string
+  telemetry: EdgeCatalogTelemetryMetric[]
+  commands: EdgeCatalogCommandCapability[]
+}
+
+// Transitional legacy adapter input: old telemetry rows from early rollout APIs.
 export interface EdgeServerCatalogRow {
   edgeServerId: string
   deviceId: string
@@ -264,6 +288,144 @@ function normalizeEdgePingSnapshot(value: unknown): EdgePingSnapshot {
   }
 }
 
+function normalizeTelemetryValueType(value: unknown): 'boolean' | 'number' | 'string' | undefined {
+  if (value === 'boolean' || value === 'number' || value === 'string') {
+    return value
+  }
+  return undefined
+}
+
+function normalizeTelemetryCatalogEntry(value: unknown): EdgeCatalogTelemetryMetric | null {
+  if (!isRecord(value) || !isNonEmptyString(value.deviceId) || !isNonEmptyString(value.metric)) {
+    return null
+  }
+
+  const normalized: EdgeCatalogTelemetryMetric = {
+    deviceId: value.deviceId,
+    metric: value.metric,
+    label: isNonEmptyString(value.label) ? value.label : `${value.deviceId} / ${value.metric}`,
+  }
+
+  const valueType = normalizeTelemetryValueType(value.valueType)
+  if (valueType) {
+    normalized.valueType = valueType
+  }
+
+  return normalized
+}
+
+function normalizeCommandValueType(value: unknown): 'boolean' | 'number' | null {
+  if (value === 'boolean' || value === 'number') {
+    return value
+  }
+  return null
+}
+
+function normalizeFiniteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function normalizeCommandCatalogEntry(value: unknown): EdgeCatalogCommandCapability | null {
+  if (
+    !isRecord(value) ||
+    !isNonEmptyString(value.deviceId) ||
+    !isNonEmptyString(value.reportedMetric) ||
+    !isNonEmptyString(value.label)
+  ) {
+    return null
+  }
+
+  if (value.commandType !== 'set_bool' && value.commandType !== 'set_number') {
+    return null
+  }
+
+  const valueType = normalizeCommandValueType(value.valueType)
+  if (!valueType) {
+    return null
+  }
+
+  const normalized: EdgeCatalogCommandCapability = {
+    deviceId: value.deviceId,
+    commandType: value.commandType,
+    valueType,
+    reportedMetric: value.reportedMetric,
+    label: value.label,
+  }
+
+  const min = normalizeFiniteNumber(value.min)
+  if (min !== undefined) {
+    normalized.min = min
+  }
+
+  const max = normalizeFiniteNumber(value.max)
+  if (max !== undefined) {
+    normalized.max = max
+  }
+
+  return normalized
+}
+
+function normalizeLegacyCatalogRowTelemetry(value: unknown): EdgeCatalogTelemetryMetric | null {
+  if (!isRecord(value) || !isNonEmptyString(value.deviceId) || !isNonEmptyString(value.metric)) {
+    return null
+  }
+
+  return {
+    deviceId: value.deviceId,
+    metric: value.metric,
+    label: isNonEmptyString(value.label) ? value.label : `${value.deviceId} / ${value.metric}`,
+  }
+}
+
+function normalizeLegacyCatalogRows(
+  rows: unknown[],
+  fallbackEdgeServerId: string,
+): EdgeCapabilitiesCatalogSnapshot {
+  const telemetry = rows
+    .map((row) => normalizeLegacyCatalogRowTelemetry(row))
+    .filter((row): row is EdgeCatalogTelemetryMetric => row !== null)
+
+  const edgeServerIdFromRows = rows.find(
+    (row): row is EdgeServerCatalogRow => isRecord(row) && isNonEmptyString(row.edgeServerId),
+  )
+
+  return {
+    edgeServerId: edgeServerIdFromRows?.edgeServerId ?? fallbackEdgeServerId,
+    telemetry,
+    commands: [],
+  }
+}
+
+function normalizeEdgeServerCatalog(
+  value: unknown,
+  fallbackEdgeServerId: string,
+): EdgeCapabilitiesCatalogSnapshot {
+  if (Array.isArray(value)) {
+    return normalizeLegacyCatalogRows(value, fallbackEdgeServerId)
+  }
+
+  if (!isRecord(value) || !isNonEmptyString(value.edgeServerId)) {
+    throw new Error('Invalid edge catalog response.')
+  }
+
+  if (!Array.isArray(value.telemetry) || !Array.isArray(value.commands)) {
+    throw new Error('Invalid edge catalog response.')
+  }
+
+  const telemetry = value.telemetry
+    .map((entry) => normalizeTelemetryCatalogEntry(entry))
+    .filter((entry): entry is EdgeCatalogTelemetryMetric => entry !== null)
+  const commands = value.commands
+    .map((entry) => normalizeCommandCatalogEntry(entry))
+    .filter((entry): entry is EdgeCatalogCommandCapability => entry !== null)
+
+  return {
+    edgeServerId: value.edgeServerId,
+    telemetry,
+    commands,
+  }
+}
+
 function normalizeCanonicalAdminEdgeServerResponse(response: unknown): CanonicalAdminEdgeServer {
   const edge = normalizeCanonicalAdminEdgeServer(response)
   if (!edge) {
@@ -330,8 +492,9 @@ export async function getEdgeServerPingSnapshot(edgeId: string): Promise<EdgePin
   return normalizeEdgePingSnapshot(response)
 }
 
-export async function getEdgeServerCatalog(edgeId: string): Promise<EdgeServerCatalogRow[]> {
-  return apiClient.get<EdgeServerCatalogRow[]>(`/edge-servers/${edgeId}/catalog`)
+export async function getEdgeServerCatalog(edgeId: string): Promise<EdgeCapabilitiesCatalogSnapshot> {
+  const response = await apiClient.get<unknown>(`/edge-servers/${edgeId}/catalog`)
+  return normalizeEdgeServerCatalog(response, edgeId)
 }
 
 export async function bindEdgeServer(
