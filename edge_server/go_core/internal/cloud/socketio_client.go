@@ -115,6 +115,10 @@ func (c *SocketIOClient) EmitTelemetry(payload map[string]any) error {
 	return c.transport.Emit("telemetry", payload)
 }
 
+func (c *SocketIOClient) EmitCapabilitiesCatalog(catalog EdgeCapabilitiesCatalog) error {
+	return c.transport.Emit(string(EdgeEventCapabilitiesCatalog), catalog)
+}
+
 func (c *SocketIOClient) OnExecuteCommand(handler func(any)) {
 	c.transport.OnExecuteCommand(handler)
 }

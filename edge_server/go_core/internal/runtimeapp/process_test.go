@@ -472,6 +472,7 @@ func (a *commandCapableTestAdapter) Calls() []commandCallRecord {
 type signalingTransport struct {
 	fakeTransport
 	resultCh chan emittedEvent
+	onEmit   func(event string, payload any)
 }
 
 type emittedEvent struct {
@@ -486,6 +487,9 @@ func newSignalingTransport() *signalingTransport {
 func (t *signalingTransport) Emit(event string, payload any) error {
 	if err := t.fakeTransport.Emit(event, payload); err != nil {
 		return err
+	}
+	if t.onEmit != nil {
+		t.onEmit(event, payload)
 	}
 	select {
 	case t.resultCh <- emittedEvent{Event: event, Payload: payload}:
@@ -549,7 +553,7 @@ func commandCapableRuntimeConfig(stateDir string) config.Config {
 							{Metric: "status", ValueType: "boolean"},
 						},
 						Commands: []config.CommandDefinition{
-							{Command: "set_bool"},
+							{Command: "set_bool", ReportedMetric: "status"},
 						},
 					},
 				},
@@ -619,13 +623,7 @@ func TestExecuteCommandHappyPath_EmitsConfirmedResult(t *testing.T) {
 		"payload":     map[string]any{"value": true},
 	})
 
-	// Wait for command_result via the signaling channel — no sleeps.
-	var emitted emittedEvent
-	select {
-	case emitted = <-transport.resultCh:
-	case <-time.After(3 * time.Second):
-		t.Fatal("timeout: no command_result emitted within 3 seconds")
-	}
+	emitted := waitForEmittedEvent(t, transport.resultCh, "command_result", 3*time.Second)
 
 	// --- assert event name ---
 	if emitted.Event != "command_result" {
@@ -696,13 +694,13 @@ func TestExecuteCommandHappyPath_EmitsConfirmedResult(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 type hangingCommandAdapter struct {
-	mu         sync.Mutex
-	calls      int
-	blockCh    chan struct{}
+	mu      sync.Mutex
+	calls   int
+	blockCh chan struct{}
 }
 
 func (a *hangingCommandAdapter) ApplyDefinition(_ source.Definition, _ source.Sink) error { return nil }
-func (a *hangingCommandAdapter) Close() error { return nil }
+func (a *hangingCommandAdapter) Close() error                                             { return nil }
 func (a *hangingCommandAdapter) ExecuteCommand(ctx context.Context, req source.CommandRequest) (source.CommandResult, error) {
 	a.mu.Lock()
 	a.calls++
@@ -777,21 +775,10 @@ func TestExecuteCommand_TimeoutAndDuplicateSuppression(t *testing.T) {
 	transport.InjectExecuteCommand(payload)
 	transport.InjectExecuteCommand(payload)
 
-	// Wait for command_result
-	var emitted emittedEvent
-	select {
-	case emitted = <-transport.resultCh:
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout: no command_result emitted for timeout within 1s")
-	}
+	emitted := waitForEmittedEvent(t, transport.resultCh, "command_result", 1*time.Second)
 
 	// Ensure duplicate suppression means we only get one result
-	select {
-	case duplicate := <-transport.resultCh:
-		t.Fatalf("expected exactly one command_result, got duplicate: %+v", duplicate)
-	case <-time.After(100 * time.Millisecond):
-		// Expected: no duplicate
-	}
+	assertNoEmittedEvent(t, transport.resultCh, "command_result", 100*time.Millisecond)
 
 	// Assert Cloud contract shape for timeout
 	raw, _ := json.Marshal(emitted.Payload)
@@ -877,18 +864,9 @@ func TestExecuteCommand_MismatchedEdgeIDEmitFailed(t *testing.T) {
 	transport.InjectExecuteCommand(payload)
 	transport.InjectExecuteCommand(payload)
 
-	var emitted emittedEvent
-	select {
-	case emitted = <-transport.resultCh:
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout: no command_result emitted for validation error within 1s")
-	}
+	emitted := waitForEmittedEvent(t, transport.resultCh, "command_result", 1*time.Second)
 
-	select {
-	case duplicate := <-transport.resultCh:
-		t.Fatalf("expected exactly one command_result, got duplicate: %+v", duplicate)
-	case <-time.After(100 * time.Millisecond):
-	}
+	assertNoEmittedEvent(t, transport.resultCh, "command_result", 100*time.Millisecond)
 
 	raw, _ := json.Marshal(emitted.Payload)
 	var result cloud.CommandResult
@@ -917,3 +895,118 @@ func TestExecuteCommand_MismatchedEdgeIDEmitFailed(t *testing.T) {
 	<-runDone
 }
 
+func TestRuntimeStartup_EmitsCapabilitiesCatalogAfterConnect(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := commandCapableRuntimeConfig(stateDir)
+	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
+
+	_, factories := newCommandCapableSetup()
+	transport := newSignalingTransport()
+
+	process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, transport, factories)
+	if err != nil {
+		t.Fatalf("construct runtime process: %v", err)
+	}
+	catalogEmitState := make(chan runtime.SessionStateSnapshot, 1)
+	transport.onEmit = func(event string, payload any) {
+		if event != string(cloud.EdgeEventCapabilitiesCatalog) {
+			return
+		}
+		select {
+		case catalogEmitState <- process.Runner.StateSnapshot():
+		default:
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- process.Runner.Run(ctx)
+	}()
+
+	emitted := waitForEmittedEvent(t, transport.resultCh, string(cloud.EdgeEventCapabilitiesCatalog), 3*time.Second)
+	if !transport.connected {
+		t.Fatal("expected capabilities catalog to be emitted after transport connect")
+	}
+	var snapshotAtEmit runtime.SessionStateSnapshot
+	select {
+	case snapshotAtEmit = <-catalogEmitState:
+	default:
+		t.Fatal("expected capabilities catalog emit to capture runtime state")
+	}
+	if !snapshotAtEmit.Trusted || !snapshotAtEmit.Connected {
+		t.Fatalf("expected catalog emit after trusted runtime connect, got %+v", snapshotAtEmit)
+	}
+
+	catalog, ok := emitted.Payload.(cloud.EdgeCapabilitiesCatalog)
+	if !ok {
+		t.Fatalf("expected EdgeCapabilitiesCatalog payload, got %T", emitted.Payload)
+	}
+	if catalog.EdgeServerID != cfg.Runtime.EdgeID {
+		t.Fatalf("expected edgeServerId %q, got %q", cfg.Runtime.EdgeID, catalog.EdgeServerID)
+	}
+	if len(catalog.Telemetry) != 1 {
+		t.Fatalf("expected one telemetry metric, got %+v", catalog.Telemetry)
+	}
+	metric := catalog.Telemetry[0]
+	if metric.DeviceID != "pump-01" || metric.Metric != "status" || metric.ValueType != cloud.CatalogValueTypeBoolean {
+		t.Fatalf("unexpected telemetry metric: %+v", metric)
+	}
+	if len(catalog.Commands) != 1 {
+		t.Fatalf("expected one command capability, got %+v", catalog.Commands)
+	}
+	command := catalog.Commands[0]
+	if command.DeviceID != "pump-01" ||
+		command.CommandType != cloud.CommandTypeSetBool ||
+		command.ValueType != cloud.CatalogValueTypeBoolean ||
+		command.ReportedMetric != "status" {
+		t.Fatalf("unexpected command capability: %+v", command)
+	}
+
+	assertNoEmittedEvent(t, transport.resultCh, string(cloud.EdgeEventCapabilitiesCatalog), 100*time.Millisecond)
+
+	cancel()
+	select {
+	case <-runDone:
+	case <-time.After(2 * time.Second):
+		t.Error("Runner.Run did not exit after context cancellation")
+	}
+}
+
+func waitForEmittedEvent(t *testing.T, ch <-chan emittedEvent, event string, timeout time.Duration) emittedEvent {
+	t.Helper()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case emitted := <-ch:
+			if emitted.Event == event {
+				return emitted
+			}
+		case <-timer.C:
+			t.Fatalf("timeout waiting for %s event", event)
+		}
+	}
+}
+
+func assertNoEmittedEvent(t *testing.T, ch <-chan emittedEvent, event string, timeout time.Duration) {
+	t.Helper()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case emitted := <-ch:
+			if emitted.Event == event {
+				t.Fatalf("expected no duplicate %s event, got %+v", event, emitted)
+			}
+		case <-timer.C:
+			return
+		}
+	}
+}

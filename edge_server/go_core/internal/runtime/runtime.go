@@ -25,6 +25,7 @@ type Runner struct {
 	transport   cloud.Transport
 	telemetry   *TelemetryPipeline
 	bridge      *CommandBridge
+	catalog     *cloud.EdgeCapabilitiesCatalog
 	stateStore  runtimeStateSaver
 	asyncErrors chan error
 }
@@ -188,6 +189,31 @@ func (r *Runner) currentTelemetryPipeline() *TelemetryPipeline {
 	defer r.mu.RUnlock()
 
 	return r.telemetry
+}
+
+func (r *Runner) BindCapabilitiesCatalog(catalog cloud.EdgeCapabilitiesCatalog) error {
+	if strings.TrimSpace(catalog.EdgeServerID) == "" {
+		return errors.New("capabilities catalog edgeServerId is required")
+	}
+
+	cloned := cloneCapabilitiesCatalog(catalog)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.catalog = &cloned
+	return nil
+}
+
+func (r *Runner) currentCapabilitiesCatalog() (cloud.EdgeCapabilitiesCatalog, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.catalog == nil {
+		return cloud.EdgeCapabilitiesCatalog{}, false
+	}
+
+	return cloneCapabilitiesCatalog(*r.catalog), true
 }
 
 func (r *Runner) currentRuntimeStateStore() runtimeStateSaver {
@@ -392,6 +418,9 @@ func (r *Runner) Run(ctx context.Context) error {
 		if err := sessionFlow.HandleSuccessfulConnect(auth); err != nil {
 			return fmt.Errorf("promote runtime session after connect: %w", err)
 		}
+		if err := r.emitCapabilitiesCatalog(client, auth.EdgeID); err != nil {
+			return fmt.Errorf("emit capabilities catalog after connect: %w", err)
+		}
 
 		for {
 			select {
@@ -409,6 +438,29 @@ func (r *Runner) Run(ctx context.Context) error {
 
 	nextAttempt:
 	}
+}
+
+func (r *Runner) emitCapabilitiesCatalog(client *cloud.SocketIOClient, edgeID string) error {
+	catalog, ok := r.currentCapabilitiesCatalog()
+	if !ok {
+		return nil
+	}
+	if catalog.EdgeServerID != strings.TrimSpace(edgeID) {
+		return fmt.Errorf("capabilities catalog edgeServerId %q does not match connected edgeId %q", catalog.EdgeServerID, edgeID)
+	}
+
+	return client.EmitCapabilitiesCatalog(catalog)
+}
+
+func cloneCapabilitiesCatalog(catalog cloud.EdgeCapabilitiesCatalog) cloud.EdgeCapabilitiesCatalog {
+	cloned := cloud.EdgeCapabilitiesCatalog{
+		EdgeServerID: strings.TrimSpace(catalog.EdgeServerID),
+		Telemetry:    make([]cloud.EdgeCatalogTelemetryMetric, len(catalog.Telemetry)),
+		Commands:     make([]cloud.EdgeCatalogCommandCapability, len(catalog.Commands)),
+	}
+	copy(cloned.Telemetry, catalog.Telemetry)
+	copy(cloned.Commands, catalog.Commands)
+	return cloned
 }
 
 func signalLifecycleEvent(ch chan string, event string) {

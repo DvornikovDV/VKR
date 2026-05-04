@@ -106,6 +106,13 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	if _, err := sources.ApplyDefinitions(definitions); err != nil {
 		return nil, fmt.Errorf("apply source definitions: %w", err)
 	}
+	capabilitiesCatalog, err := runtime.BuildCapabilitiesCatalog(cfg.Runtime.EdgeID, definitions)
+	if err != nil {
+		return nil, fmt.Errorf("build capabilities catalog: %w", err)
+	}
+	if err := runner.BindCapabilitiesCatalog(capabilitiesCatalog); err != nil {
+		return nil, fmt.Errorf("bind capabilities catalog: %w", err)
+	}
 	sourceConfigRevision, err := activeSourceRevision(definitions)
 	if err != nil {
 		return nil, fmt.Errorf("calculate source config revision: %w", err)

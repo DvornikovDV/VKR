@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 )
 
@@ -174,6 +175,58 @@ func TestBuildHandshakeAuthNormalizesInput(t *testing.T) {
 	}
 	if persistent.CredentialSecret != "persist-secret" {
 		t.Fatalf("expected trimmed persistent secret, got %q", persistent.CredentialSecret)
+	}
+}
+
+func TestSocketIOClientEmitsCapabilitiesCatalog(t *testing.T) {
+	transport := &inMemoryTransport{}
+	client, err := NewSocketIOClient(SocketIOClientConfig{
+		ExpectedEdgeID: "edge-1",
+		Transport:      transport,
+	})
+	if err != nil {
+		t.Fatalf("create socket client: %v", err)
+	}
+	if err := client.Connect(context.Background(), HandshakeAuth{
+		EdgeID:           "edge-1",
+		CredentialSecret: "persist-secret",
+	}); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	catalog := EdgeCapabilitiesCatalog{
+		EdgeServerID: "edge-1",
+		Telemetry: []EdgeCatalogTelemetryMetric{
+			{
+				DeviceID:  "pump-01",
+				Metric:    "status",
+				ValueType: CatalogValueTypeBoolean,
+				Label:     "pump-01 / status",
+			},
+		},
+		Commands: []EdgeCatalogCommandCapability{
+			{
+				DeviceID:       "pump-01",
+				CommandType:    CommandTypeSetBool,
+				ValueType:      CatalogValueTypeBoolean,
+				ReportedMetric: "status",
+				Label:          "pump-01 / set_bool",
+			},
+		},
+	}
+
+	if err := client.EmitCapabilitiesCatalog(catalog); err != nil {
+		t.Fatalf("emit capabilities catalog: %v", err)
+	}
+
+	if len(transport.emitted) != 1 {
+		t.Fatalf("expected one emitted event, got %+v", transport.emitted)
+	}
+	if transport.emitted[0].Event != string(EdgeEventCapabilitiesCatalog) {
+		t.Fatalf("expected event %q, got %q", EdgeEventCapabilitiesCatalog, transport.emitted[0].Event)
+	}
+	if !reflect.DeepEqual(transport.emitted[0].Payload, catalog) {
+		t.Fatalf("expected catalog payload to pass through transport, got %+v", transport.emitted[0].Payload)
 	}
 }
 
