@@ -15,6 +15,30 @@ export interface EdgePersistentCredentialMetadata {
     lastAcceptedAt: Date | null;
 }
 
+export interface EdgeCatalogTelemetryMetric {
+    deviceId: string;
+    metric: string;
+    valueType?: 'boolean' | 'number' | 'string';
+    label: string;
+}
+
+export interface EdgeCatalogCommandCapability {
+    deviceId: string;
+    commandType: 'set_bool' | 'set_number';
+    valueType: 'boolean' | 'number';
+    min?: number;
+    max?: number;
+    reportedMetric: string;
+    label: string;
+}
+
+export interface EdgeCapabilitiesCatalogSnapshot {
+    edgeServerId: string;
+    telemetry: EdgeCatalogTelemetryMetric[];
+    commands: EdgeCatalogCommandCapability[];
+    updatedAt: Date;
+}
+
 export interface IEdgeServer extends Document {
     _id: Types.ObjectId;
     name: string;
@@ -23,6 +47,7 @@ export interface IEdgeServer extends Document {
     lifecycleState: EdgeLifecycleState;
     availability: EdgeAvailabilitySnapshot;
     persistentCredential: EdgePersistentCredentialMetadata | null;
+    latestCapabilitiesCatalog: EdgeCapabilitiesCatalogSnapshot | null;
     lastLifecycleEventAt: Date | null;
     createdAt: Date;
 }
@@ -43,6 +68,59 @@ const PersistentCredentialSchema = new Schema<EdgePersistentCredentialMetadata>(
         lastAcceptedAt: { type: Date, default: null },
     },
     { _id: false },
+);
+
+const CatalogTelemetryMetricSchema = new Schema<EdgeCatalogTelemetryMetric>(
+    {
+        deviceId: { type: String, required: true, trim: true },
+        metric: { type: String, required: true, trim: true },
+        valueType: {
+            type: String,
+            enum: ['boolean', 'number', 'string'],
+            required: false,
+        },
+        label: { type: String, required: true, trim: true },
+    },
+    { _id: false, strict: true },
+);
+
+const CatalogCommandCapabilitySchema = new Schema<EdgeCatalogCommandCapability>(
+    {
+        deviceId: { type: String, required: true, trim: true },
+        commandType: {
+            type: String,
+            enum: ['set_bool', 'set_number'],
+            required: true,
+        },
+        valueType: {
+            type: String,
+            enum: ['boolean', 'number'],
+            required: true,
+        },
+        min: { type: Number, required: false },
+        max: { type: Number, required: false },
+        reportedMetric: { type: String, required: true, trim: true },
+        label: { type: String, required: true, trim: true },
+    },
+    { _id: false, strict: true },
+);
+
+const CapabilitiesCatalogSchema = new Schema<EdgeCapabilitiesCatalogSnapshot>(
+    {
+        edgeServerId: { type: String, required: true, trim: true },
+        telemetry: {
+            type: [CatalogTelemetryMetricSchema],
+            default: [],
+            required: true,
+        },
+        commands: {
+            type: [CatalogCommandCapabilitySchema],
+            default: [],
+            required: true,
+        },
+        updatedAt: { type: Date, required: true },
+    },
+    { _id: false, strict: true },
 );
 
 const EdgeServerSchema = new Schema<IEdgeServer>(
@@ -74,6 +152,10 @@ const EdgeServerSchema = new Schema<IEdgeServer>(
         },
         persistentCredential: {
             type: PersistentCredentialSchema,
+            default: null,
+        },
+        latestCapabilitiesCatalog: {
+            type: CapabilitiesCatalogSchema,
             default: null,
         },
         lastLifecycleEventAt: {

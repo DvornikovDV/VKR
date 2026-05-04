@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import {
     EdgeServer,
     type EdgeAvailabilitySnapshot,
+    type EdgeCapabilitiesCatalogSnapshot,
     type EdgeLifecycleState,
     type EdgePersistentCredentialMetadata,
     type IEdgeServer,
@@ -27,6 +28,7 @@ import {
     unblockEdgeAggregate,
     type EdgeLifecycleAggregateState,
 } from './edge-lifecycle.domain';
+import { validateEdgeCapabilitiesCatalog } from './edge-capabilities.validation';
 
 export const FREE_EDGE_SERVER_QUOTA = 1;
 
@@ -681,6 +683,40 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
     }));
 }
 
+async function storeLatestCapabilitiesCatalog(
+    authenticatedEdgeIdStr: string,
+    payload: unknown,
+    observedAt: Date = new Date(),
+): Promise<EdgeCapabilitiesCatalogSnapshot> {
+    const edgeId = toObjectId(authenticatedEdgeIdStr, 'edgeId');
+    const sanitized = validateEdgeCapabilitiesCatalog(authenticatedEdgeIdStr, payload);
+    const latestCapabilitiesCatalog: EdgeCapabilitiesCatalogSnapshot = {
+        ...sanitized,
+        updatedAt: observedAt,
+    };
+
+    const updated = await EdgeServer.findOneAndUpdate(
+        { _id: edgeId },
+        {
+            $set: {
+                latestCapabilitiesCatalog,
+            },
+        },
+        {
+            new: true,
+            projection: { latestCapabilitiesCatalog: 1 },
+        },
+    )
+        .lean<{ latestCapabilitiesCatalog?: EdgeCapabilitiesCatalogSnapshot | null } | null>()
+        .exec();
+
+    if (!updated?.latestCapabilitiesCatalog) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    return updated.latestCapabilitiesCatalog;
+}
+
 export const EdgeServersService = {
     listForUser,
     listAll,
@@ -695,6 +731,7 @@ export const EdgeServersService = {
     pingEdgeServer,
     markEdgeOffline,
     getCatalogForUser,
+    storeLatestCapabilitiesCatalog,
     mapEdgeToAdminProjection,
     mapEdgeToUserProjection,
     mapEdgeToTelemetryReadyProjection,
