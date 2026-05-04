@@ -847,11 +847,11 @@ paths:
   /api/edge-servers/{edgeId}/catalog:
     get:
       operationId: getEdgeServerCatalog
-      summary: Get device and metric catalog for a trusted edge server
+      summary: Get latest capabilities catalog for a trusted edge server
       description: >
-        Returns a read-only machine-scoped catalog derived from telemetry already known to Cloud.
-        Intended for hosted constructor binding UI. USER must be trusted for the selected edge server.
-        Canonical catalog identity within one edge is `deviceId + metric`.
+        Returns the latest sanitized capabilities snapshot received from the trusted Edge runtime.
+        USER must be trusted for the selected edge server. If no snapshot has been received yet,
+        returns an empty snapshot object for the selected edge.
       security:
         - bearerAuth: []
       parameters:
@@ -862,7 +862,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Catalog entries for the selected edge server
+          description: Latest capabilities catalog snapshot for the selected edge server
           content:
             application/json:
               schema:
@@ -872,9 +872,7 @@ paths:
                     type: string
                     example: success
                   data:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/EdgeCatalogEntry'
+                    $ref: '#/components/schemas/EdgeCapabilitiesCatalog'
         '401':
           description: Unauthorized
         '403':
@@ -1149,22 +1147,64 @@ components:
               type: string
             user:
               type: object
-    EdgeCatalogEntry:
+    EdgeCatalogTelemetryMetric:
       type: object
       required:
-        - edgeServerId
         - deviceId
         - metric
         - label
       properties:
-        edgeServerId:
-          type: string
         deviceId:
           type: string
         metric:
           type: string
+        valueType:
+          type: string
+          enum: [boolean, number, string]
         label:
           type: string
+    EdgeCatalogCommandCapability:
+      type: object
+      required:
+        - deviceId
+        - commandType
+        - valueType
+        - reportedMetric
+        - label
+      properties:
+        deviceId:
+          type: string
+        commandType:
+          type: string
+          enum: [set_bool, set_number]
+        valueType:
+          type: string
+          enum: [boolean, number]
+        min:
+          type: number
+        max:
+          type: number
+        reportedMetric:
+          type: string
+        label:
+          type: string
+    EdgeCapabilitiesCatalog:
+      type: object
+      required:
+        - edgeServerId
+        - telemetry
+        - commands
+      properties:
+        edgeServerId:
+          type: string
+        telemetry:
+          type: array
+          items:
+            $ref: '#/components/schemas/EdgeCatalogTelemetryMetric'
+        commands:
+          type: array
+          items:
+            $ref: '#/components/schemas/EdgeCatalogCommandCapability'
     EdgeAvailabilitySnapshot:
       type: object
       required:

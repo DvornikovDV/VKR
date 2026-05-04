@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
-import mongoose from 'mongoose';
 import { connectDatabase, disconnectDatabase } from '../../src/database/mongoose';
 import { app } from '../../src/app';
 import { User } from '../../src/models/User';
@@ -21,16 +20,6 @@ function numericRollup(last: number) {
         sum: last,
         count: 1,
         avg: last,
-        last,
-    };
-}
-
-function booleanRollup(last: boolean) {
-    return {
-        kind: 'boolean' as const,
-        trueCount: last ? 1 : 0,
-        falseCount: last ? 0 : 1,
-        count: 1,
         last,
     };
 }
@@ -105,9 +94,8 @@ beforeEach(async () => {
 });
 
 describe('T088 - Edge catalog identity and lifecycle access', () => {
-    it('returns telemetry-derived catalog deduplicated by deviceId + metric within one edge', async () => {
+    it('returns stored capabilities snapshot for a trusted active edge', async () => {
         const edgeId = await createEdgeServer('CatalogMainEdge');
-        const anotherEdgeId = new mongoose.Types.ObjectId().toString();
 
         await request(app)
             .post(`/api/edge-servers/${edgeId}/bind`)
@@ -116,60 +104,33 @@ describe('T088 - Edge catalog identity and lifecycle access', () => {
             .expect(200);
 
         await setEdgeRuntimeState(edgeId, { lifecycleState: 'Active' });
-
-        await Telemetry.insertMany([
-            {
-                timestamp: new Date(),
-                metadata: { edgeId, deviceId: 'pump-1' },
-                metric: 'temperature',
-                rollup: numericRollup(21.2),
+        await EdgeServer.findByIdAndUpdate(edgeId, {
+            $set: {
+                latestCapabilitiesCatalog: {
+                    edgeServerId: edgeId,
+                    telemetry: [
+                        {
+                            deviceId: 'pump-1',
+                            metric: 'pressure',
+                            valueType: 'number',
+                            label: 'pump-1 / pressure',
+                        },
+                    ],
+                    commands: [
+                        {
+                            deviceId: 'pump-1',
+                            commandType: 'set_number',
+                            valueType: 'number',
+                            min: 1,
+                            max: 5,
+                            reportedMetric: 'pressure',
+                            label: 'pump-1 / set_number',
+                        },
+                    ],
+                    updatedAt: new Date(),
+                },
             },
-            {
-                timestamp: new Date(),
-                metadata: { edgeId, deviceId: 'pump-1' },
-                metric: 'temperature',
-                rollup: numericRollup(21.9),
-            },
-            {
-                timestamp: new Date(),
-                metadata: { edgeId, deviceId: 'pump-1' },
-                metric: 'pressure',
-                rollup: numericRollup(3.2),
-            },
-            {
-                timestamp: new Date(),
-                metadata: { edgeId, deviceId: 'valve-2' },
-                metric: 'state',
-                rollup: booleanRollup(true),
-            },
-            {
-                timestamp: new Date(),
-                metadata: { edgeId: anotherEdgeId, deviceId: 'y' },
-                metric: 'z',
-                rollup: numericRollup(100),
-            },
-        ]);
-
-        await mongoose.connection.collection('telemetry').insertMany([
-            {
-                timestamp: new Date(),
-                metadata: { edgeId, sourceId: 'legacy-plc-1', deviceId: 'legacy-device' },
-                metric: 'legacy-temp',
-                value: 55.5,
-            },
-            {
-                timestamp: new Date(),
-                metadata: { edgeId, sourceId: 'legacy-plc-2', deviceId: 'legacy-device' },
-                metric: 'legacy-temp',
-                value: 55.8,
-            },
-            {
-                timestamp: new Date(),
-                metadata: { edgeId, sourceId: 'legacy-plc-3', deviceId: '' },
-                metric: 'ignored-empty-device',
-                value: 1,
-            },
-        ]);
+        }).exec();
 
         const res = await request(app)
             .get(`/api/edge-servers/${edgeId}/catalog`)
@@ -178,32 +139,28 @@ describe('T088 - Edge catalog identity and lifecycle access', () => {
         expect(res.status).toBe(200);
         expect(res.body).toEqual({
             status: 'success',
-            data: [
-                {
-                    edgeServerId: edgeId,
-                    deviceId: 'legacy-device',
-                    metric: 'legacy-temp',
-                    label: 'legacy-device / legacy-temp',
-                },
-                {
-                    edgeServerId: edgeId,
-                    deviceId: 'pump-1',
-                    metric: 'pressure',
-                    label: 'pump-1 / pressure',
-                },
-                {
-                    edgeServerId: edgeId,
-                    deviceId: 'pump-1',
-                    metric: 'temperature',
-                    label: 'pump-1 / temperature',
-                },
-                {
-                    edgeServerId: edgeId,
-                    deviceId: 'valve-2',
-                    metric: 'state',
-                    label: 'valve-2 / state',
-                },
-            ],
+            data: {
+                edgeServerId: edgeId,
+                telemetry: [
+                    {
+                        deviceId: 'pump-1',
+                        metric: 'pressure',
+                        valueType: 'number',
+                        label: 'pump-1 / pressure',
+                    },
+                ],
+                commands: [
+                    {
+                        deviceId: 'pump-1',
+                        commandType: 'set_number',
+                        valueType: 'number',
+                        min: 1,
+                        max: 5,
+                        reportedMetric: 'pressure',
+                        label: 'pump-1 / set_number',
+                    },
+                ],
+            },
         });
     });
 

@@ -3,12 +3,13 @@ import {
     EdgeServer,
     type EdgeAvailabilitySnapshot,
     type EdgeCapabilitiesCatalogSnapshot,
+    type EdgeCatalogCommandCapability,
+    type EdgeCatalogTelemetryMetric,
     type EdgeLifecycleState,
     type EdgePersistentCredentialMetadata,
     type IEdgeServer,
 } from '../models/EdgeServer';
 import { User } from '../models/User';
-import { Telemetry } from '../models/Telemetry';
 import { AppError } from '../api/middlewares/error.middleware';
 import type {
     AdminEdgeServerRecord,
@@ -605,27 +606,26 @@ async function unblockEdgeServer(edgeIdStr: string, adminIdStr: string): Promise
     };
 }
 
-export interface EdgeCatalogEntry {
+export interface EdgeCapabilitiesCatalogResponse {
     edgeServerId: string;
-    deviceId: string;
-    metric: string;
-    label: string;
+    telemetry: EdgeCatalogTelemetryMetric[];
+    commands: EdgeCatalogCommandCapability[];
 }
 
-function buildCatalogLabel(deviceId: string, metric: string): string {
-    return `${deviceId} / ${metric}`;
-}
-
-async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<EdgeCatalogEntry[]> {
+async function getCatalogForUser(
+    edgeIdStr: string,
+    userIdStr: string,
+): Promise<EdgeCapabilitiesCatalogResponse> {
     const edgeId = toObjectId(edgeIdStr, 'edgeId');
     const userId = toObjectId(userIdStr, 'userId');
 
     const edgeServer = await EdgeServer.findById(edgeId)
-        .select('trustedUsers lifecycleState persistentCredential')
+        .select('trustedUsers lifecycleState persistentCredential latestCapabilitiesCatalog')
         .lean<{
             trustedUsers: mongoose.Types.ObjectId[];
             lifecycleState: EdgeLifecycleState;
             persistentCredential?: EdgePersistentCredentialMetadata | null;
+            latestCapabilitiesCatalog?: EdgeCapabilitiesCatalogSnapshot | null;
         } | null>()
         .exec();
 
@@ -645,42 +645,19 @@ async function getCatalogForUser(edgeIdStr: string, userIdStr: string): Promise<
         throw new AppError('Edge server is not telemetry-ready (Active lifecycle required)', 409);
     }
 
-    const deduplicated = await Telemetry.aggregate<{
-        deviceId: string;
-        metric: string;
-    }>([
-        {
-            $match: {
-                'metadata.edgeId': edgeIdStr,
-                'metadata.deviceId': { $type: 'string', $ne: '' },
-                metric: { $type: 'string', $ne: '' },
-                $or: [{ rollup: { $exists: true } }, { value: { $exists: true } }],
-            },
-        },
-        {
-            $group: {
-                _id: {
-                    deviceId: '$metadata.deviceId',
-                    metric: '$metric',
-                },
-            },
-        },
-        {
-            $project: {
-                _id: 0,
-                deviceId: '$_id.deviceId',
-                metric: '$_id.metric',
-            },
-        },
-        { $sort: { deviceId: 1, metric: 1 } },
-    ]).exec();
+    if (!edgeServer.latestCapabilitiesCatalog) {
+        return {
+            edgeServerId: edgeIdStr,
+            telemetry: [],
+            commands: [],
+        };
+    }
 
-    return deduplicated.map((entry) => ({
+    return {
         edgeServerId: edgeIdStr,
-        deviceId: entry.deviceId,
-        metric: entry.metric,
-        label: buildCatalogLabel(entry.deviceId, entry.metric),
-    }));
+        telemetry: edgeServer.latestCapabilitiesCatalog.telemetry,
+        commands: edgeServer.latestCapabilitiesCatalog.commands,
+    };
 }
 
 async function storeLatestCapabilitiesCatalog(

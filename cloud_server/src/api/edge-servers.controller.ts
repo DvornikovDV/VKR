@@ -1,6 +1,6 @@
 import { type Response, type NextFunction } from 'express';
 import { type AuthRequest } from './middlewares/auth.middleware';
-import { EdgeServersService, type EdgeCatalogEntry } from '../services/edge-servers.service';
+import { EdgeServersService, type EdgeCapabilitiesCatalogResponse } from '../services/edge-servers.service';
 import { AppError } from './middlewares/error.middleware';
 import { disconnectEdgeSocketsById } from '../socket/io';
 import type {
@@ -19,7 +19,7 @@ function requireUser(req: AuthRequest): { userId: string; role: string } {
 
 type EdgeCatalogSuccessResponse = {
     status: 'success';
-    data: EdgeCatalogEntry[];
+    data: EdgeCapabilitiesCatalogResponse;
 };
 
 type EdgeListSuccessResponse = {

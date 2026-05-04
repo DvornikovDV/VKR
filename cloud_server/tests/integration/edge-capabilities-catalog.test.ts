@@ -1,7 +1,10 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import request from 'supertest';
 import { type Socket as ClientSocket } from 'socket.io-client';
+import { app } from '../../src/app';
 import { connectDatabase, disconnectDatabase } from '../../src/database/mongoose';
 import { EdgeServer } from '../../src/models/EdgeServer';
+import { Telemetry } from '../../src/models/Telemetry';
 import { User } from '../../src/models/User';
 import { lastSeenRegistry } from '../../src/services/edge-servers.service';
 import {
@@ -87,21 +90,89 @@ describe('Edge capabilities catalog socket storage', () => {
 
     afterAll(async () => {
         await cleanupClientSockets(activeSockets);
-        await EdgeServer.deleteMany({});
-        await User.deleteMany({});
+        await Promise.all([EdgeServer.deleteMany({}), User.deleteMany({}), Telemetry.deleteMany({})]);
         await stopServerIfStarted(startedSocketServer);
         await disconnectDatabase();
     });
 
     beforeEach(async () => {
         await cleanupClientSockets(activeSockets);
-        await EdgeServer.deleteMany({});
-        await User.deleteMany({});
+        await Promise.all([EdgeServer.deleteMany({}), User.deleteMany({}), Telemetry.deleteMany({})]);
         lastSeenRegistry.clear();
     });
 
     afterEach(async () => {
         await cleanupClientSockets(activeSockets);
+    });
+
+    it('stores trusted edge snapshot and returns telemetry plus commands via catalog API', async () => {
+        const { adminToken } = await createAdminSession('edge_catalog_happy_admin@test.com');
+        const { userId, userToken } = await createUserSession('edge_catalog_happy_user@test.com');
+        const edge = await registerEdge(adminToken, 'Capabilities Catalog Happy Edge');
+        await bindEdgeToUser(adminToken, edge.edgeId, userId);
+
+        const edgeSocket = await connectEdgeSocket(socketBaseUrl, activeSockets, {
+            edgeId: edge.edgeId,
+            credentialSecret: edge.credentialSecret,
+        });
+
+        emitCapabilitiesCatalog(edgeSocket, {
+            edgeServerId: edge.edgeId,
+            telemetry: [
+                {
+                    deviceId: 'pump-01',
+                    metric: 'pressure',
+                    valueType: 'number',
+                    label: 'Pump 01 / pressure',
+                },
+            ],
+            commands: [
+                {
+                    deviceId: 'pump-01',
+                    commandType: 'set_number',
+                    valueType: 'number',
+                    min: 0,
+                    max: 10,
+                    reportedMetric: 'pressure',
+                    label: 'Pump 01 / set_number',
+                },
+            ],
+        });
+
+        await waitForStoredCatalog(edge.edgeId);
+
+        const response = await request(app)
+            .get(`/api/edge-servers/${edge.edgeId}/catalog`)
+            .set('Authorization', `Bearer ${userToken}`);
+
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual({
+            status: 'success',
+            data: {
+                edgeServerId: edge.edgeId,
+                telemetry: [
+                    {
+                        deviceId: 'pump-01',
+                        metric: 'pressure',
+                        valueType: 'number',
+                        label: 'Pump 01 / pressure',
+                    },
+                ],
+                commands: [
+                    {
+                        deviceId: 'pump-01',
+                        commandType: 'set_number',
+                        valueType: 'number',
+                        min: 0,
+                        max: 10,
+                        reportedMetric: 'pressure',
+                        label: 'Pump 01 / set_number',
+                    },
+                ],
+            },
+        });
+        expect(response.body.data.commands).toHaveLength(1);
+        expectNoForbiddenFields(response.body.data);
     });
 
     it('rejects wrong or untrusted edge sessions without overwriting the stored sanitized catalog', async () => {
