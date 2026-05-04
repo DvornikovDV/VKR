@@ -203,6 +203,51 @@ func TestParseAcceptsArduinoStandCommandMapping(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsArduinoStandMetricMappings(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "samples", "arduino-stand", "edge-runtime.yaml"))
+	if err != nil {
+		t.Fatalf("read Arduino stand sample: %v", err)
+	}
+
+	cfg, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("parse Arduino stand sample with metric mapping: %v", err)
+	}
+
+	devices := make(map[string]*LocalDeviceDefinition)
+	for sourceIndex := range cfg.Sources {
+		for deviceIndex := range cfg.Sources[sourceIndex].Devices {
+			device := &cfg.Sources[sourceIndex].Devices[deviceIndex]
+			devices[device.DeviceID] = device
+		}
+	}
+	env := devices["environment"]
+	if env == nil {
+		t.Fatal("expected environment device in Arduino stand sample")
+	}
+
+	var tempMapping, humMapping map[string]interface{}
+	for _, m := range env.Metrics {
+		if m.Metric == "temperature" {
+			tempMapping = m.Mapping
+		} else if m.Metric == "humidity" {
+			humMapping = m.Mapping
+		}
+	}
+
+	if tempMapping == nil || humMapping == nil {
+		t.Fatal("expected temperature and humidity metrics")
+	}
+
+	if tempMapping["dataType"] != "int16" {
+		t.Fatalf("expected temperature dataType: int16, got %v", tempMapping["dataType"])
+	}
+
+	if _, ok := humMapping["dataType"]; ok {
+		t.Fatalf("expected humidity to have omitted dataType, got %v", humMapping["dataType"])
+	}
+}
+
 func TestParseRejectsInvalidDeviceCommandMappings(t *testing.T) {
 	t.Setenv("CLOUD_SOCKET_URL", "https://runtime.example.test")
 	t.Setenv("RUNTIME_STATE_DIR", t.TempDir())

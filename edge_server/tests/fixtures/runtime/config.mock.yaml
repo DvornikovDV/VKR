@@ -1,7 +1,7 @@
 runtime:
   edgeId: 507f1f77bcf86cd799439011
   stateDir: ${RUNTIME_STATE_DIR}
-  instanceName: fixture-edge
+  instanceName: fixture-edge-mock
 
 cloud:
   url: ${CLOUD_SOCKET_URL}

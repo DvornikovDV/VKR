@@ -1,0 +1,51 @@
+runtime:
+  edgeId: 507f1f77bcf86cd799439011
+  stateDir: ${RUNTIME_STATE_DIR}
+  instanceName: fixture-edge-modbus
+
+cloud:
+  url: ${CLOUD_SOCKET_URL}
+  namespace: /edge
+  connectTimeoutMs: 10000
+  reconnect:
+    baseDelayMs: 1000
+    maxDelayMs: 30000
+    maxAttempts: 0
+
+batch:
+  intervalMs: 1000
+  maxReadings: 100
+
+sources:
+  - sourceId: arduino_stand
+    adapterKind: modbus_rtu
+    enabled: true
+    pollIntervalMs: 1000
+    connection:
+      port: ${EDGE_MODBUS_PORT}
+      baudRate: 9600
+      dataBits: 8
+      parity: none
+      stopBits: 1
+      slaveId: 1
+      timeoutMs: 500
+      settleDelayMs: 0
+    devices:
+      - deviceId: environment
+        metrics:
+          - metric: temperature
+            valueType: number
+            mapping:
+              registerType: input
+              address: 0
+              dataType: int16
+              scale: 0.1
+          - metric: humidity
+            valueType: number
+            mapping:
+              registerType: input
+              address: 1
+              scale: 0.1
+
+logging:
+  level: info

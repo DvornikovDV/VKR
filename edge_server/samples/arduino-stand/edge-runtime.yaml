@@ -44,6 +44,7 @@ sources:
             mapping:
               registerType: input
               address: 0
+              dataType: int16
               scale: 0.1
           - metric: humidity
             valueType: number

@@ -5,6 +5,7 @@ doc/
 !README.md
 !*/README.md
 .agent/
+.agents/
 .specify/
 specs/
 cloud_server_legacy/

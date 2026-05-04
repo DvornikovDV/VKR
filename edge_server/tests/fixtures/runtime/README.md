@@ -10,8 +10,14 @@ These fixtures freeze the minimum local input shapes for the `007-edge-server` p
 
 ## Fixture set
 
-- `config.yaml`
-  - Operator-managed smoke/reference config shaped like the `007` persistent runtime baseline with `runtime.edgeId`, `runtime.stateDir`, reconnect settings, and one local source definition.
+- `config.mock.yaml`
+  - In-process test config that uses `adapterKind: mock`.
+  - Tests may consume it only through `runtimeapp.NewWithSourceFactoriesForTest(...)` with an explicit mock factory registry.
+  - The production `edge-runtime` binary must not run with this config.
+- `config.modbus.yaml`
+  - Production-binary smoke config that uses the real `adapterKind: modbus_rtu` registry.
+  - Requires `EDGE_MODBUS_PORT` or the default Arduino stand port `COM7`.
+  - Use this config when a test starts the actual `cmd/edge-runtime` binary.
 - `valid/credential.json`
   - Canonical current persistent credential file installed locally for trusted startup.
 - `partial-corrupt/credential.json`

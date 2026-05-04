@@ -277,6 +277,45 @@ func TestDefinitionsFromConfigPreservesCommands(t *testing.T) {
 	}
 }
 
+func TestDefinitionsFromConfigPreservesMetricMappingFields(t *testing.T) {
+	cfgDefinitions := []config.PollingSourceDefinition{
+		{
+			SourceID:       "source-metrics",
+			AdapterKind:    ModbusRTUKind,
+			Enabled:        true,
+			PollIntervalMs: 500,
+			Connection:     map[string]any{"port": "COM3"},
+			Devices: []config.LocalDeviceDefinition{
+				{
+					DeviceID: "env",
+					Metrics: []config.MetricDefinition{
+						{
+							Metric:    "temperature",
+							ValueType: "number",
+							Mapping:   map[string]any{"registerType": "input", "address": 10, "dataType": "int16", "scale": 0.5},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	definitions := DefinitionsFromConfig(cfgDefinitions)
+	if len(definitions) != 1 || len(definitions[0].Devices) != 1 || len(definitions[0].Devices[0].Metrics) != 1 {
+		t.Fatalf("expected metric definition to be preserved, got %+v", definitions)
+	}
+
+	metric := definitions[0].Devices[0].Metrics[0]
+	if metric.Mapping["dataType"] != "int16" || metric.Mapping["scale"] != 0.5 {
+		t.Fatalf("unexpected converted metric mapping fields: %+v", metric.Mapping)
+	}
+
+	cfgDefinitions[0].Devices[0].Metrics[0].Mapping["dataType"] = "uint16"
+	if definitions[0].Devices[0].Metrics[0].Mapping["dataType"] != "int16" {
+		t.Fatal("converted metric mapping must be cloned from config")
+	}
+}
+
 func TestManagerApplyDefinitionsClonesCommandRangeMetadata(t *testing.T) {
 	adapter := &boundaryAdapter{}
 	manager := NewManager(FactoryRegistry{

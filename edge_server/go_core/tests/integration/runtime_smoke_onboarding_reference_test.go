@@ -177,7 +177,7 @@ func buildRuntimeBinary(t *testing.T) string {
 func writeRuntimeConfigFixture(t *testing.T, cloudURL string) string {
 	t.Helper()
 
-	configFixturePath := runtimeFixturePath(t, "config.yaml")
+	configFixturePath := runtimeFixturePath(t, "config.modbus.yaml")
 	configBytes, err := os.ReadFile(configFixturePath)
 	if err != nil {
 		t.Fatalf("read config fixture: %v", err)
@@ -194,6 +194,8 @@ func writeRuntimeConfigFixture(t *testing.T, cloudURL string) string {
 
 func TestReproTaskT016bProductionMainEntrypointUsesRealCloudTransportLifecycle(t *testing.T) {
 	requireLegacyOnboardingReference(t)
+	requireRuntimeModbusPort(t)
+
 	socketServer := newFakeSocketIOServer(t)
 	defer socketServer.Close()
 

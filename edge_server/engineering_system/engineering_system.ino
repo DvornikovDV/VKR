@@ -165,7 +165,7 @@ void applyOutputs() {
 }
 
 void updateInputRegisters() {
-  inputRegisters[REG_INPUT_TEMPERATURE_X10] = (uint16_t)temperatureX10;
+  inputRegisters[REG_INPUT_TEMPERATURE_X10] = (uint16_t)((int16_t)temperatureX10);
   inputRegisters[REG_INPUT_HUMIDITY_X10] = (uint16_t)humidityX10;
   inputRegisters[REG_INPUT_LOCAL_BUTTON_PRESSED] = (uint16_t)localButtonPressed;
   inputRegisters[REG_INPUT_PUMP_ACTUAL_STATE] = (uint16_t)pumpActualState;

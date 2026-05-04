@@ -59,12 +59,20 @@ var defaultModbusSerialClient = struct {
 	now:     time.Now,
 }
 
+type modbusMetricDataType string
+
+const (
+	modbusDataTypeUint16 modbusMetricDataType = "uint16"
+	modbusDataTypeInt16  modbusMetricDataType = "int16"
+)
+
 type modbusMetricMapping struct {
 	deviceID     string
 	metric       string
 	valueType    string
 	registerType modbus.RegType
 	address      uint16
+	dataType     modbusMetricDataType
 	scale        float64
 }
 
@@ -679,6 +687,10 @@ func parseModbusMappings(devices []DeviceDefinition) ([]modbusMetricMapping, []m
 			if err != nil {
 				return nil, nil, fmt.Errorf("devices[%d].metrics[%d].%w", i, j, err)
 			}
+			dataType, err := parseDataType(metric.Mapping["dataType"])
+			if err != nil {
+				return nil, nil, fmt.Errorf("devices[%d].metrics[%d].mapping.dataType %w", i, j, err)
+			}
 			scale, err := optionalScale(metric.Mapping["scale"])
 			if err != nil {
 				return nil, nil, fmt.Errorf("devices[%d].metrics[%d].mapping.scale must be a number", i, j)
@@ -690,6 +702,7 @@ func parseModbusMappings(devices []DeviceDefinition) ([]modbusMetricMapping, []m
 				valueType:    metric.ValueType,
 				registerType: registerType,
 				address:      uint16(address),
+				dataType:     dataType,
 				scale:        scale,
 			})
 		}
@@ -811,12 +824,37 @@ func parseRegisterType(raw any) (modbus.RegType, error) {
 	}
 }
 
+func parseDataType(raw any) (modbusMetricDataType, error) {
+	if raw == nil {
+		return modbusDataTypeUint16, nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("must be uint16 or int16")
+	}
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "uint16":
+		return modbusDataTypeUint16, nil
+	case "int16":
+		return modbusDataTypeInt16, nil
+	default:
+		return "", fmt.Errorf("must be uint16 or int16")
+	}
+}
+
 func convertModbusValue(value uint16, mapping modbusMetricMapping) any {
 	if mapping.valueType == "boolean" {
 		return value != 0
 	}
 
-	return float64(value) * mapping.scale
+	var numericValue float64
+	if mapping.dataType == modbusDataTypeInt16 {
+		numericValue = float64(int16(value))
+	} else {
+		numericValue = float64(value)
+	}
+
+	return numericValue * mapping.scale
 }
 
 func optionalScale(raw any) (float64, error) {

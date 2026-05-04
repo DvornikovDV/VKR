@@ -93,11 +93,11 @@ func TestT015ProductionModbusRTUTelemetryPipeline(t *testing.T) {
 	transport.DrainPayloads()
 
 	okClient.ReplaceValues(map[integrationModbusReadKey]uint16{
-		{address: 0, registerType: modbus.INPUT_REGISTER}:   221,
+		{address: 0, registerType: modbus.INPUT_REGISTER}:   65136,
 		{address: 1, registerType: modbus.HOLDING_REGISTER}: 0,
 	})
 	transport.WaitForCanonicalPayloadWithoutLocalFields(t, 2*time.Second, []map[string]any{
-		{"deviceId": "environment", "metric": "temperature", "value": 22.1},
+		{"deviceId": "environment", "metric": "temperature", "value": -40.0},
 		{"deviceId": "pump_main", "metric": "actual_state", "value": false},
 	})
 	waitForSourceHealth(t, process.Sources, "rtu-ok", source.SourceHealthRunning, 2*time.Second)
@@ -419,6 +419,7 @@ sources:
             mapping:
               registerType: input
               address: 0
+              dataType: int16
               scale: 0.1
       - deviceId: pump_main
         address:

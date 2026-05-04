@@ -198,6 +198,108 @@ func TestModbusSerialAdapterRejectsInvalidMapping(t *testing.T) {
 	}
 }
 
+func TestModbusSerialAdapterParsesAndConvertsDataType(t *testing.T) {
+	cases := []struct {
+		name     string
+		metric   MetricDefinition
+		raw      uint16
+		expected any
+	}{
+		{
+			name:     "omitted dataType defaults to uint16",
+			metric:   modbusMetric("temperature", "number", "input", 10, 0.1),
+			raw:      400,
+			expected: 40.0,
+		},
+		{
+			name: "explicit uint16",
+			metric: func() MetricDefinition {
+				m := modbusMetric("temperature", "number", "input", 10, 0.1)
+				m.Mapping["dataType"] = "uint16"
+				return m
+			}(),
+			raw:      400,
+			expected: 40.0,
+		},
+		{
+			name: "positive int16",
+			metric: func() MetricDefinition {
+				m := modbusMetric("temperature", "number", "input", 10, 0.1)
+				m.Mapping["dataType"] = "int16"
+				return m
+			}(),
+			raw:      400,
+			expected: 40.0,
+		},
+		{
+			name: "negative int16",
+			metric: func() MetricDefinition {
+				m := modbusMetric("temperature", "number", "input", 10, 0.1)
+				m.Mapping["dataType"] = "int16"
+				return m
+			}(),
+			raw:      65136, // -400 in two's complement
+			expected: -40.0,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &fakeModbusClient{
+				values: map[modbusReadKey]uint16{
+					{address: 10, registerType: modbus.INPUT_REGISTER}: tc.raw,
+				},
+			}
+			adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+				return client, nil
+			}, fixedNow)
+
+			definition := validModbusDefinition([]MetricDefinition{tc.metric})
+			sink := &captureModbusSink{}
+
+			if err := adapter.ApplyDefinition(definition, sink); err != nil {
+				t.Fatalf("apply modbus definition: %v", err)
+			}
+			defer adapter.Close()
+
+			if _, err := adapter.pollOnce(); err != nil {
+				t.Fatalf("poll once: %v", err)
+			}
+
+			readings := sink.readingsSnapshot()
+			if len(readings) != 1 {
+				t.Fatalf("expected one reading, got %d", len(readings))
+			}
+			if readings[0].Value != tc.expected {
+				t.Fatalf("expected value %v, got %v", tc.expected, readings[0].Value)
+			}
+		})
+	}
+}
+
+func TestModbusSerialAdapterRejectsInvalidDataType(t *testing.T) {
+	factoryCalled := false
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		factoryCalled = true
+		return &fakeModbusClient{}, nil
+	}, fixedNow)
+
+	metric := modbusMetric("temperature", "number", "input", 10, 0.1)
+	metric.Mapping["dataType"] = "int32" // invalid
+	definition := validModbusDefinition([]MetricDefinition{metric})
+
+	err := adapter.ApplyDefinition(definition, &captureModbusSink{})
+	if err == nil {
+		t.Fatal("expected invalid dataType to be rejected")
+	}
+	if !strings.Contains(err.Error(), "mapping.dataType must be uint16 or int16") {
+		t.Fatalf("expected error containing 'mapping.dataType must be uint16 or int16', got %v", err)
+	}
+	if factoryCalled {
+		t.Fatal("client factory must not run for invalid mapping")
+	}
+}
+
 func TestModbusSerialAdapterParsesConfiguredCommandMappings(t *testing.T) {
 	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
 		return &fakeModbusClient{}, nil

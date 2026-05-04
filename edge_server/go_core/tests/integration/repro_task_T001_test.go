@@ -20,7 +20,7 @@ func TestReproTaskT001RuntimeFixtureConfigLoadsThroughRuntimeOwnedPath(t *testin
 	t.Setenv("CLOUD_SOCKET_URL", "http://127.0.0.1:4000")
 	installRuntimeFixtureCredential(t, stateDir)
 
-	cfg, err := config.LoadFromFile(runtimeFixturePath(t, "config.yaml"))
+	cfg, err := config.LoadFromFile(runtimeFixturePath(t, "config.mock.yaml"))
 	if err != nil {
 		t.Fatalf("load runtime fixture config through production loader: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestReproTaskT001RuntimeFixtureReadmeDocuments007Baseline(t *testing.T) {
 	}
 
 	readme := string(readmeBytes)
-	for _, snippet := range []string{"007-edge-server", "config.yaml", "valid/credential.json", "partial-corrupt/credential.json"} {
+	for _, snippet := range []string{"007-edge-server", "config.mock.yaml", "config.modbus.yaml", "valid/credential.json", "partial-corrupt/credential.json"} {
 		if !strings.Contains(readme, snippet) {
 			t.Fatalf("fixture README must document %s in the 007 baseline", snippet)
 		}

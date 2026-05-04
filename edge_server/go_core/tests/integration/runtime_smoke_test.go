@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -166,6 +167,8 @@ func parseRuntimeHandshakeAttempt(raw []byte) (runtimeHandshakeAttempt, error) {
 }
 
 func TestT011RuntimeStartupUsesConfigAndLocalCredentialForTrustedConnect(t *testing.T) {
+	requireRuntimeModbusPort(t)
+
 	socketServer := newRuntimeAuthServer(t, runtimeAuthServerBehavior{
 		AcceptConnect: true,
 		KeepAlive:     true,
@@ -260,6 +263,8 @@ func TestT011RuntimeStartupRejectsInvalidCredentialFile(t *testing.T) {
 }
 
 func TestT011RuntimeStartupHandlesUnknownEdgeWithoutOnboardingFallback(t *testing.T) {
+	requireRuntimeModbusPort(t)
+
 	socketServer := newRuntimeAuthServer(t, runtimeAuthServerBehavior{
 		ConnectError: "edge_not_found",
 	})
@@ -281,6 +286,8 @@ func TestT011RuntimeStartupHandlesUnknownEdgeWithoutOnboardingFallback(t *testin
 }
 
 func TestT011RuntimeStartupHandlesConcurrentSessionDenialWithoutOnboardingFallback(t *testing.T) {
+	requireRuntimeModbusPort(t)
+
 	socketServer := newRuntimeAuthServer(t, runtimeAuthServerBehavior{
 		ConnectError: "invalid_credential",
 	})
@@ -495,10 +502,47 @@ func prepareRuntimeStartup(t *testing.T, cloudURL string) (binaryPath string, co
 
 	stateDir = t.TempDir()
 	t.Setenv("RUNTIME_STATE_DIR", stateDir)
+	if strings.TrimSpace(os.Getenv("EDGE_MODBUS_PORT")) == "" {
+		t.Setenv("EDGE_MODBUS_PORT", defaultRuntimeModbusPort)
+	}
 	configPath = writeRuntimeConfigFixture(t, cloudURL)
 	binaryPath = buildRuntimeBinary(t)
 
 	return binaryPath, configPath, stateDir
+}
+
+const defaultRuntimeModbusPort = "COM7"
+
+func requireRuntimeModbusPort(t *testing.T) {
+	t.Helper()
+
+	port := strings.TrimSpace(os.Getenv("EDGE_MODBUS_PORT"))
+	if port == "" {
+		port = defaultRuntimeModbusPort
+	}
+	if !serialPortCanOpen(port) {
+		t.Skipf("runtime production binary smoke requires available Modbus serial port %s; set EDGE_MODBUS_PORT to run with another port", port)
+	}
+	t.Setenv("EDGE_MODBUS_PORT", port)
+}
+
+func serialPortCanOpen(port string) bool {
+	if strings.TrimSpace(port) == "" {
+		return false
+	}
+
+	path := port
+	if goruntime.GOOS == "windows" && !strings.HasPrefix(strings.ToUpper(path), `\\.\`) {
+		path = `\\.\` + path
+	}
+
+	handle, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		return false
+	}
+	_ = handle.Close()
+
+	return true
 }
 
 func installCredentialFixture(t *testing.T, stateDir string, fixtureName string) {
