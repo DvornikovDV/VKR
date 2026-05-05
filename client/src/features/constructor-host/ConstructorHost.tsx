@@ -5,11 +5,11 @@ import type {
   EditorDeviceMetricCatalogEntry,
   EditorMachineOption,
   EditorMode,
-  EditorMode,
   HostedConstructorInstance,
   LayoutDocument,
   WidgetBindingRecord,
   CommandBindingRecord,
+  EditorDeviceCommandCatalogEntry,
 } from '@/features/constructor-host/types'
 import { DEFAULT_MACHINE_SWITCH_MESSAGE } from '@/features/constructor-host/useUnsavedChangesGuard'
 
@@ -20,6 +20,7 @@ const EMPTY_BINDINGS: WidgetBindingRecord[] = []
 const EMPTY_COMMAND_BINDINGS: CommandBindingRecord[] = []
 const EMPTY_MACHINES: EditorMachineOption[] = []
 const EMPTY_CATALOG: EditorDeviceMetricCatalogEntry[] = []
+const EMPTY_COMMAND_CATALOG: EditorDeviceCommandCatalogEntry[] = []
 const CLEAN_DIRTY_STATE: DirtyState = { layoutDirty: false, bindingsDirty: false }
 
 export const MACHINE_SWITCH_UNSAVED_CHANGES_MESSAGE = DEFAULT_MACHINE_SWITCH_MESSAGE
@@ -31,6 +32,7 @@ export interface ConstructorHostProps {
   initialCommandBindings?: CommandBindingRecord[]
   machines?: EditorMachineOption[]
   deviceCatalog?: EditorDeviceMetricCatalogEntry[]
+  commandCatalog?: EditorDeviceCommandCatalogEntry[]
   activeEdgeServerId?: string | null
   className?: string
   onReady?: (instance: HostedConstructorInstance) => void
@@ -104,6 +106,7 @@ export function ConstructorHost({
   initialCommandBindings,
   machines,
   deviceCatalog,
+  commandCatalog,
   activeEdgeServerId = null,
   className,
   onReady,
@@ -160,10 +163,12 @@ export function ConstructorHost({
   const resolvedCommandBindings = initialCommandBindings ?? EMPTY_COMMAND_BINDINGS
   const resolvedMachines = machines ?? EMPTY_MACHINES
   const resolvedCatalog = deviceCatalog ?? EMPTY_CATALOG
+  const resolvedCommandCatalog = commandCatalog ?? EMPTY_COMMAND_CATALOG
 
   const latestCatalogInputRef = useRef({
     machines: resolvedMachines,
     deviceCatalog: resolvedCatalog,
+    commandCatalog: resolvedCommandCatalog,
   })
   const latestActiveEdgeServerIdRef = useRef<string | null>(activeEdgeServerId)
 
@@ -181,8 +186,9 @@ export function ConstructorHost({
     latestCatalogInputRef.current = {
       machines: resolvedMachines,
       deviceCatalog: resolvedCatalog,
+      commandCatalog: resolvedCommandCatalog,
     }
-  }, [resolvedMachines, resolvedCatalog])
+  }, [resolvedMachines, resolvedCatalog, resolvedCommandCatalog])
 
   useEffect(() => {
     latestActiveEdgeServerIdRef.current = activeEdgeServerId
@@ -236,6 +242,7 @@ export function ConstructorHost({
           initialCommandBindings: bootstrapConfig.initialCommandBindings,
           machines: latestCatalogInputRef.current.machines,
           deviceCatalog: latestCatalogInputRef.current.deviceCatalog,
+          commandCatalog: latestCatalogInputRef.current.commandCatalog,
           activeEdgeServerId: latestActiveEdgeServerIdRef.current,
           callbacks: {
             onDirtyStateChange: (state) => {
@@ -338,8 +345,9 @@ export function ConstructorHost({
     instance.updateCatalog({
       machines: resolvedMachines,
       deviceCatalog: resolvedCatalog,
+      commandCatalog: resolvedCommandCatalog,
     })
-  }, [phase, resolvedCatalog, resolvedMachines])
+  }, [phase, resolvedCatalog, resolvedCommandCatalog, resolvedMachines])
 
   useEffect(() => {
     const instance = instanceRef.current

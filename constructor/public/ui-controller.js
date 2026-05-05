@@ -779,6 +779,8 @@ class UIController {
                     }
                 });
             }
+            // Systemic notification of bindings clearing
+            this.notifyDirtyState({ bindingsDirty: true });
         };
 
         // Обработчики PropertiesPanel
@@ -786,6 +788,13 @@ class UIController {
             if (this.widgetManager) {
                 this.widgetManager.reattachDragHandlers(widget);
             }
+            // Systemic notification of visual changes
+            this.notifyDirtyState({ layoutDirty: true });
+        };
+
+        // Notify host when any binding (telemetry or command) is changed via the properties panel.
+        this.propertiesPanel.onBindingsChanged = () => {
+            this.notifyDirtyState({ bindingsDirty: true });
         };
 
         this.propertiesPanel.onWidgetPositionOrSizeChange = (widget, propName, value) => {
@@ -887,6 +896,8 @@ class UIController {
         if (clearBtn) {
             this.registerDomListener(clearBtn, 'click', () => {
                 this.fileManager.clearCanvas();
+                // Systemic notification of total clearing
+                this.notifyDirtyState({ layoutDirty: true, bindingsDirty: true });
             });
         }
 

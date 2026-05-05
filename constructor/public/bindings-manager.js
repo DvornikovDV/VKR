@@ -7,7 +7,9 @@ class BindingsManager {
         this.selectedMachineId = null;
         this.availableDevices = []; // device ids for selected machine
         this.availableDeviceMetrics = []; // { deviceId, metric } pairs for selected machine
-        this.bindings = []; // [{ widgetId, deviceId, metric }]
+        this.bindings = []; // [{ widgetId, deviceId, metric }] – telemetry/reported state
+        this.commandBindings = []; // [{ widgetId, deviceId, commandType }] – desired command targets
+        this.availableCommandOptions = []; // [{ deviceId, commandType, label, ... }] for active machine
         this.onMachineChanged = null;
         this.onBindingsClearRequest = null;
     }
@@ -99,6 +101,7 @@ class BindingsManager {
             }
 
             this.bindings = [];
+            this.commandBindings = [];
             if (this.onBindingsClearRequest) {
                 this.onBindingsClearRequest();
             }
@@ -163,6 +166,113 @@ class BindingsManager {
         });
 
         return true;
+    }
+
+    // ------------------------------------------------------------------
+    // Command binding state – separate from telemetry bindings[]
+    // ------------------------------------------------------------------
+
+    /**
+     * Load command options for the active machine from the command catalog.
+     * Called by UIController when catalog is updated.
+     * @param {Array<{deviceId: string, commandType: string, label?: string, valueType?: string, min?: number, max?: number, reportedMetric?: string}>} commandOptions
+     */
+    setCommandOptions(commandOptions) {
+        this.availableCommandOptions = Array.isArray(commandOptions) ? commandOptions : [];
+    }
+
+    /**
+     * Assign a command binding to a widget.
+     * Does NOT touch this.bindings[].
+     * @param {string} widgetId
+     * @param {string} deviceId
+     * @param {'set_bool'|'set_number'} commandType
+     * @returns {boolean}
+     */
+    assignCommand(widgetId, deviceId, commandType) {
+        if (!widgetId || !deviceId || !commandType) {
+            return false;
+        }
+
+        if (!this.isCommandAvailable(deviceId, commandType)) {
+            console.warn(`Command ${commandType} for device ${deviceId} is not available in the current catalog.`);
+            return false;
+        }
+
+        // Remove any existing command binding for this widget before adding the new one.
+        this.commandBindings = this.commandBindings.filter((b) => b.widgetId !== widgetId);
+        this.commandBindings.push({ widgetId, deviceId, commandType });
+        return true;
+    }
+
+    /**
+     * Check if a specific command is available in the current machine's catalog.
+     * @param {string} deviceId
+     * @param {string} commandType
+     * @returns {boolean}
+     */
+    isCommandAvailable(deviceId, commandType) {
+        return this.availableCommandOptions.some(
+            (opt) => opt.deviceId === deviceId && opt.commandType === commandType
+        );
+    }
+
+    /**
+     * Remove the command binding for a widget.
+     * @param {string} widgetId
+     */
+    removeCommand(widgetId) {
+        this.commandBindings = this.commandBindings.filter((b) => b.widgetId !== widgetId);
+    }
+
+    /**
+     * Return the current command binding for a widget, or null.
+     * @param {string} widgetId
+     * @returns {{ widgetId: string, deviceId: string, commandType: string }|null}
+     */
+    getCommandBindingForWidget(widgetId) {
+        return this.commandBindings.find((b) => b.widgetId === widgetId) ?? null;
+    }
+
+    /**
+     * Return a snapshot of all current command bindings.
+     * @returns {Array<{ widgetId: string, deviceId: string, commandType: string }>}
+     */
+    getCommandBindings() {
+        return this.commandBindings.slice();
+    }
+
+    /**
+     * Clear all command bindings.
+     */
+    clearCommandBindings() {
+        this.commandBindings = [];
+    }
+
+    /**
+     * Replace command bindings from an imported array.
+     * Only entries with valid widgetId, deviceId, and allowed commandType are kept.
+     * Does NOT touch this.bindings[].
+     * @param {Array} raw
+     */
+    importCommandBindings(raw) {
+        if (!Array.isArray(raw)) {
+            this.commandBindings = [];
+            return;
+        }
+
+        const ALLOWED = new Set(['set_bool', 'set_number']);
+        this.commandBindings = raw.filter(
+            (b) =>
+                b &&
+                typeof b.widgetId === 'string' && b.widgetId.length > 0 &&
+                typeof b.deviceId === 'string' && b.deviceId.length > 0 &&
+                ALLOWED.has(b.commandType)
+        ).map((b) => ({
+            widgetId: b.widgetId,
+            deviceId: b.deviceId,
+            commandType: b.commandType,
+        }));
     }
 }
 

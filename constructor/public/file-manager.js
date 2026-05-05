@@ -477,6 +477,7 @@ class FileManager {
         }
         if (this.bindingsManager) {
             this.bindingsManager.bindings = [];
+            this.bindingsManager.commandBindings = [];
         }
         console.log('Canvas очищен');
     }

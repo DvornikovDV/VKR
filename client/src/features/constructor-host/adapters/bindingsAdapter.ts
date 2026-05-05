@@ -243,3 +243,7 @@ export function findBindingSetForEdgeServer(
 
   return bindingSets.find((bindingSet) => bindingSet.edgeServerId === edgeServerId) ?? null
 }
+
+export function hasAnyBindings(bindingSet: DiagramBindingSetRecord): boolean {
+  return bindingSet.widgetBindings.length > 0 || bindingSet.commandBindings.length > 0
+}

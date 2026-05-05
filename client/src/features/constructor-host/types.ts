@@ -104,7 +104,15 @@ export interface HostedConstructorCatalogUpdateInput {
 export interface HostedConstructorInstance {
   loadLayout(layout: LayoutDocument): Promise<void>
   getLayout(): Promise<LayoutDocument>
+  /**
+   * @deprecated Use {@link loadBindingProfile} instead. This method loads only
+   * telemetry (widgetBindings) and silently drops any existing commandBindings.
+   */
   loadBindings(bindings: WidgetBindingRecord[]): Promise<void>
+  /**
+   * @deprecated Use {@link getBindingProfile} instead. This method returns only
+   * telemetry (widgetBindings) and omits commandBindings entirely.
+   */
   getBindings(): Promise<WidgetBindingRecord[]>
   loadBindingProfile(profile: DiagramBindingProfileRecord): Promise<void>
   getBindingProfile(): Promise<DiagramBindingProfileRecord>

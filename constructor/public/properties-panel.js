@@ -177,12 +177,111 @@ class PropertiesPanel {
         this.bindingsManager = null;
         this.onWidgetUpdated = null; // Callback изменения свойств для UIController
         this.onWidgetPositionOrSizeChange = null; // Callback изменения геометрии для UIController
+        this.onBindingsChanged = null; // Callback изменения привязок (телеметрии или команд) для UIController
     }
 
     /** Установка ссылки на BindingsManager. 
      * Вход: bindingsManager (Object). */
     setBindingsManager(bindingsManager) {
         this.bindingsManager = bindingsManager;
+    }
+
+    /**
+     * Return the allowed commandType for a widget type, or null if unsupported.
+     * toggle -> set_bool, slider -> set_number, all others -> null.
+     */
+    getAllowedCommandType(widgetType) {
+        if (widgetType === 'toggle') return 'set_bool';
+        if (widgetType === 'slider') return 'set_number';
+        return null;
+    }
+
+    /**
+     * Return filtered command options from the catalog for the given allowed commandType.
+     * Options come exclusively from bindingsManager.availableCommandOptions.
+     * @param {string} allowedCommandType
+     * @returns {Array<{deviceId, commandType, label}>}
+     */
+    getCommandTargetOptions(allowedCommandType) {
+        if (!allowedCommandType) return [];
+        if (!this.bindingsManager || !Array.isArray(this.bindingsManager.availableCommandOptions)) {
+            return [];
+        }
+        return this.bindingsManager.availableCommandOptions.filter(
+            (opt) => opt && opt.commandType === allowedCommandType
+        );
+    }
+
+    /**
+     * Apply a command binding to the bindings manager for widgetId.
+     * Clears the binding when deviceId is empty.
+     * Fires onBindingsChanged after any state change.
+     * @param {string} widgetId
+     * @param {string} deviceId
+     * @param {string} commandType
+     */
+    setCommandBinding(widgetId, deviceId, commandType) {
+        if (!this.bindingsManager) return;
+        if (!deviceId) {
+            if (typeof this.bindingsManager.removeCommand === 'function') {
+                this.bindingsManager.removeCommand(widgetId);
+            }
+            if (this.onBindingsChanged) this.onBindingsChanged();
+            return;
+        }
+        if (typeof this.bindingsManager.assignCommand === 'function') {
+            const assigned = this.bindingsManager.assignCommand(widgetId, deviceId, commandType);
+            if (!assigned) {
+                console.warn(`[PropertiesPanel] assignCommand returned false: deviceId=${deviceId}, commandType=${commandType}. Command not in active catalog.`);
+            }
+        }
+        if (this.onBindingsChanged) this.onBindingsChanged();
+    }
+
+    /**
+     * Build the HTML for the command-target section.
+     * Only renders when the widget type has an allowed command type and catalog options exist.
+     * @param {Object} widget
+     * @returns {string} HTML fragment (may be empty string)
+     */
+    renderCommandTargetSection(widget) {
+        const allowedCommandType = this.getAllowedCommandType(widget.type);
+        if (!allowedCommandType) return '';
+
+        const options = this.getCommandTargetOptions(allowedCommandType);
+        if (options.length === 0) return '';
+
+        // Resolve current binding from bindingsManager
+        let currentDeviceId = '';
+        if (this.bindingsManager && typeof this.bindingsManager.getCommandBindingForWidget === 'function') {
+            const existing = this.bindingsManager.getCommandBindingForWidget(widget.id);
+            if (existing && existing.commandType === allowedCommandType) {
+                currentDeviceId = existing.deviceId || '';
+            }
+        }
+
+        const labelMap = { set_bool: 'set_bool (bool)', set_number: 'set_number (number)' };
+        let html = `
+            <div class="mb-2 mt-3"><strong>Цель команды</strong></div>
+            <div class="small text-muted mb-1">Тип команды: <em>${labelMap[allowedCommandType] || allowedCommandType}</em></div>
+            <div class="mb-1" id="cmd-target-section">
+              <label class="form-label small">Устройство (команда):</label>
+              <select id="command-target-select" class="form-control form-control-sm">
+                <option value="">-- не привязано --</option>
+        `;
+
+        options.forEach((opt) => {
+            const selected = currentDeviceId === opt.deviceId ? 'selected' : '';
+            const label = opt.label || `${opt.deviceId}/${opt.commandType}`;
+            html += `<option value="${opt.deviceId}" ${selected}>${label}</option>`;
+        });
+
+        html += `
+              </select>
+            </div>
+        `;
+
+        return html;
     }
 
     normalizeBindingMetric(metric) {
@@ -408,6 +507,9 @@ class PropertiesPanel {
             html += createControlParametersSection(widget);
         }
 
+        // Command target section (toggle -> set_bool, slider -> set_number only)
+        html += this.renderCommandTargetSection(widget);
+
         // Параметры аппаратной привязки
         html += `
             <div class="mb-2 mt-3"><strong>Привязка устройства</strong></div>
@@ -547,6 +649,11 @@ class PropertiesPanel {
                     ? this.getAvailableMetricsForDevice(nextDeviceId)[0] || null
                     : null;
                 this.setWidgetBinding(widget, nextDeviceId, nextMetric);
+                
+                // Systemic notification of binding change
+                if (this.onBindingsChanged) this.onBindingsChanged();
+                if (this.onWidgetUpdated) this.onWidgetUpdated(widget);
+                
                 this.showPropertiesForWidget(widget);
             });
         }
@@ -555,6 +662,23 @@ class PropertiesPanel {
         if (metricSelect) {
             metricSelect.addEventListener('change', (e) => {
                 this.setWidgetBinding(widget, widget.bindingId || null, e.target.value || null);
+                
+                // Systemic notification of binding change
+                if (this.onBindingsChanged) this.onBindingsChanged();
+                if (this.onWidgetUpdated) this.onWidgetUpdated(widget);
+                
+                this.showPropertiesForWidget(widget);
+            });
+        }
+
+        // Command target select handler
+        const commandTargetSelect = this.container.querySelector('#command-target-select');
+        if (commandTargetSelect) {
+            const allowedCommandType = this.getAllowedCommandType(widget.type);
+            commandTargetSelect.addEventListener('change', (e) => {
+                const deviceId = e.target.value || null;
+                this.setCommandBinding(widget.id, deviceId, allowedCommandType);
+                // Re-render to reflect saved state
                 this.showPropertiesForWidget(widget);
             });
         }

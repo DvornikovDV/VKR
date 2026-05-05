@@ -28,6 +28,8 @@ function createRuntimeMock(layout: LayoutDocument = { widgets: [] }) {
     getLayout: vi.fn(async () => layout),
     loadBindings: vi.fn(async () => undefined),
     getBindings: vi.fn(async () => []),
+    loadBindingProfile: vi.fn(async () => undefined),
+    getBindingProfile: vi.fn(async () => ({ widgetBindings: [], commandBindings: [] })),
     updateCatalog: vi.fn(),
     setActiveMachine: vi.fn(),
     destroy: vi.fn(),

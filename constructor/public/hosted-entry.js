@@ -301,10 +301,11 @@ function initializeHostedFileMenu(rootNode) {
   }
 }
 
-function toControllerCatalogInput(machines, deviceCatalog) {
+function toControllerCatalogInput(machines, deviceCatalog, commandCatalog) {
   return {
     machines: Array.isArray(machines) ? machines : [],
     deviceCatalog: Array.isArray(deviceCatalog) ? deviceCatalog : [],
+    commandCatalog: Array.isArray(commandCatalog) ? commandCatalog : [],
   }
 }
 
@@ -314,8 +315,10 @@ export async function createHostedConstructor(config) {
   const mode = config.mode === 'reduced' ? 'reduced' : 'full'
   const initialLayout = cloneSerializable(config.initialLayout ?? {})
   const initialBindings = cloneSerializable(config.initialBindings ?? [])
+  const initialCommandBindings = cloneSerializable(config.initialCommandBindings ?? [])
   const machines = cloneSerializable(config.machines ?? [])
   const deviceCatalog = cloneSerializable(config.deviceCatalog ?? [])
+  const commandCatalog = cloneSerializable(config.commandCatalog ?? [])
   const activeEdgeServerId = config.activeEdgeServerId ?? null
 
   removeStaleHostedRoots(config.container)
@@ -343,8 +346,10 @@ export async function createHostedConstructor(config) {
         container: mountRoot,
         machines,
         deviceCatalog,
+        commandCatalog,
         activeEdgeServerId,
         initialBindings,
+        initialCommandBindings,
       },
     })
 
@@ -352,9 +357,9 @@ export async function createHostedConstructor(config) {
     await controller.loadLayout(initialLayout)
 
     if (mode === 'full') {
-      controller.updateCatalog(toControllerCatalogInput(machines, deviceCatalog))
+      controller.updateCatalog(toControllerCatalogInput(machines, deviceCatalog, commandCatalog))
       controller.setActiveMachine(activeEdgeServerId)
-      await controller.loadBindings(initialBindings)
+      await controller.loadBindingProfile({ widgetBindings: initialBindings, commandBindings: initialCommandBindings })
     }
 
     config.callbacks.onDirtyStateChange({ layoutDirty: false, bindingsDirty: false })
@@ -407,12 +412,33 @@ export async function createHostedConstructor(config) {
       const bindings = await withActiveRuntime(async () => controller.getBindings())
       return cloneSerializable(bindings ?? [])
     },
+    async loadBindingProfile(profile) {
+      if (mode === 'reduced') {
+        return
+      }
+
+      await withActiveRuntime(async () =>
+        controller.loadBindingProfile(cloneSerializable(profile ?? {}))
+      )
+    },
+    async getBindingProfile() {
+      if (mode === 'reduced') {
+        return { widgetBindings: [], commandBindings: [] }
+      }
+
+      const profile = await withActiveRuntime(async () => controller.getBindingProfile())
+      return cloneSerializable(profile ?? { widgetBindings: [], commandBindings: [] })
+    },
     updateCatalog(input) {
       if (mode === 'reduced' || isDestroyed) {
         return
       }
 
-      const catalogInput = toControllerCatalogInput(input?.machines, input?.deviceCatalog)
+      const catalogInput = toControllerCatalogInput(
+        input?.machines,
+        input?.deviceCatalog,
+        input?.commandCatalog,
+      )
       controller.updateCatalog(catalogInput)
     },
     setActiveMachine(edgeServerId) {

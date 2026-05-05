@@ -493,8 +493,13 @@ export class WidgetManager {
     });
   }
 
-  /** Экспорт матрицы связей элементов с устройствами.
-   * Выход: Массив связей (Array). */
+  /**
+   * Export the telemetry (reported-state) binding matrix for all widgets.
+   * Returns only { widgetId, deviceId, metric } – never commandType.
+   * Command binding state is owned by BindingsManager.commandBindings and must
+   * NOT be stored in or read from Widget fields (bindingId, bindingMetric, binding).
+   * @returns {Array<{widgetId: string, deviceId: string, metric: string}>}
+   */
   exportBindings() {
     return this.widgets
       .map(w => {

@@ -4,13 +4,16 @@ import { ConstructorHost } from '@/features/constructor-host/ConstructorHost'
 import {
   mapAssignedEdgeServersToMachineOptions,
   mapCatalogRowsToDeviceMetricCatalog,
+  mapCatalogCommandsToDeviceCommandCatalog,
 } from '@/features/constructor-host/adapters/catalogAdapter'
 import {
   exportWidgetBindingsPayload,
+  exportCommandBindingsPayload,
   findBindingSetForEdgeServer,
   importBindingSetsPayload,
   importBindingSetsPayloadWithRecovery,
   isBindingsPayloadError,
+  hasAnyBindings,
   type DiagramBindingSetRecord,
 } from '@/features/constructor-host/adapters/bindingsAdapter'
 import {
@@ -21,6 +24,7 @@ import {
 import type {
   DirtyState,
   EditorDeviceMetricCatalogEntry,
+  EditorDeviceCommandCatalogEntry,
   EditorMachineOption,
   HostedConstructorInstance,
 } from '@/features/constructor-host/types'
@@ -63,6 +67,7 @@ export function FullConstructorPage() {
   const [machines, setMachines] = useState<EditorMachineOption[]>([])
   const [activeEdgeServerId, setActiveEdgeServerId] = useState<string | null>(null)
   const [deviceCatalog, setDeviceCatalog] = useState<EditorDeviceMetricCatalogEntry[]>([])
+  const [commandCatalog, setCommandCatalog] = useState<EditorDeviceCommandCatalogEntry[]>([])
   const [bindingSets, setBindingSets] = useState<DiagramBindingSetRecord[]>([])
   const [bindingsSaveError, setBindingsSaveError] = useState<string | null>(null)
   const [saveBindingsRequiresLayoutModalOpen, setSaveBindingsRequiresLayoutModalOpen] = useState(false)
@@ -85,19 +90,22 @@ export function FullConstructorPage() {
   })
 
   const loadCatalogForMachine = useCallback(
-    async (edgeServerId: string | null): Promise<EditorDeviceMetricCatalogEntry[]> => {
+    async (edgeServerId: string | null): Promise<{ deviceCatalog: EditorDeviceMetricCatalogEntry[], commandCatalog: EditorDeviceCommandCatalogEntry[] }> => {
       if (!edgeServerId) {
-        return []
+        return { deviceCatalog: [], commandCatalog: [] }
       }
 
       const catalogSnapshot = await getEdgeServerCatalog(edgeServerId)
-      return mapCatalogRowsToDeviceMetricCatalog(edgeServerId, catalogSnapshot)
+      return {
+        deviceCatalog: mapCatalogRowsToDeviceMetricCatalog(edgeServerId, catalogSnapshot),
+        commandCatalog: mapCatalogCommandsToDeviceCommandCatalog(edgeServerId, catalogSnapshot),
+      }
     },
     [],
   )
 
   const hasPersistedBindingSets = useMemo(
-    () => bindingSets.some((bindingSet) => bindingSet.widgetBindings.length > 0),
+    () => bindingSets.some(hasAnyBindings),
     [bindingSets],
   )
   const activeEdgeServerLabel = useMemo(
@@ -172,7 +180,8 @@ export function FullConstructorPage() {
       })
       setMachines(nextMachines)
       setActiveEdgeServerId(nextActiveEdgeServerId)
-      setDeviceCatalog(nextCatalog)
+      setDeviceCatalog(nextCatalog.deviceCatalog)
+      setCommandCatalog(nextCatalog.commandCatalog)
       setBindingSets(bindingsRecovery.recoveryError ? [] : bindingsRecovery.bindingSets)
       setDirtyState({ layoutDirty: false, bindingsDirty: false })
 
@@ -197,6 +206,7 @@ export function FullConstructorPage() {
       setMachines([])
       setActiveEdgeServerId(null)
       setDeviceCatalog([])
+      setCommandCatalog([])
       setBindingSets([])
       setDirtyState({ layoutDirty: false, bindingsDirty: false })
       setPhase('error')
@@ -254,7 +264,10 @@ export function FullConstructorPage() {
       runtime.setActiveMachine(activeEdgeServerId)
 
       const activeBindingSet = findBindingSetForEdgeServer(bindingSets, activeEdgeServerId)
-      await runtime.loadBindings(activeBindingSet?.widgetBindings ?? [])
+      await runtime.loadBindingProfile({
+        widgetBindings: activeBindingSet?.widgetBindings ?? [],
+        commandBindings: activeBindingSet?.commandBindings ?? [],
+      })
       setDirtyState((previous) => ({ ...previous, bindingsDirty: false }))
     } catch (syncError) {
       setBindingsSaveError(
@@ -293,10 +306,12 @@ export function FullConstructorPage() {
       void (async () => {
         try {
           const nextCatalog = await loadCatalogForMachine(nextEdgeServerId)
-          setDeviceCatalog(nextCatalog)
+          setDeviceCatalog(nextCatalog.deviceCatalog)
+          setCommandCatalog(nextCatalog.commandCatalog)
           runtime.updateCatalog({
             machines,
-            deviceCatalog: nextCatalog,
+            deviceCatalog: nextCatalog.deviceCatalog,
+            commandCatalog: nextCatalog.commandCatalog,
           })
         } catch (catalogError) {
           setBindingsSaveError(
@@ -324,11 +339,13 @@ export function FullConstructorPage() {
       setBindingsSaveError(null)
 
       try {
-        const runtimeBindings = await runtime.getBindings()
-        const serializedBindings = exportWidgetBindingsPayload(runtimeBindings)
+        const runtimeProfile = await runtime.getBindingProfile()
+        const serializedBindings = exportWidgetBindingsPayload(runtimeProfile.widgetBindings)
+        const serializedCommandBindings = exportCommandBindingsPayload(runtimeProfile.commandBindings)
         const savedBindingSet = await createBinding(diagram._id, {
           edgeServerId: activeEdgeServerId,
           widgetBindings: serializedBindings,
+          commandBindings: serializedCommandBindings,
         })
         const [normalizedSavedSet] = importBindingSetsPayload([savedBindingSet])
 
@@ -590,6 +607,7 @@ export function FullConstructorPage() {
             machines={machines}
             activeEdgeServerId={activeEdgeServerId}
             deviceCatalog={deviceCatalog}
+            commandCatalog={commandCatalog}
             onReady={handleRuntimeReady}
             onSaveLayoutIntent={handleSaveLayoutIntent}
             onSaveAsIntent={saveFlow.onSaveAsIntent}

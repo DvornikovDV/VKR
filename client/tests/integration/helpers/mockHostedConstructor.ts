@@ -10,6 +10,7 @@ import type {
   WidgetBindingRecord,
   CommandBindingRecord,
   DiagramBindingProfileRecord,
+  HostedConstructorModule,
 } from '@/features/constructor-host'
 
 export interface MockHostedConstructorHarnessOptions {
