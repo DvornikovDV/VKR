@@ -6,14 +6,16 @@ import type {
   HostedConstructorCallbacks,
   HostedConstructorConfig,
   HostedConstructorInstance,
-  HostedConstructorModule,
   LayoutDocument,
   WidgetBindingRecord,
+  CommandBindingRecord,
+  DiagramBindingProfileRecord,
 } from '@/features/constructor-host'
 
 export interface MockHostedConstructorHarnessOptions {
   initialLayout?: LayoutDocument
   initialBindings?: WidgetBindingRecord[]
+  initialCommandBindings?: CommandBindingRecord[]
   initialMachines?: EditorMachineOption[]
   initialDeviceCatalog?: EditorDeviceMetricCatalogEntry[]
   initialActiveEdgeServerId?: string | null
@@ -22,6 +24,7 @@ export interface MockHostedConstructorHarnessOptions {
 interface HostedConstructorMockState {
   layout: LayoutDocument
   bindings: WidgetBindingRecord[]
+  commandBindings: CommandBindingRecord[]
   machines: EditorMachineOption[]
   deviceCatalog: EditorDeviceMetricCatalogEntry[]
   activeEdgeServerId: string | null
@@ -37,6 +40,7 @@ function createInitialState(
   return {
     layout: cloneSerializable(options.initialLayout ?? {}),
     bindings: cloneSerializable(options.initialBindings ?? []),
+    commandBindings: cloneSerializable(options.initialCommandBindings ?? []),
     machines: cloneSerializable(options.initialMachines ?? []),
     deviceCatalog: cloneSerializable(options.initialDeviceCatalog ?? []),
     activeEdgeServerId: options.initialActiveEdgeServerId ?? null,
@@ -62,6 +66,16 @@ export function createMockHostedConstructorHarness(options: MockHostedConstructo
 
   const getBindingsMock = vi.fn(async () => cloneSerializable(state.bindings))
 
+  const loadBindingProfileMock = vi.fn(async (profile: DiagramBindingProfileRecord) => {
+    state.bindings = cloneSerializable(profile.widgetBindings)
+    state.commandBindings = cloneSerializable(profile.commandBindings)
+  })
+
+  const getBindingProfileMock = vi.fn(async (): Promise<DiagramBindingProfileRecord> => ({
+    widgetBindings: cloneSerializable(state.bindings),
+    commandBindings: cloneSerializable(state.commandBindings),
+  }))
+
   const updateCatalogMock = vi.fn(
     (input: { machines: EditorMachineOption[]; deviceCatalog: EditorDeviceMetricCatalogEntry[] }) => {
       state.machines = cloneSerializable(input.machines)
@@ -80,6 +94,8 @@ export function createMockHostedConstructorHarness(options: MockHostedConstructo
     getLayout: getLayoutMock,
     loadBindings: loadBindingsMock,
     getBindings: getBindingsMock,
+    loadBindingProfile: loadBindingProfileMock,
+    getBindingProfile: getBindingProfileMock,
     updateCatalog: updateCatalogMock,
     setActiveMachine: setActiveMachineMock,
     destroy: destroyMock,
@@ -92,6 +108,7 @@ export function createMockHostedConstructorHarness(options: MockHostedConstructo
 
       state.layout = cloneSerializable(config.initialLayout)
       state.bindings = cloneSerializable(config.initialBindings ?? [])
+      state.commandBindings = cloneSerializable(config.initialCommandBindings ?? [])
       state.machines = cloneSerializable(config.machines ?? [])
       state.deviceCatalog = cloneSerializable(config.deviceCatalog ?? [])
       state.activeEdgeServerId = config.activeEdgeServerId ?? null
@@ -113,6 +130,8 @@ export function createMockHostedConstructorHarness(options: MockHostedConstructo
       getLayoutMock,
       loadBindingsMock,
       getBindingsMock,
+      loadBindingProfileMock,
+      getBindingProfileMock,
       updateCatalogMock,
       setActiveMachineMock,
       destroyMock,
@@ -140,6 +159,7 @@ export function createMockHostedConstructorHarness(options: MockHostedConstructo
 
           state.layout = cloneSerializable(config.initialLayout)
           state.bindings = cloneSerializable(config.initialBindings ?? [])
+          state.commandBindings = cloneSerializable(config.initialCommandBindings ?? [])
           state.machines = cloneSerializable(config.machines ?? [])
           state.deviceCatalog = cloneSerializable(config.deviceCatalog ?? [])
           state.activeEdgeServerId = config.activeEdgeServerId ?? null
@@ -152,6 +172,8 @@ export function createMockHostedConstructorHarness(options: MockHostedConstructo
       getLayoutMock.mockClear()
       loadBindingsMock.mockClear()
       getBindingsMock.mockClear()
+      loadBindingProfileMock.mockClear()
+      getBindingProfileMock.mockClear()
       updateCatalogMock.mockClear()
       setActiveMachineMock.mockClear()
       destroyMock.mockClear()

@@ -1,10 +1,11 @@
-import type { WidgetBindingRecord } from '@/features/constructor-host/types'
+import type { WidgetBindingRecord, CommandBindingRecord } from '@/features/constructor-host/types'
 
 export interface DiagramBindingSetRecord {
   _id?: string
   diagramId?: string
   edgeServerId: string
   widgetBindings: WidgetBindingRecord[]
+  commandBindings: CommandBindingRecord[]
   createdAt?: string
   updatedAt?: string
 }
@@ -75,6 +76,23 @@ function normalizeWidgetBinding(binding: unknown, path: string): WidgetBindingRe
   }
 }
 
+function normalizeCommandBinding(binding: unknown, path: string): CommandBindingRecord {
+  if (!isPlainObject(binding)) {
+    throwBindingsPayloadError('Command binding entry must be a plain object.', path)
+  }
+
+  const commandType = asNonEmptyString(binding.commandType, `${path}.commandType`, 'commandType')
+  if (commandType !== 'set_bool' && commandType !== 'set_number') {
+    throwBindingsPayloadError(`commandType must be 'set_bool' or 'set_number'.`, `${path}.commandType`)
+  }
+
+  return {
+    widgetId: asNonEmptyString(binding.widgetId, `${path}.widgetId`, 'widgetId'),
+    deviceId: asNonEmptyString(binding.deviceId, `${path}.deviceId`, 'deviceId'),
+    commandType,
+  }
+}
+
 function normalizeBindingSet(bindingSet: unknown, index: number): DiagramBindingSetRecord {
   const path = `bindings[${index}]`
   if (!isPlainObject(bindingSet)) {
@@ -90,6 +108,11 @@ function normalizeBindingSet(bindingSet: unknown, index: number): DiagramBinding
     widgetBindings: bindingSet.widgetBindings.map((entry, bindingIndex) =>
       normalizeWidgetBinding(entry, `${path}.widgetBindings[${bindingIndex}]`),
     ),
+    commandBindings: Array.isArray(bindingSet.commandBindings)
+      ? bindingSet.commandBindings.map((entry, bindingIndex) =>
+          normalizeCommandBinding(entry, `${path}.commandBindings[${bindingIndex}]`),
+        )
+      : [],
   }
 
   if (typeof bindingSet._id !== 'undefined') {
@@ -129,6 +152,26 @@ export function importWidgetBindingsPayload(payload: unknown): WidgetBindingReco
 
 export function exportWidgetBindingsPayload(payload: unknown): WidgetBindingRecord[] {
   return normalizeWidgetBindings(payload, 'Export')
+}
+
+function normalizeCommandBindings(payload: unknown, sourceLabel: 'Import' | 'Export'): CommandBindingRecord[] {
+  if (!Array.isArray(payload)) {
+    throwBindingsPayloadError(`${sourceLabel} command bindings payload must be an array.`, 'commandBindings')
+  }
+
+  const normalizedBindings = payload.map((entry, index) =>
+    normalizeCommandBinding(entry, `commandBindings[${index}]`),
+  )
+
+  return cloneSerializable(normalizedBindings)
+}
+
+export function importCommandBindingsPayload(payload: unknown): CommandBindingRecord[] {
+  return normalizeCommandBindings(payload, 'Import')
+}
+
+export function exportCommandBindingsPayload(payload: unknown): CommandBindingRecord[] {
+  return normalizeCommandBindings(payload, 'Export')
 }
 
 export function importBindingSetsPayload(payload: unknown): DiagramBindingSetRecord[] {

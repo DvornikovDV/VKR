@@ -7,6 +7,7 @@ describe('createMockHostedConstructorHarness', () => {
     const harness = createMockHostedConstructorHarness({
       initialLayout: { widgets: [{ id: 'w-init' }] },
       initialBindings: [{ widgetId: 'w-init', deviceId: 'dev-1', metric: 'temp' }],
+      initialCommandBindings: [{ widgetId: 'w-init', deviceId: 'dev-1', commandType: 'set_bool' }],
       initialActiveEdgeServerId: 'edge-1',
     })
 
@@ -15,6 +16,7 @@ describe('createMockHostedConstructorHarness', () => {
       mode: 'full',
       initialLayout: { widgets: [{ id: 'w-1' }] },
       initialBindings: [{ widgetId: 'w-1', deviceId: 'dev-1', metric: 'pressure' }],
+      initialCommandBindings: [{ widgetId: 'w-1', deviceId: 'dev-1', commandType: 'set_bool' }],
       activeEdgeServerId: 'edge-9',
       machines: [{ edgeServerId: 'edge-9', label: 'Edge 9' }],
       deviceCatalog: [
@@ -45,6 +47,22 @@ describe('createMockHostedConstructorHarness', () => {
       { widgetId: 'w-2', deviceId: 'dev-2', metric: 'temp' },
     ])
     expect(harness.getState().activeEdgeServerId).toBe('edge-9')
+    expect(harness.getState().commandBindings).toEqual([
+      { widgetId: 'w-1', deviceId: 'dev-1', commandType: 'set_bool' },
+    ])
+
+    await runtime.loadBindingProfile({
+      widgetBindings: [{ widgetId: 'w-3', deviceId: 'dev-3', metric: 'temp' }],
+      commandBindings: [{ widgetId: 'w-3', deviceId: 'dev-3', commandType: 'set_number' }],
+    })
+
+    expect(await runtime.getBindingProfile()).toEqual({
+      widgetBindings: [{ widgetId: 'w-3', deviceId: 'dev-3', metric: 'temp' }],
+      commandBindings: [{ widgetId: 'w-3', deviceId: 'dev-3', commandType: 'set_number' }],
+    })
+    expect(await runtime.getBindings()).toEqual([
+      { widgetId: 'w-3', deviceId: 'dev-3', metric: 'temp' },
+    ])
   })
 
   it('emits constructor callbacks through harness helpers', async () => {

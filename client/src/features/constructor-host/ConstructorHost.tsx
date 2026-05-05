@@ -5,9 +5,11 @@ import type {
   EditorDeviceMetricCatalogEntry,
   EditorMachineOption,
   EditorMode,
+  EditorMode,
   HostedConstructorInstance,
   LayoutDocument,
   WidgetBindingRecord,
+  CommandBindingRecord,
 } from '@/features/constructor-host/types'
 import { DEFAULT_MACHINE_SWITCH_MESSAGE } from '@/features/constructor-host/useUnsavedChangesGuard'
 
@@ -15,6 +17,7 @@ type HostPhase = 'loading' | 'ready' | 'error'
 
 const HOSTED_RUNTIME_ROOT_SELECTOR = '[data-hosted-constructor-root="true"]'
 const EMPTY_BINDINGS: WidgetBindingRecord[] = []
+const EMPTY_COMMAND_BINDINGS: CommandBindingRecord[] = []
 const EMPTY_MACHINES: EditorMachineOption[] = []
 const EMPTY_CATALOG: EditorDeviceMetricCatalogEntry[] = []
 const CLEAN_DIRTY_STATE: DirtyState = { layoutDirty: false, bindingsDirty: false }
@@ -25,6 +28,7 @@ export interface ConstructorHostProps {
   mode: EditorMode
   initialLayout: LayoutDocument
   initialBindings?: WidgetBindingRecord[]
+  initialCommandBindings?: CommandBindingRecord[]
   machines?: EditorMachineOption[]
   deviceCatalog?: EditorDeviceMetricCatalogEntry[]
   activeEdgeServerId?: string | null
@@ -97,6 +101,7 @@ export function ConstructorHost({
   mode,
   initialLayout,
   initialBindings,
+  initialCommandBindings,
   machines,
   deviceCatalog,
   activeEdgeServerId = null,
@@ -152,6 +157,7 @@ export function ConstructorHost({
   ])
 
   const resolvedBindings = initialBindings ?? EMPTY_BINDINGS
+  const resolvedCommandBindings = initialCommandBindings ?? EMPTY_COMMAND_BINDINGS
   const resolvedMachines = machines ?? EMPTY_MACHINES
   const resolvedCatalog = deviceCatalog ?? EMPTY_CATALOG
 
@@ -166,8 +172,9 @@ export function ConstructorHost({
       mode,
       initialLayout,
       initialBindings: resolvedBindings,
+      initialCommandBindings: resolvedCommandBindings,
     }),
-    [mode, initialLayout, resolvedBindings],
+    [mode, initialLayout, resolvedBindings, resolvedCommandBindings],
   )
 
   useEffect(() => {
@@ -226,6 +233,7 @@ export function ConstructorHost({
           mode: bootstrapConfig.mode,
           initialLayout: bootstrapConfig.initialLayout,
           initialBindings: bootstrapConfig.initialBindings,
+          initialCommandBindings: bootstrapConfig.initialCommandBindings,
           machines: latestCatalogInputRef.current.machines,
           deviceCatalog: latestCatalogInputRef.current.deviceCatalog,
           activeEdgeServerId: latestActiveEdgeServerIdRef.current,

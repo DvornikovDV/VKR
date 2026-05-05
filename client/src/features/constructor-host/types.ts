@@ -14,6 +14,17 @@ export interface WidgetBindingRecord {
   metric: string
 }
 
+export interface CommandBindingRecord {
+  widgetId: string
+  deviceId: string
+  commandType: 'set_bool' | 'set_number'
+}
+
+export interface DiagramBindingProfileRecord {
+  widgetBindings: WidgetBindingRecord[]
+  commandBindings: CommandBindingRecord[]
+}
+
 export interface EditorMachineOption {
   edgeServerId: string
   label: string
@@ -63,6 +74,7 @@ export interface HostedConstructorConfig {
   deviceCatalog?: EditorDeviceMetricCatalogEntry[]
   activeEdgeServerId?: string | null
   initialBindings?: WidgetBindingRecord[]
+  initialCommandBindings?: CommandBindingRecord[]
   callbacks: HostedConstructorCallbacks
 }
 
@@ -76,6 +88,8 @@ export interface HostedConstructorInstance {
   getLayout(): Promise<LayoutDocument>
   loadBindings(bindings: WidgetBindingRecord[]): Promise<void>
   getBindings(): Promise<WidgetBindingRecord[]>
+  loadBindingProfile(profile: DiagramBindingProfileRecord): Promise<void>
+  getBindingProfile(): Promise<DiagramBindingProfileRecord>
   updateCatalog(input: HostedConstructorCatalogUpdateInput): void
   setActiveMachine(edgeServerId: string | null): void
   destroy(): Promise<void> | void

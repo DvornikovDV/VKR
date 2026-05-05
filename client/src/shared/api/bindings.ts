@@ -6,11 +6,18 @@ export interface WidgetBinding {
   metric: string
 }
 
+export interface CommandBinding {
+  widgetId: string
+  deviceId: string
+  commandType: 'set_bool' | 'set_number'
+}
+
 export interface TelemetryProfile {
   _id: string
   diagramId: string
   edgeServerId: string
   widgetBindings: WidgetBinding[]
+  commandBindings: CommandBinding[]
   createdAt?: string
   updatedAt?: string
 }
@@ -20,6 +27,7 @@ export type DashboardBindingProfile = TelemetryProfile
 export interface UpsertTelemetryProfilePayload {
   edgeServerId: string
   widgetBindings: WidgetBinding[]
+  commandBindings?: CommandBinding[]
 }
 
 export async function getBindingsByDiagram(diagramId: string): Promise<TelemetryProfile[]> {
