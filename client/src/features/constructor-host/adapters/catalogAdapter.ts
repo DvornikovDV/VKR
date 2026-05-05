@@ -12,6 +12,8 @@ import type {
   EditorDeviceMetricCatalogEntry,
   EditorMachineOption,
   EditorMetricOption,
+  EditorDeviceCommandCatalogEntry,
+  EditorCommandOption,
 } from '@/features/constructor-host/types'
 
 interface DeviceCatalogAccumulator {
@@ -20,6 +22,13 @@ interface DeviceCatalogAccumulator {
   deviceLabel: string
   deviceType?: string
   metricsByKey: Map<string, EditorMetricOption>
+}
+
+interface DeviceCommandCatalogAccumulator {
+  edgeServerId: string
+  deviceId: string
+  deviceLabel: string
+  commandsByKey: Map<string, EditorCommandOption>
 }
 
 function normalizeString(value: string | null | undefined): string {
@@ -130,4 +139,72 @@ export async function loadHostedDeviceMetricCatalog(
 
   const catalogSnapshot = await getEdgeServerCatalog(normalizedEdgeServerId)
   return mapCatalogRowsToDeviceMetricCatalog(normalizedEdgeServerId, catalogSnapshot)
+}
+
+export function mapCatalogCommandsToDeviceCommandCatalog(
+  edgeServerId: string,
+  catalogSnapshot: EdgeCapabilitiesCatalogSnapshot,
+): EditorDeviceCommandCatalogEntry[] {
+  const normalizedEdgeServerId = normalizeString(edgeServerId)
+  if (normalizedEdgeServerId.length === 0) {
+    return []
+  }
+
+  const byDeviceId = new Map<string, DeviceCommandCatalogAccumulator>()
+  const sourceEdgeServerId = normalizeString(catalogSnapshot.edgeServerId) || normalizedEdgeServerId
+
+  for (const commandItem of catalogSnapshot.commands) {
+    const deviceId = normalizeString(commandItem.deviceId)
+    const commandType = commandItem.commandType
+
+    if (deviceId.length === 0 || !commandType) {
+      continue
+    }
+
+    const existingEntry = byDeviceId.get(deviceId)
+    const entry =
+      existingEntry ??
+      (() => {
+        const createdEntry: DeviceCommandCatalogAccumulator = {
+          edgeServerId: sourceEdgeServerId,
+          deviceId,
+          deviceLabel: buildDeviceLabel(deviceId),
+          commandsByKey: new Map<string, EditorCommandOption>(),
+        }
+        byDeviceId.set(deviceId, createdEntry)
+        return createdEntry
+      })()
+
+    if (!entry.commandsByKey.has(commandType)) {
+      entry.commandsByKey.set(commandType, {
+        commandType: commandItem.commandType,
+        valueType: commandItem.valueType,
+        label: normalizeString(commandItem.label) || `${deviceId} / ${commandType}`,
+        min: commandItem.min,
+        max: commandItem.max,
+        reportedMetric: commandItem.reportedMetric,
+      })
+    }
+  }
+
+  return [...byDeviceId.values()]
+    .map<EditorDeviceCommandCatalogEntry>((entry) => ({
+      edgeServerId: entry.edgeServerId,
+      deviceId: entry.deviceId,
+      deviceLabel: entry.deviceLabel,
+      commands: [...entry.commandsByKey.values()].sort((a, b) => a.label.localeCompare(b.label)),
+    }))
+    .sort((a, b) => a.deviceLabel.localeCompare(b.deviceLabel))
+}
+
+export async function loadHostedDeviceCommandCatalog(
+  edgeServerId: string,
+): Promise<EditorDeviceCommandCatalogEntry[]> {
+  const normalizedEdgeServerId = normalizeString(edgeServerId)
+  if (normalizedEdgeServerId.length === 0) {
+    return []
+  }
+
+  const catalogSnapshot = await getEdgeServerCatalog(normalizedEdgeServerId)
+  return mapCatalogCommandsToDeviceCommandCatalog(normalizedEdgeServerId, catalogSnapshot)
 }

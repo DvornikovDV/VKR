@@ -52,6 +52,22 @@ export interface EditorDeviceMetricCatalogEntry {
   metrics: EditorMetricOption[]
 }
 
+export interface EditorCommandOption {
+  commandType: 'set_bool' | 'set_number'
+  valueType: 'boolean' | 'number'
+  label: string
+  min?: number
+  max?: number
+  reportedMetric: string
+}
+
+export interface EditorDeviceCommandCatalogEntry {
+  edgeServerId: string
+  deviceId: string
+  deviceLabel: string
+  commands: EditorCommandOption[]
+}
+
 export interface DirtyState {
   layoutDirty: boolean
   bindingsDirty: boolean
@@ -72,6 +88,7 @@ export interface HostedConstructorConfig {
   initialLayout: LayoutDocument
   machines?: EditorMachineOption[]
   deviceCatalog?: EditorDeviceMetricCatalogEntry[]
+  commandCatalog?: EditorDeviceCommandCatalogEntry[]
   activeEdgeServerId?: string | null
   initialBindings?: WidgetBindingRecord[]
   initialCommandBindings?: CommandBindingRecord[]
@@ -81,6 +98,7 @@ export interface HostedConstructorConfig {
 export interface HostedConstructorCatalogUpdateInput {
   machines: EditorMachineOption[]
   deviceCatalog: EditorDeviceMetricCatalogEntry[]
+  commandCatalog?: EditorDeviceCommandCatalogEntry[]
 }
 
 export interface HostedConstructorInstance {
