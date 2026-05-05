@@ -3,6 +3,7 @@ import { type AuthRequest } from './middlewares/auth.middleware';
 import { DiagramsService } from '../services/diagrams.service';
 import { DiagramBindingsService } from '../services/diagram-bindings.service';
 import { AppError } from './middlewares/error.middleware';
+import { type ICommandBinding } from '../models/DiagramBindings';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -151,7 +152,7 @@ async function listBindings(req: AuthRequest, res: Response, next: NextFunction)
 async function upsertBindings(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
         const { userId } = requireUser(req);
-        const body = req.body as { edgeServerId?: unknown; widgetBindings?: unknown };
+        const body = req.body as { edgeServerId?: unknown; widgetBindings?: unknown; commandBindings?: unknown };
 
         if (typeof body.edgeServerId !== 'string' || !body.edgeServerId.trim()) {
             throw new AppError('edgeServerId is required', 400);
@@ -170,6 +171,9 @@ async function upsertBindings(req: AuthRequest, res: Response, next: NextFunctio
                     deviceId: string;
                     metric: string;
                 }[],
+                commandBindings: Array.isArray(body.commandBindings)
+                    ? (body.commandBindings as ICommandBinding[])
+                    : undefined,
             },
         );
 

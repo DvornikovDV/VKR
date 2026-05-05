@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { DiagramBindings, type IDiagramBindings, type IWidgetBinding } from '../models/DiagramBindings';
+import { DiagramBindings, type IDiagramBindings, type IWidgetBinding, type ICommandBinding } from '../models/DiagramBindings';
 import { Diagram } from '../models/Diagram';
 import { EdgeServer } from '../models/EdgeServer';
 import { AppError } from '../api/middlewares/error.middleware';
@@ -10,6 +10,7 @@ import { normalizeDeviceId, normalizeMetric } from './edge-identity.validation';
 export interface UpsertBindingsPayload {
     edgeServerId: string;
     widgetBindings: IWidgetBinding[];
+    commandBindings?: ICommandBinding[];
 }
 
 export interface UpsertBindingsResult {
@@ -122,12 +123,44 @@ async function upsert(
         return { widgetId, deviceId, metric };
     });
 
+    // Normalize commandBindings — legacy payloads that omit the field default to []
+    const rawCommandBindings: unknown[] = Array.isArray(payload.commandBindings)
+        ? payload.commandBindings
+        : [];
+
+    const VALID_COMMAND_TYPES = new Set(['set_bool', 'set_number']);
+
+    const normalizedCommandBindings = rawCommandBindings.map((entry, index) => {
+        const b = entry as Record<string, unknown>;
+        const widgetId = typeof b.widgetId === 'string' ? b.widgetId.trim() : '';
+        const deviceId = normalizeDeviceId(b.deviceId);
+        const commandType = typeof b.commandType === 'string' ? b.commandType : '';
+
+        if (!widgetId) {
+            throw new AppError(`commandBindings[${index}].widgetId is required`, 400);
+        }
+        if (!deviceId) {
+            throw new AppError(
+                `commandBindings[${index}].deviceId must match [A-Za-z0-9._-]+`,
+                400,
+            );
+        }
+        if (!VALID_COMMAND_TYPES.has(commandType)) {
+            throw new AppError(
+                `commandBindings[${index}].commandType must be 'set_bool' or 'set_number'`,
+                400,
+            );
+        }
+
+        return { widgetId, deviceId, commandType } as ICommandBinding;
+    });
+
     // Atomic upsert — eliminates race condition on unique compound index { diagramId, edgeServerId }
     const before = await DiagramBindings.findOne({ diagramId, edgeServerId }).lean().exec();
 
     const binding = await DiagramBindings.findOneAndUpdate(
         { diagramId, edgeServerId },
-        { $set: { widgetBindings: normalizedBindings, ownerId } },
+        { $set: { widgetBindings: normalizedBindings, commandBindings: normalizedCommandBindings, ownerId } },
         { new: true, upsert: true, setDefaultsOnInsert: true },
     ).exec();
 
