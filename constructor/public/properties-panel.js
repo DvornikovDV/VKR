@@ -649,11 +649,7 @@ class PropertiesPanel {
                     ? this.getAvailableMetricsForDevice(nextDeviceId)[0] || null
                     : null;
                 this.setWidgetBinding(widget, nextDeviceId, nextMetric);
-                
-                // Systemic notification of binding change
                 if (this.onBindingsChanged) this.onBindingsChanged();
-                if (this.onWidgetUpdated) this.onWidgetUpdated(widget);
-                
                 this.showPropertiesForWidget(widget);
             });
         }
@@ -662,11 +658,7 @@ class PropertiesPanel {
         if (metricSelect) {
             metricSelect.addEventListener('change', (e) => {
                 this.setWidgetBinding(widget, widget.bindingId || null, e.target.value || null);
-                
-                // Systemic notification of binding change
                 if (this.onBindingsChanged) this.onBindingsChanged();
-                if (this.onWidgetUpdated) this.onWidgetUpdated(widget);
-                
                 this.showPropertiesForWidget(widget);
             });
         }

@@ -51,6 +51,11 @@ class UIController {
             : Array.isArray(this.hostedConfig && this.hostedConfig.deviceCatalog)
                 ? this.hostedConfig.deviceCatalog
                 : [];
+        this.hostedCommandCatalog = Array.isArray(this.hostedOptions.commandCatalog)
+            ? this.hostedOptions.commandCatalog
+            : Array.isArray(this.hostedConfig && this.hostedConfig.commandCatalog)
+                ? this.hostedConfig.commandCatalog
+                : [];
         this._destroyed = false;
         this._layoutLoadGeneration = 0;
         this._bindingsLoadGeneration = 0;
@@ -394,6 +399,67 @@ class UIController {
         return mappedDevices;
     }
 
+    /**
+     * Map the hosted command catalog to a flat array of command options scoped to a machine.
+     * Kept separate from mapHostedCatalogToBindingsDevices (telemetry path).
+     * @param {Array} commandCatalog - EditorDeviceCommandCatalogEntry[]
+     * @param {string|null} machineId - filter by edgeServerId; pass null to return all
+     * @returns {Array<{ deviceId, commandType, label, valueType, min, max, reportedMetric }>}
+     */
+    mapHostedCommandCatalogToOptions(commandCatalog = [], machineId = null) {
+        const options = [];
+
+        if (!Array.isArray(commandCatalog)) {
+            return options;
+        }
+
+        commandCatalog.forEach((entry) => {
+            if (!entry || typeof entry !== 'object') {
+                return;
+            }
+
+            const entryEdgeServerId = entry.edgeServerId || null;
+            const deviceId = typeof entry.deviceId === 'string' ? entry.deviceId.trim() : null;
+
+            if (!deviceId) {
+                return;
+            }
+
+            // Filter by machineId when provided
+            if (machineId !== null && entryEdgeServerId !== machineId) {
+                return;
+            }
+
+            const commands = Array.isArray(entry.commands) ? entry.commands : [];
+            commands.forEach((cmd) => {
+                if (!cmd || typeof cmd !== 'object') {
+                    return;
+                }
+
+                const commandType = cmd.commandType || null;
+                const ALLOWED = new Set(['set_bool', 'set_number']);
+                if (!ALLOWED.has(commandType)) {
+                    return;
+                }
+
+                const option = {
+                    deviceId,
+                    commandType,
+                    label: typeof cmd.label === 'string' ? cmd.label : `${deviceId}/${commandType}`,
+                    valueType: cmd.valueType || (commandType === 'set_bool' ? 'boolean' : 'number'),
+                };
+
+                if (typeof cmd.min === 'number') option.min = cmd.min;
+                if (typeof cmd.max === 'number') option.max = cmd.max;
+                if (typeof cmd.reportedMetric === 'string') option.reportedMetric = cmd.reportedMetric;
+
+                options.push(option);
+            });
+        });
+
+        return options;
+    }
+
     getHostedMachineOptions() {
         if (!Array.isArray(this.hostedMachines)) {
             return [];
@@ -464,6 +530,9 @@ class UIController {
         if (this.isHostedRuntime) {
             if (this.bindingsManager) {
                 this.bindingsManager.allDevices = this.mapHostedCatalogToBindingsDevices(this.hostedDeviceCatalog);
+                this.bindingsManager.setCommandOptions(
+                    this.mapHostedCommandCatalogToOptions(this.hostedCommandCatalog, null)
+                );
             }
             if (typeof this.renderMachineOptions === 'function') {
                 this.renderMachineOptions();
@@ -1209,6 +1278,41 @@ class UIController {
         return this.widgetManager.exportBindings();
     }
 
+    async loadBindingProfile(profile = {}) {
+        const loadGeneration = this.nextBindingsLoadGeneration();
+        await this.ready();
+        if (this.editorMode === 'reduced' || this.isBindingsLoadStale(loadGeneration)) {
+            return;
+        }
+
+        const widgetBindings = Array.isArray(profile.widgetBindings) ? profile.widgetBindings : [];
+        const commandBindings = Array.isArray(profile.commandBindings) ? profile.commandBindings : [];
+
+        if (this.widgetManager) {
+            this.widgetManager.importBindings(widgetBindings);
+        }
+        if (this.bindingsManager) {
+            this.bindingsManager.importCommandBindings(commandBindings);
+        }
+
+        this.notifyDirtyState({
+            layoutDirty: false,
+            bindingsDirty: false,
+        });
+    }
+
+    async getBindingProfile() {
+        await this.ready();
+        if (this._destroyed || this.editorMode === 'reduced') {
+            return { widgetBindings: [], commandBindings: [] };
+        }
+
+        return {
+            widgetBindings: this.widgetManager ? this.widgetManager.exportBindings() : [],
+            commandBindings: this.bindingsManager ? this.bindingsManager.getCommandBindings() : []
+        };
+    }
+
     updateCatalog(input = {}) {
         if (this._destroyed) {
             return;
@@ -1216,11 +1320,20 @@ class UIController {
 
         this.hostedMachines = Array.isArray(input.machines) ? input.machines : [];
         this.hostedDeviceCatalog = Array.isArray(input.deviceCatalog) ? input.deviceCatalog : [];
+        this.hostedCommandCatalog = Array.isArray(input.commandCatalog) ? input.commandCatalog : this.hostedCommandCatalog;
 
         if (this.bindingsManager) {
             this.bindingsManager.allDevices = this.isBindingsEnabled()
                 ? this.mapHostedCatalogToBindingsDevices(this.hostedDeviceCatalog)
                 : [];
+
+            // Update command options for the active machine
+            const activeMachineId = this.bindingsManager.selectedMachineId ?? null;
+            this.bindingsManager.setCommandOptions(
+                this.isBindingsEnabled()
+                    ? this.mapHostedCommandCatalogToOptions(this.hostedCommandCatalog, activeMachineId)
+                    : []
+            );
 
             if (!this.isBindingsEnabled() || !this.bindingsManager.selectedMachineId) {
                 this.bindingsManager.availableDeviceMetrics = [];
@@ -1251,12 +1364,18 @@ class UIController {
             this.bindingsManager.selectedMachineId = null;
             this.bindingsManager.availableDeviceMetrics = [];
             this.bindingsManager.availableDevices = [];
+            // Clear command options when no machine is selected
+            this.bindingsManager.setCommandOptions([]);
             this.fileManager.currentMachineId = null;
             this.emitMachineChange(null);
             return;
         }
 
         this.bindingsManager.selectMachine(machineId, true);
+        // Sync command options to the newly active machine — closes the invariant
+        this.bindingsManager.setCommandOptions(
+            this.mapHostedCommandCatalogToOptions(this.hostedCommandCatalog, machineId)
+        );
         this.fileManager.currentMachineId = machineId;
         this.emitMachineChange(machineId);
     }
