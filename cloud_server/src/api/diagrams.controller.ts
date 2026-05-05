@@ -161,6 +161,10 @@ async function upsertBindings(req: AuthRequest, res: Response, next: NextFunctio
             throw new AppError('widgetBindings must be an array', 400);
         }
 
+        if (body.commandBindings !== undefined && !Array.isArray(body.commandBindings)) {
+            throw new AppError('commandBindings must be an array if provided', 400);
+        }
+
         const { binding, created } = await DiagramBindingsService.upsert(
             req.params['id'] ?? '',
             userId,
@@ -171,7 +175,7 @@ async function upsertBindings(req: AuthRequest, res: Response, next: NextFunctio
                     deviceId: string;
                     metric: string;
                 }[],
-                commandBindings: Array.isArray(body.commandBindings)
+                commandBindings: body.commandBindings !== undefined
                     ? (body.commandBindings as ICommandBinding[])
                     : undefined,
             },

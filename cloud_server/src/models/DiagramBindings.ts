@@ -80,6 +80,14 @@ const DiagramBindingsSchema = new Schema<IDiagramBindings>(
     {
         timestamps: true,
         collection: 'diagram_bindings',
+        toJSON: {
+            transform: (_, ret) => {
+                if (!Array.isArray(ret.commandBindings)) {
+                    ret.commandBindings = [];
+                }
+                return ret;
+            },
+        },
     },
 );
 

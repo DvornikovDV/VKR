@@ -432,7 +432,7 @@ paths:
                   data:
                     type: array
                     items:
-                      type: object
+                      $ref: '#/components/schemas/DiagramBindingProfile'
         '401':
           description: Unauthorized
         '403':
@@ -465,27 +465,24 @@ paths:
                 widgetBindings:
                   type: array
                   items:
-                    type: object
-                    properties:
-                      widgetId:
-                        type: string
-                      deviceId:
-                        type: string
-                      metric:
-                        type: string
+                    $ref: '#/components/schemas/WidgetBinding'
+                commandBindings:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CommandBinding'
       responses:
         '200':
           description: Binding set replaced (same diagramId+edgeServerId pair already existed)
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JSendSuccess'
+                $ref: '#/components/schemas/DiagramBindingSuccessResponse'
         '201':
           description: Binding set created
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JSendSuccess'
+                $ref: '#/components/schemas/DiagramBindingSuccessResponse'
         '400':
           description: Invalid input
         '401':
@@ -1349,6 +1346,67 @@ components:
         createdAt:
           type: string
           format: date-time
+    WidgetBinding:
+      type: object
+      required:
+        - widgetId
+        - deviceId
+        - metric
+      properties:
+        widgetId:
+          type: string
+        deviceId:
+          type: string
+        metric:
+          type: string
+    CommandBinding:
+      type: object
+      required:
+        - widgetId
+        - deviceId
+        - commandType
+      properties:
+        widgetId:
+          type: string
+        deviceId:
+          type: string
+        commandType:
+          type: string
+          enum: [set_bool, set_number]
+    DiagramBindingProfile:
+      type: object
+      required:
+        - _id
+        - diagramId
+        - edgeServerId
+        - widgetBindings
+        - commandBindings
+      properties:
+        _id:
+          type: string
+        diagramId:
+          type: string
+        edgeServerId:
+          type: string
+        widgetBindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/WidgetBinding'
+        commandBindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommandBinding'
+    DiagramBindingSuccessResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          $ref: '#/components/schemas/DiagramBindingProfile'
 
   securitySchemes:
     bearerAuth:
