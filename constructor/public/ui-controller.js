@@ -909,8 +909,20 @@ class UIController {
             this.stripBindingsUiFromPropertiesPanel();
         };
 
+        this.widgetManager.onWidgetCreated = () => {
+            this.notifyDirtyState({ layoutDirty: true });
+        };
+
+        this.widgetManager.onWidgetDeleted = (widget) => {
+            if (this.bindingsManager && widget && typeof this.bindingsManager.removeCommand === 'function') {
+                this.bindingsManager.removeCommand(widget.id);
+            }
+            this.notifyDirtyState({ layoutDirty: true, bindingsDirty: true });
+        };
+
         this.widgetManager.onWidgetDragEnd = (widget) => {
             this.propertiesPanel.refreshWidgetProperties(widget);
+            this.notifyDirtyState({ layoutDirty: true });
         };
     }
 

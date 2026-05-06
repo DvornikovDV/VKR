@@ -123,6 +123,8 @@ export class WidgetManager {
     this.canvasManager = canvasManager;
     this.widgets = [];
     this.nextWidgetId = 1;
+    this.onWidgetCreated = null;
+    this.onWidgetDeleted = null;
     this.onWidgetSelected = null; // Callback выбора виджета
     this.onWidgetDragEnd = null; // Callback окончания перемещения
   }
@@ -178,6 +180,9 @@ export class WidgetManager {
     this.widgets.push(widget);
 
     console.log(`Widget created: ${widgetId} on image ${config.imageId}`);
+    if (this.onWidgetCreated) {
+      this.onWidgetCreated(widget);
+    }
     return widget;
   }
 
@@ -196,6 +201,9 @@ export class WidgetManager {
     this.widgets.splice(index, 1);
 
     console.log(`Widget deleted: ${widgetId}`);
+    if (this.onWidgetDeleted) {
+      this.onWidgetDeleted(widget);
+    }
     return true;
   }
 
