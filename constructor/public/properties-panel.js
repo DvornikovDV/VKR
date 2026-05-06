@@ -212,16 +212,141 @@ class PropertiesPanel {
         );
     }
 
+    normalizeMetricValueType(valueType) {
+        if (valueType === 'boolean' || valueType === 'number' || valueType === 'string') {
+            return valueType;
+        }
+
+        return null;
+    }
+
+    getRawAvailableDevices() {
+        if (!this.bindingsManager || !this.bindingsManager.selectedMachineId || !Array.isArray(this.bindingsManager.allDevices)) {
+            return [];
+        }
+
+        return this.bindingsManager.allDevices.filter(
+            (device) => device.machineId === this.bindingsManager.selectedMachineId,
+        );
+    }
+
+    getCommandOptionForBinding(commandBinding) {
+        if (!commandBinding || !this.bindingsManager || !Array.isArray(this.bindingsManager.availableCommandOptions)) {
+            return null;
+        }
+
+        return this.bindingsManager.availableCommandOptions.find(
+            (option) =>
+                option &&
+                option.deviceId === commandBinding.deviceId &&
+                option.commandType === commandBinding.commandType,
+        ) || null;
+    }
+
+    getReportedBindingConstraint(widget) {
+        if (!widget) return null;
+
+        if (this.bindingsManager && typeof this.bindingsManager.getCommandBindingForWidget === 'function') {
+            const commandBinding = this.bindingsManager.getCommandBindingForWidget(widget.id);
+            const commandOption = this.getCommandOptionForBinding(commandBinding);
+            if (commandOption) {
+                return {
+                    deviceId: commandOption.deviceId,
+                    metric: typeof commandOption.reportedMetric === 'string' && commandOption.reportedMetric.trim()
+                        ? commandOption.reportedMetric.trim()
+                        : null,
+                    valueType: this.normalizeMetricValueType(commandOption.valueType)
+                };
+            }
+        }
+
+        if (widget.type === 'led') {
+            return { valueType: 'boolean' };
+        }
+
+        return null;
+    }
+
+    getMetricValueType(deviceId, metric) {
+        if (!deviceId || !metric) return null;
+
+        if (this.bindingsManager && Array.isArray(this.bindingsManager.availableDeviceMetrics)) {
+            const metricEntry = this.bindingsManager.availableDeviceMetrics.find(
+                (entry) => entry && entry.deviceId === deviceId && entry.metric === metric,
+            );
+            const normalizedFromCatalog = this.normalizeMetricValueType(metricEntry && metricEntry.valueType);
+            if (normalizedFromCatalog) {
+                return normalizedFromCatalog;
+            }
+        }
+
+        const device = this.getRawAvailableDevices().find((entry) => entry.id === deviceId);
+        if (!device || !Array.isArray(device.metrics)) {
+            return null;
+        }
+
+        const metricEntry = device.metrics.find((entry) => {
+            if (typeof entry === 'string') {
+                return entry === metric;
+            }
+
+            if (!entry || typeof entry !== 'object') {
+                return false;
+            }
+
+            return (entry.key || entry.metric || entry.label) === metric;
+        });
+
+        return this.normalizeMetricValueType(metricEntry && typeof metricEntry === 'object' ? metricEntry.valueType : null);
+    }
+
+    doesMetricMatchConstraint(deviceId, metric, constraint) {
+        if (!constraint) return true;
+
+        if (constraint.deviceId && deviceId !== constraint.deviceId) {
+            return false;
+        }
+
+        if (constraint.metric && metric !== constraint.metric) {
+            return false;
+        }
+
+        if (!constraint.valueType) {
+            return true;
+        }
+
+        const valueType = this.getMetricValueType(deviceId, metric);
+        if (!valueType && constraint.metric && metric === constraint.metric) {
+            return true;
+        }
+
+        return valueType === constraint.valueType;
+    }
+
+    deviceHasCompatibleReportedMetric(deviceId, widget) {
+        return this.getAvailableMetricsForDevice(deviceId, widget).length > 0;
+    }
+
+    syncReportedBindingForCommand(widget) {
+        const constraint = this.getReportedBindingConstraint(widget);
+        if (!constraint || !constraint.deviceId || !constraint.metric) {
+            return;
+        }
+
+        this.setWidgetBinding(widget, constraint.deviceId, constraint.metric);
+    }
+
     /**
      * Apply a command binding to the bindings manager for widgetId.
      * Clears the binding when deviceId is empty.
      * Fires onBindingsChanged after any state change.
-     * @param {string} widgetId
+     * @param {Object} widget
      * @param {string} deviceId
      * @param {string} commandType
      */
-    setCommandBinding(widgetId, deviceId, commandType) {
+    setCommandBinding(widget, deviceId, commandType) {
         if (!this.bindingsManager) return;
+        const widgetId = widget && widget.id;
         if (!deviceId) {
             if (typeof this.bindingsManager.removeCommand === 'function') {
                 this.bindingsManager.removeCommand(widgetId);
@@ -233,6 +358,8 @@ class PropertiesPanel {
             const assigned = this.bindingsManager.assignCommand(widgetId, deviceId, commandType);
             if (!assigned) {
                 console.warn(`[PropertiesPanel] assignCommand returned false: deviceId=${deviceId}, commandType=${commandType}. Command not in active catalog.`);
+            } else {
+                this.syncReportedBindingForCommand(widget);
             }
         }
         if (this.onBindingsChanged) this.onBindingsChanged();
@@ -293,17 +420,17 @@ class PropertiesPanel {
         return trimmedMetric.length > 0 ? trimmedMetric : null;
     }
 
-    getAvailableDevices() {
-        if (!this.bindingsManager || !this.bindingsManager.selectedMachineId || !Array.isArray(this.bindingsManager.allDevices)) {
-            return [];
+    getAvailableDevices(widget = null) {
+        const devices = this.getRawAvailableDevices();
+
+        if (!widget) {
+            return devices;
         }
 
-        return this.bindingsManager.allDevices.filter(
-            (device) => device.machineId === this.bindingsManager.selectedMachineId,
-        );
+        return devices.filter((device) => this.deviceHasCompatibleReportedMetric(device.id, widget));
     }
 
-    getAvailableMetricsForDevice(deviceId) {
+    getAvailableMetricsForDevice(deviceId, widget = null) {
         if (!deviceId) {
             return [];
         }
@@ -325,10 +452,14 @@ class PropertiesPanel {
         }
 
         if (metrics.length > 0) {
-            return Array.from(new Set(metrics));
+            const uniqueMetrics = Array.from(new Set(metrics));
+            const constraint = this.getReportedBindingConstraint(widget);
+            return uniqueMetrics.filter((metricKey) =>
+                this.doesMetricMatchConstraint(deviceId, metricKey, constraint),
+            );
         }
 
-        const device = this.getAvailableDevices().find((entry) => entry.id === deviceId);
+        const device = this.getRawAvailableDevices().find((entry) => entry.id === deviceId);
         if (!device) {
             return [];
         }
@@ -348,7 +479,11 @@ class PropertiesPanel {
 
         pushMetric(device.metric);
 
-        return Array.from(new Set(metrics));
+        const uniqueMetrics = Array.from(new Set(metrics));
+        const constraint = this.getReportedBindingConstraint(widget);
+        return uniqueMetrics.filter((metricKey) =>
+            this.doesMetricMatchConstraint(deviceId, metricKey, constraint),
+        );
     }
 
     setWidgetBinding(widget, deviceId, metric) {
@@ -360,15 +495,18 @@ class PropertiesPanel {
             return;
         }
 
-        const availableMetrics = this.getAvailableMetricsForDevice(resolvedDeviceId);
+        const availableMetrics = this.getAvailableMetricsForDevice(resolvedDeviceId, widget);
         let resolvedMetric = this.normalizeBindingMetric(metric);
 
-        if (!resolvedMetric) {
+        if (!resolvedMetric || !availableMetrics.includes(resolvedMetric)) {
             resolvedMetric = availableMetrics[0] || null;
         }
 
         if (!resolvedMetric) {
-            resolvedMetric = 'value';
+            widget.bindingId = null;
+            widget.bindingMetric = null;
+            widget.binding = null;
+            return;
         }
 
         if (this.bindingsManager && typeof this.bindingsManager.canAssignDevice === 'function') {
@@ -443,7 +581,7 @@ class PropertiesPanel {
         const y = widget.y.toFixed(0);
         const w = widget.width.toFixed(0);
         const h = widget.height.toFixed(0);
-        const availableDevices = this.getAvailableDevices();
+        const availableDevices = this.getAvailableDevices(widget);
 
         let bindingId = widget.bindingId || '';
         let bindingMetric = this.normalizeBindingMetric(widget.bindingMetric);
@@ -454,7 +592,7 @@ class PropertiesPanel {
             bindingId = '';
             bindingMetric = null;
         } else {
-            const availableMetrics = this.getAvailableMetricsForDevice(bindingId);
+            const availableMetrics = this.getAvailableMetricsForDevice(bindingId, widget);
             if (!bindingMetric || !availableMetrics.includes(bindingMetric)) {
                 this.setWidgetBinding(widget, bindingId, bindingMetric || null);
                 bindingMetric = this.normalizeBindingMetric(widget.bindingMetric);
@@ -524,7 +662,7 @@ class PropertiesPanel {
             html += `<option value="${device.id}" ${selected}>${device.name} (${device.type})</option>`;
         });
 
-        const availableMetrics = bindingId ? this.getAvailableMetricsForDevice(bindingId) : [];
+        const availableMetrics = bindingId ? this.getAvailableMetricsForDevice(bindingId, widget) : [];
         const selectedMetric = bindingMetric && availableMetrics.includes(bindingMetric)
             ? bindingMetric
             : '';
@@ -646,7 +784,7 @@ class PropertiesPanel {
             deviceSelect.addEventListener('change', (e) => {
                 const nextDeviceId = e.target.value || null;
                 const nextMetric = nextDeviceId
-                    ? this.getAvailableMetricsForDevice(nextDeviceId)[0] || null
+                    ? this.getAvailableMetricsForDevice(nextDeviceId, widget)[0] || null
                     : null;
                 this.setWidgetBinding(widget, nextDeviceId, nextMetric);
                 if (this.onBindingsChanged) this.onBindingsChanged();
@@ -669,7 +807,7 @@ class PropertiesPanel {
             const allowedCommandType = this.getAllowedCommandType(widget.type);
             commandTargetSelect.addEventListener('change', (e) => {
                 const deviceId = e.target.value || null;
-                this.setCommandBinding(widget.id, deviceId, allowedCommandType);
+                this.setCommandBinding(widget, deviceId, allowedCommandType);
                 // Re-render to reflect saved state
                 this.showPropertiesForWidget(widget);
             });

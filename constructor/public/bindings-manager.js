@@ -23,12 +23,27 @@ class BindingsManager {
         return trimmedMetric.length > 0 ? trimmedMetric : null;
     }
 
+    normalizeValueType(valueType) {
+        if (valueType === 'boolean' || valueType === 'number' || valueType === 'string') {
+            return valueType;
+        }
+
+        return null;
+    }
+
     collectDeviceMetrics(device) {
         const metrics = [];
-        const pushMetric = (value) => {
+        const seenMetrics = new Set();
+        const pushMetric = (value, valueType = null) => {
             const normalizedMetric = this.normalizeMetric(value);
-            if (normalizedMetric) {
-                metrics.push(normalizedMetric);
+            if (normalizedMetric && !seenMetrics.has(normalizedMetric)) {
+                seenMetrics.add(normalizedMetric);
+                const entry = { metric: normalizedMetric };
+                const normalizedValueType = this.normalizeValueType(valueType);
+                if (normalizedValueType) {
+                    entry.valueType = normalizedValueType;
+                }
+                metrics.push(entry);
             }
         };
 
@@ -40,20 +55,23 @@ class BindingsManager {
                 }
 
                 if (metricEntry && typeof metricEntry === 'object') {
-                    pushMetric(metricEntry.key || metricEntry.metric || metricEntry.label);
+                    pushMetric(
+                        metricEntry.key || metricEntry.metric || metricEntry.label,
+                        metricEntry.valueType,
+                    );
                 }
             });
         }
 
         if (metrics.length === 0) {
-            pushMetric(device.metric);
+            pushMetric(device.metric, device.valueType);
         }
 
         if (metrics.length === 0) {
-            metrics.push('value');
+            metrics.push({ metric: 'value' });
         }
 
-        return Array.from(new Set(metrics));
+        return metrics;
     }
 
     getAvailableDeviceMetricsForMachine(machineId) {
@@ -67,11 +85,15 @@ class BindingsManager {
                     return;
                 }
 
-                this.collectDeviceMetrics(device).forEach((metric) => {
-                    deviceMetrics.push({
+                this.collectDeviceMetrics(device).forEach((metricEntry) => {
+                    const nextEntry = {
                         deviceId,
-                        metric,
-                    });
+                        metric: metricEntry.metric,
+                    };
+                    if (metricEntry.valueType) {
+                        nextEntry.valueType = metricEntry.valueType;
+                    }
+                    deviceMetrics.push(nextEntry);
                 });
             });
 

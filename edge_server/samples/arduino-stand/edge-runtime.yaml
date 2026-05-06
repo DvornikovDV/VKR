@@ -1,6 +1,6 @@
 runtime:
   # Required: replace with the cloud-issued edge id. Must match state/credential.json edgeId.
-  edgeId: 69f1b617b1728b89d4293a34
+  edgeId: 69fa56e7542f41fc6bfcc233
   # Required: directory that contains credential.json, runtime-state.json, and status.json.
   stateDir: C:\ProgramData\vkr-edge\state
   instanceName: arduino-stand-edge

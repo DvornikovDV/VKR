@@ -307,11 +307,18 @@ describe('FullConstructorPage recovery and retry flows', () => {
 
   it('recreates the current binding set after destructive layout save when dirty layout blocks direct binding save', async () => {
     const user = userEvent.setup()
-    const harness = createMockHostedConstructorHarness()
+    const harness = createMockHostedConstructorHarness({ clearBindingsOnLayoutLoad: true })
     mockedLoadHostedConstructor.mockResolvedValue(harness.module)
 
     const callOrder: string[] = []
     let diagramVersion = 7
+    let postedBindingPayload:
+      | {
+          edgeServerId: string
+          widgetBindings: Array<{ widgetId: string; deviceId: string; metric: string }>
+          commandBindings?: Array<{ widgetId: string; deviceId: string; commandType: 'set_bool' | 'set_number' }>
+        }
+      | null = null
 
     server.use(
       http.get('/api/diagrams/:id', ({ params }) =>
@@ -353,6 +360,7 @@ describe('FullConstructorPage recovery and retry flows', () => {
               diagramId: 'diagram-destructive-chain',
               edgeServerId: 'edge-1',
               widgetBindings: [{ widgetId: 'widget-1', deviceId: 'device-1', metric: 'temperature' }],
+              commandBindings: [],
             },
           ],
         }),
@@ -381,7 +389,9 @@ describe('FullConstructorPage recovery and retry flows', () => {
         const payload = (await request.json()) as {
           edgeServerId: string
           widgetBindings: Array<{ widgetId: string; deviceId: string; metric: string }>
+          commandBindings?: Array<{ widgetId: string; deviceId: string; commandType: 'set_bool' | 'set_number' }>
         }
+        postedBindingPayload = payload
         callOrder.push('post-bindings')
 
         return HttpResponse.json({
@@ -391,6 +401,7 @@ describe('FullConstructorPage recovery and retry flows', () => {
             diagramId: String(params.id),
             edgeServerId: payload.edgeServerId,
             widgetBindings: payload.widgetBindings,
+            commandBindings: payload.commandBindings ?? [],
           },
         })
       }),
@@ -403,9 +414,10 @@ describe('FullConstructorPage recovery and retry flows', () => {
     })
 
     await act(async () => {
-      await harness.instance.loadBindings([
-        { widgetId: 'widget-2', deviceId: 'device-2', metric: 'pressure' },
-      ])
+      await harness.instance.loadBindingProfile({
+        widgetBindings: [{ widgetId: 'widget-2', deviceId: 'device-2', metric: 'pressure' }],
+        commandBindings: [{ widgetId: 'toggle-1', deviceId: 'pump_main', commandType: 'set_bool' }],
+      })
     })
 
     act(() => {
@@ -428,6 +440,15 @@ describe('FullConstructorPage recovery and retry flows', () => {
 
     await waitFor(() => {
       expect(callOrder).toEqual(['put', 'delete-all', 'post-bindings'])
+    })
+    expect(postedBindingPayload).toEqual({
+      edgeServerId: 'edge-1',
+      widgetBindings: [{ widgetId: 'widget-2', deviceId: 'device-2', metric: 'pressure' }],
+      commandBindings: [{ widgetId: 'toggle-1', deviceId: 'pump_main', commandType: 'set_bool' }],
+    })
+    expect(harness.instanceSpies.loadBindingProfileMock).toHaveBeenCalledWith({
+      widgetBindings: [{ widgetId: 'widget-2', deviceId: 'device-2', metric: 'pressure' }],
+      commandBindings: [{ widgetId: 'toggle-1', deviceId: 'pump_main', commandType: 'set_bool' }],
     })
   })
 })

@@ -39,11 +39,18 @@ function buildDeviceLabel(deviceId: string): string {
   return deviceId
 }
 
-function buildMetricOption(metric: string): EditorMetricOption {
-  return {
+function buildMetricOption(telemetryItem: EdgeCapabilitiesCatalogSnapshot['telemetry'][number]): EditorMetricOption {
+  const metric = normalizeString(telemetryItem.metric)
+  const option: EditorMetricOption = {
     key: metric,
-    label: metric,
+    label: normalizeString(telemetryItem.label) || metric,
   }
+
+  if (telemetryItem.valueType) {
+    option.valueType = telemetryItem.valueType
+  }
+
+  return option
 }
 
 export function mapTrustedEdgeServersToMachineOptions(
@@ -109,7 +116,7 @@ export function mapCatalogRowsToDeviceMetricCatalog(
       })()
 
     if (!entry.metricsByKey.has(metric)) {
-      entry.metricsByKey.set(metric, buildMetricOption(metric))
+      entry.metricsByKey.set(metric, buildMetricOption(telemetryItem))
     }
   }
 

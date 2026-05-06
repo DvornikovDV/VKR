@@ -60,6 +60,10 @@ class UIController {
         this._layoutLoadGeneration = 0;
         this._bindingsLoadGeneration = 0;
         this._domListenerCleanup = [];
+        this.currentDirtyState = {
+            layoutDirty: false,
+            bindingsDirty: false,
+        };
         this.initPromise = this.init();
     }
 
@@ -243,21 +247,31 @@ class UIController {
 
     notifyDirtyState(state) {
         const callbacks = this.getHostedCallbacks();
+        const previousState = this.currentDirtyState || {
+            layoutDirty: false,
+            bindingsDirty: false,
+        };
+        const nextState = state && typeof state === 'object'
+            ? {
+                layoutDirty: typeof state.layoutDirty === 'boolean'
+                    ? state.layoutDirty
+                    : previousState.layoutDirty,
+                bindingsDirty: typeof state.bindingsDirty === 'boolean'
+                    ? state.bindingsDirty
+                    : previousState.bindingsDirty,
+            }
+            : previousState;
+
+        this.currentDirtyState = {
+            layoutDirty: Boolean(nextState.layoutDirty),
+            bindingsDirty: this.isBindingsEnabled() ? Boolean(nextState.bindingsDirty) : false,
+        };
+
         if (!callbacks || typeof callbacks.onDirtyStateChange !== 'function') {
             return;
         }
 
-        const normalizedState = state && typeof state === 'object'
-            ? {
-                layoutDirty: Boolean(state.layoutDirty),
-                bindingsDirty: this.isBindingsEnabled() ? Boolean(state.bindingsDirty) : false,
-            }
-            : {
-                layoutDirty: false,
-                bindingsDirty: false,
-            };
-
-        callbacks.onDirtyStateChange(normalizedState);
+        callbacks.onDirtyStateChange(this.currentDirtyState);
     }
 
     emitMachineChange(machineId) {
@@ -351,6 +365,14 @@ class UIController {
                     key: metricKey,
                     label: normalizeMetricValue(metricEntry.label) || metricKey,
                 };
+
+                if (
+                    metricEntry.valueType === 'boolean' ||
+                    metricEntry.valueType === 'number' ||
+                    metricEntry.valueType === 'string'
+                ) {
+                    normalizedMetricEntry.valueType = metricEntry.valueType;
+                }
 
                 const normalizedUnit = normalizeMetricValue(metricEntry.unit);
                 if (normalizedUnit) {

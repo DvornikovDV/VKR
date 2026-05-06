@@ -54,6 +54,8 @@ describe('catalogAdapter', () => {
       const metrics = result[0].metrics.map(m => m.key)
       expect(metrics).toContain('temp')
       expect(metrics).toContain('status')
+      expect(result[0].metrics.find(m => m.key === 'temp')?.valueType).toBe('number')
+      expect(result[0].metrics.find(m => m.key === 'status')?.valueType).toBe('string')
       
       // Should not contain commands
       expect(metrics).not.toContain('set_number')

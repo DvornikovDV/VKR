@@ -20,6 +20,7 @@ export interface MockHostedConstructorHarnessOptions {
   initialMachines?: EditorMachineOption[]
   initialDeviceCatalog?: EditorDeviceMetricCatalogEntry[]
   initialActiveEdgeServerId?: string | null
+  clearBindingsOnLayoutLoad?: boolean
 }
 
 interface HostedConstructorMockState {
@@ -57,6 +58,10 @@ export function createMockHostedConstructorHarness(options: MockHostedConstructo
 
   const loadLayoutMock = vi.fn(async (layout: LayoutDocument) => {
     state.layout = cloneSerializable(layout)
+    if (options.clearBindingsOnLayoutLoad) {
+      state.bindings = []
+      state.commandBindings = []
+    }
   })
 
   const getLayoutMock = vi.fn(async () => cloneSerializable(state.layout))

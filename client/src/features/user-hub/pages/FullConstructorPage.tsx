@@ -480,6 +480,10 @@ export function FullConstructorPage() {
 
     void (async () => {
       try {
+        const shouldSaveBindingsAfterLayout = shouldSaveBindingsAfterDestructiveSaveRef.current
+        const bindingProfileBeforeLayoutReload = shouldSaveBindingsAfterLayout
+          ? await runtime.getBindingProfile()
+          : null
         const runtimeLayout = await runtime.getLayout()
         const serializedLayout = exportLayoutPayload(runtimeLayout)
 
@@ -493,6 +497,9 @@ export function FullConstructorPage() {
         const latestLayout = importLayoutPayload(latestDiagram.layout)
 
         await runtime.loadLayout(latestLayout)
+        if (bindingProfileBeforeLayoutReload) {
+          await runtime.loadBindingProfile(bindingProfileBeforeLayoutReload)
+        }
         setDiagram({
           ...latestDiagram,
           layout: latestLayout,
@@ -500,7 +507,6 @@ export function FullConstructorPage() {
         setBindingsInvalidatedModalOpen(false)
         setBindingSets([])
 
-        const shouldSaveBindingsAfterLayout = shouldSaveBindingsAfterDestructiveSaveRef.current
         shouldSaveBindingsAfterDestructiveSaveRef.current = false
         setDirtyState((previous) => ({ ...previous, layoutDirty: false }))
 
