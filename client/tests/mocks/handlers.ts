@@ -4,6 +4,7 @@ import {
   dashboardVisualBindingProfile,
   dashboardVisualDiagram,
   dashboardVisualLayout,
+  dashboardVisualCatalog,
 } from '../fixtures/dashboardVisualLayout'
 
 export interface DashboardDiagramFixture {
@@ -18,11 +19,18 @@ export interface DashboardBindingFixture {
   metric: string
 }
 
+export interface DashboardCommandBindingFixture {
+  widgetId: string
+  deviceId: string
+  commandType: 'set_bool' | 'set_number'
+}
+
 export interface DashboardBindingProfileFixture {
   _id: string
   diagramId: string
   edgeServerId: string
   widgetBindings: DashboardBindingFixture[]
+  commandBindings?: DashboardCommandBindingFixture[]
 }
 
 export interface DashboardEdgeFixture {
@@ -35,11 +43,27 @@ export interface DashboardEdgeFixture {
   }
 }
 
-export interface UserEdgeCatalogFixture {
-  edgeServerId: string
+export interface UserEdgeTelemetryCapabilityFixture {
   deviceId: string
   metric: string
+  valueType?: 'boolean' | 'number' | 'string'
   label: string
+}
+
+export interface UserEdgeCommandCapabilityFixture {
+  deviceId: string
+  commandType: 'set_bool' | 'set_number'
+  valueType: 'boolean' | 'number'
+  min?: number
+  max?: number
+  reportedMetric: string
+  label: string
+}
+
+export interface UserEdgeCatalogFixture {
+  edgeServerId: string
+  telemetry: UserEdgeTelemetryCapabilityFixture[]
+  commands: UserEdgeCommandCapabilityFixture[]
 }
 
 export interface AdminEdgeFixture {
@@ -82,7 +106,8 @@ export interface DashboardRestFixtures {
 
 export interface UserEdgeConsumerFixtures {
   assignedEdges: DashboardEdgeFixture[]
-  catalogByEdgeId: Record<string, UserEdgeCatalogFixture[]>
+  catalogByEdgeId: Record<string, UserEdgeCatalogFixture>
+  commandResponsesByEdgeId?: Record<string, any>
 }
 
 function createDefaultDashboardRestFixtures(): DashboardRestFixtures {
@@ -150,6 +175,7 @@ function createVisualBindingProfileFixture(
     diagramId,
     edgeServerId,
     widgetBindings: dashboardVisualBindingProfile.widgetBindings.map((binding) => ({ ...binding })),
+    commandBindings: dashboardVisualBindingProfile.commandBindings?.map((binding) => ({ ...binding })),
   }
 }
 
@@ -176,17 +202,30 @@ function createDefaultUserEdgeConsumerFixtures(): UserEdgeConsumerFixtures {
       },
     ],
     catalogByEdgeId: {
-      'edge-online': [
-        {
-          edgeServerId: 'edge-online',
-          deviceId: 'pump-1',
-          metric: 'temperature',
-          label: 'pump-1.temperature',
-        },
-      ],
-      'edge-offline': [],
-      'edge-blocked': [],
+      'edge-online': {
+        edgeServerId: 'edge-online',
+        telemetry: [
+          {
+            deviceId: 'pump-1',
+            metric: 'temperature',
+            label: 'pump-1.temperature',
+          },
+        ],
+        commands: [
+          {
+            deviceId: 'pump-1',
+            commandType: 'set_bool',
+            valueType: 'boolean',
+            reportedMetric: 'running',
+            label: 'pump-1.running',
+          },
+        ],
+      },
+      'edge-offline': { edgeServerId: 'edge-offline', telemetry: [], commands: [] },
+      'edge-blocked': { edgeServerId: 'edge-blocked', telemetry: [], commands: [] },
+      'edge-visual-1': dashboardVisualCatalog,
     },
+    commandResponsesByEdgeId: {},
   }
 }
 
@@ -218,6 +257,10 @@ export function createUserEdgeConsumerFixtures(
     catalogByEdgeId: {
       ...defaults.catalogByEdgeId,
       ...(overrides.catalogByEdgeId ?? {}),
+    },
+    commandResponsesByEdgeId: {
+      ...defaults.commandResponsesByEdgeId,
+      ...(overrides.commandResponsesByEdgeId ?? {}),
     },
   }
 }
@@ -272,12 +315,29 @@ export function createUserEdgeConsumerHandlers(fixtures: UserEdgeConsumerFixture
         data: fixtures.assignedEdges,
       }),
     ),
-    http.get('/api/edge-servers/:edgeId/catalog', ({ params }) =>
-      HttpResponse.json({
+    http.get('/api/edge-servers/:edgeId/catalog', ({ params }) => {
+      const catalog = fixtures.catalogByEdgeId[String(params.edgeId)]
+      if (!catalog) {
+        return HttpResponse.json({
+          status: 'success',
+          data: { edgeServerId: String(params.edgeId), telemetry: [], commands: [] },
+        })
+      }
+      return HttpResponse.json({
         status: 'success',
-        data: fixtures.catalogByEdgeId[String(params.edgeId)] ?? [],
-      }),
-    ),
+        data: catalog,
+      })
+    }),
+    http.post('/api/edge-servers/:edgeId/commands', ({ params }) => {
+      const overrideResponse = fixtures.commandResponsesByEdgeId?.[String(params.edgeId)]
+      if (overrideResponse) {
+        return HttpResponse.json(overrideResponse.body, { status: overrideResponse.status || 200 })
+      }
+      return HttpResponse.json({
+        status: 'success',
+        data: { commandStatus: 'confirmed' },
+      })
+    }),
   ]
 }
 

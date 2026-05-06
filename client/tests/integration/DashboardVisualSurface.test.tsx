@@ -116,7 +116,7 @@ describe('Dashboard visual runtime surface (T040)', () => {
     expect(temperatureShell).toHaveAttribute('data-height', '52')
     expect(temperatureShell).toHaveAttribute('data-fill', '#0f172a')
     expect(temperatureShell).toHaveAttribute('data-stroke', '#38bdf8')
-    expect(screen.getByTestId('dashboard-visual-widget-widget-command')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-visual-widget-widget-command-toggle')).toBeInTheDocument()
 
     expect(screen.getByText('Visual rendering issues: 2 recoverable')).toBeInTheDocument()
     expect(screen.queryByText('Saved diagram snapshot')).not.toBeInTheDocument()
@@ -319,8 +319,8 @@ describe('Dashboard visual runtime surface (T040)', () => {
 
     const ledWidget = screen.getByTestId('dashboard-visual-widget-widget-alarm')
     const ledIndicator = screen.getByTestId('dashboard-visual-led-indicator-widget-alarm')
-    const commandWidget = screen.getByTestId('dashboard-visual-widget-widget-command')
-    const commandShell = screen.getByTestId('dashboard-visual-widget-shell-widget-command')
+    const commandWidget = screen.getByTestId('dashboard-visual-widget-widget-command-toggle')
+    const commandShell = screen.getByTestId('dashboard-visual-widget-shell-widget-command-toggle')
 
     expect(ledWidget).toHaveAttribute('data-listening', 'false')
     expect(ledIndicator).toHaveAttribute('data-x', '628')

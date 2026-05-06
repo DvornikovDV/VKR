@@ -22,7 +22,8 @@ describe('dashboard visual layout fixture (T034)', () => {
       'number-display',
       'text-display',
       'led',
-      'toggle-switch',
+      'toggle',
+      'slider',
       'number-display',
     ])
 

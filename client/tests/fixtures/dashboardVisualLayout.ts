@@ -3,7 +3,7 @@ import type {
   DashboardDiagramDocument,
   DashboardLayoutDocument,
 } from '@/features/dashboard/model/types'
-import type { DashboardRestFixtures } from '../mocks/handlers'
+import type { DashboardRestFixtures, UserEdgeCatalogFixture } from '../mocks/handlers'
 
 const savedPngDataUrl =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='
@@ -105,8 +105,8 @@ export const dashboardVisualLayout = {
       colorOff: '#64748b',
     },
     {
-      id: 'widget-command',
-      type: 'toggle-switch',
+      id: 'widget-command-toggle',
+      type: 'toggle',
       imageId: 'image-pump',
       x: 560,
       y: 184,
@@ -115,6 +115,18 @@ export const dashboardVisualLayout = {
       relativeX: 0.22,
       relativeY: 0.73,
       label: 'Start Pump',
+    },
+    {
+      id: 'widget-command-slider',
+      type: 'slider',
+      imageId: 'image-boiler',
+      x: 100,
+      y: 200,
+      width: 150,
+      height: 40,
+      relativeX: 0.2,
+      relativeY: 0.8,
+      label: 'Flow Rate',
     },
     {
       id: 'widget-damaged-image',
@@ -151,6 +163,12 @@ export const dashboardVisualBindingProfile = {
     { widgetId: 'widget-temperature', deviceId: 'boiler-1', metric: 'temperature' },
     { widgetId: 'widget-status', deviceId: 'boiler-1', metric: 'status' },
     { widgetId: 'widget-alarm', deviceId: 'pump-1', metric: 'alarm' },
+    { widgetId: 'widget-command-toggle', deviceId: 'pump-1', metric: 'running' },
+    { widgetId: 'widget-command-slider', deviceId: 'boiler-1', metric: 'flowRate' },
+  ],
+  commandBindings: [
+    { widgetId: 'widget-command-toggle', deviceId: 'pump-1', commandType: 'set_bool' },
+    { widgetId: 'widget-command-slider', deviceId: 'boiler-1', commandType: 'set_number' },
   ],
 } satisfies DashboardBindingProfile
 
@@ -174,4 +192,19 @@ export function createDashboardVisualRestFixtures(): DashboardRestFixtures {
       [dashboardVisualDiagram._id]: [dashboardVisualBindingProfile],
     },
   }
+}
+
+export const dashboardVisualCatalog: UserEdgeCatalogFixture = {
+  edgeServerId: 'edge-visual-1',
+  telemetry: [
+    { deviceId: 'boiler-1', metric: 'temperature', label: 'boiler-1.temperature' },
+    { deviceId: 'boiler-1', metric: 'status', label: 'boiler-1.status' },
+    { deviceId: 'pump-1', metric: 'alarm', label: 'pump-1.alarm' },
+    { deviceId: 'pump-1', metric: 'running', label: 'pump-1.running' },
+    { deviceId: 'boiler-1', metric: 'flowRate', label: 'boiler-1.flowRate' },
+  ],
+  commands: [
+    { deviceId: 'pump-1', commandType: 'set_bool', valueType: 'boolean', reportedMetric: 'running', label: 'pump-1.running' },
+    { deviceId: 'boiler-1', commandType: 'set_number', valueType: 'number', min: 0, max: 100, reportedMetric: 'flowRate', label: 'boiler-1.flowRate' },
+  ],
 }

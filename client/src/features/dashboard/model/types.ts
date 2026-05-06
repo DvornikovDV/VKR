@@ -172,11 +172,18 @@ export interface DashboardWidgetBinding {
   metric: string
 }
 
+export interface DashboardCommandBinding {
+  widgetId: string
+  deviceId: string
+  commandType: 'set_bool' | 'set_number'
+}
+
 export interface DashboardBindingProfile {
   _id: string
   diagramId: string
   edgeServerId: string
   widgetBindings: DashboardWidgetBinding[]
+  commandBindings?: DashboardCommandBinding[]
   createdAt?: string
   updatedAt?: string
 }

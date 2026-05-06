@@ -455,12 +455,12 @@ describe('DashboardPage (US4)', () => {
     const user = userEvent.setup()
     await openDiagnosticsPanel(user)
     const diagnosticsPanel = await openDiagnosticsTab('Bindings')
-    expect(within(diagnosticsPanel).getByText('widget-command')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('widget-command-toggle')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('widget-temperature')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('Value: 49')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('Visible only. Unsupported in monitoring MVP.')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getAllByText('Visible only. Unsupported in monitoring MVP.')[0]).toBeInTheDocument()
 
-    const nonOperativeWidget = within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-command')
+    const nonOperativeWidget = within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-command-toggle')
     expect(nonOperativeWidget).toHaveAttribute('aria-disabled', 'true')
     expect(nonOperativeWidget.className).toContain('pointer-events-none')
     expect(
