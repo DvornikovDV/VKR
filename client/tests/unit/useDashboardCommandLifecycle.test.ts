@@ -38,4 +38,39 @@ describe('useDashboardCommandLifecycle (T011)', () => {
 
     expect(result.current.lifecycleByWidgetId['toggle-running']).toBeUndefined()
   })
+
+  it('clears confirmed-waiting-telemetry only after the exact reported binding receives a newer telemetry revision', () => {
+    const { result } = renderHook(() => useDashboardCommandLifecycle())
+
+    act(() => {
+      result.current.markPending('toggle-running')
+      result.current.markConfirmedWaitingTelemetry('toggle-running', 'pump-1::running', 3)
+    })
+
+    expect(result.current.lifecycleByWidgetId['toggle-running']).toEqual({
+      status: 'confirmed-waiting-telemetry',
+      error: null,
+      reportedBindingKey: 'pump-1::running',
+      confirmedMetricRevision: 3,
+    })
+
+    act(() => {
+      result.current.clearConfirmedWaitingTelemetryForUpdatedBindings({
+        'boiler-1::status': 4,
+        'pump-1::running': 3,
+      })
+    })
+
+    expect(result.current.lifecycleByWidgetId['toggle-running']?.status).toBe(
+      'confirmed-waiting-telemetry',
+    )
+
+    act(() => {
+      result.current.clearConfirmedWaitingTelemetryForUpdatedBindings({
+        'pump-1::running': 4,
+      })
+    })
+
+    expect(result.current.lifecycleByWidgetId['toggle-running']).toBeUndefined()
+  })
 })

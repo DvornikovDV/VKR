@@ -53,6 +53,8 @@ const GRID_STEP = 40
 const MIN_WORKSPACE_PADDING = 480
 const WORKSPACE_VIEWPORT_PADDING_FACTOR = 2
 const CONNECTION_POINT_RADIUS = 5
+const COMMAND_STATE_BADGE_HEIGHT = 22
+const COMMAND_STATE_BADGE_MARGIN = 4
 const WORKSPACE_BACKGROUND = '#eaf4ff'
 const WORKSPACE_GRID_LINE = '#cfe0f2'
 
@@ -342,6 +344,77 @@ export function DashboardVisualSurface({
         })
         .filter((anchor): anchor is NonNullable<typeof anchor> => anchor !== null),
     [commandLifecycleByWidgetId, runtimeLayout.runtimeRenderableWidgets, runtimeProjection, viewport, widgetProjectionById],
+  )
+  const commandToggleAnchors = useMemo(
+    () =>
+      runtimeLayout.runtimeRenderableWidgets
+        .map((widget) => {
+          if (widget.type !== 'toggle') {
+            return null
+          }
+
+          const commandProjection = runtimeProjection?.commandAvailabilityByWidgetId[widget.id]
+          if (
+            !commandProjection?.isExecutable ||
+            commandProjection.commandType !== 'set_bool' ||
+            !commandProjection.commandBinding
+          ) {
+            return null
+          }
+
+          const widgetProjection = widgetProjectionById.get(widget.id)
+          const actualValue = widgetProjection?.value
+          const lifecycle = commandLifecycleByWidgetId[widget.id]
+          const isPending = lifecycle?.status === 'pending'
+          const left = viewport.offsetX + toFiniteNumber(widget.x, 0) * viewport.scale
+          const top = viewport.offsetY + toFiniteNumber(widget.y, 0) * viewport.scale
+          const width = Math.max(1, resolveWidgetWidth(widget) * viewport.scale)
+          const height = Math.max(1, resolveWidgetHeight(widget) * viewport.scale)
+
+          return {
+            widgetId: widget.id,
+            deviceId: commandProjection.commandBinding.deviceId,
+            commandType: commandProjection.commandType,
+            value: typeof actualValue === 'boolean' ? !actualValue : null,
+            pressed: actualValue === true,
+            left,
+            top,
+            width,
+            height,
+            disabled: isPending || typeof actualValue !== 'boolean',
+          }
+        })
+        .filter((anchor): anchor is NonNullable<typeof anchor> => anchor !== null),
+    [commandLifecycleByWidgetId, runtimeLayout.runtimeRenderableWidgets, runtimeProjection, viewport, widgetProjectionById],
+  )
+  const commandStateAnchors = useMemo(
+    () =>
+      runtimeLayout.runtimeRenderableWidgets
+        .map((widget) => {
+          const lifecycle = commandLifecycleByWidgetId[widget.id]
+          if (!lifecycle) {
+            return null
+          }
+
+          const left = viewport.offsetX + toFiniteNumber(widget.x, 0) * viewport.scale
+          const top = viewport.offsetY + toFiniteNumber(widget.y, 0) * viewport.scale
+          const width = Math.max(1, resolveWidgetWidth(widget) * viewport.scale)
+          const badgeTop = clamp(
+            top - COMMAND_STATE_BADGE_HEIGHT,
+            COMMAND_STATE_BADGE_MARGIN,
+            Math.max(COMMAND_STATE_BADGE_MARGIN, viewportSize.height - COMMAND_STATE_BADGE_HEIGHT),
+          )
+
+          return {
+            widgetId: widget.id,
+            status: lifecycle.status,
+            left,
+            top: badgeTop,
+            width,
+          }
+        })
+        .filter((anchor): anchor is NonNullable<typeof anchor> => anchor !== null),
+    [commandLifecycleByWidgetId, runtimeLayout.runtimeRenderableWidgets, viewport, viewportSize.height],
   )
 
   const [draftSliderValuesByWidgetId, setDraftSliderValuesByWidgetId] = useState<Record<string, number>>({})
@@ -770,6 +843,35 @@ export function DashboardVisualSurface({
       )}
 
       <div className="pointer-events-none absolute inset-0">
+        {commandToggleAnchors.map((anchor) => (
+          <button
+            key={anchor.widgetId}
+            type="button"
+            aria-label={`Command toggle ${anchor.widgetId}`}
+            aria-pressed={anchor.pressed}
+            data-testid={`dashboard-command-toggle-${anchor.widgetId}`}
+            disabled={anchor.disabled}
+            onClick={() => {
+              if (anchor.disabled || anchor.value === null || !onCommandCommit) {
+                return
+              }
+
+              onCommandCommit({
+                widgetId: anchor.widgetId,
+                deviceId: anchor.deviceId,
+                commandType: anchor.commandType,
+                value: anchor.value,
+              })
+            }}
+            className="pointer-events-auto absolute cursor-pointer opacity-0 disabled:cursor-not-allowed"
+            style={{
+              left: `${anchor.left}px`,
+              top: `${anchor.top}px`,
+              width: `${anchor.width}px`,
+              height: `${anchor.height}px`,
+            }}
+          />
+        ))}
         {commandSliderAnchors.map((anchor) => {
           const value = draftSliderValuesByWidgetId[anchor.widgetId] ?? anchor.value
 
@@ -811,6 +913,20 @@ export function DashboardVisualSurface({
             />
           )
         })}
+        {commandStateAnchors.map((anchor) => (
+          <div
+            key={anchor.widgetId}
+            data-testid={`dashboard-command-state-${anchor.widgetId}`}
+            className="absolute rounded border border-[#334155] bg-[#020617]/90 px-2 py-0.5 text-[10px] font-medium text-[#e2e8f0] shadow-sm"
+            style={{
+              left: `${anchor.left}px`,
+              top: `${anchor.top}px`,
+              width: `${anchor.width}px`,
+            }}
+          >
+            {anchor.status}
+          </div>
+        ))}
       </div>
     </div>
   )

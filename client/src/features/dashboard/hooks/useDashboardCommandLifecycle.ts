@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import type {
   DashboardCommandLifecycleByWidgetId,
   DashboardCommandLifecycleState,
+  DashboardMetricRevisionByBindingKey,
 } from '@/features/dashboard/model/types'
 
 function normalizeWidgetId(widgetId: string): string | null {
@@ -38,11 +39,27 @@ export function useDashboardCommandLifecycle() {
     )
   }, [])
 
-  const markConfirmedWaitingTelemetry = useCallback((widgetId: string) => {
+  const markConfirmedWaitingTelemetry = useCallback((
+    widgetId: string,
+    reportedBindingKey?: string | null,
+    confirmedMetricRevision?: number,
+  ) => {
+    const normalizedReportedBindingKey = reportedBindingKey?.trim()
+    const revision =
+      typeof confirmedMetricRevision === 'number' && Number.isFinite(confirmedMetricRevision)
+        ? confirmedMetricRevision
+        : undefined
+
     setLifecycleByWidgetId((previous) =>
       setLifecycleState(previous, widgetId, {
         status: 'confirmed-waiting-telemetry',
         error: null,
+        ...(normalizedReportedBindingKey
+          ? {
+              reportedBindingKey: normalizedReportedBindingKey,
+              confirmedMetricRevision: revision ?? 0,
+            }
+          : {}),
       }),
     )
   }, [])
@@ -73,11 +90,41 @@ export function useDashboardCommandLifecycle() {
     })
   }, [])
 
+  const clearConfirmedWaitingTelemetryForUpdatedBindings = useCallback(
+    (metricRevisionByBindingKey: DashboardMetricRevisionByBindingKey) => {
+      setLifecycleByWidgetId((previous) => {
+        let next: DashboardCommandLifecycleByWidgetId | null = null
+
+        for (const [widgetId, lifecycle] of Object.entries(previous)) {
+          if (
+            lifecycle.status !== 'confirmed-waiting-telemetry' ||
+            !lifecycle.reportedBindingKey
+          ) {
+            continue
+          }
+
+          const latestRevision = metricRevisionByBindingKey[lifecycle.reportedBindingKey]
+          const confirmedRevision = lifecycle.confirmedMetricRevision ?? 0
+          if (typeof latestRevision !== 'number' || latestRevision <= confirmedRevision) {
+            continue
+          }
+
+          next ??= { ...previous }
+          delete next[widgetId]
+        }
+
+        return next ?? previous
+      })
+    },
+    [],
+  )
+
   return {
     lifecycleByWidgetId,
     markPending,
     markConfirmedWaitingTelemetry,
     markError,
     clearLifecycle,
+    clearConfirmedWaitingTelemetryForUpdatedBindings,
   }
 }

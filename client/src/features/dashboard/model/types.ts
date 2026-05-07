@@ -241,6 +241,7 @@ export interface DashboardSubscribedEvent {
 }
 
 export type DashboardMetricValueByBindingKey = Record<string, DashboardRuntimeValue>
+export type DashboardMetricRevisionByBindingKey = Record<string, number>
 export type DashboardWidgetValueById = Record<string, DashboardRuntimeValue>
 export type DashboardWidgetRuntimeValueState = 'pending' | 'live'
 
@@ -282,6 +283,8 @@ export type DashboardCommandLifecycleStatus =
 export interface DashboardCommandLifecycleState {
   status: DashboardCommandLifecycleStatus
   error: string | null
+  reportedBindingKey?: string
+  confirmedMetricRevision?: number
 }
 
 export type DashboardCommandLifecycleByWidgetId = Record<string, DashboardCommandLifecycleState>

@@ -1,8 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { mergeTelemetryReadingsByBindingKey } from '@/features/dashboard/model/selectors'
+import {
+  createDashboardBindingKey,
+  mergeTelemetryReadingsByBindingKey,
+} from '@/features/dashboard/model/selectors'
 import type {
   DashboardEdgeAvailability,
+  DashboardMetricRevisionByBindingKey,
   DashboardMetricValueByBindingKey,
+  DashboardRuntimeValue,
+  DashboardTelemetryReading,
   DashboardTransportStatus,
 } from '@/features/dashboard/model/types'
 import {
@@ -22,6 +28,7 @@ export interface DashboardRuntimeSessionState {
   transportStatus: DashboardTransportStatus
   edgeAvailability: DashboardEdgeAvailability
   latestMetricValueByBindingKey: DashboardMetricValueByBindingKey
+  metricRevisionByBindingKey: DashboardMetricRevisionByBindingKey
   lastServerTimestamp: number | null
   runtimeError: string | null
 }
@@ -34,9 +41,40 @@ function createIdleState(): DashboardRuntimeSessionState {
     transportStatus: 'idle',
     edgeAvailability: 'unknown',
     latestMetricValueByBindingKey: {},
+    metricRevisionByBindingKey: {},
     lastServerTimestamp: null,
     runtimeError: null,
   }
+}
+
+function isSupportedRuntimeValue(value: unknown): value is DashboardRuntimeValue {
+  return (
+    value === null ||
+    typeof value === 'number' ||
+    typeof value === 'string' ||
+    typeof value === 'boolean'
+  )
+}
+
+function mergeTelemetryRevisionsByBindingKey(
+  previous: DashboardMetricRevisionByBindingKey,
+  readings: DashboardTelemetryReading[],
+): DashboardMetricRevisionByBindingKey {
+  let next: DashboardMetricRevisionByBindingKey | null = null
+
+  for (const reading of readings) {
+    const deviceId = reading.deviceId.trim()
+    const metric = reading.metric.trim()
+    if (!deviceId || !metric || !isSupportedRuntimeValue(reading.last)) {
+      continue
+    }
+
+    const bindingKey = createDashboardBindingKey(deviceId, metric)
+    next ??= { ...previous }
+    next[bindingKey] = (next[bindingKey] ?? 0) + 1
+  }
+
+  return next ?? previous
 }
 
 function normalizeEdgeId(value: string | null): string | null {
@@ -99,6 +137,7 @@ export function useDashboardRuntimeSession(
       transportStatus: 'connecting',
       edgeAvailability: 'unknown',
       latestMetricValueByBindingKey: {},
+      metricRevisionByBindingKey: {},
       lastServerTimestamp: null,
       runtimeError: null,
     })
@@ -137,6 +176,10 @@ export function useDashboardRuntimeSession(
               previous.latestMetricValueByBindingKey,
               telemetryEvent.readings,
             ),
+            metricRevisionByBindingKey: mergeTelemetryRevisionsByBindingKey(
+              previous.metricRevisionByBindingKey,
+              telemetryEvent.readings,
+            ),
             lastServerTimestamp: telemetryEvent.serverTs,
           }))
         },
@@ -159,6 +202,7 @@ export function useDashboardRuntimeSession(
         transportStatus: 'failed',
         edgeAvailability: 'unknown',
         latestMetricValueByBindingKey: {},
+        metricRevisionByBindingKey: {},
         lastServerTimestamp: null,
         runtimeError: toErrorMessage(error, 'Dashboard runtime session failed to start.'),
       })

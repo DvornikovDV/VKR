@@ -119,6 +119,12 @@ describe('useDashboardRuntimeSession (T015)', () => {
     )
     expect(result.current.edgeAvailability).toBe('offline')
     expect(result.current.lastServerTimestamp).toBe(1763895001000)
+    expect(
+      result.current.metricRevisionByBindingKey[createDashboardBindingKey('pump-1', 'temperature')],
+    ).toBe(1)
+    expect(result.current.metricRevisionByBindingKey).not.toHaveProperty(
+      createDashboardBindingKey('pump-2', 'pressure'),
+    )
   })
 
   it('keeps last values while reconnecting', async () => {

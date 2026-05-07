@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getDashboardBindingProfiles } from '@/shared/api/bindings'
 import { executeEdgeServerCommand, type NormalizedCommandOutcome } from '@/shared/api/commands'
 import { getDashboardDiagramById, getDashboardDiagrams } from '@/shared/api/diagrams'
@@ -12,7 +12,10 @@ import {
   validateBindingProfileAgainstSavedWidgets,
 } from '@/features/dashboard/model/bindingValidation'
 import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runtimeLayout'
-import { selectDashboardRuntimeProjection } from '@/features/dashboard/model/selectors'
+import {
+  createDashboardBindingKey,
+  selectDashboardRuntimeProjection,
+} from '@/features/dashboard/model/selectors'
 import type {
   DashboardBindingProfile,
   DashboardCatalogLoadStatus,
@@ -450,6 +453,7 @@ export function DashboardPage() {
     edgeId: selectedEdgeId,
     enabled: isRuntimeEnabled,
   })
+  const metricRevisionByBindingKeyRef = useRef(runtimeSession.metricRevisionByBindingKey)
   const runtimeProjection = useMemo(() => {
     if (!selectedSavedDiagram || !selectedBindingProfile) {
       return null
@@ -468,6 +472,17 @@ export function DashboardPage() {
     selectedCommandCatalog,
     selectedSavedDiagram,
   ])
+
+  useEffect(() => {
+    metricRevisionByBindingKeyRef.current = runtimeSession.metricRevisionByBindingKey
+  }, [runtimeSession.metricRevisionByBindingKey])
+
+  useEffect(() => {
+    commandLifecycle.clearConfirmedWaitingTelemetryForUpdatedBindings(
+      runtimeSession.metricRevisionByBindingKey,
+    )
+  }, [commandLifecycle, runtimeSession.metricRevisionByBindingKey])
+
   const handleCommandCommit = useCallback(
     async (command: DashboardPageCommandCommit) => {
       if (!selectedEdgeId) {
@@ -479,23 +494,36 @@ export function DashboardPage() {
       if (
         !commandProjection?.isExecutable ||
         commandProjection.commandType !== command.commandType ||
-        commandProjection.commandBinding?.deviceId !== command.deviceId
+        !commandProjection.commandBinding ||
+        !commandProjection.reportedWidgetBinding
       ) {
         commandLifecycle.markError(command.widgetId, 'Command is unavailable')
         return
       }
 
+      const reportedBindingKey = createDashboardBindingKey(
+        commandProjection.reportedWidgetBinding.deviceId,
+        commandProjection.reportedWidgetBinding.metric,
+      )
+
       commandLifecycle.markPending(command.widgetId)
       const outcome = await executeEdgeServerCommand(selectedEdgeId, {
-        deviceId: command.deviceId,
-        commandType: command.commandType,
+        deviceId: commandProjection.commandBinding.deviceId,
+        commandType: commandProjection.commandBinding.commandType,
         payload: {
           value: command.value,
         },
       })
 
       if (outcome === 'confirmed') {
-        commandLifecycle.markConfirmedWaitingTelemetry(command.widgetId)
+        const confirmedMetricRevision =
+          metricRevisionByBindingKeyRef.current[reportedBindingKey] ?? 0
+
+        commandLifecycle.markConfirmedWaitingTelemetry(
+          command.widgetId,
+          reportedBindingKey,
+          confirmedMetricRevision,
+        )
         return
       }
 

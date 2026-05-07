@@ -183,6 +183,270 @@ describe('DashboardPage (US1)', () => {
 })
 
 describe('DashboardPage (US2)', () => {
+  it('sends one toggle set_bool command from compatible saved bindings and waits for reported telemetry before changing actual state', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const commandRequests: Array<{ edgeId: string; body: unknown }> = []
+    let confirmCommand = () => {}
+
+    server.use(
+      http.post('/api/edge-servers/:edgeId/commands', async ({ params, request }) => {
+        commandRequests.push({
+          edgeId: String(params.edgeId),
+          body: await request.json(),
+        })
+
+        return new Promise((resolve) => {
+          confirmCommand = () =>
+            resolve(
+              HttpResponse.json({
+                status: 'success',
+                data: {
+                  requestId: 'command-toggle-1',
+                  commandStatus: 'confirmed',
+                  completedAt: '2026-05-07T02:00:00.000Z',
+                },
+              }),
+            )
+        })
+      }),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId: 'edge-visual-1' }),
+      )
+    })
+
+    act(() => {
+      runtimeHarness.emitTransportStatus('edge-visual-1', 'connected')
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            {
+              deviceId: 'pump-1',
+              metric: 'running',
+              last: false,
+              ts: 1763895000004,
+            },
+          ],
+          serverTs: 1763895000500,
+        }),
+      )
+    })
+
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+      'false',
+    )
+    expect(screen.getByTestId('dashboard-visual-toggle-track-widget-command-toggle')).toHaveAttribute(
+      'data-fill',
+      '#475569',
+    )
+
+    await userEvent.setup().click(
+      await screen.findByRole('button', { name: 'Command toggle widget-command-toggle' }),
+    )
+
+    await waitFor(() => {
+      expect(commandRequests).toHaveLength(1)
+    })
+    expect(commandRequests[0]).toEqual({
+      edgeId: 'edge-visual-1',
+      body: {
+        deviceId: 'pump-1',
+        commandType: 'set_bool',
+        payload: { value: true },
+      },
+    })
+    expect(screen.getByTestId('dashboard-command-state-widget-command-toggle')).toHaveTextContent(
+      'pending',
+    )
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+      'false',
+    )
+    expect(screen.getByTestId('dashboard-visual-toggle-track-widget-command-toggle')).toHaveAttribute(
+      'data-fill',
+      '#475569',
+    )
+
+    act(() => {
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            {
+              deviceId: 'pump-1',
+              metric: 'running',
+              last: true,
+              ts: 1763895000009,
+            },
+          ],
+          serverTs: 1763895000550,
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dashboard-command-state-widget-command-toggle')).toHaveTextContent(
+        'pending',
+      )
+      expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+        'true',
+      )
+      expect(screen.getByTestId('dashboard-visual-toggle-track-widget-command-toggle')).toHaveAttribute(
+        'data-fill',
+        '#16a34a',
+      )
+    })
+
+    await act(async () => {
+      confirmCommand()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dashboard-command-state-widget-command-toggle')).toHaveTextContent(
+        'confirmed-waiting-telemetry',
+      )
+    })
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+      'true',
+    )
+    expect(screen.getByTestId('dashboard-visual-toggle-track-widget-command-toggle')).toHaveAttribute(
+      'data-fill',
+      '#16a34a',
+    )
+
+    act(() => {
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            {
+              deviceId: 'boiler-1',
+              metric: 'status',
+              last: 'stable',
+              ts: 1763895000010,
+            },
+          ],
+          serverTs: 1763895000600,
+        }),
+      )
+    })
+
+    expect(screen.getByTestId('dashboard-command-state-widget-command-toggle')).toHaveTextContent(
+      'confirmed-waiting-telemetry',
+    )
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+      'true',
+    )
+
+    act(() => {
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            {
+              deviceId: 'pump-1',
+              metric: 'running',
+              last: true,
+              ts: 1763895000011,
+            },
+          ],
+          serverTs: 1763895000700,
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('dashboard-command-state-widget-command-toggle')).not.toBeInTheDocument()
+      expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+        'true',
+      )
+      expect(screen.getByTestId('dashboard-visual-toggle-track-widget-command-toggle')).toHaveAttribute(
+        'data-fill',
+        '#16a34a',
+      )
+    })
+  })
+
+  it('keeps command lifecycle state visible when a command-capable widget is near the top of the visual surface', async () => {
+    const fixtures = createDashboardVisualRestFixtures()
+    setupDashboardApiFixtures({
+      ...fixtures,
+      diagramsById: {
+        [dashboardVisualDiagram._id]: {
+          ...dashboardVisualDiagram,
+          layout: {
+            ...dashboardVisualLayout,
+            widgets: dashboardVisualLayout.widgets?.map((widget) =>
+              widget.id === 'widget-command-toggle' ? { ...widget, y: 4 } : widget,
+            ),
+          },
+        },
+      },
+    })
+    let confirmCommand = () => {}
+
+    server.use(
+      http.post('/api/edge-servers/:edgeId/commands', () =>
+        new Promise((resolve) => {
+          confirmCommand = () =>
+            resolve(
+              HttpResponse.json({
+                status: 'success',
+                data: {
+                  requestId: 'command-toggle-top-1',
+                  commandStatus: 'confirmed',
+                  completedAt: '2026-05-07T02:00:00.000Z',
+                },
+              }),
+            )
+        }),
+      ),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId: 'edge-visual-1' }),
+      )
+    })
+
+    act(() => {
+      runtimeHarness.emitTransportStatus('edge-visual-1', 'connected')
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            {
+              deviceId: 'pump-1',
+              metric: 'running',
+              last: false,
+              ts: 1763895000004,
+            },
+          ],
+        }),
+      )
+    })
+
+    await userEvent.setup().click(
+      await screen.findByRole('button', { name: 'Command toggle widget-command-toggle' }),
+    )
+
+    const commandState = await screen.findByTestId('dashboard-command-state-widget-command-toggle')
+    expect(commandState).toHaveTextContent('pending')
+    expect(parseFloat(commandState.style.top)).toBeGreaterThanOrEqual(0)
+
+    await act(async () => {
+      confirmCommand()
+    })
+  })
+
   it('sends one slider set_number command only on commit while preserving telemetry-rendered state', async () => {
     setupDashboardApiFixtures(createDashboardVisualRestFixtures())
     const commandRequests: Array<{ edgeId: string; body: unknown }> = []
