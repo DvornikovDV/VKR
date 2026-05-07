@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
@@ -183,6 +183,137 @@ describe('DashboardPage (US1)', () => {
 })
 
 describe('DashboardPage (US2)', () => {
+  it('sends one slider set_number command only on commit while preserving telemetry-rendered state', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const commandRequests: Array<{ edgeId: string; body: unknown }> = []
+
+    server.use(
+      http.get('/api/edge-servers/:edgeId/catalog', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            ...dashboardVisualCatalog,
+            edgeServerId: String(params.edgeId),
+            commands: dashboardVisualCatalog.commands.map((command) =>
+              command.commandType === 'set_number'
+                ? { ...command, min: 40, max: 80 }
+                : command,
+            ),
+          },
+        }),
+      ),
+      http.post('/api/edge-servers/:edgeId/commands', async ({ params, request }) => {
+        commandRequests.push({
+          edgeId: String(params.edgeId),
+          body: await request.json(),
+        })
+
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            requestId: 'command-slider-1',
+            commandStatus: 'confirmed',
+            completedAt: '2026-05-07T02:00:00.000Z',
+          },
+        })
+      }),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId: 'edge-visual-1' }),
+      )
+    })
+
+    act(() => {
+      runtimeHarness.emitTransportStatus('edge-visual-1', 'connected')
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            {
+              deviceId: 'boiler-1',
+              metric: 'flowRate',
+              last: 68,
+              ts: 1763895000004,
+            },
+          ],
+        }),
+      )
+    })
+
+    const sliderCommand = await screen.findByRole('slider', {
+      name: 'Command slider widget-command-slider',
+    })
+    expect(sliderCommand).toHaveValue('68')
+    expect(sliderCommand).toHaveAttribute('min', '40')
+    expect(sliderCommand).toHaveAttribute('max', '80')
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-slider')).toHaveTextContent(
+      '68',
+    )
+
+    fireEvent.change(sliderCommand, { target: { value: '72' } })
+    fireEvent.change(sliderCommand, { target: { value: '74' } })
+    fireEvent.change(sliderCommand, { target: { value: '76' } })
+    expect(commandRequests).toEqual([])
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    })
+    expect(commandRequests).toEqual([])
+
+    fireEvent.pointerUp(sliderCommand)
+
+    await waitFor(() => {
+      expect(commandRequests).toHaveLength(1)
+    })
+    expect(commandRequests[0]).toEqual({
+      edgeId: 'edge-visual-1',
+      body: {
+        deviceId: 'boiler-1',
+        commandType: 'set_number',
+        payload: { value: 76 },
+      },
+    })
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-slider')).toHaveTextContent(
+      '68',
+    )
+    expect(
+      getNumericDataAttribute(screen.getByTestId('dashboard-visual-slider-fill-widget-command-slider'), 'data-width'),
+    ).toBeCloseTo(85.68)
+
+    act(() => {
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            {
+              deviceId: 'boiler-1',
+              metric: 'flowRate',
+              last: 70,
+              ts: 1763895000010,
+            },
+          ],
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(sliderCommand).toHaveValue('70')
+      expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-slider')).toHaveTextContent(
+        '70',
+      )
+    })
+
+    fireEvent.pointerUp(sliderCommand)
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    })
+    expect(commandRequests).toHaveLength(1)
+  })
+
   it('renders live transport and edge-availability status for active monitoring context', async () => {
     setupDashboardApiFixtures()
     mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')

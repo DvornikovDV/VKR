@@ -13,6 +13,7 @@ import type {
   DashboardDiagramSummary,
   DashboardCatalogLoadStatus,
   DashboardCommandLifecycleByWidgetId,
+  DashboardCommandType,
   DashboardEdgeAvailability,
   DashboardMetricValueByBindingKey,
   DashboardRecoveryState,
@@ -32,6 +33,7 @@ interface DashboardRuntimeSurfaceProps {
   savedDiagram: DashboardDiagramDocument | null
   runtimeProjection: DashboardRuntimeProjection | null
   commandLifecycleByWidgetId?: DashboardCommandLifecycleByWidgetId
+  onCommandCommit?: (command: DashboardRuntimeCommandCommit) => void
   catalogStatus?: DashboardCatalogLoadStatus
   catalogError?: string | null
   transportStatus: DashboardTransportStatus
@@ -50,6 +52,13 @@ interface DashboardRuntimeSurfaceProps {
   onEdgeChange: (edgeId: string | null) => void
   // Error info for status tab
   errorMessage?: string | null
+}
+
+interface DashboardRuntimeCommandCommit {
+  widgetId: string
+  deviceId: string
+  commandType: DashboardCommandType
+  value: boolean | number
 }
 
 const FALLBACK_VIEWPORT_SIZE: DashboardViewportSize = {
@@ -164,6 +173,7 @@ export function DashboardRuntimeSurface({
   savedDiagram,
   runtimeProjection,
   commandLifecycleByWidgetId = {},
+  onCommandCommit,
   catalogStatus = 'idle',
   catalogError = null,
   transportStatus,
@@ -346,6 +356,8 @@ export function DashboardRuntimeSurface({
               <DashboardVisualSurface
                 runtimeLayout={runtimeLayout!}
                 runtimeProjection={runtimeProjection}
+                commandLifecycleByWidgetId={commandLifecycleByWidgetId}
+                onCommandCommit={onCommandCommit}
                 viewport={viewport}
                 viewportSize={containerSize}
                 onPanViewport={(pan) => setViewport((current) => panDashboardViewport(current, pan))}

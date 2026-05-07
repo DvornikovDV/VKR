@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import type {
   DashboardCanvasPoint,
+  DashboardCommandLifecycleByWidgetId,
+  DashboardCommandType,
   DashboardConnectionPoint,
   DashboardDiagramBounds,
   DashboardRuntimeProjection,
@@ -18,10 +20,19 @@ import type {
 interface DashboardVisualSurfaceProps {
   runtimeLayout: DashboardRuntimeLayout
   runtimeProjection: DashboardRuntimeProjection | null
+  commandLifecycleByWidgetId?: DashboardCommandLifecycleByWidgetId
+  onCommandCommit?: (command: DashboardVisualCommandCommit) => void
   viewport: DashboardViewportState
   viewportSize: DashboardViewportSize
   onPanViewport: (pan: DashboardViewportPanInput) => void
   onZoomAtCursor?: (anchor: DashboardCanvasPoint, factor: number) => void
+}
+
+interface DashboardVisualCommandCommit {
+  widgetId: string
+  deviceId: string
+  commandType: DashboardCommandType
+  value: boolean | number
 }
 
 type KonvaDragEvent = {
@@ -186,6 +197,26 @@ function resolveSliderBounds(widget: DashboardWidget): { min: number; max: numbe
   return max > min ? { min, max } : { min: 0, max: 100 }
 }
 
+function resolveCommandSliderBounds(
+  widget: DashboardWidget,
+  commandProjection: DashboardRuntimeProjection['commandAvailabilityByWidgetId'][string] | undefined,
+): { min: number; max: number } {
+  const commandMin = commandProjection?.catalogCommand?.min
+  const commandMax = commandProjection?.catalogCommand?.max
+
+  if (
+    typeof commandMin === 'number' &&
+    Number.isFinite(commandMin) &&
+    typeof commandMax === 'number' &&
+    Number.isFinite(commandMax) &&
+    commandMax > commandMin
+  ) {
+    return { min: commandMin, max: commandMax }
+  }
+
+  return resolveSliderBounds(widget)
+}
+
 function useImageElementsById(images: DashboardSavedImage[]): Map<string, HTMLImageElement> {
   const [imageElementsById, setImageElementsById] = useState<Map<string, HTMLImageElement>>(new Map())
 
@@ -227,6 +258,8 @@ function useImageElementsById(images: DashboardSavedImage[]): Map<string, HTMLIm
 export function DashboardVisualSurface({
   runtimeLayout,
   runtimeProjection,
+  commandLifecycleByWidgetId = {},
+  onCommandCommit,
   viewport,
   viewportSize,
   onPanViewport,
@@ -261,6 +294,125 @@ export function DashboardVisualSurface({
     () => new Map((runtimeProjection?.widgets ?? []).map((widget) => [widget.widgetId, widget])),
     [runtimeProjection],
   )
+  const commandSliderAnchors = useMemo(
+    () =>
+      runtimeLayout.runtimeRenderableWidgets
+        .map((widget) => {
+          if (widget.type !== 'slider') {
+            return null
+          }
+
+          const commandProjection = runtimeProjection?.commandAvailabilityByWidgetId[widget.id]
+          if (
+            !commandProjection?.isExecutable ||
+            commandProjection.commandType !== 'set_number' ||
+            !commandProjection.commandBinding
+          ) {
+            return null
+          }
+
+          const widgetProjection = widgetProjectionById.get(widget.id)
+          const actualValue = widgetProjection?.value
+          const bounds = resolveCommandSliderBounds(widget, commandProjection)
+          const currentValue = clamp(
+            typeof actualValue === 'number' && Number.isFinite(actualValue) ? actualValue : bounds.min,
+            bounds.min,
+            bounds.max,
+          )
+          const left = viewport.offsetX + toFiniteNumber(widget.x, 0) * viewport.scale
+          const top = viewport.offsetY + toFiniteNumber(widget.y, 0) * viewport.scale
+          const width = Math.max(1, resolveWidgetWidth(widget) * viewport.scale)
+          const height = Math.max(1, resolveWidgetHeight(widget) * viewport.scale)
+          const lifecycle = commandLifecycleByWidgetId[widget.id]
+          const isPending = lifecycle?.status === 'pending'
+
+          return {
+            widgetId: widget.id,
+            deviceId: commandProjection.commandBinding.deviceId,
+            commandType: commandProjection.commandType,
+            min: bounds.min,
+            max: bounds.max,
+            value: currentValue,
+            left,
+            top,
+            width,
+            height,
+            disabled: isPending,
+          }
+        })
+        .filter((anchor): anchor is NonNullable<typeof anchor> => anchor !== null),
+    [commandLifecycleByWidgetId, runtimeLayout.runtimeRenderableWidgets, runtimeProjection, viewport, widgetProjectionById],
+  )
+
+  const [draftSliderValuesByWidgetId, setDraftSliderValuesByWidgetId] = useState<Record<string, number>>({})
+
+  useEffect(() => {
+    setDraftSliderValuesByWidgetId((previous) => {
+      let changed = false
+      const next = { ...previous }
+      const activeWidgetIds = new Set(commandSliderAnchors.map((anchor) => anchor.widgetId))
+
+      for (const widgetId of Object.keys(next)) {
+        if (!activeWidgetIds.has(widgetId)) {
+          delete next[widgetId]
+          changed = true
+        }
+      }
+
+      for (const anchor of commandSliderAnchors) {
+        if (!Object.prototype.hasOwnProperty.call(next, anchor.widgetId)) {
+          continue
+        }
+
+        if (next[anchor.widgetId] < anchor.min || next[anchor.widgetId] > anchor.max) {
+          next[anchor.widgetId] = anchor.value
+          changed = true
+        }
+      }
+
+      return changed ? next : previous
+    })
+  }, [commandSliderAnchors])
+
+  const clearDraftSliderValue = (widgetId: string) => {
+    setDraftSliderValuesByWidgetId((previous) => {
+      if (!Object.prototype.hasOwnProperty.call(previous, widgetId)) {
+        return previous
+      }
+
+      const next = { ...previous }
+      delete next[widgetId]
+      return next
+    })
+  }
+
+  const commitSliderValue = (
+    anchor: (typeof commandSliderAnchors)[number],
+    committedValue?: number,
+  ) => {
+    if (anchor.disabled || !onCommandCommit) {
+      return
+    }
+
+    const hasDraftValue = Object.prototype.hasOwnProperty.call(
+      draftSliderValuesByWidgetId,
+      anchor.widgetId,
+    )
+    const eventValue =
+      typeof committedValue === 'number' && Number.isFinite(committedValue) ? committedValue : null
+    if (!hasDraftValue && (eventValue === null || eventValue === anchor.value)) {
+      return
+    }
+
+    const draftValue = eventValue ?? draftSliderValuesByWidgetId[anchor.widgetId] ?? anchor.value
+    onCommandCommit({
+      widgetId: anchor.widgetId,
+      deviceId: anchor.deviceId,
+      commandType: anchor.commandType,
+      value: clamp(draftValue, anchor.min, anchor.max),
+    })
+    clearDraftSliderValue(anchor.widgetId)
+  }
 
   return (
     <div
@@ -616,6 +768,50 @@ export function DashboardVisualSurface({
           {renderIssueSummary}
         </p>
       )}
+
+      <div className="pointer-events-none absolute inset-0">
+        {commandSliderAnchors.map((anchor) => {
+          const value = draftSliderValuesByWidgetId[anchor.widgetId] ?? anchor.value
+
+          return (
+            <input
+              key={anchor.widgetId}
+              type="range"
+              aria-label={`Command slider ${anchor.widgetId}`}
+              data-testid={`dashboard-command-slider-${anchor.widgetId}`}
+              min={anchor.min}
+              max={anchor.max}
+              step="1"
+              value={value}
+              disabled={anchor.disabled}
+              onChange={(event) => {
+                const nextValue = Number(event.currentTarget.value)
+                if (!Number.isFinite(nextValue)) {
+                  return
+                }
+
+                setDraftSliderValuesByWidgetId((previous) => ({
+                  ...previous,
+                  [anchor.widgetId]: nextValue,
+                }))
+              }}
+              onPointerUp={(event) => commitSliderValue(anchor, Number(event.currentTarget.value))}
+              onKeyUp={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  commitSliderValue(anchor, Number(event.currentTarget.value))
+                }
+              }}
+              className="pointer-events-auto absolute cursor-pointer opacity-0 disabled:cursor-not-allowed"
+              style={{
+                left: `${anchor.left}px`,
+                top: `${anchor.top}px`,
+                width: `${anchor.width}px`,
+                height: `${anchor.height}px`,
+              }}
+            />
+          )
+        })}
+      </div>
     </div>
   )
 }

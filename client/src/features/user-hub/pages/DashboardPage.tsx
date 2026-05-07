@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { getDashboardBindingProfiles } from '@/shared/api/bindings'
+import { executeEdgeServerCommand, type NormalizedCommandOutcome } from '@/shared/api/commands'
 import { getDashboardDiagramById, getDashboardDiagrams } from '@/shared/api/diagrams'
 import { getAssignedEdgeServers, getEdgeServerCatalog } from '@/shared/api/edgeServers'
 import { useDashboardCommandLifecycle } from '@/features/dashboard/hooks/useDashboardCommandLifecycle'
@@ -20,6 +21,7 @@ import type {
   DashboardRecoveryState,
   DashboardDiagramSummary,
   DashboardTrustedEdgeServer,
+  DashboardCommandType,
 } from '@/features/dashboard/model/types'
 
 function toErrorMessage(error: unknown, fallback: string): string {
@@ -32,6 +34,31 @@ function toErrorMessage(error: unknown, fallback: string): string {
 
 function hasOwnKey<T extends object>(value: T, key: PropertyKey): key is keyof T {
   return Object.prototype.hasOwnProperty.call(value, key)
+}
+
+interface DashboardPageCommandCommit {
+  widgetId: string
+  deviceId: string
+  commandType: DashboardCommandType
+  value: boolean | number
+}
+
+function formatCommandOutcomeError(outcome: Exclude<NormalizedCommandOutcome, 'confirmed'>): string {
+  switch (outcome) {
+    case 'cloud_rpc_timeout':
+      return 'Cloud RPC timeout'
+    case 'edge_command_timeout':
+      return 'Edge command timeout'
+    case 'edge_command_failed':
+      return 'Edge command failed'
+    case 'edge_unavailable':
+      return 'Edge unavailable'
+    case 'network_error':
+      return 'Network error'
+    case 'unknown_error':
+    default:
+      return 'Command failed'
+  }
 }
 
 export function DashboardPage() {
@@ -441,6 +468,41 @@ export function DashboardPage() {
     selectedCommandCatalog,
     selectedSavedDiagram,
   ])
+  const handleCommandCommit = useCallback(
+    async (command: DashboardPageCommandCommit) => {
+      if (!selectedEdgeId) {
+        commandLifecycle.markError(command.widgetId, 'Edge server is not selected')
+        return
+      }
+
+      const commandProjection = runtimeProjection?.commandAvailabilityByWidgetId[command.widgetId]
+      if (
+        !commandProjection?.isExecutable ||
+        commandProjection.commandType !== command.commandType ||
+        commandProjection.commandBinding?.deviceId !== command.deviceId
+      ) {
+        commandLifecycle.markError(command.widgetId, 'Command is unavailable')
+        return
+      }
+
+      commandLifecycle.markPending(command.widgetId)
+      const outcome = await executeEdgeServerCommand(selectedEdgeId, {
+        deviceId: command.deviceId,
+        commandType: command.commandType,
+        payload: {
+          value: command.value,
+        },
+      })
+
+      if (outcome === 'confirmed') {
+        commandLifecycle.markConfirmedWaitingTelemetry(command.widgetId)
+        return
+      }
+
+      commandLifecycle.markError(command.widgetId, formatCommandOutcomeError(outcome))
+    },
+    [commandLifecycle, runtimeProjection, selectedEdgeId],
+  )
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -450,6 +512,7 @@ export function DashboardPage() {
         savedDiagram={selectedSavedDiagram}
         runtimeProjection={runtimeProjection}
         commandLifecycleByWidgetId={commandLifecycle.lifecycleByWidgetId}
+        onCommandCommit={handleCommandCommit}
         catalogStatus={selectedCatalogStatus}
         catalogError={selectedCatalogError}
         transportStatus={runtimeSession.transportStatus}
