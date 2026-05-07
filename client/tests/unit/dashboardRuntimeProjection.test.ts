@@ -4,8 +4,10 @@ import {
   mergeTelemetryReadingsByBindingKey,
   selectDashboardRuntimeProjection,
 } from '@/features/dashboard/model/selectors'
+import { normalizeDashboardBindingProfile } from '@/shared/api/bindings'
 import type {
   DashboardBindingProfile,
+  DashboardCommandCatalog,
   DashboardDiagramDocument,
   DashboardMetricValueByBindingKey,
 } from '@/features/dashboard/model/types'
@@ -33,6 +35,7 @@ const bindingProfile: DashboardBindingProfile = {
     { widgetId: 'widget-led', deviceId: 'pump-1', metric: 'alarm' },
     { widgetId: 'widget-unsupported', deviceId: 'pump-1', metric: 'command' },
   ],
+  commandBindings: [],
 }
 
 function buildMetricMap(): DashboardMetricValueByBindingKey {
@@ -105,5 +108,219 @@ describe('dashboard runtime projection (T021)', () => {
         isSupported: false,
       }),
     )
+  })
+})
+
+describe('dashboard command runtime projection (T006-T010)', () => {
+  const commandDiagram: DashboardDiagramDocument = {
+    _id: 'diagram-command-1',
+    name: 'Command Runtime',
+    layout: {
+      widgets: [
+        { id: 'toggle-running', type: 'toggle', label: 'Pump label must not bind commands' },
+        { id: 'slider-flow', type: 'slider' },
+        { id: 'toggle-metric-mismatch', type: 'toggle' },
+        { id: 'toggle-device-mismatch', type: 'toggle' },
+        { id: 'display-running', type: 'number-display' },
+      ],
+    },
+  }
+
+  const commandProfile: DashboardBindingProfile = {
+    _id: 'binding-command-1',
+    diagramId: commandDiagram._id,
+    edgeServerId: 'edge-1',
+    widgetBindings: [
+      { widgetId: 'toggle-running', deviceId: 'pump-1', metric: 'running' },
+      { widgetId: 'slider-flow', deviceId: 'pump-1', metric: 'flowRate' },
+      { widgetId: 'toggle-metric-mismatch', deviceId: 'pump-1', metric: 'notRunning' },
+      { widgetId: 'toggle-device-mismatch', deviceId: 'pump-2', metric: 'running' },
+      { widgetId: 'display-running', deviceId: 'pump-1', metric: 'running' },
+    ],
+    commandBindings: [
+      { widgetId: 'toggle-running', deviceId: 'pump-1', commandType: 'set_bool' },
+      { widgetId: 'slider-flow', deviceId: 'pump-1', commandType: 'set_number' },
+      { widgetId: 'toggle-metric-mismatch', deviceId: 'pump-1', commandType: 'set_bool' },
+      { widgetId: 'toggle-device-mismatch', deviceId: 'pump-1', commandType: 'set_bool' },
+      { widgetId: 'display-running', deviceId: 'pump-1', commandType: 'set_bool' },
+      { widgetId: 'stale-widget', deviceId: 'pump-1', commandType: 'set_bool' },
+    ],
+  }
+
+  const commandCatalog: DashboardCommandCatalog = {
+    edgeServerId: 'edge-1',
+    telemetry: [
+      { deviceId: 'pump-1', metric: 'running', valueType: 'boolean', label: 'catalog label ignored' },
+      { deviceId: 'pump-1', metric: 'flowRate', valueType: 'number', label: 'catalog flow label' },
+    ],
+    commands: [
+      {
+        deviceId: 'pump-1',
+        commandType: 'set_bool',
+        valueType: 'boolean',
+        reportedMetric: 'running',
+        label: 'Start pump',
+      },
+      {
+        deviceId: 'pump-1',
+        commandType: 'set_number',
+        valueType: 'number',
+        min: 0,
+        max: 100,
+        reportedMetric: 'flowRate',
+        label: 'Set flow',
+      },
+    ],
+  }
+
+  const commandMetricMap = mergeTelemetryReadingsByBindingKey(
+    {},
+    [
+      { deviceId: 'pump-1', metric: 'running', last: false, ts: 1763895000000 },
+      { deviceId: 'pump-1', metric: 'flowRate', last: 42, ts: 1763895000100 },
+      { deviceId: 'pump-1', metric: 'notRunning', last: true, ts: 1763895000200 },
+      { deviceId: 'pump-2', metric: 'running', last: true, ts: 1763895000300 },
+    ],
+  )
+
+  it('normalizes legacy dashboard binding profiles to commandBindings: []', () => {
+    const normalized = normalizeDashboardBindingProfile({
+      _id: 'legacy-binding',
+      diagramId: commandDiagram._id,
+      edgeServerId: 'edge-1',
+      widgetBindings: [{ widgetId: 'toggle-running', deviceId: 'pump-1', metric: 'running' }],
+    })
+
+    expect(normalized.commandBindings).toEqual([])
+    expect(normalized.widgetBindings).toEqual([
+      { widgetId: 'toggle-running', deviceId: 'pump-1', metric: 'running' },
+    ])
+  })
+
+  it('keeps telemetry and command projection separated without mutating widgetValueById', () => {
+    const widgetValueBefore = {
+      'toggle-running': false,
+      'slider-flow': 42,
+      'toggle-metric-mismatch': true,
+      'toggle-device-mismatch': true,
+      'display-running': false,
+    }
+
+    const projection = selectDashboardRuntimeProjection(
+      commandDiagram,
+      commandProfile,
+      commandMetricMap,
+      commandCatalog,
+    )
+
+    expect(projection.widgetValueById).toEqual(widgetValueBefore)
+    expect(projection.widgetValueById['toggle-running']).toBe(false)
+    expect(projection.commandAvailabilityByWidgetId['toggle-running']).toMatchObject({
+      widgetId: 'toggle-running',
+      isExecutable: true,
+      commandType: 'set_bool',
+    })
+    expect(projection.commandAvailabilityByWidgetId['slider-flow']).toMatchObject({
+      widgetId: 'slider-flow',
+      isExecutable: true,
+      commandType: 'set_number',
+    })
+  })
+
+  it('suppresses stale and incompatible commands unless exact reported telemetry binding matches', () => {
+    const projection = selectDashboardRuntimeProjection(
+      commandDiagram,
+      commandProfile,
+      commandMetricMap,
+      commandCatalog,
+    )
+
+    expect(projection.commandAvailabilityByWidgetId['toggle-metric-mismatch']).toMatchObject({
+      isExecutable: false,
+      reason: 'missing-reported-widget-binding',
+    })
+    expect(projection.commandAvailabilityByWidgetId['toggle-device-mismatch']).toMatchObject({
+      isExecutable: false,
+      reason: 'missing-reported-widget-binding',
+    })
+    expect(projection.commandAvailabilityByWidgetId['display-running']).toMatchObject({
+      isExecutable: false,
+      reason: 'unsupported-widget-type',
+    })
+    expect(projection.commandAvailabilityByWidgetId['stale-widget']).toBeUndefined()
+  })
+
+  it('suppresses command execution when the current catalog lacks the command capability', () => {
+    const projection = selectDashboardRuntimeProjection(
+      commandDiagram,
+      commandProfile,
+      commandMetricMap,
+      { ...commandCatalog, commands: [] },
+    )
+
+    expect(projection.commandAvailabilityByWidgetId['toggle-running']).toMatchObject({
+      isExecutable: false,
+      reason: 'missing-catalog-command',
+    })
+    expect(projection.widgetValueById['toggle-running']).toBe(false)
+  })
+
+  it('selects a catalog command by the exact reported telemetry binding, not by first partial match', () => {
+    const projection = selectDashboardRuntimeProjection(
+      commandDiagram,
+      commandProfile,
+      commandMetricMap,
+      {
+        ...commandCatalog,
+        commands: [
+          {
+            deviceId: 'pump-1',
+            commandType: 'set_bool',
+            valueType: 'boolean',
+            reportedMetric: 'maintenanceMode',
+            label: 'Unrelated set_bool command',
+          },
+          {
+            deviceId: 'pump-1',
+            commandType: 'set_bool',
+            valueType: 'boolean',
+            reportedMetric: 'running',
+            label: 'Start pump',
+          },
+          ...commandCatalog.commands.filter((command) => command.commandType !== 'set_bool'),
+        ],
+      },
+    )
+
+    expect(projection.commandAvailabilityByWidgetId['toggle-running']).toMatchObject({
+      isExecutable: true,
+      reason: 'available',
+      commandType: 'set_bool',
+      catalogCommand: expect.objectContaining({
+        reportedMetric: 'running',
+      }),
+    })
+    expect(projection.widgetValueById['toggle-running']).toBe(false)
+  })
+
+  it('does not enable commands from command bindings alone without matching reported telemetry binding', () => {
+    const commandOnlyProfile: DashboardBindingProfile = {
+      ...commandProfile,
+      widgetBindings: [],
+      commandBindings: [{ widgetId: 'toggle-running', deviceId: 'pump-1', commandType: 'set_bool' }],
+    }
+
+    const projection = selectDashboardRuntimeProjection(
+      commandDiagram,
+      commandOnlyProfile,
+      commandMetricMap,
+      commandCatalog,
+    )
+
+    expect(projection.commandAvailabilityByWidgetId['toggle-running']).toMatchObject({
+      isExecutable: false,
+      reason: 'missing-reported-widget-binding',
+    })
+    expect(projection.widgetValueById).toEqual({})
   })
 })

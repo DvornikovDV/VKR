@@ -1,5 +1,10 @@
 import type {
   DashboardBindingProfile,
+  DashboardCommandBinding,
+  DashboardCommandCapability,
+  DashboardCommandCatalog,
+  DashboardCommandRuntimeProjection,
+  DashboardCommandType,
   DashboardDiagramDocument,
   DashboardEdgeAvailability,
   DashboardMetricValueByBindingKey,
@@ -19,6 +24,11 @@ export const SUPPORTED_DASHBOARD_WIDGET_TYPES = new Set<string>([
   'text-display',
   'led',
 ])
+
+const COMMAND_WIDGET_TYPES_BY_COMMAND_TYPE: Record<string, DashboardCommandType> = {
+  toggle: 'set_bool',
+  slider: 'set_number',
+}
 
 function toNonEmptyString(value: string): string {
   return value.trim()
@@ -251,22 +261,260 @@ export function selectWidgetRuntimeProjection(
   })
 }
 
+function selectCommandBindingForWidget(
+  commandBindings: DashboardCommandBinding[],
+  widgetId: string,
+): DashboardCommandBinding | null {
+  for (const binding of commandBindings) {
+    if (binding.widgetId.trim() === widgetId) {
+      return binding
+    }
+  }
+
+  return null
+}
+
+function selectCatalogCommandForBinding(
+  catalog: DashboardCommandCatalog | null | undefined,
+  commandBinding: DashboardCommandBinding,
+): DashboardCommandCapability | null {
+  if (!catalog) {
+    return null
+  }
+
+  const deviceId = commandBinding.deviceId.trim()
+  const commandType = commandBinding.commandType
+
+  for (const command of catalog.commands) {
+    if (command.deviceId.trim() !== deviceId) {
+      continue
+    }
+
+    if (command.commandType !== commandType) {
+      continue
+    }
+
+    return command
+  }
+
+  return null
+}
+
+interface DashboardCompatibleCommandMatch {
+  catalogCommand: DashboardCommandCapability
+  reportedWidgetBinding: DashboardBindingProfile['widgetBindings'][number]
+}
+
+function selectReportedWidgetBindingForCommand(
+  bindingProfile: DashboardBindingProfile,
+  commandBinding: DashboardCommandBinding,
+  catalogCommand: DashboardCommandCapability,
+) {
+  const widgetId = commandBinding.widgetId.trim()
+  const deviceId = commandBinding.deviceId.trim()
+  const reportedMetric = catalogCommand.reportedMetric.trim()
+
+  for (const widgetBinding of bindingProfile.widgetBindings) {
+    if (widgetBinding.widgetId.trim() !== widgetId) {
+      continue
+    }
+
+    if (widgetBinding.deviceId.trim() !== deviceId) {
+      continue
+    }
+
+    if (widgetBinding.metric.trim() !== reportedMetric) {
+      continue
+    }
+
+    return widgetBinding
+  }
+
+  return null
+}
+
+function selectCompatibleCatalogCommandMatch(
+  bindingProfile: DashboardBindingProfile,
+  catalog: DashboardCommandCatalog | null | undefined,
+  commandBinding: DashboardCommandBinding,
+): DashboardCompatibleCommandMatch | null {
+  if (!catalog) {
+    return null
+  }
+
+  const deviceId = commandBinding.deviceId.trim()
+  const commandType = commandBinding.commandType
+
+  for (const command of catalog.commands) {
+    if (command.deviceId.trim() !== deviceId) {
+      continue
+    }
+
+    if (command.commandType !== commandType) {
+      continue
+    }
+
+    const reportedWidgetBinding = selectReportedWidgetBindingForCommand(
+      bindingProfile,
+      commandBinding,
+      command,
+    )
+
+    if (!reportedWidgetBinding) {
+      continue
+    }
+
+    return {
+      catalogCommand: command,
+      reportedWidgetBinding,
+    }
+  }
+
+  return null
+}
+
+export function selectDashboardCommandRuntimeProjection(
+  widget: DashboardWidget,
+  bindingProfile: DashboardBindingProfile | null | undefined,
+  catalog: DashboardCommandCatalog | null | undefined,
+): DashboardCommandRuntimeProjection {
+  const widgetId = widget.id.trim()
+  const widgetType = widget.type.trim()
+  const expectedCommandType = COMMAND_WIDGET_TYPES_BY_COMMAND_TYPE[widgetType] ?? null
+  const commandBinding = bindingProfile
+    ? selectCommandBindingForWidget(bindingProfile.commandBindings, widgetId)
+    : null
+
+  if (!commandBinding) {
+    return {
+      widgetId,
+      widgetType,
+      isExecutable: false,
+      reason: 'missing-command-binding',
+      commandType: null,
+      commandBinding: null,
+      reportedWidgetBinding: null,
+      catalogCommand: null,
+    }
+  }
+
+  if (!expectedCommandType) {
+    return {
+      widgetId,
+      widgetType,
+      isExecutable: false,
+      reason: 'unsupported-widget-type',
+      commandType: commandBinding.commandType,
+      commandBinding,
+      reportedWidgetBinding: null,
+      catalogCommand: null,
+    }
+  }
+
+  if (commandBinding.commandType !== expectedCommandType) {
+    return {
+      widgetId,
+      widgetType,
+      isExecutable: false,
+      reason: 'incompatible-widget-command',
+      commandType: commandBinding.commandType,
+      commandBinding,
+      reportedWidgetBinding: null,
+      catalogCommand: null,
+    }
+  }
+
+  const catalogCommand = selectCatalogCommandForBinding(catalog, commandBinding)
+
+  if (!catalogCommand) {
+    return {
+      widgetId,
+      widgetType,
+      isExecutable: false,
+      reason: 'missing-catalog-command',
+      commandType: commandBinding.commandType,
+      commandBinding,
+      reportedWidgetBinding: null,
+      catalogCommand: null,
+    }
+  }
+
+  const compatibleMatch = bindingProfile
+    ? selectCompatibleCatalogCommandMatch(bindingProfile, catalog, commandBinding)
+    : null
+
+  if (!compatibleMatch) {
+    return {
+      widgetId,
+      widgetType,
+      isExecutable: false,
+      reason: 'missing-reported-widget-binding',
+      commandType: commandBinding.commandType,
+      commandBinding,
+      reportedWidgetBinding: null,
+      catalogCommand,
+    }
+  }
+
+  return {
+    widgetId,
+    widgetType,
+    isExecutable: true,
+    reason: 'available',
+    commandType: commandBinding.commandType,
+    commandBinding,
+    reportedWidgetBinding: compatibleMatch.reportedWidgetBinding,
+    catalogCommand: compatibleMatch.catalogCommand,
+  }
+}
+
+export function selectDashboardCommandAvailabilityByWidgetId(
+  widgets: DashboardWidget[],
+  bindingProfile: DashboardBindingProfile | null | undefined,
+  catalog: DashboardCommandCatalog | null | undefined,
+): Record<string, DashboardCommandRuntimeProjection> {
+  const availabilityByWidgetId: Record<string, DashboardCommandRuntimeProjection> = {}
+
+  for (const widget of widgets) {
+    const widgetId = widget.id.trim()
+    if (!widgetId) {
+      continue
+    }
+
+    availabilityByWidgetId[widgetId] = selectDashboardCommandRuntimeProjection(
+      widget,
+      bindingProfile,
+      catalog,
+    )
+  }
+
+  return availabilityByWidgetId
+}
+
 export function selectDashboardRuntimeProjection(
   diagram: DashboardDiagramDocument | null | undefined,
   bindingProfile: DashboardBindingProfile | null | undefined,
   metricValueByBindingKey: DashboardMetricValueByBindingKey,
+  commandCatalog?: DashboardCommandCatalog | null,
 ): DashboardRuntimeProjection {
+  const widgetsForProjection = selectWidgets(diagram)
   const widgetValueById = selectWidgetValuesById(bindingProfile, metricValueByBindingKey)
   const widgets = selectWidgetRuntimeProjection(
-    selectWidgets(diagram),
+    widgetsForProjection,
     bindingProfile,
     widgetValueById,
+  )
+  const commandAvailabilityByWidgetId = selectDashboardCommandAvailabilityByWidgetId(
+    widgetsForProjection,
+    bindingProfile,
+    commandCatalog,
   )
 
   return {
     metricValueByBindingKey,
     widgetValueById,
     widgets,
+    commandAvailabilityByWidgetId,
   }
 }
 

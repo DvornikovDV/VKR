@@ -24,6 +24,7 @@ const bindingProfiles: DashboardBindingProfile[] = [
       { widgetId: 'widget-number', deviceId: 'pump-1', metric: 'temperature' },
       { widgetId: 'widget-text', deviceId: 'pump-1', metric: 'status' },
     ],
+    commandBindings: [],
   },
 ]
 
@@ -48,6 +49,7 @@ describe('bindingValidation (T020)', () => {
         { widgetId: 'widget-number', deviceId: 'pump-1', metric: 'temperature' },
         { widgetId: 'widget-deleted', deviceId: 'pump-1', metric: 'pressure' },
       ],
+      commandBindings: [],
     }
 
     const validation = validateBindingProfileAgainstSavedWidgets(staleProfile, savedLayout)

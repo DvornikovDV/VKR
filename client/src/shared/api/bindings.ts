@@ -24,27 +24,49 @@ export interface TelemetryProfile {
 
 export type DashboardBindingProfile = TelemetryProfile
 
+type ApiTelemetryProfile = Omit<TelemetryProfile, 'commandBindings'> & {
+  commandBindings?: CommandBinding[]
+}
+
 export interface UpsertTelemetryProfilePayload {
   edgeServerId: string
   widgetBindings: WidgetBinding[]
   commandBindings?: CommandBinding[]
 }
 
+export function normalizeDashboardBindingProfile(
+  profile: ApiTelemetryProfile,
+): DashboardBindingProfile {
+  return {
+    ...profile,
+    commandBindings: Array.isArray(profile.commandBindings) ? profile.commandBindings : [],
+  }
+}
+
+function normalizeDashboardBindingProfiles(
+  profiles: ApiTelemetryProfile[],
+): DashboardBindingProfile[] {
+  return profiles.map((profile) => normalizeDashboardBindingProfile(profile))
+}
+
 export async function getBindingsByDiagram(diagramId: string): Promise<TelemetryProfile[]> {
-  return apiClient.get<TelemetryProfile[]>(`/diagrams/${diagramId}/bindings`)
+  const profiles = await apiClient.get<ApiTelemetryProfile[]>(`/diagrams/${diagramId}/bindings`)
+  return normalizeDashboardBindingProfiles(profiles)
 }
 
 export async function getDashboardBindingProfiles(
   diagramId: string,
 ): Promise<DashboardBindingProfile[]> {
-  return apiClient.get<DashboardBindingProfile[]>(`/diagrams/${diagramId}/bindings`)
+  const profiles = await apiClient.get<ApiTelemetryProfile[]>(`/diagrams/${diagramId}/bindings`)
+  return normalizeDashboardBindingProfiles(profiles)
 }
 
 export async function createBinding(
   diagramId: string,
   payload: UpsertTelemetryProfilePayload,
 ): Promise<TelemetryProfile> {
-  return apiClient.post<TelemetryProfile>(`/diagrams/${diagramId}/bindings`, payload)
+  const profile = await apiClient.post<ApiTelemetryProfile>(`/diagrams/${diagramId}/bindings`, payload)
+  return normalizeDashboardBindingProfile(profile)
 }
 
 // API replaces a profile by diagramId + edgeServerId pair via the same endpoint.
@@ -52,7 +74,8 @@ export async function updateBinding(
   diagramId: string,
   payload: UpsertTelemetryProfilePayload,
 ): Promise<TelemetryProfile> {
-  return apiClient.post<TelemetryProfile>(`/diagrams/${diagramId}/bindings`, payload)
+  const profile = await apiClient.post<ApiTelemetryProfile>(`/diagrams/${diagramId}/bindings`, payload)
+  return normalizeDashboardBindingProfile(profile)
 }
 
 export async function deleteBinding(diagramId: string, edgeServerId: string): Promise<void> {

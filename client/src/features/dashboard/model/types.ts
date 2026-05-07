@@ -172,10 +172,37 @@ export interface DashboardWidgetBinding {
   metric: string
 }
 
+export type DashboardCommandType = 'set_bool' | 'set_number'
+
 export interface DashboardCommandBinding {
   widgetId: string
   deviceId: string
-  commandType: 'set_bool' | 'set_number'
+  commandType: DashboardCommandType
+}
+
+export type DashboardCommandValueType = 'boolean' | 'number' | 'string'
+
+export interface DashboardCatalogTelemetryMetric {
+  deviceId: string
+  metric: string
+  valueType?: DashboardCommandValueType
+  label: string
+}
+
+export interface DashboardCommandCapability {
+  deviceId: string
+  commandType: DashboardCommandType
+  valueType: 'boolean' | 'number'
+  min?: number
+  max?: number
+  reportedMetric: string
+  label: string
+}
+
+export interface DashboardCommandCatalog {
+  edgeServerId: string
+  telemetry: DashboardCatalogTelemetryMetric[]
+  commands: DashboardCommandCapability[]
 }
 
 export interface DashboardBindingProfile {
@@ -183,7 +210,7 @@ export interface DashboardBindingProfile {
   diagramId: string
   edgeServerId: string
   widgetBindings: DashboardWidgetBinding[]
-  commandBindings?: DashboardCommandBinding[]
+  commandBindings: DashboardCommandBinding[]
   createdAt?: string
   updatedAt?: string
 }
@@ -227,8 +254,40 @@ export interface DashboardWidgetRuntimeProjection {
   unitLabel: string | null
 }
 
+export type DashboardCommandAvailabilityReason =
+  | 'available'
+  | 'missing-command-binding'
+  | 'unsupported-widget-type'
+  | 'incompatible-widget-command'
+  | 'missing-catalog-command'
+  | 'missing-reported-widget-binding'
+
+export interface DashboardCommandRuntimeProjection {
+  widgetId: string
+  widgetType: string
+  isExecutable: boolean
+  reason: DashboardCommandAvailabilityReason
+  commandType: DashboardCommandType | null
+  commandBinding: DashboardCommandBinding | null
+  reportedWidgetBinding: DashboardWidgetBinding | null
+  catalogCommand: DashboardCommandCapability | null
+}
+
+export type DashboardCommandLifecycleStatus =
+  | 'pending'
+  | 'confirmed-waiting-telemetry'
+  | 'error'
+
+export interface DashboardCommandLifecycleState {
+  status: DashboardCommandLifecycleStatus
+  error: string | null
+}
+
+export type DashboardCommandLifecycleByWidgetId = Record<string, DashboardCommandLifecycleState>
+
 export interface DashboardRuntimeProjection {
   metricValueByBindingKey: DashboardMetricValueByBindingKey
   widgetValueById: DashboardWidgetValueById
   widgets: DashboardWidgetRuntimeProjection[]
+  commandAvailabilityByWidgetId: Record<string, DashboardCommandRuntimeProjection>
 }

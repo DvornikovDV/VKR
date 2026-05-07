@@ -99,6 +99,7 @@ describe('Dashboard foundational helpers (T001-T009)', () => {
           { widgetId: 'widget-1', deviceId: 'pump-1', metric: 'temperature' },
           { widgetId: 'widget-missing', deviceId: 'pump-2', metric: 'pressure' },
         ],
+        commandBindings: [],
       },
       {
         widgets: [{ id: 'widget-1', type: 'number-display' }],
@@ -131,6 +132,7 @@ describe('Dashboard foundational helpers (T001-T009)', () => {
         diagramId: 'diagram-1',
         edgeServerId: 'edge-1',
         widgetBindings: [{ widgetId: 'widget-1', deviceId: 'pump-1', metric: 'temperature' }],
+        commandBindings: [],
       },
       metricMap,
     )
