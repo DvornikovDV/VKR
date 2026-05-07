@@ -280,10 +280,21 @@ export function DashboardDiagnosticsPanel({
                         </p>
                       ) : null}
                       {commandLifecycle ? (
-                        <p className="mt-1 text-xs text-[#94a3b8]">
-                          Command lifecycle: {commandLifecycle.status}
-                          {commandLifecycle.error ? ` (${commandLifecycle.error})` : ''}
-                        </p>
+                        <div className="mt-1 space-y-1 text-xs text-[#94a3b8]">
+                          <p data-testid={`dashboard-diagnostics-command-lifecycle-${widget.widgetId}`}>
+                            Command lifecycle: {commandLifecycle.status}
+                          </p>
+                          {commandLifecycle.failureKind ? (
+                            <p data-testid={`dashboard-diagnostics-command-failure-${widget.widgetId}`}>
+                              Failure: {commandLifecycle.failureKind}
+                            </p>
+                          ) : null}
+                          {commandLifecycle.error ? (
+                            <p data-testid={`dashboard-diagnostics-command-last-error-${widget.widgetId}`}>
+                              Last error: {commandLifecycle.error}
+                            </p>
+                          ) : null}
+                        </div>
                       ) : null}
                     </li>
                   )

@@ -710,6 +710,240 @@ describe('DashboardPage (US2)', () => {
 })
 
 describe('DashboardPage (US3)', () => {
+  it('clears pending and keeps actual visuals telemetry-driven for command failures and reconnect', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const commandRequests: Array<{ edgeId: string; body: unknown }> = []
+    const failureCases = [
+      {
+        response: HttpResponse.json(
+          {
+            status: 'error',
+            message: 'Cloud RPC timeout',
+            failureReason: 'cloud_rpc_timeout',
+          },
+          { status: 504 },
+        ),
+        expectedState: 'timeout',
+        expectedFailure: 'cloud_rpc_timeout',
+        expectedError: 'Cloud RPC timeout',
+      },
+      {
+        response: HttpResponse.json(
+          {
+            status: 'error',
+            message: 'Edge command timeout',
+            failureReason: 'edge_command_timeout',
+          },
+          { status: 502 },
+        ),
+        expectedState: 'timeout',
+        expectedFailure: 'edge_command_timeout',
+        expectedError: 'Edge command timeout',
+      },
+      {
+        response: HttpResponse.json(
+          {
+            status: 'error',
+            message: 'Edge command failed',
+            failureReason: 'edge_command_failed',
+          },
+          { status: 502 },
+        ),
+        expectedState: 'error',
+        expectedFailure: 'edge_command_failed',
+        expectedError: 'Edge command failed',
+      },
+      {
+        response: HttpResponse.json(
+          {
+            status: 'error',
+            message: 'Edge unavailable',
+            failureReason: 'edge_unavailable',
+          },
+          { status: 503 },
+        ),
+        expectedState: 'unavailable',
+        expectedFailure: 'edge_unavailable',
+        expectedError: 'Edge unavailable',
+      },
+      {
+        response: HttpResponse.json(
+          {
+            status: 'error',
+            message: 'Unexpected command failure',
+          },
+          { status: 500 },
+        ),
+        expectedState: 'error',
+        expectedFailure: 'unknown_error',
+        expectedError: 'Command failed',
+      },
+      {
+        response: HttpResponse.error(),
+        expectedState: 'error',
+        expectedFailure: 'network_error',
+        expectedError: 'Network error',
+      },
+    ]
+    let activeResponse: Response | null = null
+    let releaseCommand = () => {}
+
+    server.use(
+      http.post('/api/edge-servers/:edgeId/commands', async ({ params, request }) => {
+        commandRequests.push({
+          edgeId: String(params.edgeId),
+          body: await request.json(),
+        })
+
+        return new Promise((resolve) => {
+          releaseCommand = () => {
+            if (!activeResponse) {
+              throw new Error('Missing active command response.')
+            }
+            resolve(activeResponse)
+          }
+        })
+      }),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId: 'edge-visual-1' }),
+      )
+    })
+
+    act(() => {
+      runtimeHarness.emitTransportStatus('edge-visual-1', 'connected')
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            {
+              deviceId: 'pump-1',
+              metric: 'running',
+              last: false,
+              ts: 1763895000004,
+            },
+          ],
+          serverTs: 1763895000500,
+        }),
+      )
+    })
+
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+      'false',
+    )
+    expect(
+      await screen.findByRole('button', { name: 'Command toggle widget-command-toggle' }),
+    ).toHaveAttribute('aria-pressed', 'false')
+
+    const user = userEvent.setup()
+    await openDiagnosticsPanel(user)
+    let diagnosticsPanel = await openDiagnosticsTab('Bindings')
+    const toggleDiagnostics = within(diagnosticsPanel).getByTestId(
+      'dashboard-runtime-widget-widget-command-toggle',
+    )
+    expect(within(toggleDiagnostics).queryByTestId(
+      'dashboard-diagnostics-command-lifecycle-widget-command-toggle',
+    )).not.toBeInTheDocument()
+
+    for (const [failureIndex, failureCase] of failureCases.entries()) {
+      activeResponse = failureCase.response
+      await user.click(
+        await screen.findByRole('button', { name: 'Command toggle widget-command-toggle' }),
+      )
+
+      await waitFor(() => {
+        expect(commandRequests).toHaveLength(failureIndex + 1)
+      })
+      expect(screen.getByTestId('dashboard-command-state-widget-command-toggle')).toHaveTextContent(
+        'pending',
+      )
+      expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+        'false',
+      )
+      expect(
+        screen.getByRole('button', { name: 'Command toggle widget-command-toggle' }),
+      ).toHaveAttribute('aria-pressed', 'false')
+
+      diagnosticsPanel = await openDiagnosticsTab('Bindings')
+      expect(
+        within(diagnosticsPanel).getByTestId(
+          'dashboard-diagnostics-command-lifecycle-widget-command-toggle',
+        ),
+      ).toHaveTextContent('Command lifecycle: pending')
+
+      await act(async () => {
+        releaseCommand()
+      })
+
+      await waitFor(() => {
+        expect(screen.getByTestId('dashboard-command-state-widget-command-toggle')).toHaveTextContent(
+          failureCase.expectedState,
+        )
+      }, { timeout: 3000 })
+      expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+        'false',
+      )
+      expect(
+        screen.getByRole('button', { name: 'Command toggle widget-command-toggle' }),
+      ).toHaveAttribute('aria-pressed', 'false')
+
+      diagnosticsPanel = await openDiagnosticsTab('Bindings')
+      expect(
+        within(diagnosticsPanel).getByTestId(
+          'dashboard-diagnostics-command-lifecycle-widget-command-toggle',
+        ),
+      ).toHaveTextContent(`Command lifecycle: ${failureCase.expectedState}`)
+      expect(
+        within(diagnosticsPanel).getByTestId(
+          'dashboard-diagnostics-command-failure-widget-command-toggle',
+        ),
+      ).toHaveTextContent(`Failure: ${failureCase.expectedFailure}`)
+      expect(
+        within(diagnosticsPanel).getByTestId(
+          'dashboard-diagnostics-command-last-error-widget-command-toggle',
+        ),
+      ).toHaveTextContent(`Last error: ${failureCase.expectedError}`)
+
+      act(() => {
+        runtimeHarness.emitTransportStatus('edge-visual-1', 'reconnecting')
+      })
+
+      diagnosticsPanel = await openDiagnosticsTab('Status')
+      await waitFor(() => {
+        expect(within(diagnosticsPanel).getByText('Transport: Reconnecting')).toBeInTheDocument()
+      })
+      expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+        'false',
+      )
+      expect(
+        screen.getByRole('button', { name: 'Command toggle widget-command-toggle' }),
+      ).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.queryByText('Failed to load dashboard context')).not.toBeInTheDocument()
+
+      act(() => {
+        runtimeHarness.emitTransportStatus('edge-visual-1', 'connected')
+      })
+      diagnosticsPanel = await openDiagnosticsTab('Bindings')
+      expect(
+        within(diagnosticsPanel).getByTestId(
+          'dashboard-diagnostics-command-lifecycle-widget-command-toggle',
+        ),
+      ).toHaveTextContent(`Command lifecycle: ${failureCase.expectedState}`)
+      expect(
+        within(diagnosticsPanel).getByTestId(
+          'dashboard-diagnostics-command-failure-widget-command-toggle',
+        ),
+      ).toHaveTextContent(`Failure: ${failureCase.expectedFailure}`)
+
+      activeResponse = null
+    }
+  })
+
   it('keeps unsupported widgets and invalid command bindings non-executable without sending Cloud commands', async () => {
     const diagramId = 'diagram-non-executable-commands'
     const edgeId = 'edge-non-executable-1'

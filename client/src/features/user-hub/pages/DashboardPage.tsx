@@ -527,7 +527,7 @@ export function DashboardPage() {
         return
       }
 
-      commandLifecycle.markError(command.widgetId, formatCommandOutcomeError(outcome))
+      commandLifecycle.markFailure(command.widgetId, outcome, formatCommandOutcomeError(outcome))
     },
     [commandLifecycle, runtimeProjection, selectedEdgeId],
   )

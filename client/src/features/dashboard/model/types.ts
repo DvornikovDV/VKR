@@ -278,11 +278,22 @@ export interface DashboardCommandRuntimeProjection {
 export type DashboardCommandLifecycleStatus =
   | 'pending'
   | 'confirmed-waiting-telemetry'
+  | 'timeout'
+  | 'unavailable'
   | 'error'
+
+export type DashboardCommandFailureKind =
+  | 'cloud_rpc_timeout'
+  | 'edge_command_timeout'
+  | 'edge_command_failed'
+  | 'edge_unavailable'
+  | 'network_error'
+  | 'unknown_error'
 
 export interface DashboardCommandLifecycleState {
   status: DashboardCommandLifecycleStatus
   error: string | null
+  failureKind?: DashboardCommandFailureKind
   reportedBindingKey?: string
   confirmedMetricRevision?: number
 }

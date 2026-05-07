@@ -73,4 +73,33 @@ describe('useDashboardCommandLifecycle (T011)', () => {
 
     expect(result.current.lifecycleByWidgetId['toggle-running']).toBeUndefined()
   })
+
+  it('maps command failures into stable local lifecycle states without physical values', () => {
+    const { result } = renderHook(() => useDashboardCommandLifecycle())
+
+    act(() => {
+      result.current.markFailure('toggle-running', 'cloud_rpc_timeout', 'Cloud RPC timeout')
+      result.current.markFailure('slider-flow', 'edge_unavailable', 'Edge unavailable')
+      result.current.markFailure('toggle-failed', 'edge_command_failed', 'Edge command failed')
+    })
+
+    expect(result.current.lifecycleByWidgetId).toEqual({
+      'toggle-running': {
+        status: 'timeout',
+        error: 'Cloud RPC timeout',
+        failureKind: 'cloud_rpc_timeout',
+      },
+      'slider-flow': {
+        status: 'unavailable',
+        error: 'Edge unavailable',
+        failureKind: 'edge_unavailable',
+      },
+      'toggle-failed': {
+        status: 'error',
+        error: 'Edge command failed',
+        failureKind: 'edge_command_failed',
+      },
+    })
+    expect(result.current.lifecycleByWidgetId['toggle-running']).not.toHaveProperty('value')
+  })
 })

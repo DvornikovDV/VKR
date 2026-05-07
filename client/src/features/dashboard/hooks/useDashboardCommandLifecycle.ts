@@ -1,7 +1,9 @@
 import { useCallback, useState } from 'react'
 import type {
+  DashboardCommandFailureKind,
   DashboardCommandLifecycleByWidgetId,
   DashboardCommandLifecycleState,
+  DashboardCommandLifecycleStatus,
   DashboardMetricRevisionByBindingKey,
 } from '@/features/dashboard/model/types'
 
@@ -23,6 +25,21 @@ function setLifecycleState(
   return {
     ...previous,
     [normalizedWidgetId]: state,
+  }
+}
+
+function selectFailureStatus(failureKind: DashboardCommandFailureKind): DashboardCommandLifecycleStatus {
+  switch (failureKind) {
+    case 'cloud_rpc_timeout':
+    case 'edge_command_timeout':
+      return 'timeout'
+    case 'edge_unavailable':
+      return 'unavailable'
+    case 'edge_command_failed':
+    case 'network_error':
+    case 'unknown_error':
+    default:
+      return 'error'
   }
 }
 
@@ -69,6 +86,20 @@ export function useDashboardCommandLifecycle() {
       setLifecycleState(previous, widgetId, {
         status: 'error',
         error,
+      }),
+    )
+  }, [])
+
+  const markFailure = useCallback((
+    widgetId: string,
+    failureKind: DashboardCommandFailureKind,
+    error: string,
+  ) => {
+    setLifecycleByWidgetId((previous) =>
+      setLifecycleState(previous, widgetId, {
+        status: selectFailureStatus(failureKind),
+        error,
+        failureKind,
       }),
     )
   }, [])
@@ -124,6 +155,7 @@ export function useDashboardCommandLifecycle() {
     markPending,
     markConfirmedWaitingTelemetry,
     markError,
+    markFailure,
     clearLifecycle,
     clearConfirmedWaitingTelemetryForUpdatedBindings,
   }
