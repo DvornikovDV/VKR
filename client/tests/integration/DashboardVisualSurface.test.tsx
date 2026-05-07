@@ -14,6 +14,10 @@ import {
   dashboardRuntimeSocketHarness as runtimeHarness,
 } from './helpers/mockDashboardRuntimeSocket'
 import { userHubRouteChildren } from '@/app/userHubRoutes'
+import { DashboardVisualSurface } from '@/features/dashboard/components/DashboardVisualSurface'
+import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runtimeLayout'
+import { createDashboardInitialViewport } from '@/features/dashboard/model/viewport'
+import type { DashboardRuntimeProjection } from '@/features/dashboard/model/types'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
 
@@ -335,9 +339,8 @@ describe('Dashboard visual runtime surface (T040)', () => {
     expect(commandShell).toHaveAttribute('data-width', '120')
     expect(commandShell).toHaveAttribute('data-height', '40')
     expect(commandShell).toHaveAttribute('data-listening', 'false')
-    expect(within(commandWidget).getByText('Start Pump')).toBeInTheDocument()
-    expect(within(commandWidget).getByText('Read only')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Start Pump' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Command toggle widget-command-toggle' })).toBeDisabled()
 
     const emittedEventsBeforeInteraction = runtimeHarness.getEmittedEvents()
     expect(emittedEventsBeforeInteraction).toHaveLength(1)
@@ -350,5 +353,123 @@ describe('Dashboard visual runtime surface (T040)', () => {
     fireEvent.click(ledWidget)
 
     expect(runtimeHarness.getEmittedEvents()).toEqual(emittedEventsBeforeInteraction)
+  })
+})
+
+describe('DashboardVisualSurface command suppression', () => {
+  const runtimeLayout = normalizeDashboardRuntimeLayout({
+    widgets: [
+      {
+        id: 'widget-slider-draft',
+        type: 'slider',
+        x: 24,
+        y: 32,
+        width: 160,
+        height: 40,
+      },
+    ],
+  })
+  const viewportSize = { width: 320, height: 180 }
+  const viewport = createDashboardInitialViewport(runtimeLayout.diagramBounds, viewportSize)
+
+  function createSliderProjection(isExecutable: boolean): DashboardRuntimeProjection {
+    return {
+      metricValueByBindingKey: {
+        'pump-1::flowRate': 50,
+      },
+      widgetValueById: {
+        'widget-slider-draft': 50,
+      },
+      widgets: [
+        {
+          widgetId: 'widget-slider-draft',
+          widgetType: 'slider',
+          isBound: true,
+          isSupported: true,
+          value: 50,
+          visualValue: '50',
+          valueState: 'live',
+          unitLabel: null,
+        },
+      ],
+      commandAvailabilityByWidgetId: {
+        'widget-slider-draft': {
+          widgetId: 'widget-slider-draft',
+          widgetType: 'slider',
+          isExecutable,
+          reason: isExecutable ? 'available' : 'missing-catalog-command',
+          commandType: 'set_number',
+          commandBinding: { widgetId: 'widget-slider-draft', deviceId: 'pump-1', commandType: 'set_number' },
+          reportedWidgetBinding: isExecutable
+            ? { widgetId: 'widget-slider-draft', deviceId: 'pump-1', metric: 'flowRate' }
+            : null,
+          catalogCommand: isExecutable
+            ? {
+                deviceId: 'pump-1',
+                commandType: 'set_number',
+                valueType: 'number',
+                min: 0,
+                max: 100,
+                reportedMetric: 'flowRate',
+                label: 'flowRate',
+              }
+            : null,
+        },
+      },
+    }
+  }
+
+  it('drops slider draft values across unavailable and re-enabled command states', async () => {
+    const onCommandCommit = vi.fn()
+    const { rerender } = render(
+      <DashboardVisualSurface
+        runtimeLayout={runtimeLayout}
+        runtimeProjection={createSliderProjection(true)}
+        onCommandCommit={onCommandCommit}
+        viewport={viewport}
+        viewportSize={viewportSize}
+        onPanViewport={vi.fn()}
+      />,
+    )
+
+    const slider = screen.getByRole('slider', { name: 'Command slider widget-slider-draft' })
+    expect(slider).toHaveValue('50')
+
+    fireEvent.change(slider, { target: { value: '70' } })
+    expect(slider).toHaveValue('70')
+
+    rerender(
+      <DashboardVisualSurface
+        runtimeLayout={runtimeLayout}
+        runtimeProjection={createSliderProjection(false)}
+        onCommandCommit={onCommandCommit}
+        viewport={viewport}
+        viewportSize={viewportSize}
+        onPanViewport={vi.fn()}
+      />,
+    )
+
+    const unavailableSlider = screen.getByRole('slider', { name: 'Command slider widget-slider-draft' })
+    expect(unavailableSlider).toBeDisabled()
+    expect(unavailableSlider).toHaveValue('50')
+
+    rerender(
+      <DashboardVisualSurface
+        runtimeLayout={runtimeLayout}
+        runtimeProjection={createSliderProjection(true)}
+        onCommandCommit={onCommandCommit}
+        viewport={viewport}
+        viewportSize={viewportSize}
+        onPanViewport={vi.fn()}
+      />,
+    )
+
+    const reenabledSlider = screen.getByRole('slider', { name: 'Command slider widget-slider-draft' })
+    await waitFor(() => {
+      expect(reenabledSlider).toHaveValue('50')
+    })
+
+    fireEvent.pointerUp(reenabledSlider)
+    expect(onCommandCommit).not.toHaveBeenCalled()
   })
 })

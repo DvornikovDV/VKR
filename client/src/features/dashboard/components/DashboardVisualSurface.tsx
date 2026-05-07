@@ -219,6 +219,12 @@ function resolveCommandSliderBounds(
   return resolveSliderBounds(widget)
 }
 
+function selectCommandAvailabilityReason(
+  commandProjection: DashboardRuntimeProjection['commandAvailabilityByWidgetId'][string] | undefined,
+): string {
+  return commandProjection?.reason ?? 'missing-command-binding'
+}
+
 function useImageElementsById(images: DashboardSavedImage[]): Map<string, HTMLImageElement> {
   const [imageElementsById, setImageElementsById] = useState<Map<string, HTMLImageElement>>(new Map())
 
@@ -305,14 +311,6 @@ export function DashboardVisualSurface({
           }
 
           const commandProjection = runtimeProjection?.commandAvailabilityByWidgetId[widget.id]
-          if (
-            !commandProjection?.isExecutable ||
-            commandProjection.commandType !== 'set_number' ||
-            !commandProjection.commandBinding
-          ) {
-            return null
-          }
-
           const widgetProjection = widgetProjectionById.get(widget.id)
           const actualValue = widgetProjection?.value
           const bounds = resolveCommandSliderBounds(widget, commandProjection)
@@ -327,11 +325,16 @@ export function DashboardVisualSurface({
           const height = Math.max(1, resolveWidgetHeight(widget) * viewport.scale)
           const lifecycle = commandLifecycleByWidgetId[widget.id]
           const isPending = lifecycle?.status === 'pending'
+          const canCommit =
+            Boolean(commandProjection?.isExecutable) &&
+            commandProjection?.commandType === 'set_number' &&
+            Boolean(commandProjection.commandBinding)
 
           return {
             widgetId: widget.id,
-            deviceId: commandProjection.commandBinding.deviceId,
-            commandType: commandProjection.commandType,
+            deviceId: commandProjection?.commandBinding?.deviceId ?? null,
+            commandType: commandProjection?.commandType ?? null,
+            availabilityReason: selectCommandAvailabilityReason(commandProjection),
             min: bounds.min,
             max: bounds.max,
             value: currentValue,
@@ -339,7 +342,8 @@ export function DashboardVisualSurface({
             top,
             width,
             height,
-            disabled: isPending,
+            disabled: isPending || !canCommit,
+            canCommit,
           }
         })
         .filter((anchor): anchor is NonNullable<typeof anchor> => anchor !== null),
@@ -354,14 +358,6 @@ export function DashboardVisualSurface({
           }
 
           const commandProjection = runtimeProjection?.commandAvailabilityByWidgetId[widget.id]
-          if (
-            !commandProjection?.isExecutable ||
-            commandProjection.commandType !== 'set_bool' ||
-            !commandProjection.commandBinding
-          ) {
-            return null
-          }
-
           const widgetProjection = widgetProjectionById.get(widget.id)
           const actualValue = widgetProjection?.value
           const lifecycle = commandLifecycleByWidgetId[widget.id]
@@ -370,18 +366,25 @@ export function DashboardVisualSurface({
           const top = viewport.offsetY + toFiniteNumber(widget.y, 0) * viewport.scale
           const width = Math.max(1, resolveWidgetWidth(widget) * viewport.scale)
           const height = Math.max(1, resolveWidgetHeight(widget) * viewport.scale)
+          const canCommit =
+            Boolean(commandProjection?.isExecutable) &&
+            commandProjection?.commandType === 'set_bool' &&
+            Boolean(commandProjection.commandBinding) &&
+            typeof actualValue === 'boolean'
 
           return {
             widgetId: widget.id,
-            deviceId: commandProjection.commandBinding.deviceId,
-            commandType: commandProjection.commandType,
+            deviceId: commandProjection?.commandBinding?.deviceId ?? null,
+            commandType: commandProjection?.commandType ?? null,
+            availabilityReason: selectCommandAvailabilityReason(commandProjection),
             value: typeof actualValue === 'boolean' ? !actualValue : null,
             pressed: actualValue === true,
             left,
             top,
             width,
             height,
-            disabled: isPending || typeof actualValue !== 'boolean',
+            disabled: isPending || !canCommit,
+            canCommit,
           }
         })
         .filter((anchor): anchor is NonNullable<typeof anchor> => anchor !== null),
@@ -423,7 +426,11 @@ export function DashboardVisualSurface({
     setDraftSliderValuesByWidgetId((previous) => {
       let changed = false
       const next = { ...previous }
-      const activeWidgetIds = new Set(commandSliderAnchors.map((anchor) => anchor.widgetId))
+      const activeWidgetIds = new Set(
+        commandSliderAnchors
+          .filter((anchor) => anchor.canCommit && !anchor.disabled)
+          .map((anchor) => anchor.widgetId),
+      )
 
       for (const widgetId of Object.keys(next)) {
         if (!activeWidgetIds.has(widgetId)) {
@@ -434,6 +441,12 @@ export function DashboardVisualSurface({
 
       for (const anchor of commandSliderAnchors) {
         if (!Object.prototype.hasOwnProperty.call(next, anchor.widgetId)) {
+          continue
+        }
+
+        if (!anchor.canCommit || anchor.disabled) {
+          delete next[anchor.widgetId]
+          changed = true
           continue
         }
 
@@ -463,7 +476,13 @@ export function DashboardVisualSurface({
     anchor: (typeof commandSliderAnchors)[number],
     committedValue?: number,
   ) => {
-    if (anchor.disabled || !onCommandCommit) {
+    if (
+      anchor.disabled ||
+      !anchor.canCommit ||
+      !anchor.deviceId ||
+      anchor.commandType !== 'set_number' ||
+      !onCommandCommit
+    ) {
       return
     }
 
@@ -850,9 +869,18 @@ export function DashboardVisualSurface({
             aria-label={`Command toggle ${anchor.widgetId}`}
             aria-pressed={anchor.pressed}
             data-testid={`dashboard-command-toggle-${anchor.widgetId}`}
+            data-command-availability={anchor.availabilityReason}
+            data-command-executable={anchor.canCommit ? 'true' : 'false'}
             disabled={anchor.disabled}
             onClick={() => {
-              if (anchor.disabled || anchor.value === null || !onCommandCommit) {
+              if (
+                anchor.disabled ||
+                !anchor.canCommit ||
+                !anchor.deviceId ||
+                anchor.commandType !== 'set_bool' ||
+                anchor.value === null ||
+                !onCommandCommit
+              ) {
                 return
               }
 
@@ -873,7 +901,10 @@ export function DashboardVisualSurface({
           />
         ))}
         {commandSliderAnchors.map((anchor) => {
-          const value = draftSliderValuesByWidgetId[anchor.widgetId] ?? anchor.value
+          const value =
+            anchor.canCommit && !anchor.disabled
+              ? draftSliderValuesByWidgetId[anchor.widgetId] ?? anchor.value
+              : anchor.value
 
           return (
             <input
@@ -881,12 +912,18 @@ export function DashboardVisualSurface({
               type="range"
               aria-label={`Command slider ${anchor.widgetId}`}
               data-testid={`dashboard-command-slider-${anchor.widgetId}`}
+              data-command-availability={anchor.availabilityReason}
+              data-command-executable={anchor.canCommit ? 'true' : 'false'}
               min={anchor.min}
               max={anchor.max}
               step="1"
               value={value}
               disabled={anchor.disabled}
               onChange={(event) => {
+                if (anchor.disabled || !anchor.canCommit) {
+                  return
+                }
+
                 const nextValue = Number(event.currentTarget.value)
                 if (!Number.isFinite(nextValue)) {
                   return

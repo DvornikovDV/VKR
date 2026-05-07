@@ -710,12 +710,232 @@ describe('DashboardPage (US2)', () => {
 })
 
 describe('DashboardPage (US3)', () => {
+  it('keeps unsupported widgets and invalid command bindings non-executable without sending Cloud commands', async () => {
+    const diagramId = 'diagram-non-executable-commands'
+    const edgeId = 'edge-non-executable-1'
+    const commandRequests: Array<{ edgeId: string; body: unknown }> = []
+    const nonExecutableLayout = {
+      ...dashboardVisualLayout,
+      widgets: [
+        {
+          id: 'widget-display-command',
+          type: 'number-display',
+          imageId: 'image-boiler',
+          x: 80,
+          y: 72,
+          width: 128,
+          height: 44,
+        },
+        {
+          id: 'widget-led-command',
+          type: 'led',
+          imageId: 'image-boiler',
+          x: 236,
+          y: 76,
+          width: 36,
+          height: 36,
+        },
+        {
+          id: 'widget-button-command',
+          type: 'button',
+          imageId: 'image-boiler',
+          x: 300,
+          y: 72,
+          width: 120,
+          height: 44,
+          label: 'Manual Button',
+        },
+        {
+          id: 'widget-toggle-missing-command',
+          type: 'toggle',
+          imageId: 'image-pump',
+          x: 540,
+          y: 120,
+          width: 120,
+          height: 40,
+        },
+        {
+          id: 'widget-toggle-reported-mismatch',
+          type: 'toggle',
+          imageId: 'image-pump',
+          x: 540,
+          y: 176,
+          width: 120,
+          height: 40,
+        },
+        {
+          id: 'widget-slider-stale-catalog',
+          type: 'slider',
+          imageId: 'image-boiler',
+          x: 96,
+          y: 172,
+          width: 150,
+          height: 40,
+        },
+      ],
+    }
+
+    setupDashboardApiFixtures({
+      diagramsById: {
+        [diagramId]: {
+          ...dashboardVisualDiagram,
+          _id: diagramId,
+          name: 'Non-executable commands',
+          layout: nonExecutableLayout,
+        },
+      },
+      trustedEdges: [
+        {
+          _id: edgeId,
+          name: 'Non-executable Edge',
+          lifecycleState: 'Active',
+          availability: { online: true, lastSeenAt: '2026-05-07T02:00:00.000Z' },
+        },
+      ],
+      bindingProfilesByDiagramId: {
+        [diagramId]: [
+          {
+            _id: 'binding-non-executable',
+            diagramId,
+            edgeServerId: edgeId,
+            widgetBindings: [
+              { widgetId: 'widget-display-command', deviceId: 'pump-1', metric: 'running' },
+              { widgetId: 'widget-led-command', deviceId: 'pump-1', metric: 'running' },
+              { widgetId: 'widget-button-command', deviceId: 'pump-1', metric: 'running' },
+              { widgetId: 'widget-toggle-missing-command', deviceId: 'pump-1', metric: 'running' },
+              { widgetId: 'widget-toggle-reported-mismatch', deviceId: 'pump-1', metric: 'notRunning' },
+              { widgetId: 'widget-slider-stale-catalog', deviceId: 'boiler-1', metric: 'flowRate' },
+            ],
+            commandBindings: [
+              { widgetId: 'widget-display-command', deviceId: 'pump-1', commandType: 'set_bool' },
+              { widgetId: 'widget-led-command', deviceId: 'pump-1', commandType: 'set_bool' },
+              { widgetId: 'widget-button-command', deviceId: 'pump-1', commandType: 'set_bool' },
+              { widgetId: 'widget-toggle-reported-mismatch', deviceId: 'pump-1', commandType: 'set_bool' },
+              { widgetId: 'widget-slider-stale-catalog', deviceId: 'boiler-1', commandType: 'set_number' },
+            ],
+          },
+        ],
+      },
+    })
+
+    server.use(
+      http.get('/api/edge-servers/:edgeId/catalog', ({ params }) =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            edgeServerId: String(params.edgeId),
+            telemetry: [
+              { deviceId: 'pump-1', metric: 'running', valueType: 'boolean', label: 'running' },
+              { deviceId: 'pump-1', metric: 'notRunning', valueType: 'boolean', label: 'notRunning' },
+              { deviceId: 'boiler-1', metric: 'flowRate', valueType: 'number', label: 'flowRate' },
+            ],
+            commands: [
+              {
+                deviceId: 'pump-1',
+                commandType: 'set_bool',
+                valueType: 'boolean',
+                reportedMetric: 'running',
+                label: 'set running',
+              },
+            ],
+          },
+        }),
+      ),
+      http.post('/api/edge-servers/:edgeId/commands', async ({ params, request }) => {
+        commandRequests.push({
+          edgeId: String(params.edgeId),
+          body: await request.json(),
+        })
+
+        return HttpResponse.json({
+          status: 'success',
+          data: { commandStatus: 'confirmed' },
+        })
+      }),
+    )
+
+    mount(`/hub/dashboard?diagramId=${diagramId}&edgeId=${edgeId}`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId }),
+      )
+    })
+
+    act(() => {
+      runtimeHarness.emitTransportStatus(edgeId, 'connected')
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId,
+          readings: [
+            { deviceId: 'pump-1', metric: 'running', last: false, ts: 1763895000000 },
+            { deviceId: 'pump-1', metric: 'notRunning', last: true, ts: 1763895000001 },
+            { deviceId: 'boiler-1', metric: 'flowRate', last: 55, ts: 1763895000002 },
+          ],
+        }),
+      )
+    })
+
+    expect(screen.queryByRole('button', { name: /widget-display-command/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /widget-led-command/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /widget-button-command/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('slider', { name: /widget-display-command/ })).not.toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-visual-widget-widget-button-command')).toHaveAttribute(
+      'data-listening',
+      'false',
+    )
+    expect(screen.getByTestId('dashboard-visual-led-indicator-widget-led-command')).toHaveAttribute(
+      'data-listening',
+      'false',
+    )
+
+    const missingCommandToggle = screen.getByRole('button', {
+      name: 'Command toggle widget-toggle-missing-command',
+    })
+    const reportedMismatchToggle = screen.getByRole('button', {
+      name: 'Command toggle widget-toggle-reported-mismatch',
+    })
+    const staleCatalogSlider = screen.getByRole('slider', {
+      name: 'Command slider widget-slider-stale-catalog',
+    })
+
+    expect(missingCommandToggle).toBeDisabled()
+    expect(missingCommandToggle).toHaveAttribute('data-command-executable', 'false')
+    expect(missingCommandToggle).toHaveAttribute('data-command-availability', 'missing-command-binding')
+    expect(reportedMismatchToggle).toBeDisabled()
+    expect(reportedMismatchToggle).toHaveAttribute('data-command-executable', 'false')
+    expect(reportedMismatchToggle).toHaveAttribute(
+      'data-command-availability',
+      'missing-reported-widget-binding',
+    )
+    expect(staleCatalogSlider).toBeDisabled()
+    expect(staleCatalogSlider).toHaveAttribute('data-command-executable', 'false')
+    expect(staleCatalogSlider).toHaveAttribute('data-command-availability', 'missing-catalog-command')
+
+    fireEvent.click(screen.getByTestId('dashboard-visual-widget-widget-button-command'))
+    fireEvent.click(missingCommandToggle)
+    fireEvent.keyUp(missingCommandToggle, { key: 'Enter' })
+    fireEvent.click(reportedMismatchToggle)
+    fireEvent.keyUp(reportedMismatchToggle, { key: ' ' })
+    fireEvent.change(staleCatalogSlider, { target: { value: '70' } })
+    fireEvent.pointerUp(staleCatalogSlider)
+    fireEvent.keyUp(staleCatalogSlider, { key: 'Enter' })
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+    expect(commandRequests).toEqual([])
+  })
+
   it('renders missing-binding-profile state when trusted edge has no saved profile for selected diagram', async () => {
     setupDashboardApiFixtures()
     mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-2')
 
     expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
-    expect(screen.getByText('No saved binding profile for this Diagram + Edge pair')).toBeInTheDocument()
+    expect(
+      await screen.findByText('No saved binding profile for this Diagram + Edge pair'),
+    ).toBeInTheDocument()
     await userEvent.setup().click(screen.getByRole('button', { name: 'Open Details for more info' }))
     const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
     expect(
@@ -1008,9 +1228,12 @@ describe('DashboardPage (US4)', () => {
 
     const nonOperativeWidget = within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-command-toggle')
     expect(nonOperativeWidget).not.toHaveAttribute('aria-disabled', 'true')
-    expect(
-      screen.queryByRole('button', { name: /widget-command/i }),
-    ).not.toBeInTheDocument()
+    const unavailableToggle = screen.getByRole('button', {
+      name: 'Command toggle widget-command-toggle',
+    })
+    expect(unavailableToggle).toBeDisabled()
+    expect(unavailableToggle).toHaveAttribute('data-command-executable', 'false')
+    expect(unavailableToggle).toHaveAttribute('data-command-availability', 'missing-catalog-command')
   })
 })
 

@@ -378,4 +378,152 @@ describe('dashboard command runtime projection (T006-T010)', () => {
     })
     expect(projection.widgetValueById).toEqual({})
   })
+
+  it('keeps invalid widgets and bindings non-executable while preserving telemetry projection', () => {
+    const suppressionDiagram: DashboardDiagramDocument = {
+      _id: 'diagram-command-suppression',
+      name: 'Command Suppression',
+      layout: {
+        widgets: [
+          { id: 'toggle-valid', type: 'toggle' },
+          { id: 'slider-valid', type: 'slider' },
+          { id: 'number-command', type: 'number-display' },
+          { id: 'text-command', type: 'text-display' },
+          { id: 'led-command', type: 'led' },
+          { id: 'button-command', type: 'button' },
+          { id: 'toggle-missing-command-binding', type: 'toggle' },
+          { id: 'toggle-missing-reported-binding', type: 'toggle' },
+          { id: 'toggle-device-mismatch', type: 'toggle' },
+          { id: 'toggle-widget-mismatch', type: 'toggle' },
+          { id: 'toggle-stale-catalog', type: 'toggle' },
+        ],
+      },
+    }
+    const suppressionProfile: DashboardBindingProfile = {
+      _id: 'binding-command-suppression',
+      diagramId: suppressionDiagram._id,
+      edgeServerId: 'edge-1',
+      widgetBindings: [
+        { widgetId: 'toggle-valid', deviceId: 'pump-1', metric: 'running' },
+        { widgetId: 'slider-valid', deviceId: 'pump-1', metric: 'flowRate' },
+        { widgetId: 'number-command', deviceId: 'pump-1', metric: 'running' },
+        { widgetId: 'text-command', deviceId: 'pump-1', metric: 'running' },
+        { widgetId: 'led-command', deviceId: 'pump-1', metric: 'running' },
+        { widgetId: 'button-command', deviceId: 'pump-1', metric: 'running' },
+        { widgetId: 'toggle-missing-command-binding', deviceId: 'pump-1', metric: 'running' },
+        { widgetId: 'toggle-device-mismatch', deviceId: 'pump-2', metric: 'running' },
+        { widgetId: 'reported-widget-for-widget-mismatch', deviceId: 'pump-1', metric: 'running' },
+        { widgetId: 'toggle-stale-catalog', deviceId: 'pump-3', metric: 'running' },
+      ],
+      commandBindings: [
+        { widgetId: 'toggle-valid', deviceId: 'pump-1', commandType: 'set_bool' },
+        { widgetId: 'slider-valid', deviceId: 'pump-1', commandType: 'set_number' },
+        { widgetId: 'number-command', deviceId: 'pump-1', commandType: 'set_bool' },
+        { widgetId: 'text-command', deviceId: 'pump-1', commandType: 'set_bool' },
+        { widgetId: 'led-command', deviceId: 'pump-1', commandType: 'set_bool' },
+        { widgetId: 'button-command', deviceId: 'pump-1', commandType: 'set_bool' },
+        { widgetId: 'toggle-missing-reported-binding', deviceId: 'pump-1', commandType: 'set_bool' },
+        { widgetId: 'toggle-device-mismatch', deviceId: 'pump-1', commandType: 'set_bool' },
+        { widgetId: 'toggle-widget-mismatch', deviceId: 'pump-1', commandType: 'set_bool' },
+        { widgetId: 'toggle-stale-catalog', deviceId: 'pump-3', commandType: 'set_bool' },
+        { widgetId: 'stale-command-widget', deviceId: 'pump-1', commandType: 'set_bool' },
+      ],
+    }
+    const suppressionCatalog: DashboardCommandCatalog = {
+      edgeServerId: 'edge-1',
+      telemetry: [
+        { deviceId: 'pump-1', metric: 'running', valueType: 'boolean', label: 'running' },
+        { deviceId: 'pump-1', metric: 'flowRate', valueType: 'number', label: 'flowRate' },
+      ],
+      commands: [
+        {
+          deviceId: 'pump-1',
+          commandType: 'set_bool',
+          valueType: 'boolean',
+          reportedMetric: 'running',
+          label: 'set running',
+        },
+        {
+          deviceId: 'pump-1',
+          commandType: 'set_number',
+          valueType: 'number',
+          reportedMetric: 'flowRate',
+          label: 'set flow',
+        },
+      ],
+    }
+    const metricMap = mergeTelemetryReadingsByBindingKey(
+      {},
+      [
+        { deviceId: 'pump-1', metric: 'running', last: true, ts: 1763895000000 },
+        { deviceId: 'pump-1', metric: 'flowRate', last: 45, ts: 1763895000001 },
+        { deviceId: 'pump-2', metric: 'running', last: false, ts: 1763895000002 },
+        { deviceId: 'pump-3', metric: 'running', last: true, ts: 1763895000003 },
+      ],
+    )
+
+    const projection = selectDashboardRuntimeProjection(
+      suppressionDiagram,
+      suppressionProfile,
+      metricMap,
+      suppressionCatalog,
+    )
+
+    expect(projection.commandAvailabilityByWidgetId['toggle-valid']).toMatchObject({
+      isExecutable: true,
+      reason: 'available',
+    })
+    expect(projection.commandAvailabilityByWidgetId['slider-valid']).toMatchObject({
+      isExecutable: true,
+      reason: 'available',
+    })
+    expect(projection.commandAvailabilityByWidgetId['number-command']).toMatchObject({
+      isExecutable: false,
+      reason: 'unsupported-widget-type',
+    })
+    expect(projection.commandAvailabilityByWidgetId['text-command']).toMatchObject({
+      isExecutable: false,
+      reason: 'unsupported-widget-type',
+    })
+    expect(projection.commandAvailabilityByWidgetId['led-command']).toMatchObject({
+      isExecutable: false,
+      reason: 'unsupported-widget-type',
+    })
+    expect(projection.commandAvailabilityByWidgetId['button-command']).toMatchObject({
+      isExecutable: false,
+      reason: 'unsupported-widget-type',
+    })
+    expect(projection.commandAvailabilityByWidgetId['toggle-missing-command-binding']).toMatchObject({
+      isExecutable: false,
+      reason: 'missing-command-binding',
+    })
+    expect(projection.commandAvailabilityByWidgetId['toggle-missing-reported-binding']).toMatchObject({
+      isExecutable: false,
+      reason: 'missing-reported-widget-binding',
+    })
+    expect(projection.commandAvailabilityByWidgetId['toggle-device-mismatch']).toMatchObject({
+      isExecutable: false,
+      reason: 'missing-reported-widget-binding',
+    })
+    expect(projection.commandAvailabilityByWidgetId['toggle-widget-mismatch']).toMatchObject({
+      isExecutable: false,
+      reason: 'missing-reported-widget-binding',
+    })
+    expect(projection.commandAvailabilityByWidgetId['toggle-stale-catalog']).toMatchObject({
+      isExecutable: false,
+      reason: 'missing-catalog-command',
+    })
+    expect(projection.commandAvailabilityByWidgetId['stale-command-widget']).toBeUndefined()
+    expect(projection.widgetValueById).toMatchObject({
+      'toggle-valid': true,
+      'slider-valid': 45,
+      'number-command': true,
+      'text-command': true,
+      'led-command': true,
+      'button-command': true,
+      'toggle-missing-command-binding': true,
+      'toggle-device-mismatch': false,
+      'toggle-stale-catalog': true,
+    })
+  })
 })
