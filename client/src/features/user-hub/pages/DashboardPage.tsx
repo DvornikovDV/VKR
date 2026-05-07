@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getDashboardBindingProfiles } from '@/shared/api/bindings'
 import { getDashboardDiagramById, getDashboardDiagrams } from '@/shared/api/diagrams'
-import { getAssignedEdgeServers } from '@/shared/api/edgeServers'
+import { getAssignedEdgeServers, getEdgeServerCatalog } from '@/shared/api/edgeServers'
+import { useDashboardCommandLifecycle } from '@/features/dashboard/hooks/useDashboardCommandLifecycle'
 import { useDashboardRouteState } from '@/features/dashboard/hooks/useDashboardRouteState'
 import { useDashboardRuntimeSession } from '@/features/dashboard/hooks/useDashboardRuntimeSession'
 import { DashboardRuntimeSurface } from '@/features/dashboard/components/DashboardRuntimeSurface'
@@ -13,6 +14,8 @@ import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runt
 import { selectDashboardRuntimeProjection } from '@/features/dashboard/model/selectors'
 import type {
   DashboardBindingProfile,
+  DashboardCatalogLoadStatus,
+  DashboardCommandCatalog,
   DashboardDiagramDocument,
   DashboardRecoveryState,
   DashboardDiagramSummary,
@@ -42,6 +45,11 @@ export function DashboardPage() {
   const [bindingProfilesByDiagram, setBindingProfilesByDiagram] = useState<
     Record<string, DashboardBindingProfile[]>
   >({})
+  const [catalogsByEdgeId, setCatalogsByEdgeId] = useState<Record<string, DashboardCommandCatalog>>({})
+  const [catalogStatusByEdgeId, setCatalogStatusByEdgeId] = useState<
+    Record<string, DashboardCatalogLoadStatus>
+  >({})
+  const [catalogErrorByEdgeId, setCatalogErrorByEdgeId] = useState<Record<string, string>>({})
 
   const [isBootstrapLoading, setIsBootstrapLoading] = useState(true)
   const [isBindingsLoading, setIsBindingsLoading] = useState(false)
@@ -53,6 +61,7 @@ export function DashboardPage() {
 
   const selectedDiagramId = routeState.diagramId
   const selectedEdgeId = routeState.edgeId
+  const commandLifecycle = useDashboardCommandLifecycle()
 
   const selectedDiagram = useMemo(
     () => diagrams.find((diagram) => diagram._id === selectedDiagramId) ?? null,
@@ -209,6 +218,11 @@ export function DashboardPage() {
     () => trustedEdges.find((edge) => edge._id === selectedEdgeId) ?? null,
     [selectedEdgeId, trustedEdges],
   )
+  const selectedCatalogStatus: DashboardCatalogLoadStatus = selectedEdgeId
+    ? catalogStatusByEdgeId[selectedEdgeId] ?? 'idle'
+    : 'idle'
+  const selectedCatalogError = selectedEdgeId ? catalogErrorByEdgeId[selectedEdgeId] ?? null : null
+  const selectedCommandCatalog = selectedEdgeId ? catalogsByEdgeId[selectedEdgeId] ?? null : null
   const selectedBindingProfile = useMemo(
     () => resolveBindingProfileForEdge(selectedDiagramProfiles, selectedEdgeId),
     [selectedDiagramProfiles, selectedEdgeId],
@@ -224,6 +238,92 @@ export function DashboardPage() {
     () => (selectedSavedDiagram ? normalizeDashboardRuntimeLayout(selectedSavedDiagram.layout) : null),
     [selectedSavedDiagram],
   )
+
+  useEffect(() => {
+    if (!selectedEdgeId || !selectedEdge) {
+      return
+    }
+
+    const edgeId = selectedEdgeId
+    if (catalogStatusByEdgeId[edgeId]) {
+      return
+    }
+
+    let isMounted = true
+    let didSettle = false
+    setCatalogStatusByEdgeId((previous) => ({
+      ...previous,
+      [edgeId]: 'loading',
+    }))
+    setCatalogErrorByEdgeId((previous) => {
+      if (!Object.prototype.hasOwnProperty.call(previous, edgeId)) {
+        return previous
+      }
+
+      const next = { ...previous }
+      delete next[edgeId]
+      return next
+    })
+
+    async function loadSelectedEdgeCatalog() {
+      try {
+        const catalog = await getEdgeServerCatalog(edgeId)
+        didSettle = true
+        if (!isMounted) {
+          return
+        }
+
+        setCatalogsByEdgeId((previous) => ({
+          ...previous,
+          [edgeId]: catalog,
+        }))
+        setCatalogStatusByEdgeId((previous) => ({
+          ...previous,
+          [edgeId]: 'loaded',
+        }))
+      } catch (error) {
+        didSettle = true
+        if (!isMounted) {
+          return
+        }
+
+        setCatalogsByEdgeId((previous) => {
+          if (!Object.prototype.hasOwnProperty.call(previous, edgeId)) {
+            return previous
+          }
+
+          const next = { ...previous }
+          delete next[edgeId]
+          return next
+        })
+        setCatalogErrorByEdgeId((previous) => ({
+          ...previous,
+          [edgeId]: toErrorMessage(error, 'Failed to load dashboard command catalog.'),
+        }))
+        setCatalogStatusByEdgeId((previous) => ({
+          ...previous,
+          [edgeId]: 'error',
+        }))
+      }
+    }
+
+    void loadSelectedEdgeCatalog()
+
+    return () => {
+      isMounted = false
+      if (!didSettle) {
+        setCatalogStatusByEdgeId((previous) => {
+          if (previous[edgeId] !== 'loading') {
+            return previous
+          }
+
+          const next = { ...previous }
+          delete next[edgeId]
+          return next
+        })
+      }
+    }
+  }, [selectedEdge, selectedEdgeId])
 
   const recoveryState: DashboardRecoveryState = useMemo(() => {
     if (isStructurallyInvalid) {
@@ -332,8 +432,15 @@ export function DashboardPage() {
       selectedSavedDiagram,
       selectedBindingProfile,
       runtimeSession.latestMetricValueByBindingKey,
+      selectedCatalogStatus === 'loaded' ? selectedCommandCatalog : null,
     )
-  }, [runtimeSession.latestMetricValueByBindingKey, selectedBindingProfile, selectedSavedDiagram])
+  }, [
+    runtimeSession.latestMetricValueByBindingKey,
+    selectedBindingProfile,
+    selectedCatalogStatus,
+    selectedCommandCatalog,
+    selectedSavedDiagram,
+  ])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -342,6 +449,9 @@ export function DashboardPage() {
         recoveryState={recoveryState}
         savedDiagram={selectedSavedDiagram}
         runtimeProjection={runtimeProjection}
+        commandLifecycleByWidgetId={commandLifecycle.lifecycleByWidgetId}
+        catalogStatus={selectedCatalogStatus}
+        catalogError={selectedCatalogError}
         transportStatus={runtimeSession.transportStatus}
         edgeAvailability={runtimeSession.edgeAvailability}
         latestMetricValueByBindingKey={runtimeSession.latestMetricValueByBindingKey}

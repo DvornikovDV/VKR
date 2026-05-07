@@ -179,6 +179,13 @@ function resolveLedRadius(widget: DashboardWidget, width: number, height: number
   return Math.max(6, Math.min(width, height) / 2)
 }
 
+function resolveSliderBounds(widget: DashboardWidget): { min: number; max: number } {
+  const min = toFiniteNumber(widget.min, 0)
+  const max = toFiniteNumber(widget.max, 100)
+
+  return max > min ? { min, max } : { min: 0, max: 100 }
+}
+
 function useImageElementsById(images: DashboardSavedImage[]): Map<string, HTMLImageElement> {
   const [imageElementsById, setImageElementsById] = useState<Map<string, HTMLImageElement>>(new Map())
 
@@ -404,13 +411,28 @@ export function DashboardVisualSurface({
               const textFill = typeof widget.color === 'string' ? widget.color : '#f8fafc'
               const fontSize = Math.max(10, toFiniteNumber(widget.fontSize, 13))
               const widgetProjection = widgetProjectionById.get(widget.id)
+              const actualValue = widgetProjection?.value ?? null
+              const actualText = widgetProjection ? widgetProjection.visualValue : 'Pending'
               const isVisualValueWidget = widget.type === 'number-display' || widget.type === 'text-display'
-              const widgetText =
-                isVisualValueWidget && widgetProjection ? widgetProjection.visualValue : widget.id
+              const isToggleWidget = widget.type === 'toggle'
+              const isSliderWidget = widget.type === 'slider'
+              const isRuntimeValueWidget = isVisualValueWidget || isToggleWidget || isSliderWidget
+              const widgetText = isVisualValueWidget && widgetProjection ? widgetProjection.visualValue : widget.id
               const isLedWidget = widget.type === 'led'
-              const isReadOnlyVisualWidget = isLedWidget || !isVisualValueWidget
+              const isUnsupportedVisualWidget = !isLedWidget && !isRuntimeValueWidget
               const widgetCaption = selectWidgetCaption(widget)
               const readOnlyTextY = y + Math.max(20, height / 2)
+              const isToggleOn = actualValue === true
+              const ledOn = actualValue === true
+              const sliderBounds = resolveSliderBounds(widget)
+              const sliderValue = typeof actualValue === 'number' ? actualValue : null
+              const sliderRatio =
+                sliderValue === null
+                  ? 0
+                  : clamp((sliderValue - sliderBounds.min) / (sliderBounds.max - sliderBounds.min), 0, 1)
+              const sliderTrackWidth = Math.max(0, width - 24)
+              const sliderTrackX = x + 12
+              const sliderTrackY = y + Math.max(18, height / 2)
 
               return (
                 <Group key={widget.id} data-testid={`dashboard-visual-widget-${widget.id}`} listening={false}>
@@ -421,7 +443,11 @@ export function DashboardVisualSurface({
                         x={x + width / 2}
                         y={y + height / 2}
                         radius={resolveLedRadius(widget, width, height)}
-                        fill={typeof widget.colorOff === 'string' ? widget.colorOff : '#64748b'}
+                        fill={
+                          ledOn
+                            ? (typeof widget.colorOn === 'string' ? widget.colorOn : '#22c55e')
+                            : (typeof widget.colorOff === 'string' ? widget.colorOff : '#64748b')
+                        }
                         stroke={typeof widget.colorOn === 'string' ? widget.colorOn : '#cbd5e1'}
                         strokeWidth={2}
                         listening={false}
@@ -432,9 +458,108 @@ export function DashboardVisualSurface({
                         y={y + height + 6}
                         width={width * 2}
                         align="center"
-                        text="Read only"
+                        text={actualText}
                         fontSize={12}
                         fill="#475569"
+                        listening={false}
+                      />
+                    </>
+                  ) : isToggleWidget ? (
+                    <>
+                      <Rect
+                        data-testid={`dashboard-visual-widget-shell-${widget.id}`}
+                        x={x}
+                        y={y}
+                        width={width}
+                        height={height}
+                        cornerRadius={4}
+                        fill="#0f172a"
+                        stroke={isToggleOn ? '#22c55e' : '#64748b'}
+                        strokeWidth={2}
+                        listening={false}
+                      />
+                      <Rect
+                        data-testid={`dashboard-visual-toggle-track-${widget.id}`}
+                        x={x + 8}
+                        y={y + Math.max(6, (height - 20) / 2)}
+                        width={46}
+                        height={20}
+                        cornerRadius={10}
+                        fill={isToggleOn ? '#16a34a' : '#475569'}
+                        listening={false}
+                      />
+                      <Circle
+                        data-testid={`dashboard-visual-toggle-knob-${widget.id}`}
+                        x={x + (isToggleOn ? 44 : 18)}
+                        y={y + Math.max(16, height / 2)}
+                        radius={8}
+                        fill="#f8fafc"
+                        listening={false}
+                      />
+                      <Text
+                        data-testid={`dashboard-visual-widget-value-${widget.id}`}
+                        x={x + 62}
+                        y={y + Math.max(6, (height - fontSize) / 2)}
+                        width={Math.max(0, width - 70)}
+                        height={Math.max(0, height - 8)}
+                        text={actualText}
+                        fontSize={Math.min(fontSize, 14)}
+                        fill="#e2e8f0"
+                        listening={false}
+                      />
+                    </>
+                  ) : isSliderWidget ? (
+                    <>
+                      <Rect
+                        data-testid={`dashboard-visual-widget-shell-${widget.id}`}
+                        x={x}
+                        y={y}
+                        width={width}
+                        height={height}
+                        cornerRadius={4}
+                        fill="#0f172a"
+                        stroke="#38bdf8"
+                        strokeWidth={2}
+                        listening={false}
+                      />
+                      <Rect
+                        data-testid={`dashboard-visual-slider-track-${widget.id}`}
+                        x={sliderTrackX}
+                        y={sliderTrackY}
+                        width={sliderTrackWidth}
+                        height={6}
+                        cornerRadius={3}
+                        fill="#334155"
+                        listening={false}
+                      />
+                      <Rect
+                        data-testid={`dashboard-visual-slider-fill-${widget.id}`}
+                        x={sliderTrackX}
+                        y={sliderTrackY}
+                        width={sliderTrackWidth * sliderRatio}
+                        height={6}
+                        cornerRadius={3}
+                        fill="#38bdf8"
+                        listening={false}
+                      />
+                      <Circle
+                        data-testid={`dashboard-visual-slider-knob-${widget.id}`}
+                        x={sliderTrackX + sliderTrackWidth * sliderRatio}
+                        y={sliderTrackY + 3}
+                        radius={8}
+                        fill="#f8fafc"
+                        stroke="#0ea5e9"
+                        strokeWidth={2}
+                        listening={false}
+                      />
+                      <Text
+                        data-testid={`dashboard-visual-widget-value-${widget.id}`}
+                        x={x + 8}
+                        y={y + 4}
+                        width={Math.max(0, width - 16)}
+                        text={actualText}
+                        fontSize={Math.min(fontSize, 13)}
+                        fill="#e2e8f0"
                         listening={false}
                       />
                     </>
@@ -447,25 +572,25 @@ export function DashboardVisualSurface({
                         width={width}
                         height={height}
                         cornerRadius={4}
-                        fill={isReadOnlyVisualWidget ? '#0f172a' : fill}
-                        stroke={isReadOnlyVisualWidget ? '#94a3b8' : stroke}
+                        fill={isUnsupportedVisualWidget ? '#0f172a' : fill}
+                        stroke={isUnsupportedVisualWidget ? '#94a3b8' : stroke}
                         strokeWidth={2}
-                        dash={isReadOnlyVisualWidget ? [8, 6] : undefined}
-                        opacity={isReadOnlyVisualWidget ? 0.9 : 1}
+                        dash={isUnsupportedVisualWidget ? [8, 6] : undefined}
+                        opacity={isUnsupportedVisualWidget ? 0.9 : 1}
                         listening={false}
                       />
                       <Text
                         data-testid={`dashboard-visual-widget-value-${widget.id}`}
                         x={x + 8}
-                        y={isReadOnlyVisualWidget ? y + 6 : y + Math.max(6, (height - fontSize) / 2)}
+                        y={isUnsupportedVisualWidget ? y + 6 : y + Math.max(6, (height - fontSize) / 2)}
                         width={Math.max(0, width - 16)}
                         height={Math.max(0, height - 8)}
-                        text={isReadOnlyVisualWidget ? widgetCaption : widgetText}
-                        fontSize={isReadOnlyVisualWidget ? Math.min(fontSize, 14) : fontSize}
-                        fill={isReadOnlyVisualWidget ? '#e2e8f0' : textFill}
+                        text={isUnsupportedVisualWidget ? widgetCaption : widgetText}
+                        fontSize={isUnsupportedVisualWidget ? Math.min(fontSize, 14) : fontSize}
+                        fill={isUnsupportedVisualWidget ? '#e2e8f0' : textFill}
                         listening={false}
                       />
-                      {isReadOnlyVisualWidget && (
+                      {isUnsupportedVisualWidget && (
                         <Text
                           data-testid={`dashboard-visual-widget-readonly-${widget.id}`}
                           x={x + 8}

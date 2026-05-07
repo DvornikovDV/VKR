@@ -21,6 +21,7 @@ export type DashboardRecoveryState =
 
 export type DashboardTransportStatus = 'idle' | 'connecting' | 'connected' | 'reconnecting' | 'failed'
 export type DashboardEdgeAvailability = 'unknown' | 'online' | 'offline'
+export type DashboardCatalogLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
 
 export interface DashboardWidget {
   id: string

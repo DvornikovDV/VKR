@@ -7,6 +7,7 @@ import { server } from '../mocks/server'
 import {
   createDashboardVisualRestFixtures,
   dashboardVisualBindingProfile,
+  dashboardVisualCatalog,
   dashboardVisualDiagram,
   dashboardVisualLayout,
 } from '../fixtures/dashboardVisualLayout'
@@ -80,7 +81,18 @@ function mount(path: string) {
 
 function setupDashboardApiFixtures(overrides: Partial<DashboardRestFixtures> = {}) {
   const fixtures = createDashboardApiFixtures(overrides)
-  server.use(...createDashboardApiHandlers(fixtures))
+  server.use(
+    ...createDashboardApiHandlers(fixtures),
+    http.get('/api/edge-servers/:edgeId/catalog', ({ params }) =>
+      HttpResponse.json({
+        status: 'success',
+        data:
+          String(params.edgeId) === dashboardVisualCatalog.edgeServerId
+            ? dashboardVisualCatalog
+            : { edgeServerId: String(params.edgeId), telemetry: [], commands: [] },
+      }),
+    ),
+  )
   return fixtures
 }
 
@@ -93,6 +105,20 @@ async function openDiagnosticsTab(name: 'Status' | 'Telemetry' | 'Bindings' | 'R
   const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
   await userEvent.setup().click(within(diagnosticsPanel).getByRole('tab', { name }))
   return diagnosticsPanel
+}
+
+function getNumericDataAttribute(element: HTMLElement, name: string): number {
+  const value = element.getAttribute(name)
+  if (value === null) {
+    throw new Error(`Missing ${name} attribute.`)
+  }
+
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid ${name} attribute: ${value}`)
+  }
+
+  return parsed
 }
 
 beforeEach(() => {
@@ -423,8 +449,72 @@ describe('DashboardPage (US3)', () => {
 })
 
 describe('DashboardPage (US4)', () => {
-  it('keeps command-capable widgets visible but non-operative in monitoring MVP', async () => {
+  it('retries catalog loading after leaving an in-flight selected Edge context', async () => {
+    setupDashboardApiFixtures()
+    const catalogRequests: string[] = []
+    let releaseFirstEdgeCatalog = () => {}
+    let edgeOneRequestCount = 0
+
+    server.use(
+      http.get('/api/edge-servers/:edgeId/catalog', ({ params }) => {
+        const edgeId = String(params.edgeId)
+        catalogRequests.push(edgeId)
+
+        if (edgeId === 'edge-1') {
+          edgeOneRequestCount += 1
+          if (edgeOneRequestCount === 1) {
+            return new Promise((resolve) => {
+              releaseFirstEdgeCatalog = () =>
+                resolve(
+                  HttpResponse.json({
+                    status: 'success',
+                    data: { edgeServerId: edgeId, telemetry: [], commands: [] },
+                  }),
+                )
+            })
+          }
+        }
+
+        return HttpResponse.json({
+          status: 'success',
+          data: { edgeServerId: edgeId, telemetry: [], commands: [] },
+        })
+      }),
+    )
+
+    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+
+    await waitFor(() => {
+      expect(catalogRequests).toEqual(['edge-1'])
+    })
+
+    const user = userEvent.setup()
+    await user.selectOptions(screen.getByLabelText('Diagram'), 'diagram-2')
+    await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-2')
+
+    await waitFor(() => {
+      expect(catalogRequests).toContain('edge-2')
+    })
+
+    await user.selectOptions(screen.getByLabelText('Diagram'), 'diagram-1')
+    await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-1')
+
+    await waitFor(() => {
+      expect(catalogRequests.filter((edgeId) => edgeId === 'edge-1')).toHaveLength(2)
+    })
+
+    releaseFirstEdgeCatalog?.()
+  })
+
+  it('keeps catalog failure separate while rendering telemetry-bound visual state for runtime widgets', async () => {
     setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const catalogRequests: string[] = []
+    server.use(
+      http.get('/api/edge-servers/:edgeId/catalog', ({ params }) => {
+        catalogRequests.push(String(params.edgeId))
+        return HttpResponse.json({ status: 'error', message: 'Catalog unavailable' }, { status: 503 })
+      }),
+    )
 
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
@@ -433,6 +523,7 @@ describe('DashboardPage (US4)', () => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
         expect.objectContaining({ edgeId: 'edge-visual-1' }),
       )
+      expect(catalogRequests).toEqual(['edge-visual-1'])
     })
 
     act(() => {
@@ -447,22 +538,81 @@ describe('DashboardPage (US4)', () => {
               last: 49,
               ts: 1763895000000,
             },
+            {
+              deviceId: 'boiler-1',
+              metric: 'status',
+              last: 'stable',
+              ts: 1763895000001,
+            },
+            {
+              deviceId: 'pump-1',
+              metric: 'alarm',
+              last: true,
+              ts: 1763895000002,
+            },
+            {
+              deviceId: 'pump-1',
+              metric: 'running',
+              last: false,
+              ts: 1763895000003,
+            },
+            {
+              deviceId: 'boiler-1',
+              metric: 'flowRate',
+              last: 68,
+              ts: 1763895000004,
+            },
           ],
         }),
       )
     })
 
+    expect(await screen.findByTestId('dashboard-visual-widget-value-widget-temperature')).toHaveTextContent(
+      '49 C',
+    )
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-status')).toHaveTextContent(
+      'stable',
+    )
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-alarm')).toHaveTextContent(
+      'true',
+    )
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+      'false',
+    )
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-slider')).toHaveTextContent(
+      '68',
+    )
+    expect(screen.getByTestId('dashboard-visual-led-indicator-widget-alarm')).toHaveAttribute(
+      'data-fill',
+      '#22c55e',
+    )
+    expect(screen.getByTestId('dashboard-visual-toggle-track-widget-command-toggle')).toHaveAttribute(
+      'data-fill',
+      '#475569',
+    )
+    expect(screen.getByTestId('dashboard-visual-toggle-knob-widget-command-toggle')).toHaveAttribute(
+      'data-x',
+      '578',
+    )
+    expect(
+      getNumericDataAttribute(screen.getByTestId('dashboard-visual-slider-fill-widget-command-slider'), 'data-width'),
+    ).toBeCloseTo(85.68)
+
     const user = userEvent.setup()
     await openDiagnosticsPanel(user)
     const diagnosticsPanel = await openDiagnosticsTab('Bindings')
     expect(within(diagnosticsPanel).getByText('widget-command-toggle')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('widget-command-slider')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('widget-temperature')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('Value: 49')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getAllByText('Visible only. Unsupported in monitoring MVP.')[0]).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Value: false')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Value: 68')).toBeInTheDocument()
+    expect(
+      within(diagnosticsPanel).getAllByText('Command: unavailable (missing-catalog-command)')[0],
+    ).toBeInTheDocument()
 
     const nonOperativeWidget = within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-command-toggle')
-    expect(nonOperativeWidget).toHaveAttribute('aria-disabled', 'true')
-    expect(nonOperativeWidget.className).toContain('pointer-events-none')
+    expect(nonOperativeWidget).not.toHaveAttribute('aria-disabled', 'true')
     expect(
       screen.queryByRole('button', { name: /widget-command/i }),
     ).not.toBeInTheDocument()

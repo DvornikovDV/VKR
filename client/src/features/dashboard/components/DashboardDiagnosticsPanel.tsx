@@ -5,6 +5,8 @@ import {
 } from '@/features/dashboard/model/selectors'
 import type {
   DashboardEdgeAvailability,
+  DashboardCatalogLoadStatus,
+  DashboardCommandLifecycleByWidgetId,
   DashboardMetricValueByBindingKey,
   DashboardRecoveryState,
   DashboardRenderIssue,
@@ -17,6 +19,9 @@ type DiagnosticsTab = 'status' | 'telemetry' | 'bindings' | 'render-issues'
 
 interface DashboardDiagnosticsPanelProps {
   runtimeProjection: DashboardRuntimeProjection | null
+  commandLifecycleByWidgetId?: DashboardCommandLifecycleByWidgetId
+  catalogStatus?: DashboardCatalogLoadStatus
+  catalogError?: string | null
   telemetryValues: DashboardMetricValueByBindingKey
   renderIssues: DashboardRenderIssue[]
   lastServerTimestamp?: number | null
@@ -33,6 +38,20 @@ function formatRuntimeValue(value: DashboardRuntimeValue): string {
   }
 
   return String(value)
+}
+
+function formatCatalogStatus(status: DashboardCatalogLoadStatus): string {
+  switch (status) {
+    case 'loading':
+      return 'Loading'
+    case 'loaded':
+      return 'Loaded'
+    case 'error':
+      return 'Error'
+    case 'idle':
+    default:
+      return 'Idle'
+  }
 }
 
 function getMessage(
@@ -115,6 +134,9 @@ function TabButton({ label, active, onClick }: TabButtonProps) {
 
 export function DashboardDiagnosticsPanel({
   runtimeProjection,
+  commandLifecycleByWidgetId = {},
+  catalogStatus = 'idle',
+  catalogError = null,
   telemetryValues,
   renderIssues,
   lastServerTimestamp = null,
@@ -177,7 +199,13 @@ export function DashboardDiagnosticsPanel({
             <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-[#cbd5e1]">
               <p>Transport: {transportLabel}</p>
               <p>Edge: {edgeAvailabilityLabel}</p>
+              <p>Catalog: {formatCatalogStatus(catalogStatus)}</p>
             </div>
+            {catalogError ? (
+              <p className="mt-2 text-xs text-[var(--color-warning)]">
+                Catalog error: {catalogError}
+              </p>
+            ) : null}
             {isReconnecting && (
               <p className="mt-2 text-xs text-[var(--color-warning)]">
                 Transport reconnecting. Last rendered values are preserved.
@@ -221,29 +249,45 @@ export function DashboardDiagnosticsPanel({
               <p className="mt-3 text-sm text-[#94a3b8]">Saved diagram has no runtime widgets.</p>
             ) : (
               <ul className="mt-3 space-y-2" aria-label="Runtime widget diagnostics">
-                {widgets.map((widget) => (
-                  <li
-                    key={widget.widgetId}
-                    data-testid={`dashboard-runtime-widget-${widget.widgetId}`}
-                    aria-disabled={!widget.isSupported ? 'true' : undefined}
-                    className={`rounded-md border bg-[#0f172a] px-3 py-2 text-sm text-white ${widget.isSupported ? 'border-[#1f2a3d]' : 'pointer-events-none select-none border-dashed border-[#475569] opacity-75'
-                      }`}
-                  >
-                    <p className="font-medium">{widget.widgetId}</p>
-                    <p className="text-xs text-[#94a3b8]">{widget.widgetType}</p>
-                    {!widget.isSupported ? (
-                      <p className="mt-1 text-xs text-[#94a3b8]">
-                        Visible only. Unsupported in monitoring MVP.
-                      </p>
-                    ) : !widget.isBound ? (
-                      <p className="mt-1 text-xs text-[#94a3b8]">Value: unbound</p>
-                    ) : (
-                      <p className="mt-1 text-xs text-[#94a3b8]">
-                        Value: {formatRuntimeValue(widget.value)}
-                      </p>
-                    )}
-                  </li>
-                ))}
+                {widgets.map((widget) => {
+                  const commandProjection = runtimeProjection?.commandAvailabilityByWidgetId[widget.widgetId]
+                  const commandLifecycle = commandLifecycleByWidgetId[widget.widgetId]
+
+                  return (
+                    <li
+                      key={widget.widgetId}
+                      data-testid={`dashboard-runtime-widget-${widget.widgetId}`}
+                      aria-disabled={!widget.isSupported ? 'true' : undefined}
+                      className={`rounded-md border bg-[#0f172a] px-3 py-2 text-sm text-white ${widget.isSupported ? 'border-[#1f2a3d]' : 'pointer-events-none select-none border-dashed border-[#475569] opacity-75'
+                        }`}
+                    >
+                      <p className="font-medium">{widget.widgetId}</p>
+                      <p className="text-xs text-[#94a3b8]">{widget.widgetType}</p>
+                      {!widget.isSupported ? (
+                        <p className="mt-1 text-xs text-[#94a3b8]">
+                          Visible only. Unsupported in monitoring MVP.
+                        </p>
+                      ) : !widget.isBound ? (
+                        <p className="mt-1 text-xs text-[#94a3b8]">Value: unbound</p>
+                      ) : (
+                        <p className="mt-1 text-xs text-[#94a3b8]">
+                          Value: {formatRuntimeValue(widget.value)}
+                        </p>
+                      )}
+                      {commandProjection ? (
+                        <p className="mt-1 text-xs text-[#94a3b8]">
+                          Command: {commandProjection.isExecutable ? 'available' : `unavailable (${commandProjection.reason})`}
+                        </p>
+                      ) : null}
+                      {commandLifecycle ? (
+                        <p className="mt-1 text-xs text-[#94a3b8]">
+                          Command lifecycle: {commandLifecycle.status}
+                          {commandLifecycle.error ? ` (${commandLifecycle.error})` : ''}
+                        </p>
+                      ) : null}
+                    </li>
+                  )
+                })}
               </ul>
             )}
           </section>

@@ -227,6 +227,61 @@ describe('dashboard command runtime projection (T006-T010)', () => {
     })
   })
 
+  it('projects toggle and slider actual state from reported telemetry bindings, not command wiring', () => {
+    const projection = selectDashboardRuntimeProjection(
+      commandDiagram,
+      commandProfile,
+      commandMetricMap,
+      {
+        ...commandCatalog,
+        commands: [
+          {
+            deviceId: 'pump-1',
+            commandType: 'set_bool',
+            valueType: 'boolean',
+            reportedMetric: 'running',
+            label: 'Desired toggle command must not provide actual state',
+          },
+          {
+            deviceId: 'pump-1',
+            commandType: 'set_number',
+            valueType: 'number',
+            min: 0,
+            max: 100,
+            reportedMetric: 'flowRate',
+            label: 'Desired slider command must not provide actual state',
+          },
+        ],
+      },
+    )
+
+    const toggleWidget = projection.widgets.find((item) => item.widgetId === 'toggle-running')
+    const sliderWidget = projection.widgets.find((item) => item.widgetId === 'slider-flow')
+
+    expect(projection.widgetValueById['toggle-running']).toBe(false)
+    expect(projection.widgetValueById['slider-flow']).toBe(42)
+    expect(toggleWidget).toMatchObject({
+      widgetId: 'toggle-running',
+      widgetType: 'toggle',
+      isBound: true,
+      isSupported: true,
+      value: false,
+    })
+    expect(sliderWidget).toMatchObject({
+      widgetId: 'slider-flow',
+      widgetType: 'slider',
+      isBound: true,
+      isSupported: true,
+      value: 42,
+    })
+    expect(projection.commandAvailabilityByWidgetId['toggle-running'].catalogCommand?.label).toContain(
+      'Desired toggle command',
+    )
+    expect(projection.commandAvailabilityByWidgetId['slider-flow'].catalogCommand?.label).toContain(
+      'Desired slider command',
+    )
+  })
+
   it('suppresses stale and incompatible commands unless exact reported telemetry binding matches', () => {
     const projection = selectDashboardRuntimeProjection(
       commandDiagram,

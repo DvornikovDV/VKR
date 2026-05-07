@@ -11,6 +11,8 @@ import {
 import type {
   DashboardDiagramDocument,
   DashboardDiagramSummary,
+  DashboardCatalogLoadStatus,
+  DashboardCommandLifecycleByWidgetId,
   DashboardEdgeAvailability,
   DashboardMetricValueByBindingKey,
   DashboardRecoveryState,
@@ -29,6 +31,9 @@ interface DashboardRuntimeSurfaceProps {
   recoveryState: DashboardRecoveryState
   savedDiagram: DashboardDiagramDocument | null
   runtimeProjection: DashboardRuntimeProjection | null
+  commandLifecycleByWidgetId?: DashboardCommandLifecycleByWidgetId
+  catalogStatus?: DashboardCatalogLoadStatus
+  catalogError?: string | null
   transportStatus: DashboardTransportStatus
   edgeAvailability: DashboardEdgeAvailability
   latestMetricValueByBindingKey: DashboardMetricValueByBindingKey
@@ -158,6 +163,9 @@ export function DashboardRuntimeSurface({
   recoveryState,
   savedDiagram,
   runtimeProjection,
+  commandLifecycleByWidgetId = {},
+  catalogStatus = 'idle',
+  catalogError = null,
   transportStatus,
   edgeAvailability,
   latestMetricValueByBindingKey,
@@ -369,6 +377,9 @@ export function DashboardRuntimeSurface({
           <div className="absolute inset-x-3 bottom-14 z-10">
             <DashboardDiagnosticsPanel
               runtimeProjection={runtimeProjection}
+              commandLifecycleByWidgetId={commandLifecycleByWidgetId}
+              catalogStatus={catalogStatus}
+              catalogError={catalogError}
               telemetryValues={latestMetricValueByBindingKey}
               renderIssues={runtimeLayout?.renderIssues ?? []}
               lastServerTimestamp={lastServerTimestamp}

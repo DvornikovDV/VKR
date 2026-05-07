@@ -23,6 +23,8 @@ export const SUPPORTED_DASHBOARD_WIDGET_TYPES = new Set<string>([
   'number-display',
   'text-display',
   'led',
+  'toggle',
+  'slider',
 ])
 
 const COMMAND_WIDGET_TYPES_BY_COMMAND_TYPE: Record<string, DashboardCommandType> = {
@@ -71,6 +73,50 @@ function projectLedValue(value: DashboardRuntimeValue): boolean {
   }
 
   return false
+}
+
+function projectToggleValue(value: DashboardRuntimeValue): boolean | null {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'number') {
+    return value !== 0
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (!normalized) {
+      return null
+    }
+
+    if (normalized === 'false' || normalized === '0' || normalized === 'off' || normalized === 'no') {
+      return false
+    }
+
+    if (normalized === 'true' || normalized === '1' || normalized === 'on' || normalized === 'yes') {
+      return true
+    }
+  }
+
+  return null
+}
+
+function projectSliderValue(value: DashboardRuntimeValue): number | null {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+
+  if (typeof value === 'boolean') {
+    return value ? 1 : 0
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return null
 }
 
 function selectSavedUnitLabel(widget: DashboardWidget): string | null {
@@ -211,6 +257,14 @@ export function projectDashboardWidgetValue(
 
   if (widgetType === 'led') {
     return projectLedValue(value)
+  }
+
+  if (widgetType === 'toggle') {
+    return projectToggleValue(value)
+  }
+
+  if (widgetType === 'slider') {
+    return projectSliderValue(value)
   }
 
   return value
