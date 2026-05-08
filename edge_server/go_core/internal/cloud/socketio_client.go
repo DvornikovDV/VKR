@@ -119,6 +119,10 @@ func (c *SocketIOClient) EmitCapabilitiesCatalog(catalog EdgeCapabilitiesCatalog
 	return c.transport.Emit(string(EdgeEventCapabilitiesCatalog), catalog)
 }
 
+func (c *SocketIOClient) EmitAlarmEvent(payload AlarmPayload) error {
+	return c.transport.Emit(string(EdgeEventAlarmEvent), payload)
+}
+
 func (c *SocketIOClient) OnExecuteCommand(handler func(any)) {
 	c.transport.OnExecuteCommand(handler)
 }
