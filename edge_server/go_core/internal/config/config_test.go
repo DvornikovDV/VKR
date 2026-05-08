@@ -619,8 +619,35 @@ alarms:
 	if err == nil {
 		t.Fatal("expected disabled source alarm binding to be rejected")
 	}
-	if !strings.Contains(err.Error(), "must reference an existing sourceId/deviceId/metric identity") {
+	if !strings.Contains(err.Error(), "alarms[0].sourceId/deviceId/metric must reference an existing sourceId/deviceId/metric identity") {
 		t.Fatalf("expected identity validation error, got %v", err)
+	}
+}
+
+func TestParseRejectsAlarmPhysicalBindingFields(t *testing.T) {
+	t.Setenv("CLOUD_SOCKET_URL", "https://runtime.example.test")
+	t.Setenv("RUNTIME_STATE_DIR", t.TempDir())
+
+	body := validConfigYAML() + `
+alarms:
+  - ruleId: pressure_high
+    enabled: true
+    sourceId: source-1
+    deviceId: device-1
+    metric: pressure
+    conditionType: high
+    triggerThreshold: 10
+    clearThreshold: 8
+    severity: warning
+    registerType: input
+`
+
+	_, err := Parse([]byte(body))
+	if err == nil {
+		t.Fatal("expected alarm physical binding field to be rejected")
+	}
+	if !strings.Contains(err.Error(), "field registerType not found") {
+		t.Fatalf("expected KnownFields rejection for registerType, got %v", err)
 	}
 }
 

@@ -413,7 +413,7 @@ func validateAlarmDefinitions(alarms []AlarmRuleDefinition, sources []PollingSou
 
 		identity, exists := identities[telemetryIdentityKey(sourceID, deviceID, metric)]
 		if !exists {
-			return fmt.Errorf("%s must reference an existing sourceId/deviceId/metric identity", field)
+			return fmt.Errorf("%s.sourceId/deviceId/metric must reference an existing sourceId/deviceId/metric identity", field)
 		}
 
 		severity := strings.TrimSpace(alarm.Severity)
