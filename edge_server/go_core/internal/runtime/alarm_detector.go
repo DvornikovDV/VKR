@@ -1,12 +1,14 @@
 package runtime
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"edge_server/go_core/internal/cloud"
@@ -25,6 +27,8 @@ type AlarmDetectorConfig struct {
 	Rules         []config.AlarmRuleDefinition
 	Emitter       AlarmEmitter
 	StateSnapshot func() SessionStateSnapshot
+	OnAsyncError  func(error)
+	Context       context.Context
 	Now           func() time.Time
 }
 
@@ -33,9 +37,14 @@ type AlarmDetector struct {
 	emitter         AlarmEmitter
 	stateSnapshot   func() SessionStateSnapshot
 	now             func() time.Time
+	onAsyncError    func(error)
+	emissions       chan alarmEmission
+	mu              sync.Mutex
 	rulesByIdentity map[alarmReadingKey][]alarmRuntimeRule
 	states          map[string]alarmRuleState
 }
+
+const defaultAlarmEmissionBuffer = 16
 
 type alarmReadingKey struct {
 	sourceID string
@@ -49,7 +58,14 @@ type alarmRuntimeRule struct {
 }
 
 type alarmRuleState struct {
-	active bool
+	active  bool
+	pending *bool
+}
+
+type alarmEmission struct {
+	ruleID     string
+	nextActive bool
+	payload    cloud.AlarmPayload
 }
 
 func NewAlarmDetector(cfg AlarmDetectorConfig) (*AlarmDetector, error) {
@@ -70,6 +86,7 @@ func NewAlarmDetector(cfg AlarmDetectorConfig) (*AlarmDetector, error) {
 		emitter:         cfg.Emitter,
 		stateSnapshot:   cfg.StateSnapshot,
 		now:             now,
+		onAsyncError:    cfg.OnAsyncError,
 		rulesByIdentity: make(map[alarmReadingKey][]alarmRuntimeRule),
 		states:          make(map[string]alarmRuleState),
 	}
@@ -92,6 +109,12 @@ func NewAlarmDetector(cfg AlarmDetectorConfig) (*AlarmDetector, error) {
 		if detector.stateSnapshot == nil {
 			return nil, fmt.Errorf("alarm detector state snapshot is required when alarm rules are enabled")
 		}
+		ctx := cfg.Context
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		detector.emissions = make(chan alarmEmission, defaultAlarmEmissionBuffer)
+		go detector.runEmitter(ctx)
 	}
 
 	return detector, nil
@@ -113,13 +136,13 @@ func (d *AlarmDetector) Observe(reading source.Reading) error {
 
 	rules := d.rulesByIdentity[key]
 	for _, rule := range rules {
-		nextActive, ok := rule.evaluate(reading.Value, d.states[rule.snapshot.RuleID].active)
+		ruleState := d.currentRuleState(rule.snapshot.RuleID)
+		nextActive, ok := rule.evaluate(reading.Value, ruleState.active)
 		if !ok {
 			continue
 		}
 
-		current := d.states[rule.snapshot.RuleID]
-		if current.active == nextActive {
+		if ruleState.active == nextActive || ruleState.pending != nil {
 			continue
 		}
 		if !d.emissionAllowed() {
@@ -141,14 +164,104 @@ func (d *AlarmDetector) Observe(reading source.Reading) error {
 		if err != nil {
 			return err
 		}
-		if err := d.emitter.EmitAlarmEvent(payload); err != nil {
-			return err
+		if !d.enqueueEmission(rule.snapshot.RuleID, nextActive, payload) {
+			continue
 		}
-
-		d.states[rule.snapshot.RuleID] = alarmRuleState{active: nextActive}
 	}
 
 	return nil
+}
+
+func (d *AlarmDetector) currentRuleState(ruleID string) alarmRuleState {
+	if d == nil {
+		return alarmRuleState{}
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.states[ruleID]
+}
+
+func (d *AlarmDetector) enqueueEmission(ruleID string, nextActive bool, payload cloud.AlarmPayload) bool {
+	if d == nil || d.emissions == nil {
+		return false
+	}
+	if !d.markPending(ruleID, nextActive) {
+		return false
+	}
+
+	select {
+	case d.emissions <- alarmEmission{
+		ruleID:     ruleID,
+		nextActive: nextActive,
+		payload:    payload,
+	}:
+		return true
+	default:
+		d.clearPending(ruleID)
+		d.reportAsyncError(fmt.Errorf("alarm event emission queue is full for rule %q", payload.Rule.RuleID))
+		return false
+	}
+}
+
+func (d *AlarmDetector) markPending(ruleID string, nextActive bool) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	current := d.states[ruleID]
+	if current.pending != nil {
+		return false
+	}
+
+	pending := nextActive
+	current.pending = &pending
+	d.states[ruleID] = current
+	return true
+}
+
+func (d *AlarmDetector) clearPending(ruleID string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	current := d.states[ruleID]
+	current.pending = nil
+	d.states[ruleID] = current
+}
+
+func (d *AlarmDetector) commitEmission(ruleID string, nextActive bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	d.states[ruleID] = alarmRuleState{active: nextActive}
+}
+
+func (d *AlarmDetector) runEmitter(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case emission := <-d.emissions:
+			if !d.emissionAllowed() {
+				d.clearPending(emission.ruleID)
+				continue
+			}
+			if err := d.emitter.EmitAlarmEvent(emission.payload); err != nil {
+				d.clearPending(emission.ruleID)
+				d.reportAsyncError(fmt.Errorf("emit alarm event: %w", err))
+				continue
+			}
+			d.commitEmission(emission.ruleID, emission.nextActive)
+		}
+	}
+}
+
+func (d *AlarmDetector) reportAsyncError(err error) {
+	if err == nil || d == nil || d.onAsyncError == nil {
+		return
+	}
+
+	d.onAsyncError(err)
 }
 
 func (d *AlarmDetector) emissionAllowed() bool {

@@ -358,6 +358,8 @@ func (r *Runner) BindAlarmReadings(
 		cfg.Emitter = alarmTransportEmitter{transport: transport}
 	}
 	cfg.StateSnapshot = r.StateSnapshot
+	cfg.OnAsyncError = r.reportAsyncError
+	cfg.Context = ctx
 
 	detector, err := NewAlarmDetector(cfg)
 	if err != nil {
