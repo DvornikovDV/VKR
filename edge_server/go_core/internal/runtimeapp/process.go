@@ -19,6 +19,7 @@ type Process struct {
 	Runner               *runtime.Runner
 	Bootstrap            *runtime.BootstrapSession
 	Sources              *source.Manager
+	ReadingDispatcher    *runtime.ReadingDispatcher
 	credentialStore      *state.CredentialStore
 	expectedEdgeID       string
 	sourceConfigRevision string
@@ -132,19 +133,29 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 		return nil, fmt.Errorf("bind runtime command bridge: %w", err)
 	}
 
+	readingDispatcher, err := runtime.NewReadingDispatcher(sources.Readings())
+	if err != nil {
+		return nil, fmt.Errorf("create runtime reading dispatcher: %w", err)
+	}
+	telemetryReadings, err := readingDispatcher.AddConsumer("telemetry", cfg.Batch.MaxReadings)
+	if err != nil {
+		return nil, fmt.Errorf("bind telemetry reading consumer: %w", err)
+	}
 	if err := runner.BindTelemetryReadings(
 		ctx,
-		sources.Readings(),
+		telemetryReadings,
 		cfg.Batch.IntervalMs,
 		cfg.Batch.MaxReadings,
 	); err != nil {
 		return nil, fmt.Errorf("bind runtime telemetry path: %w", err)
 	}
+	go readingDispatcher.Run(ctx)
 
 	return &Process{
 		Runner:               runner,
 		Bootstrap:            bootstrap,
 		Sources:              sources,
+		ReadingDispatcher:    readingDispatcher,
 		credentialStore:      credentialStore,
 		expectedEdgeID:       cfg.Runtime.EdgeID,
 		sourceConfigRevision: sourceConfigRevision,
