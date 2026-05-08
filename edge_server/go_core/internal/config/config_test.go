@@ -70,6 +70,9 @@ sources:
 	if cfg.Logging.Level != "info" {
 		t.Fatalf("expected default logging level info, got %q", cfg.Logging.Level)
 	}
+	if len(cfg.Alarms) != 0 {
+		t.Fatalf("expected configs without alarms to preserve empty alarms, got %d", len(cfg.Alarms))
+	}
 }
 
 func TestLoadFromFileAccepts007FixtureShape(t *testing.T) {
@@ -200,6 +203,29 @@ func TestParseAcceptsArduinoStandCommandMapping(t *testing.T) {
 	}
 	if command.Min != 0 || command.Max != 255 {
 		t.Fatalf("unexpected valve_pwm command range: min=%#v max=%#v", command.Min, command.Max)
+	}
+
+	if len(cfg.Alarms) != 1 {
+		t.Fatalf("expected one Arduino stand alarm rule, got %d", len(cfg.Alarms))
+	}
+	alarm := cfg.Alarms[0]
+	if alarm.RuleID != "temp_high_warning" {
+		t.Fatalf("unexpected alarm ruleId: %q", alarm.RuleID)
+	}
+	if alarm.Enabled == nil || !*alarm.Enabled {
+		t.Fatalf("expected alarm enabled: true, got %#v", alarm.Enabled)
+	}
+	if alarm.SourceID != "arduino_stand" || alarm.DeviceID != "environment" || alarm.Metric != "temperature" {
+		t.Fatalf("unexpected alarm identity: source=%q device=%q metric=%q", alarm.SourceID, alarm.DeviceID, alarm.Metric)
+	}
+	if alarm.ConditionType != "high" || alarm.Severity != "warning" {
+		t.Fatalf("unexpected alarm condition/severity: condition=%q severity=%q", alarm.ConditionType, alarm.Severity)
+	}
+	if alarm.TriggerThreshold == nil || *alarm.TriggerThreshold != 30.0 {
+		t.Fatalf("unexpected alarm triggerThreshold: %#v", alarm.TriggerThreshold)
+	}
+	if alarm.ClearThreshold == nil || *alarm.ClearThreshold != 28.0 {
+		t.Fatalf("unexpected alarm clearThreshold: %#v", alarm.ClearThreshold)
 	}
 }
 
@@ -511,6 +537,90 @@ func TestParseRejectsInvalidOperatorConfig(t *testing.T) {
 				t.Fatalf("expected error to contain %q, got %v", tc.errSnippet, err)
 			}
 		})
+	}
+}
+
+func TestParsePreservesAlarmFieldPresence(t *testing.T) {
+	t.Setenv("CLOUD_SOCKET_URL", "https://runtime.example.test")
+	t.Setenv("RUNTIME_STATE_DIR", t.TempDir())
+
+	cfg, err := Parse([]byte(validConfigYAML()))
+	if err != nil {
+		t.Fatalf("parse config without alarms: %v", err)
+	}
+	if len(cfg.Alarms) != 0 {
+		t.Fatalf("expected no alarms in config without alarms, got %d", len(cfg.Alarms))
+	}
+
+	cfg, err = Parse([]byte(validConfigYAML() + `
+alarms:
+  - ruleId: pressure_high_disabled
+    enabled: false
+    sourceId: source-1
+    deviceId: device-1
+    metric: pressure
+    conditionType: high
+    triggerThreshold: 0
+    clearThreshold: -1
+    severity: danger
+`))
+	if err != nil {
+		t.Fatalf("parse config with explicit false and zero threshold: %v", err)
+	}
+	if len(cfg.Alarms) != 1 {
+		t.Fatalf("expected one alarm, got %d", len(cfg.Alarms))
+	}
+	alarm := cfg.Alarms[0]
+	if alarm.Enabled == nil {
+		t.Fatal("expected enabled presence to be preserved")
+	}
+	if *alarm.Enabled {
+		t.Fatal("expected explicit enabled: false to be preserved")
+	}
+	if alarm.TriggerThreshold == nil {
+		t.Fatal("expected triggerThreshold presence to be preserved")
+	}
+	if *alarm.TriggerThreshold != 0 {
+		t.Fatalf("expected triggerThreshold 0 to be preserved, got %v", *alarm.TriggerThreshold)
+	}
+	if alarm.ClearThreshold == nil || *alarm.ClearThreshold != -1 {
+		t.Fatalf("expected clearThreshold -1 to be preserved, got %#v", alarm.ClearThreshold)
+	}
+}
+
+func TestParseRejectsAlarmBoundToDisabledSource(t *testing.T) {
+	t.Setenv("CLOUD_SOCKET_URL", "https://runtime.example.test")
+	t.Setenv("RUNTIME_STATE_DIR", t.TempDir())
+
+	body := validConfigYAML() + `
+  - sourceId: source-disabled
+    enabled: false
+    devices:
+      - deviceId: device-disabled
+        metrics:
+          - metric: pressure
+            valueType: number
+            mapping:
+              register: 40003
+
+alarms:
+  - ruleId: disabled_pressure_high
+    enabled: true
+    sourceId: source-disabled
+    deviceId: device-disabled
+    metric: pressure
+    conditionType: high
+    triggerThreshold: 10
+    clearThreshold: 8
+    severity: warning
+`
+
+	_, err := Parse([]byte(body))
+	if err == nil {
+		t.Fatal("expected disabled source alarm binding to be rejected")
+	}
+	if !strings.Contains(err.Error(), "must reference an existing sourceId/deviceId/metric identity") {
+		t.Fatalf("expected identity validation error, got %v", err)
 	}
 }
 

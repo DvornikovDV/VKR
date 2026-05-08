@@ -47,5 +47,17 @@ sources:
               address: 1
               scale: 0.1
 
+alarms:
+  - ruleId: temp_high_warning
+    enabled: true
+    sourceId: arduino_stand
+    deviceId: environment
+    metric: temperature
+    conditionType: high
+    triggerThreshold: 30.0
+    clearThreshold: 28.0
+    severity: warning
+    label: "High temperature"
+
 logging:
   level: info

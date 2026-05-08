@@ -25,6 +25,7 @@ type Config struct {
 	Cloud   CloudConfig               `yaml:"cloud"`
 	Batch   BatchConfig               `yaml:"batch"`
 	Sources []PollingSourceDefinition `yaml:"sources"`
+	Alarms  []AlarmRuleDefinition     `yaml:"alarms"`
 	Logging LoggingConfig             `yaml:"logging"`
 }
 
@@ -84,6 +85,20 @@ type CommandDefinition struct {
 	Min            any            `yaml:"min"`
 	Max            any            `yaml:"max"`
 	ReportedMetric string         `yaml:"reportedMetric"`
+}
+
+type AlarmRuleDefinition struct {
+	RuleID           string   `yaml:"ruleId"`
+	Enabled          *bool    `yaml:"enabled"`
+	SourceID         string   `yaml:"sourceId"`
+	DeviceID         string   `yaml:"deviceId"`
+	Metric           string   `yaml:"metric"`
+	ConditionType    string   `yaml:"conditionType"`
+	TriggerThreshold *float64 `yaml:"triggerThreshold"`
+	ClearThreshold   *float64 `yaml:"clearThreshold"`
+	ExpectedValue    any      `yaml:"expectedValue"`
+	Severity         string   `yaml:"severity"`
+	Label            string   `yaml:"label"`
 }
 
 func LoadFromFile(path string) (Config, error) {
@@ -148,6 +163,9 @@ func (c Config) validate() error {
 		return fmt.Errorf("logging.level must be one of debug, info, warn, error")
 	}
 	if err := validateSourceDefinitions(c.Sources); err != nil {
+		return err
+	}
+	if err := validateAlarmDefinitions(c.Alarms, c.Sources); err != nil {
 		return err
 	}
 
@@ -352,6 +370,189 @@ func validateDeviceCommands(sourceIndex int, deviceIndex int, deviceID string, c
 	}
 
 	return nil
+}
+
+type telemetryIdentity struct {
+	valueType string
+}
+
+func validateAlarmDefinitions(alarms []AlarmRuleDefinition, sources []PollingSourceDefinition) error {
+	if len(alarms) == 0 {
+		return nil
+	}
+
+	identities := buildValidatedTelemetryIdentityIndex(sources)
+	ruleIDs := make(map[string]struct{}, len(alarms))
+	for i, alarm := range alarms {
+		field := fmt.Sprintf("alarms[%d]", i)
+		ruleID := strings.TrimSpace(alarm.RuleID)
+		if ruleID == "" {
+			return fmt.Errorf("%s.ruleId is required", field)
+		}
+		if _, exists := ruleIDs[ruleID]; exists {
+			return fmt.Errorf("%s.ruleId must be unique", field)
+		}
+		ruleIDs[ruleID] = struct{}{}
+
+		if alarm.Enabled == nil {
+			return fmt.Errorf("%s.enabled is required", field)
+		}
+
+		sourceID := strings.TrimSpace(alarm.SourceID)
+		deviceID := strings.TrimSpace(alarm.DeviceID)
+		metric := strings.TrimSpace(alarm.Metric)
+		if sourceID == "" {
+			return fmt.Errorf("%s.sourceId is required", field)
+		}
+		if deviceID == "" {
+			return fmt.Errorf("%s.deviceId is required", field)
+		}
+		if metric == "" {
+			return fmt.Errorf("%s.metric is required", field)
+		}
+
+		identity, exists := identities[telemetryIdentityKey(sourceID, deviceID, metric)]
+		if !exists {
+			return fmt.Errorf("%s must reference an existing sourceId/deviceId/metric identity", field)
+		}
+
+		severity := strings.TrimSpace(alarm.Severity)
+		if severity != "warning" && severity != "danger" {
+			return fmt.Errorf("%s.severity must be warning or danger", field)
+		}
+
+		switch strings.TrimSpace(alarm.ConditionType) {
+		case "high":
+			if err := validateHighAlarm(field, alarm, identity); err != nil {
+				return err
+			}
+		case "low":
+			if err := validateLowAlarm(field, alarm, identity); err != nil {
+				return err
+			}
+		case "state":
+			if err := validateStateAlarm(field, alarm); err != nil {
+				return err
+			}
+		case "connectivity":
+			if err := validateConnectivityAlarm(field, alarm); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("%s.conditionType must be high, low, state, or connectivity", field)
+		}
+	}
+
+	return nil
+}
+
+func buildValidatedTelemetryIdentityIndex(sources []PollingSourceDefinition) map[string]telemetryIdentity {
+	identities := make(map[string]telemetryIdentity)
+	for _, source := range sources {
+		if !source.Enabled {
+			continue
+		}
+		sourceID := strings.TrimSpace(source.SourceID)
+		for _, device := range source.Devices {
+			deviceID := strings.TrimSpace(device.DeviceID)
+			for _, metric := range device.Metrics {
+				metricID := strings.TrimSpace(metric.Metric)
+				if sourceID == "" || deviceID == "" || metricID == "" {
+					continue
+				}
+				identities[telemetryIdentityKey(sourceID, deviceID, metricID)] = telemetryIdentity{
+					valueType: metric.ValueType,
+				}
+			}
+		}
+	}
+
+	return identities
+}
+
+func telemetryIdentityKey(sourceID string, deviceID string, metric string) string {
+	return sourceID + "\x00" + deviceID + "\x00" + metric
+}
+
+func validateHighAlarm(field string, alarm AlarmRuleDefinition, identity telemetryIdentity) error {
+	if identity.valueType != "number" {
+		return fmt.Errorf("%s.metric must reference a number metric for high conditionType", field)
+	}
+	trigger, clear, err := alarmThresholds(field, alarm)
+	if err != nil {
+		return err
+	}
+	if trigger <= clear {
+		return fmt.Errorf("%s.triggerThreshold must be greater than clearThreshold for high conditionType", field)
+	}
+	if alarm.ExpectedValue != nil {
+		return fmt.Errorf("%s.expectedValue is only allowed for state conditionType", field)
+	}
+
+	return nil
+}
+
+func validateLowAlarm(field string, alarm AlarmRuleDefinition, identity telemetryIdentity) error {
+	if identity.valueType != "number" {
+		return fmt.Errorf("%s.metric must reference a number metric for low conditionType", field)
+	}
+	trigger, clear, err := alarmThresholds(field, alarm)
+	if err != nil {
+		return err
+	}
+	if trigger >= clear {
+		return fmt.Errorf("%s.triggerThreshold must be less than clearThreshold for low conditionType", field)
+	}
+	if alarm.ExpectedValue != nil {
+		return fmt.Errorf("%s.expectedValue is only allowed for state conditionType", field)
+	}
+
+	return nil
+}
+
+func validateStateAlarm(field string, alarm AlarmRuleDefinition) error {
+	if alarm.TriggerThreshold != nil {
+		return fmt.Errorf("%s.triggerThreshold is only allowed for high or low conditionType", field)
+	}
+	if alarm.ClearThreshold != nil {
+		return fmt.Errorf("%s.clearThreshold is only allowed for high or low conditionType", field)
+	}
+	if alarm.ExpectedValue == nil {
+		return fmt.Errorf("%s.expectedValue is required for state conditionType", field)
+	}
+
+	return nil
+}
+
+func validateConnectivityAlarm(field string, alarm AlarmRuleDefinition) error {
+	if alarm.TriggerThreshold != nil {
+		return fmt.Errorf("%s.triggerThreshold is only allowed for high or low conditionType", field)
+	}
+	if alarm.ClearThreshold != nil {
+		return fmt.Errorf("%s.clearThreshold is only allowed for high or low conditionType", field)
+	}
+	if alarm.ExpectedValue != nil {
+		return fmt.Errorf("%s.expectedValue is only allowed for state conditionType", field)
+	}
+
+	return nil
+}
+
+func alarmThresholds(field string, alarm AlarmRuleDefinition) (float64, float64, error) {
+	if alarm.TriggerThreshold == nil {
+		return 0, 0, fmt.Errorf("%s.triggerThreshold is required", field)
+	}
+	if math.IsNaN(*alarm.TriggerThreshold) || math.IsInf(*alarm.TriggerThreshold, 0) {
+		return 0, 0, fmt.Errorf("%s.triggerThreshold must be finite", field)
+	}
+	if alarm.ClearThreshold == nil {
+		return 0, 0, fmt.Errorf("%s.clearThreshold is required", field)
+	}
+	if math.IsNaN(*alarm.ClearThreshold) || math.IsInf(*alarm.ClearThreshold, 0) {
+		return 0, 0, fmt.Errorf("%s.clearThreshold must be finite", field)
+	}
+
+	return *alarm.TriggerThreshold, *alarm.ClearThreshold, nil
 }
 
 func validateSetBoolCommandShape(field string, rawMin any, rawMax any) error {
