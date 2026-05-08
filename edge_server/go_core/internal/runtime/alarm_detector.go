@@ -398,8 +398,8 @@ func alarmStateEquals(value any, expected any) (bool, bool) {
 		return actualBool == expectedBool, true
 	}
 
-	actualNumber, actualNumberOK := alarmNumber(value)
-	expectedNumber, expectedNumberOK := alarmNumber(expected)
+	actualNumber, actualNumberOK := normalizedAlarmStateNumber(value)
+	expectedNumber, expectedNumberOK := expected.(float64)
 	if actualNumberOK || expectedNumberOK {
 		if !actualNumberOK || !expectedNumberOK {
 			return false, false
@@ -408,6 +408,14 @@ func alarmStateEquals(value any, expected any) (bool, bool) {
 	}
 
 	return false, false
+}
+
+func normalizedAlarmStateNumber(value any) (float64, bool) {
+	typed, ok := value.(float64)
+	if !ok {
+		return 0, false
+	}
+	return finiteAlarmNumber(typed)
 }
 
 func alarmNumber(value any) (float64, bool) {
