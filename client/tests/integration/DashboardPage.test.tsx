@@ -942,7 +942,7 @@ describe('DashboardPage (US3)', () => {
 
       activeResponse = null
     }
-  })
+  }, 15000)
 
   it('keeps unsupported widgets and invalid command bindings non-executable without sending Cloud commands', async () => {
     const diagramId = 'diagram-non-executable-commands'

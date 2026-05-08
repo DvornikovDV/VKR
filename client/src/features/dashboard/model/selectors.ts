@@ -163,12 +163,18 @@ function formatVisualWidgetValue(
     return 'Pending'
   }
 
-  const renderedValue = String(value)
+  const renderedValue =
+    typeof value === 'number' ? formatDashboardDisplayNumber(value) : String(value)
   if (widgetType === 'number-display' && unitLabel) {
     return `${renderedValue} ${unitLabel}`
   }
 
   return renderedValue
+}
+
+function formatDashboardDisplayNumber(value: number): string {
+  const rounded = Number(value.toFixed(4))
+  return Object.is(rounded, -0) ? '0' : String(rounded)
 }
 
 export function createDashboardBindingKey(deviceId: string, metric: string): string {
@@ -252,6 +258,10 @@ export function projectDashboardWidgetValue(
   }
 
   if (widgetType === 'text-display') {
+    if (typeof value === 'number') {
+      return formatDashboardDisplayNumber(value)
+    }
+
     return String(value)
   }
 

@@ -109,6 +109,45 @@ describe('dashboard runtime projection (T021)', () => {
       }),
     )
   })
+
+  it('rounds numeric visual output to four decimals without padding trailing zeros', () => {
+    const metricMap = mergeTelemetryReadingsByBindingKey(
+      {},
+      [
+        {
+          deviceId: 'pump-1',
+          metric: 'temperature',
+          last: 30.00000002,
+          ts: 1763895000400,
+        },
+      ],
+    )
+    const projection = selectDashboardRuntimeProjection(diagramDocument, bindingProfile, metricMap)
+    const numberWidget = projection.widgets.find((item) => item.widgetId === 'widget-number')
+
+    expect(numberWidget?.value).toBe(30.00000002)
+    expect(numberWidget?.visualValue).toBe('30')
+  })
+
+  it('formats numeric telemetry for text-display output without floating-point tails', () => {
+    const metricMap = mergeTelemetryReadingsByBindingKey(
+      {},
+      [
+        {
+          deviceId: 'pump-1',
+          metric: 'status',
+          last: 28.700000000000003,
+          ts: 1763895000500,
+        },
+      ],
+    )
+    const projection = selectDashboardRuntimeProjection(diagramDocument, bindingProfile, metricMap)
+    const textWidget = projection.widgets.find((item) => item.widgetId === 'widget-text')
+
+    expect(projection.widgetValueById['widget-text']).toBe(28.700000000000003)
+    expect(textWidget?.value).toBe('28.7')
+    expect(textWidget?.visualValue).toBe('28.7')
+  })
 })
 
 describe('dashboard command runtime projection (T006-T010)', () => {
