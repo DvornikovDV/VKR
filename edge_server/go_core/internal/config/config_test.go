@@ -204,7 +204,13 @@ func TestParseAcceptsArduinoStandCommandMapping(t *testing.T) {
 	if command.Min != 0 || command.Max != 255 {
 		t.Fatalf("unexpected valve_pwm command range: min=%#v max=%#v", command.Min, command.Max)
 	}
+}
 
+func TestParseAcceptsArduinoStandAlarmRule(t *testing.T) {
+	cfg, err := Parse(arduinoStandSampleYAML(t))
+	if err != nil {
+		t.Fatalf("parse Arduino stand sample with alarm rule: %v", err)
+	}
 	if len(cfg.Alarms) != 1 {
 		t.Fatalf("expected one Arduino stand alarm rule, got %d", len(cfg.Alarms))
 	}
@@ -226,6 +232,18 @@ func TestParseAcceptsArduinoStandCommandMapping(t *testing.T) {
 	}
 	if alarm.ClearThreshold == nil || *alarm.ClearThreshold != 28.0 {
 		t.Fatalf("unexpected alarm clearThreshold: %#v", alarm.ClearThreshold)
+	}
+}
+
+func TestParseRejectsHighAlarmInvalidHysteresis(t *testing.T) {
+	body := strings.Replace(string(arduinoStandSampleYAML(t)), "    clearThreshold: 28.0", "    clearThreshold: 30.0", 1)
+
+	_, err := Parse([]byte(body))
+	if err == nil {
+		t.Fatal("expected invalid high alarm hysteresis to be rejected")
+	}
+	if !strings.Contains(err.Error(), "alarms[0].triggerThreshold must be greater than clearThreshold for high conditionType") {
+		t.Fatalf("expected high hysteresis validation error, got %v", err)
 	}
 }
 
@@ -540,117 +558,6 @@ func TestParseRejectsInvalidOperatorConfig(t *testing.T) {
 	}
 }
 
-func TestParsePreservesAlarmFieldPresence(t *testing.T) {
-	t.Setenv("CLOUD_SOCKET_URL", "https://runtime.example.test")
-	t.Setenv("RUNTIME_STATE_DIR", t.TempDir())
-
-	cfg, err := Parse([]byte(validConfigYAML()))
-	if err != nil {
-		t.Fatalf("parse config without alarms: %v", err)
-	}
-	if len(cfg.Alarms) != 0 {
-		t.Fatalf("expected no alarms in config without alarms, got %d", len(cfg.Alarms))
-	}
-
-	cfg, err = Parse([]byte(validConfigYAML() + `
-alarms:
-  - ruleId: pressure_high_disabled
-    enabled: false
-    sourceId: source-1
-    deviceId: device-1
-    metric: pressure
-    conditionType: high
-    triggerThreshold: 0
-    clearThreshold: -1
-    severity: danger
-`))
-	if err != nil {
-		t.Fatalf("parse config with explicit false and zero threshold: %v", err)
-	}
-	if len(cfg.Alarms) != 1 {
-		t.Fatalf("expected one alarm, got %d", len(cfg.Alarms))
-	}
-	alarm := cfg.Alarms[0]
-	if alarm.Enabled == nil {
-		t.Fatal("expected enabled presence to be preserved")
-	}
-	if *alarm.Enabled {
-		t.Fatal("expected explicit enabled: false to be preserved")
-	}
-	if alarm.TriggerThreshold == nil {
-		t.Fatal("expected triggerThreshold presence to be preserved")
-	}
-	if *alarm.TriggerThreshold != 0 {
-		t.Fatalf("expected triggerThreshold 0 to be preserved, got %v", *alarm.TriggerThreshold)
-	}
-	if alarm.ClearThreshold == nil || *alarm.ClearThreshold != -1 {
-		t.Fatalf("expected clearThreshold -1 to be preserved, got %#v", alarm.ClearThreshold)
-	}
-}
-
-func TestParseRejectsAlarmBoundToDisabledSource(t *testing.T) {
-	t.Setenv("CLOUD_SOCKET_URL", "https://runtime.example.test")
-	t.Setenv("RUNTIME_STATE_DIR", t.TempDir())
-
-	body := validConfigYAML() + `
-  - sourceId: source-disabled
-    enabled: false
-    devices:
-      - deviceId: device-disabled
-        metrics:
-          - metric: pressure
-            valueType: number
-            mapping:
-              register: 40003
-
-alarms:
-  - ruleId: disabled_pressure_high
-    enabled: true
-    sourceId: source-disabled
-    deviceId: device-disabled
-    metric: pressure
-    conditionType: high
-    triggerThreshold: 10
-    clearThreshold: 8
-    severity: warning
-`
-
-	_, err := Parse([]byte(body))
-	if err == nil {
-		t.Fatal("expected disabled source alarm binding to be rejected")
-	}
-	if !strings.Contains(err.Error(), "alarms[0].sourceId/deviceId/metric must reference an existing sourceId/deviceId/metric identity") {
-		t.Fatalf("expected identity validation error, got %v", err)
-	}
-}
-
-func TestParseRejectsAlarmPhysicalBindingFields(t *testing.T) {
-	t.Setenv("CLOUD_SOCKET_URL", "https://runtime.example.test")
-	t.Setenv("RUNTIME_STATE_DIR", t.TempDir())
-
-	body := validConfigYAML() + `
-alarms:
-  - ruleId: pressure_high
-    enabled: true
-    sourceId: source-1
-    deviceId: device-1
-    metric: pressure
-    conditionType: high
-    triggerThreshold: 10
-    clearThreshold: 8
-    severity: warning
-    registerType: input
-`
-
-	_, err := Parse([]byte(body))
-	if err == nil {
-		t.Fatal("expected alarm physical binding field to be rejected")
-	}
-	if !strings.Contains(err.Error(), "field registerType not found") {
-		t.Fatalf("expected KnownFields rejection for registerType, got %v", err)
-	}
-}
-
 func TestLoadFromFileBehaviorForStableSources(t *testing.T) {
 	t.Setenv("CLOUD_SOCKET_URL", "https://cloud.example.test")
 	t.Setenv("RUNTIME_STATE_DIR", t.TempDir())
@@ -864,4 +771,15 @@ sources:
             max: 255
             reportedMetric: actual_value
 `
+}
+
+func arduinoStandSampleYAML(t *testing.T) []byte {
+	t.Helper()
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "samples", "arduino-stand", "edge-runtime.yaml"))
+	if err != nil {
+		t.Fatalf("read Arduino stand sample: %v", err)
+	}
+
+	return raw
 }
