@@ -20,6 +20,7 @@ type Process struct {
 	Bootstrap            *runtime.BootstrapSession
 	Sources              *source.Manager
 	ReadingDispatcher    *runtime.ReadingDispatcher
+	AlarmDetector        *runtime.AlarmDetector
 	credentialStore      *state.CredentialStore
 	expectedEdgeID       string
 	sourceConfigRevision string
@@ -149,6 +150,20 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	); err != nil {
 		return nil, fmt.Errorf("bind runtime telemetry path: %w", err)
 	}
+	var alarmDetector *runtime.AlarmDetector
+	if len(cfg.Alarms) > 0 {
+		alarmReadings, err := readingDispatcher.AddConsumer("alarm-detector", cfg.Batch.MaxReadings)
+		if err != nil {
+			return nil, fmt.Errorf("bind alarm reading consumer: %w", err)
+		}
+		alarmDetector, err = runner.BindAlarmReadings(ctx, alarmReadings, runtime.AlarmDetectorConfig{
+			EdgeID: cfg.Runtime.EdgeID,
+			Rules:  cfg.Alarms,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("bind runtime alarm detector path: %w", err)
+		}
+	}
 	go readingDispatcher.Run(ctx)
 
 	return &Process{
@@ -156,6 +171,7 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 		Bootstrap:            bootstrap,
 		Sources:              sources,
 		ReadingDispatcher:    readingDispatcher,
+		AlarmDetector:        alarmDetector,
 		credentialStore:      credentialStore,
 		expectedEdgeID:       cfg.Runtime.EdgeID,
 		sourceConfigRevision: sourceConfigRevision,

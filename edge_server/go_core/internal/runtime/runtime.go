@@ -24,6 +24,7 @@ type Runner struct {
 	bootstrap   *BootstrapSession
 	transport   cloud.Transport
 	telemetry   *TelemetryPipeline
+	alarm       *AlarmDetector
 	bridge      *CommandBridge
 	catalog     *cloud.EdgeCapabilitiesCatalog
 	stateStore  runtimeStateSaver
@@ -191,6 +192,13 @@ func (r *Runner) currentTelemetryPipeline() *TelemetryPipeline {
 	return r.telemetry
 }
 
+func (r *Runner) CurrentAlarmDetector() *AlarmDetector {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return r.alarm
+}
+
 func (r *Runner) BindCapabilitiesCatalog(catalog cloud.EdgeCapabilitiesCatalog) error {
 	if strings.TrimSpace(catalog.EdgeServerID) == "" {
 		return errors.New("capabilities catalog edgeServerId is required")
@@ -316,6 +324,73 @@ func (r *Runner) BindTelemetryReadings(
 	go pipeline.Run(ctx)
 
 	return nil
+}
+
+type alarmTransportEmitter struct {
+	transport cloud.Transport
+}
+
+func (e alarmTransportEmitter) EmitAlarmEvent(payload cloud.AlarmPayload) error {
+	if e.transport == nil {
+		return ErrCloudTransportUnavailable
+	}
+
+	return e.transport.Emit(string(cloud.EdgeEventAlarmEvent), payload)
+}
+
+func (r *Runner) BindAlarmReadings(
+	ctx context.Context,
+	readings <-chan source.Reading,
+	cfg AlarmDetectorConfig,
+) (*AlarmDetector, error) {
+	if ctx == nil {
+		return nil, errors.New("alarm detector context is required")
+	}
+	if readings == nil {
+		return nil, errors.New("alarm detector readings channel is required")
+	}
+
+	if cfg.Emitter == nil {
+		transport, err := r.currentTransport()
+		if err != nil {
+			return nil, err
+		}
+		cfg.Emitter = alarmTransportEmitter{transport: transport}
+	}
+	cfg.StateSnapshot = r.StateSnapshot
+
+	detector, err := NewAlarmDetector(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("create alarm detector: %w", err)
+	}
+
+	r.mu.Lock()
+	if r.alarm != nil {
+		r.mu.Unlock()
+		return nil, errors.New("runtime alarm detector path is already bound")
+	}
+	r.alarm = detector
+	r.mu.Unlock()
+
+	go r.runAlarmReadings(ctx, readings, detector)
+
+	return detector, nil
+}
+
+func (r *Runner) runAlarmReadings(ctx context.Context, readings <-chan source.Reading, detector *AlarmDetector) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case reading, ok := <-readings:
+			if !ok {
+				return
+			}
+			if err := detector.Observe(reading); err != nil {
+				r.reportAsyncError(fmt.Errorf("observe alarm reading: %w", err))
+			}
+		}
+	}
 }
 
 func (r *Runner) Run(ctx context.Context) error {

@@ -21,15 +21,17 @@ type AlarmEmitter interface {
 }
 
 type AlarmDetectorConfig struct {
-	EdgeID  string
-	Rules   []config.AlarmRuleDefinition
-	Emitter AlarmEmitter
-	Now     func() time.Time
+	EdgeID        string
+	Rules         []config.AlarmRuleDefinition
+	Emitter       AlarmEmitter
+	StateSnapshot func() SessionStateSnapshot
+	Now           func() time.Time
 }
 
 type AlarmDetector struct {
 	edgeID          string
 	emitter         AlarmEmitter
+	stateSnapshot   func() SessionStateSnapshot
 	now             func() time.Time
 	rulesByIdentity map[alarmReadingKey][]alarmRuntimeRule
 	states          map[string]alarmRuleState
@@ -66,6 +68,7 @@ func NewAlarmDetector(cfg AlarmDetectorConfig) (*AlarmDetector, error) {
 	detector := &AlarmDetector{
 		edgeID:          edgeID,
 		emitter:         cfg.Emitter,
+		stateSnapshot:   cfg.StateSnapshot,
 		now:             now,
 		rulesByIdentity: make(map[alarmReadingKey][]alarmRuntimeRule),
 		states:          make(map[string]alarmRuleState),
@@ -82,8 +85,13 @@ func NewAlarmDetector(cfg AlarmDetectorConfig) (*AlarmDetector, error) {
 		detector.rulesByIdentity[runtimeRule.key] = append(detector.rulesByIdentity[runtimeRule.key], runtimeRule)
 	}
 
-	if len(detector.rulesByIdentity) > 0 && detector.emitter == nil {
-		return nil, fmt.Errorf("alarm detector emitter is required when alarm rules are enabled")
+	if len(detector.rulesByIdentity) > 0 {
+		if detector.emitter == nil {
+			return nil, fmt.Errorf("alarm detector emitter is required when alarm rules are enabled")
+		}
+		if detector.stateSnapshot == nil {
+			return nil, fmt.Errorf("alarm detector state snapshot is required when alarm rules are enabled")
+		}
 	}
 
 	return detector, nil
@@ -114,6 +122,9 @@ func (d *AlarmDetector) Observe(reading source.Reading) error {
 		if current.active == nextActive {
 			continue
 		}
+		if !d.emissionAllowed() {
+			continue
+		}
 
 		eventType := cloud.AlarmEventTypeClear
 		if nextActive {
@@ -138,6 +149,15 @@ func (d *AlarmDetector) Observe(reading source.Reading) error {
 	}
 
 	return nil
+}
+
+func (d *AlarmDetector) emissionAllowed() bool {
+	if d == nil || d.stateSnapshot == nil {
+		return false
+	}
+
+	snapshot := d.stateSnapshot()
+	return snapshot.Trusted && snapshot.Connected && snapshot.SessionEpoch != 0
 }
 
 func newAlarmRuntimeRule(rule config.AlarmRuleDefinition) (alarmRuntimeRule, error) {

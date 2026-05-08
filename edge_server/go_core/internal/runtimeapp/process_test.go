@@ -975,6 +975,144 @@ func TestRuntimeStartup_EmitsCapabilitiesCatalogAfterConnect(t *testing.T) {
 	}
 }
 
+func TestProcessWiresConfiguredAlarmsThroughTrustedRuntimePath(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := runtimeConfigFixture(stateDir)
+	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
+
+	enabled := true
+	trigger := 30.0
+	clear := 28.0
+	cfg.Alarms = []config.AlarmRuleDefinition{
+		{
+			RuleID:           "pressure_high_warning",
+			Enabled:          &enabled,
+			SourceID:         "mock-source-1",
+			DeviceID:         "pump-01",
+			Metric:           "pressure",
+			ConditionType:    "high",
+			TriggerThreshold: &trigger,
+			ClearThreshold:   &clear,
+			Severity:         "warning",
+			Label:            "High pressure",
+		},
+	}
+
+	transport := newSignalingTransport()
+	process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, transport, mockSourceFactories())
+	if err != nil {
+		t.Fatalf("construct runtime process: %v", err)
+	}
+	if process.AlarmDetector == nil {
+		t.Fatal("expected configured alarms to bind an alarm detector")
+	}
+
+	control, err := process.Sources.MockControl("mock-source-1")
+	if err != nil {
+		t.Fatalf("get mock source control: %v", err)
+	}
+
+	if err := control.EmitReading(source.RawReading{DeviceID: "pump-01", Metric: "pressure", Value: 30.0, TS: 1000}); err != nil {
+		t.Fatalf("emit pre-trust alarm reading: %v", err)
+	}
+	assertNoEmittedEvent(t, transport.resultCh, string(cloud.EdgeEventAlarmEvent), 100*time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- process.Runner.Run(ctx)
+	}()
+	waitForTrustedRuntimeState(t, process.Runner, 2*time.Second)
+
+	if err := control.EmitReading(source.RawReading{DeviceID: "pump-01", Metric: "pressure", Value: 30.0, TS: 1001}); err != nil {
+		t.Fatalf("emit active alarm reading: %v", err)
+	}
+	active := waitForEmittedEvent(t, transport.resultCh, string(cloud.EdgeEventAlarmEvent), 2*time.Second)
+	activePayload, ok := active.Payload.(cloud.AlarmPayload)
+	if !ok {
+		t.Fatalf("expected alarm payload, got %T", active.Payload)
+	}
+	if activePayload.EventType != cloud.AlarmEventTypeActive {
+		t.Fatalf("expected active alarm event, got %+v", activePayload)
+	}
+	if activePayload.EdgeID != cfg.Runtime.EdgeID ||
+		activePayload.SourceID != "mock-source-1" ||
+		activePayload.DeviceID != "pump-01" ||
+		activePayload.Metric != "pressure" ||
+		activePayload.Value != 30.0 ||
+		activePayload.TS != 1001 {
+		t.Fatalf("unexpected active alarm payload identity/value: %+v", activePayload)
+	}
+	if activePayload.Rule.RuleID != "pressure_high_warning" ||
+		activePayload.Rule.RuleRevision == "" ||
+		activePayload.Rule.Severity != cloud.AlarmSeverityWarning ||
+		activePayload.Rule.TriggerThreshold == nil ||
+		*activePayload.Rule.TriggerThreshold != trigger ||
+		activePayload.Rule.ClearThreshold == nil ||
+		*activePayload.Rule.ClearThreshold != clear {
+		t.Fatalf("unexpected active alarm rule snapshot: %+v", activePayload.Rule)
+	}
+
+	if err := control.EmitReading(source.RawReading{DeviceID: "pump-01", Metric: "pressure", Value: 31.0, TS: 1002}); err != nil {
+		t.Fatalf("emit duplicate-active alarm reading: %v", err)
+	}
+	assertNoEmittedEvent(t, transport.resultCh, string(cloud.EdgeEventAlarmEvent), 100*time.Millisecond)
+
+	if err := control.EmitReading(source.RawReading{DeviceID: "pump-01", Metric: "pressure", Value: 28.0, TS: 1003}); err != nil {
+		t.Fatalf("emit clear alarm reading: %v", err)
+	}
+	clearEvent := waitForEmittedEvent(t, transport.resultCh, string(cloud.EdgeEventAlarmEvent), 2*time.Second)
+	clearPayload, ok := clearEvent.Payload.(cloud.AlarmPayload)
+	if !ok {
+		t.Fatalf("expected clear alarm payload, got %T", clearEvent.Payload)
+	}
+	if clearPayload.EventType != cloud.AlarmEventTypeClear ||
+		clearPayload.Rule.RuleID != activePayload.Rule.RuleID ||
+		clearPayload.Rule.RuleRevision != activePayload.Rule.RuleRevision {
+		t.Fatalf("unexpected clear alarm payload: %+v", clearPayload)
+	}
+
+	cancel()
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("runner returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Runner.Run did not exit after context cancellation")
+	}
+}
+
+func TestProcessWithoutAlarmsKeepsNoOpAlarmPath(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := runtimeConfigFixture(stateDir)
+	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
+
+	process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, noopTransport{}, mockSourceFactories())
+	if err != nil {
+		t.Fatalf("construct runtime process without alarms: %v", err)
+	}
+	if process.AlarmDetector != nil {
+		t.Fatalf("expected no alarm detector for config without alarms, got %+v", process.AlarmDetector)
+	}
+}
+
+func waitForTrustedRuntimeState(t *testing.T, runner *runtime.Runner, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		snapshot := runner.StateSnapshot()
+		if snapshot.Trusted && snapshot.Connected && snapshot.SessionEpoch != 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for trusted runtime state, got %+v", runner.StateSnapshot())
+}
+
 func waitForEmittedEvent(t *testing.T, ch <-chan emittedEvent, event string, timeout time.Duration) emittedEvent {
 	t.Helper()
 

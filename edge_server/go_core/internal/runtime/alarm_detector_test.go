@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -104,6 +105,13 @@ func TestAlarmDetectorIndexesEnabledRulesEvaluatesConditionsAndSuppressesUnchang
 			},
 		},
 		Emitter: emitter,
+		StateSnapshot: func() SessionStateSnapshot {
+			return SessionStateSnapshot{
+				Trusted:      true,
+				Connected:    true,
+				SessionEpoch: 1,
+			}
+		},
 		Now: func() time.Time {
 			return detectedAt
 		},
@@ -196,5 +204,36 @@ func TestAlarmDetectorIndexesEnabledRulesEvaluatesConditionsAndSuppressesUnchang
 		if gotTransitions[i] != wantTransitions[i] {
 			t.Fatalf("transition %d: expected %+v, got %+v", i, wantTransitions[i], gotTransitions[i])
 		}
+	}
+}
+
+func TestAlarmDetectorRequiresStateSnapshotForEnabledRules(t *testing.T) {
+	enabled := true
+	trigger := 30.0
+	clear := 28.0
+
+	_, err := NewAlarmDetector(AlarmDetectorConfig{
+		EdgeID: "edge-1",
+		Rules: []config.AlarmRuleDefinition{
+			{
+				RuleID:           "temp_high",
+				Enabled:          &enabled,
+				SourceID:         "arduino_stand",
+				DeviceID:         "environment",
+				Metric:           "temperature",
+				ConditionType:    "high",
+				TriggerThreshold: &trigger,
+				ClearThreshold:   &clear,
+				Severity:         "warning",
+				Label:            "High temperature",
+			},
+		},
+		Emitter: &alarmEmitterStub{},
+	})
+	if err == nil {
+		t.Fatal("expected enabled alarm rules to require runtime state snapshot gating")
+	}
+	if !strings.Contains(err.Error(), "state snapshot") {
+		t.Fatalf("expected state snapshot gating error, got %v", err)
 	}
 }
