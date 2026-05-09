@@ -240,6 +240,64 @@ export interface DashboardSubscribedEvent {
   edgeId: string
 }
 
+export const DASHBOARD_ALARM_INCIDENT_CHANGED_EVENT = 'alarm_incident_changed' as const
+
+export const DASHBOARD_ALARM_CONDITION_TYPES = ['high', 'low', 'state', 'connectivity'] as const
+export type DashboardAlarmConditionType = (typeof DASHBOARD_ALARM_CONDITION_TYPES)[number]
+
+export const DASHBOARD_ALARM_SEVERITIES = ['warning', 'danger'] as const
+export type DashboardAlarmSeverity = (typeof DASHBOARD_ALARM_SEVERITIES)[number]
+
+export const DASHBOARD_ALARM_INCIDENT_LIFECYCLE_STATES = [
+  'active_unacknowledged',
+  'active_acknowledged',
+  'cleared_unacknowledged',
+  'closed',
+] as const
+export type DashboardAlarmIncidentLifecycleState =
+  (typeof DASHBOARD_ALARM_INCIDENT_LIFECYCLE_STATES)[number]
+
+export type DashboardAlarmObservedValue = number | boolean
+export type DashboardAlarmExpectedValue = DashboardAlarmObservedValue | null
+
+export interface DashboardAlarmRuleSnapshot {
+  ruleId: string
+  ruleRevision: string
+  conditionType: DashboardAlarmConditionType
+  triggerThreshold: number | null
+  clearThreshold: number | null
+  expectedValue: DashboardAlarmExpectedValue
+  severity: DashboardAlarmSeverity
+  label: string
+}
+
+export interface DashboardAlarmIncidentProjection {
+  incidentId: string
+  edgeId: string
+  sourceId: string
+  deviceId: string
+  metric: string
+  ruleId: string
+  lifecycleState: DashboardAlarmIncidentLifecycleState
+  isActive: boolean
+  isAcknowledged: boolean
+  activatedAt: string
+  clearedAt: string | null
+  acknowledgedAt: string | null
+  acknowledgedBy: string | null
+  latestValue: DashboardAlarmObservedValue
+  latestTs: number
+  latestDetectedAt: number
+  rule: DashboardAlarmRuleSnapshot
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DashboardAlarmIncidentChangedEvent {
+  edgeId: string
+  incident: DashboardAlarmIncidentProjection
+}
+
 export type DashboardMetricValueByBindingKey = Record<string, DashboardRuntimeValue>
 export type DashboardMetricRevisionByBindingKey = Record<string, number>
 export type DashboardWidgetValueById = Record<string, DashboardRuntimeValue>

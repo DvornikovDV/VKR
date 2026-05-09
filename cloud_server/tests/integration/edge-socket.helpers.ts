@@ -5,6 +5,12 @@ import { app, server } from '../../src/app';
 import { User } from '../../src/models/User';
 import { AuthService } from '../../src/services/auth.service';
 import { EDGE_NAMESPACE } from '../../src/socket/events/edge';
+import {
+    ALARM_EDGE_EVENT_NAME,
+    ALARM_INCIDENT_CHANGED_EVENT_NAME,
+    type AlarmEventPayloadDto,
+    type AlarmIncidentChangedEventDto,
+} from '../../src/types';
 
 export type EdgeRuntimeAuthPayload = Record<string, unknown>;
 
@@ -440,6 +446,27 @@ export function emitCommandResult(
     payload: CommandResultPayload,
 ): void {
     edgeSocket.emit('command_result', payload);
+}
+
+export type AlarmEventPayload = AlarmEventPayloadDto;
+export type AlarmIncidentChangedPayload = AlarmIncidentChangedEventDto;
+
+export function emitAlarmEvent(
+    edgeSocket: ClientSocket,
+    payload: AlarmEventPayload,
+): void {
+    edgeSocket.emit(ALARM_EDGE_EVENT_NAME, payload);
+}
+
+export async function waitForAlarmIncidentChanged(
+    dashboardSocket: ClientSocket,
+    timeoutMs = 4000,
+): Promise<AlarmIncidentChangedPayload> {
+    return await waitForEvent<AlarmIncidentChangedPayload>(
+        dashboardSocket,
+        ALARM_INCIDENT_CHANGED_EVENT_NAME,
+        timeoutMs,
+    );
 }
 
 export async function waitForForcedDisconnect(

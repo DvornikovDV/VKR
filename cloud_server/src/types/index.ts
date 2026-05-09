@@ -104,3 +104,117 @@ export type CommandAuditProjection = CommandRpcRequest & {
     completedAt: string | null;
     failureReason: CommandFailureReason | null;
 };
+
+export const ALARM_EDGE_EVENT_NAME = 'alarm_event' as const;
+export const ALARM_INCIDENT_CHANGED_EVENT_NAME = 'alarm_incident_changed' as const;
+
+export const ALARM_SOCKET_EVENTS = {
+    edgeAlarmEvent: ALARM_EDGE_EVENT_NAME,
+    incidentChanged: ALARM_INCIDENT_CHANGED_EVENT_NAME,
+} as const;
+
+export const ALARM_EVENT_TYPES = ['active', 'clear'] as const;
+
+export type AlarmEventType = (typeof ALARM_EVENT_TYPES)[number];
+
+export const ALARM_CONDITION_TYPES = ['high', 'low', 'state', 'connectivity'] as const;
+
+export type AlarmConditionType = (typeof ALARM_CONDITION_TYPES)[number];
+
+export const ALARM_SEVERITIES = ['warning', 'danger'] as const;
+
+export type AlarmSeverity = (typeof ALARM_SEVERITIES)[number];
+
+export type AlarmObservedValue = number | boolean;
+
+export type AlarmExpectedValue = AlarmObservedValue | null;
+
+export interface AlarmIncidentLifecycleFlags {
+    isActive: boolean;
+    isAcknowledged: boolean;
+}
+
+export const ALARM_INCIDENT_LIFECYCLE = {
+    activeUnacknowledged: {
+        isActive: true,
+        isAcknowledged: false,
+    },
+    activeAcknowledged: {
+        isActive: true,
+        isAcknowledged: true,
+    },
+    clearedUnacknowledged: {
+        isActive: false,
+        isAcknowledged: false,
+    },
+    closed: {
+        isActive: false,
+        isAcknowledged: true,
+    },
+} as const satisfies Record<string, AlarmIncidentLifecycleFlags>;
+
+export const ALARM_INCIDENT_LIFECYCLE_STATES = [
+    'active_unacknowledged',
+    'active_acknowledged',
+    'cleared_unacknowledged',
+    'closed',
+] as const;
+
+export type AlarmIncidentLifecycleState = (typeof ALARM_INCIDENT_LIFECYCLE_STATES)[number];
+
+export interface AlarmRuleSnapshotDto {
+    ruleId: string;
+    ruleRevision: string;
+    conditionType: AlarmConditionType;
+    triggerThreshold: number | null;
+    clearThreshold: number | null;
+    expectedValue: AlarmExpectedValue;
+    severity: AlarmSeverity;
+    label: string;
+}
+
+export interface AlarmEventPayloadDto {
+    edgeId: string;
+    eventType: AlarmEventType;
+    sourceId: string;
+    deviceId: string;
+    metric: string;
+    value: AlarmObservedValue;
+    ts: number;
+    detectedAt: number;
+    rule: AlarmRuleSnapshotDto;
+}
+
+export interface AlarmIncidentProjectionDto {
+    incidentId: string;
+    edgeId: string;
+    sourceId: string;
+    deviceId: string;
+    metric: string;
+    ruleId: string;
+    lifecycleState: AlarmIncidentLifecycleState;
+    isActive: boolean;
+    isAcknowledged: boolean;
+    activatedAt: string;
+    clearedAt: string | null;
+    acknowledgedAt: string | null;
+    acknowledgedBy: string | null;
+    latestValue: AlarmObservedValue;
+    latestTs: number;
+    latestDetectedAt: number;
+    rule: AlarmRuleSnapshotDto;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface AlarmIncidentChangedEventDto {
+    edgeId: string;
+    incident: AlarmIncidentProjectionDto;
+}
+
+export interface AlarmIncidentAckResponseDto {
+    status: 'success';
+    data: {
+        incident: AlarmIncidentProjectionDto;
+    };
+}
