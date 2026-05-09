@@ -23,6 +23,7 @@ import {
   type CloudRuntimeClient,
   type DashboardRuntimeSession,
 } from '@/features/dashboard/services/cloudRuntimeClient'
+import { ackAlarmIncident } from '@/shared/api/alarmIncidents'
 
 export interface UseDashboardRuntimeSessionOptions {
   edgeId: string | null
@@ -118,6 +119,12 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
+function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  const next = { ...record }
+  delete next[key]
+  return next
+}
+
 export function useDashboardRuntimeSession(
   options: UseDashboardRuntimeSessionOptions,
 ): UseDashboardRuntimeSessionResult {
@@ -126,12 +133,117 @@ export function useDashboardRuntimeSession(
   const normalizedEdgeId = useMemo(() => normalizeEdgeId(edgeId), [edgeId])
 
   const [state, setState] = useState<DashboardRuntimeSessionState>(createIdleState)
+  const stateRef = useRef(state)
   const sessionRef = useRef<DashboardRuntimeSession | null>(null)
   const generationRef = useRef(0)
+  const ackRequestInFlightRef = useRef(new Set<string>())
 
-  const acknowledgeAlarmIncident = useCallback(async () => {
-    throw new Error('Alarm incident acknowledgement is not implemented yet.')
-  }, [])
+  useEffect(() => {
+    stateRef.current = state
+  }, [state])
+
+  const acknowledgeAlarmIncident = useCallback(async (incidentId: string) => {
+    const normalizedIncidentId = incidentId.trim()
+    if (!enabled || !normalizedEdgeId || normalizedIncidentId.length === 0) {
+      return
+    }
+
+    const currentState = stateRef.current
+    const currentIncident = currentState.alarmIncidents.find(
+      (incident) =>
+        incident.incidentId === normalizedIncidentId &&
+        incident.edgeId === normalizedEdgeId,
+    )
+
+    if (
+      currentState.activeEdgeId !== normalizedEdgeId ||
+      !currentIncident ||
+      currentIncident.isAcknowledged
+    ) {
+      return
+    }
+
+    const requestKey = `${normalizedEdgeId}:${normalizedIncidentId}`
+    if (ackRequestInFlightRef.current.has(requestKey)) {
+      return
+    }
+
+    const generation = generationRef.current
+    ackRequestInFlightRef.current.add(requestKey)
+
+    setState((previous) => {
+      if (previous.activeEdgeId !== normalizedEdgeId) {
+        return previous
+      }
+
+      return {
+        ...previous,
+        alarmAckPendingByIncidentId: {
+          ...previous.alarmAckPendingByIncidentId,
+          [normalizedIncidentId]: true,
+        },
+        alarmAckErrorByIncidentId: omitRecordKey(
+          previous.alarmAckErrorByIncidentId,
+          normalizedIncidentId,
+        ),
+      }
+    })
+
+    try {
+      const incident = await ackAlarmIncident(normalizedEdgeId, normalizedIncidentId)
+
+      if (
+        generation !== generationRef.current ||
+        incident.edgeId !== normalizedEdgeId ||
+        incident.incidentId !== normalizedIncidentId
+      ) {
+        return
+      }
+
+      setState((previous) => {
+        if (previous.activeEdgeId !== normalizedEdgeId) {
+          return previous
+        }
+
+        return {
+          ...previous,
+          alarmIncidents: upsertDashboardAlarmIncident(previous.alarmIncidents, incident),
+          alarmAckPendingByIncidentId: omitRecordKey(
+            previous.alarmAckPendingByIncidentId,
+            normalizedIncidentId,
+          ),
+          alarmAckErrorByIncidentId: omitRecordKey(
+            previous.alarmAckErrorByIncidentId,
+            normalizedIncidentId,
+          ),
+        }
+      })
+    } catch (error) {
+      if (generation !== generationRef.current) {
+        return
+      }
+
+      setState((previous) => {
+        if (previous.activeEdgeId !== normalizedEdgeId) {
+          return previous
+        }
+
+        return {
+          ...previous,
+          alarmAckPendingByIncidentId: omitRecordKey(
+            previous.alarmAckPendingByIncidentId,
+            normalizedIncidentId,
+          ),
+          alarmAckErrorByIncidentId: {
+            ...previous.alarmAckErrorByIncidentId,
+            [normalizedIncidentId]: toErrorMessage(error, 'Alarm incident acknowledgement failed.'),
+          },
+        }
+      })
+    } finally {
+      ackRequestInFlightRef.current.delete(requestKey)
+    }
+  }, [enabled, normalizedEdgeId])
 
   const disposeSession = useCallback(() => {
     if (!sessionRef.current) {
@@ -231,6 +343,18 @@ export function useDashboardRuntimeSession(
               previous.alarmIncidents,
               alarmIncidentEvent.incident,
             ),
+            alarmAckPendingByIncidentId: alarmIncidentEvent.incident.isAcknowledged
+              ? omitRecordKey(
+                  previous.alarmAckPendingByIncidentId,
+                  alarmIncidentEvent.incident.incidentId,
+                )
+              : previous.alarmAckPendingByIncidentId,
+            alarmAckErrorByIncidentId: alarmIncidentEvent.incident.isAcknowledged
+              ? omitRecordKey(
+                  previous.alarmAckErrorByIncidentId,
+                  alarmIncidentEvent.incident.incidentId,
+                )
+              : previous.alarmAckErrorByIncidentId,
           }))
         },
         onRuntimeError: (runtimeError) => {

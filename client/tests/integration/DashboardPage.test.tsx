@@ -140,9 +140,70 @@ describe('DashboardPage (US1)', () => {
     expect(screen.getByLabelText('Edge Server')).toHaveValue('edge-1')
   })
 
-  it('renders a realtime alarm incident row for the selected edge without claiming initial load success', async () => {
+  it('renders a realtime alarm incident row and acknowledges it only after Cloud confirmation', async () => {
     setupDashboardApiFixtures(createDashboardVisualRestFixtures())
     const edgeId = 'edge-visual-1'
+    const ackRequests: Array<{
+      url: string
+      method: string
+      edgeId: string
+      incidentId: string
+      body: string
+    }> = []
+    let confirmAck: () => void = () => {}
+
+    server.use(
+      http.post('/api/edge-servers/:edgeId/alarm-incidents/:incidentId/ack', async ({ params, request }) => {
+        ackRequests.push({
+          url: new URL(request.url).pathname,
+          method: request.method,
+          edgeId: String(params.edgeId),
+          incidentId: String(params.incidentId),
+          body: await request.text(),
+        })
+
+        return new Promise((resolve) => {
+          confirmAck = () =>
+            resolve(
+              HttpResponse.json({
+                status: 'success',
+                data: {
+                  incident: {
+                    incidentId: 'incident-pressure-1',
+                    edgeId,
+                    sourceId: 'source-1',
+                    deviceId: 'compressor-7',
+                    metric: 'pressure',
+                    ruleId: 'rule-pressure-high',
+                    lifecycleState: 'active_acknowledged',
+                    isActive: true,
+                    isAcknowledged: true,
+                    activatedAt: '2026-05-09T09:25:00.000Z',
+                    clearedAt: null,
+                    acknowledgedAt: '2026-05-09T09:26:00.000Z',
+                    acknowledgedBy: 'user-1',
+                    latestValue: 42.5,
+                    latestTs: 1778318730000,
+                    latestDetectedAt: 1778318730000,
+                    createdAt: '2026-05-09T09:25:00.000Z',
+                    updatedAt: '2026-05-09T09:26:00.000Z',
+                    rule: {
+                      ruleId: 'rule-pressure-high',
+                      ruleRevision: 'rev-1',
+                      conditionType: 'high',
+                      triggerThreshold: 40,
+                      clearThreshold: 35,
+                      expectedValue: null,
+                      severity: 'danger',
+                      label: 'Compressor pressure high',
+                    },
+                  },
+                },
+              }),
+            )
+        })
+      }),
+    )
 
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
 
@@ -181,15 +242,72 @@ describe('DashboardPage (US1)', () => {
           },
         }),
       )
+      runtimeHarness.emitAlarmIncidentChanged(
+        createDashboardAlarmIncidentChangedEventFixture({
+          edgeId,
+          incident: {
+            incidentId: 'incident-temperature-2',
+            edgeId,
+            deviceId: 'compressor-7',
+            metric: 'temperature',
+            ruleId: 'rule-temperature-high',
+            isActive: true,
+            isAcknowledged: false,
+            activatedAt: '2026-05-09T09:20:00.000Z',
+            latestDetectedAt: 1778318400000,
+            updatedAt: '2026-05-09T09:20:00.000Z',
+            rule: {
+              severity: 'warning',
+              label: 'Compressor temperature high',
+            },
+          },
+        }),
+      )
     })
 
     const row = await screen.findByTestId('dashboard-alarm-incident-row-incident-pressure-1')
+    const otherRow = await screen.findByTestId('dashboard-alarm-incident-row-incident-temperature-2')
     expect(within(row).getByText('danger')).toBeInTheDocument()
     expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
     expect(within(row).getByText('2026-05-09T09:25:30.000Z')).toBeInTheDocument()
     expect(within(row).getByText('Compressor pressure high')).toBeInTheDocument()
-    expect(within(row).getByRole('button', { name: 'Acknowledge incident Compressor pressure high' })).toBeInTheDocument()
+    const ackButton = within(row).getByRole('button', {
+      name: 'Acknowledge incident Compressor pressure high',
+    })
+    expect(ackButton).toBeInTheDocument()
     expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
+
+    await userEvent.setup().click(ackButton)
+
+    await waitFor(() => {
+      expect(ackRequests).toHaveLength(1)
+    })
+    expect(ackRequests[0]).toEqual({
+      url: '/api/edge-servers/edge-visual-1/alarm-incidents/incident-pressure-1/ack',
+      method: 'POST',
+      edgeId,
+      incidentId: 'incident-pressure-1',
+      body: '',
+    })
+    expect(within(row).getByRole('button', { name: 'Acknowledge incident Compressor pressure high' })).toBeDisabled()
+    expect(
+      within(otherRow).getByRole('button', { name: 'Acknowledge incident Compressor temperature high' }),
+    ).not.toBeDisabled()
+    expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
+    expect(within(row).queryByText('Active Acknowledged')).not.toBeInTheDocument()
+
+    await act(async () => {
+      confirmAck()
+    })
+
+    await waitFor(() => {
+      expect(within(row).getByText('Active Acknowledged')).toBeInTheDocument()
+    })
+    expect(within(row).queryByRole('button', { name: 'Acknowledge incident Compressor pressure high' })).not.toBeInTheDocument()
+    expect(within(otherRow).getByText('Active Unacknowledged')).toBeInTheDocument()
+    expect(
+      within(otherRow).getByRole('button', { name: 'Acknowledge incident Compressor temperature high' }),
+    ).toBeInTheDocument()
   })
 
   it('keeps dashboard route and renders invalid-selection for edge-only query', async () => {

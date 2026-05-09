@@ -74,6 +74,8 @@ export function DashboardAlarmJournalPanel({
                 <li
                   key={incident.incidentId}
                   data-testid={`dashboard-alarm-incident-row-${incident.incidentId}`}
+                  data-ack-pending={isAckPending ? 'true' : 'false'}
+                  aria-busy={isAckPending || undefined}
                   className="rounded border border-[#1f2a3d] bg-[#0f172a] p-2 text-xs text-[#cbd5e1]"
                 >
                   <div className="flex items-start gap-2">
@@ -116,7 +118,10 @@ export function DashboardAlarmJournalPanel({
                   </div>
 
                   {ackError ? (
-                    <p className="mt-2 rounded border border-[rgba(239,68,68,0.35)] bg-[rgba(239,68,68,0.08)] px-2 py-1 text-[var(--color-danger)]">
+                    <p
+                      role="alert"
+                      className="mt-2 rounded border border-[rgba(239,68,68,0.35)] bg-[rgba(239,68,68,0.08)] px-2 py-1 text-[var(--color-danger)]"
+                    >
                       {ackError}
                     </p>
                   ) : null}
