@@ -6,6 +6,8 @@ import type {
 import { dashboardVisualBindingProfile } from '../../fixtures/dashboardVisualLayout'
 import type {
   DashboardAlarmIncidentChangedEvent,
+  DashboardAlarmIncidentProjection,
+  DashboardAlarmRuleSnapshot,
   DashboardEdgeStatusEvent,
   DashboardTelemetryReading,
   DashboardTelemetryEvent,
@@ -20,19 +22,37 @@ interface MockSocketState {
   emittedEvents: Array<{ event: string; payload: unknown }>
 }
 
+type MockDashboardRuntimeClientSession = {
+  edgeId: string
+  dispose: () => void
+  isConnected: () => boolean
+}
+
 interface MockDashboardRuntimeClientSessionOptions {
   edgeId: string
   onTransportStatusChange?: (status: DashboardTransportStatus) => void
   onTelemetry?: (event: DashboardTelemetryEvent) => void
   onEdgeStatus?: (event: DashboardEdgeStatusEvent) => void
+  onAlarmIncidentChanged?: (event: DashboardAlarmIncidentChangedEvent) => void
   onRuntimeError?: (error: Error) => void
 }
 
+type MockDashboardRuntimeClientStartSession = ReturnType<typeof vi.fn> &
+  ((options: MockDashboardRuntimeClientSessionOptions) => MockDashboardRuntimeClientSession)
+
+type DashboardAlarmIncidentFixtureOverrides =
+  Omit<Partial<DashboardAlarmIncidentChangedEvent>, 'incident'> & {
+    incident?: Partial<Omit<DashboardAlarmIncidentProjection, 'rule'>> & {
+      rule?: Partial<DashboardAlarmRuleSnapshot>
+    }
+  }
+
 export interface MockDashboardRuntimeClientHarness {
-  startSession: ReturnType<typeof vi.fn>
+  startSession: MockDashboardRuntimeClientStartSession
   emitTransportStatus: (edgeId: string, status: DashboardTransportStatus) => void
   emitTelemetry: (event: DashboardTelemetryEvent) => void
   emitEdgeStatus: (event: DashboardEdgeStatusEvent) => void
+  emitAlarmIncidentChanged: (event: DashboardAlarmIncidentChangedEvent) => void
   emitRuntimeError: (edgeId: string, error?: Error) => void
   getDisposeCount: (edgeId: string) => number
   reset: () => void
@@ -112,9 +132,10 @@ export function createDashboardEdgeStatusEventFixture(
 }
 
 export function createDashboardAlarmIncidentChangedEventFixture(
-  overrides: Partial<DashboardAlarmIncidentChangedEvent> = {},
+  overrides: DashboardAlarmIncidentFixtureOverrides = {},
 ): DashboardAlarmIncidentChangedEvent {
   const edgeId = overrides.edgeId ?? 'edge-1'
+  const ruleOverrides = overrides.incident?.rule ?? {}
 
   return {
     edgeId,
@@ -135,6 +156,9 @@ export function createDashboardAlarmIncidentChangedEventFixture(
       latestValue: 42.5,
       latestTs: 1778320800000,
       latestDetectedAt: 1778320800100,
+      createdAt: '2026-05-09T10:00:00.000Z',
+      updatedAt: '2026-05-09T10:00:00.000Z',
+      ...overrides.incident,
       rule: {
         ruleId: 'rule-1',
         ruleRevision: 'rev-1',
@@ -144,10 +168,8 @@ export function createDashboardAlarmIncidentChangedEventFixture(
         expectedValue: null,
         severity: 'warning',
         label: 'High temperature',
+        ...ruleOverrides,
       },
-      createdAt: '2026-05-09T10:00:00.000Z',
-      updatedAt: '2026-05-09T10:00:00.000Z',
-      ...overrides.incident,
     },
   }
 }
@@ -167,7 +189,7 @@ export function createMockDashboardRuntimeClientHarness(): MockDashboardRuntimeC
       },
       isConnected: () => false,
     }
-  })
+  }) as MockDashboardRuntimeClientStartSession
 
   return {
     startSession,
@@ -179,6 +201,9 @@ export function createMockDashboardRuntimeClientHarness(): MockDashboardRuntimeC
     },
     emitEdgeStatus: (event) => {
       activeCallbacksByEdge.get(event.edgeId)?.onEdgeStatus?.(event)
+    },
+    emitAlarmIncidentChanged: (event) => {
+      activeCallbacksByEdge.get(event.edgeId)?.onAlarmIncidentChanged?.(event)
     },
     emitRuntimeError: (edgeId, error = new Error('Mock runtime error')) => {
       activeCallbacksByEdge.get(edgeId)?.onRuntimeError?.(error)

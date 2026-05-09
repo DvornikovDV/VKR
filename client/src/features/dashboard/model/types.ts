@@ -1,4 +1,13 @@
 export type { AssignedEdgeServer as DashboardTrustedEdgeServer } from '@/shared/api/edgeServers'
+import type {
+  AlarmConditionType,
+  AlarmExpectedValue,
+  AlarmIncidentLifecycleState,
+  AlarmIncidentProjection,
+  AlarmObservedValue,
+  AlarmRuleSnapshot,
+  AlarmSeverity,
+} from '@/shared/api/alarmIncidents'
 
 export type DashboardSelectionSource = 'route-prefill' | 'user-selection' | 'recovery-reset'
 
@@ -243,10 +252,10 @@ export interface DashboardSubscribedEvent {
 export const DASHBOARD_ALARM_INCIDENT_CHANGED_EVENT = 'alarm_incident_changed' as const
 
 export const DASHBOARD_ALARM_CONDITION_TYPES = ['high', 'low', 'state', 'connectivity'] as const
-export type DashboardAlarmConditionType = (typeof DASHBOARD_ALARM_CONDITION_TYPES)[number]
+export type DashboardAlarmConditionType = AlarmConditionType
 
 export const DASHBOARD_ALARM_SEVERITIES = ['warning', 'danger'] as const
-export type DashboardAlarmSeverity = (typeof DASHBOARD_ALARM_SEVERITIES)[number]
+export type DashboardAlarmSeverity = AlarmSeverity
 
 export const DASHBOARD_ALARM_INCIDENT_LIFECYCLE_STATES = [
   'active_unacknowledged',
@@ -254,43 +263,21 @@ export const DASHBOARD_ALARM_INCIDENT_LIFECYCLE_STATES = [
   'cleared_unacknowledged',
   'closed',
 ] as const
-export type DashboardAlarmIncidentLifecycleState =
-  (typeof DASHBOARD_ALARM_INCIDENT_LIFECYCLE_STATES)[number]
+export type DashboardAlarmIncidentLifecycleState = AlarmIncidentLifecycleState
 
-export type DashboardAlarmObservedValue = number | boolean
-export type DashboardAlarmExpectedValue = DashboardAlarmObservedValue | null
+export type DashboardAlarmObservedValue = AlarmObservedValue
+export type DashboardAlarmExpectedValue = AlarmExpectedValue
+export type DashboardAlarmRuleSnapshot = AlarmRuleSnapshot
+export type DashboardAlarmIncidentProjection = AlarmIncidentProjection
 
-export interface DashboardAlarmRuleSnapshot {
-  ruleId: string
-  ruleRevision: string
-  conditionType: DashboardAlarmConditionType
-  triggerThreshold: number | null
-  clearThreshold: number | null
-  expectedValue: DashboardAlarmExpectedValue
-  severity: DashboardAlarmSeverity
-  label: string
-}
-
-export interface DashboardAlarmIncidentProjection {
-  incidentId: string
-  edgeId: string
-  sourceId: string
-  deviceId: string
-  metric: string
-  ruleId: string
-  lifecycleState: DashboardAlarmIncidentLifecycleState
-  isActive: boolean
-  isAcknowledged: boolean
-  activatedAt: string
-  clearedAt: string | null
-  acknowledgedAt: string | null
-  acknowledgedBy: string | null
-  latestValue: DashboardAlarmObservedValue
-  latestTs: number
-  latestDetectedAt: number
-  rule: DashboardAlarmRuleSnapshot
-  createdAt: string
-  updatedAt: string
+export type DashboardAlarmIncidentList = DashboardAlarmIncidentProjection[]
+export type DashboardAlarmAckPendingByIncidentId = Record<string, boolean>
+export type DashboardAlarmAckErrorByIncidentId = Record<string, string>
+export type DashboardAlarmJournalInitialLoadBlockedReason =
+  'missing-cloud-incident-list-endpoint'
+export interface DashboardAlarmJournalInitialLoadBlockedMarker {
+  blocked: true
+  reason: DashboardAlarmJournalInitialLoadBlockedReason
 }
 
 export interface DashboardAlarmIncidentChangedEvent {

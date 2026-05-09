@@ -5,6 +5,7 @@ import { createDashboardBindingKey } from '@/features/dashboard/model/selectors'
 import { createCloudRuntimeClient } from '@/features/dashboard/services/cloudRuntimeClient'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
 import {
+  createDashboardAlarmIncidentChangedEventFixture,
   createDashboardEdgeStatusEventFixture,
   createDashboardTelemetryEventFixture,
   createMockDashboardRuntimeSocketHarness,
@@ -178,6 +179,129 @@ describe('useDashboardRuntimeSession (T015)', () => {
     expect(
       result.current.latestMetricValueByBindingKey[createDashboardBindingKey('pump-1', 'temperature')],
     ).toBe(55)
+  })
+
+  it('scopes realtime alarm incidents to the active edge and preserves them across reconnect', async () => {
+    const socketHarness = createMockDashboardRuntimeSocketHarness()
+    const runtimeClient = createCloudRuntimeClient(socketHarness.socketFactory)
+
+    const { result, rerender } = renderHook(
+      ({ edgeId }: { edgeId: string | null }) =>
+        useDashboardRuntimeSession({
+          edgeId,
+          enabled: true,
+          client: runtimeClient,
+        }),
+      {
+        initialProps: { edgeId: 'edge-1' },
+      },
+    )
+
+    await waitFor(() => {
+      expect(result.current.transportStatus).toBe('connected')
+    })
+
+    expect(result.current.alarmIncidents).toEqual([])
+    expect(result.current.alarmJournalInitialLoadBlocked).toEqual({
+      blocked: true,
+      reason: 'missing-cloud-incident-list-endpoint',
+    })
+    expect(result.current.alarmAckPendingByIncidentId).toEqual({})
+    expect(result.current.alarmAckErrorByIncidentId).toEqual({})
+    expect(typeof result.current.acknowledgeAlarmIncident).toBe('function')
+
+    act(() => {
+      socketHarness.emitAlarmIncidentChanged(
+        createDashboardAlarmIncidentChangedEventFixture({
+          incident: {
+            incidentId: 'incident-1',
+            isAcknowledged: false,
+            updatedAt: '2026-05-09T10:00:00.000Z',
+          },
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(result.current.alarmIncidents.map((incident) => incident.incidentId)).toEqual([
+        'incident-1',
+      ])
+    })
+    expect(result.current.alarmIncidents[0]?.isAcknowledged).toBe(false)
+
+    act(() => {
+      socketHarness.emitAlarmIncidentChanged(
+        createDashboardAlarmIncidentChangedEventFixture({
+          incident: {
+            incidentId: 'incident-1',
+            isAcknowledged: true,
+            acknowledgedAt: '2026-05-09T10:05:00.000Z',
+            updatedAt: '2026-05-09T10:05:00.000Z',
+          },
+        }),
+      )
+      socketHarness.emitAlarmIncidentChanged(
+        createDashboardAlarmIncidentChangedEventFixture({
+          edgeId: 'edge-2',
+          incident: {
+            incidentId: 'incident-other-edge',
+            updatedAt: '2026-05-09T10:10:00.000Z',
+          },
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(result.current.alarmIncidents).toHaveLength(1)
+      expect(result.current.alarmIncidents[0]?.isAcknowledged).toBe(true)
+    })
+
+    act(() => {
+      socketHarness.emitDisconnect()
+    })
+
+    await waitFor(() => {
+      expect(result.current.transportStatus).toBe('reconnecting')
+    })
+    expect(result.current.alarmIncidents.map((incident) => incident.incidentId)).toEqual([
+      'incident-1',
+    ])
+
+    act(() => {
+      socketHarness.emitConnect()
+    })
+
+    await waitFor(() => {
+      expect(result.current.transportStatus).toBe('connected')
+    })
+    expect(result.current.alarmIncidents.map((incident) => incident.incidentId)).toEqual([
+      'incident-1',
+    ])
+
+    rerender({ edgeId: 'edge-2' })
+
+    await waitFor(() => {
+      expect(result.current.activeEdgeId).toBe('edge-2')
+      expect(result.current.transportStatus).toBe('connected')
+    })
+
+    expect(result.current.alarmIncidents).toEqual([])
+    expect(result.current.alarmAckPendingByIncidentId).toEqual({})
+    expect(result.current.alarmAckErrorByIncidentId).toEqual({})
+
+    act(() => {
+      socketHarness.emitAlarmIncidentChanged(
+        createDashboardAlarmIncidentChangedEventFixture({
+          edgeId: 'edge-1',
+          incident: {
+            incidentId: 'incident-stale-edge',
+            updatedAt: '2026-05-09T10:20:00.000Z',
+          },
+        }),
+      )
+    })
+
+    expect(result.current.alarmIncidents).toEqual([])
   })
 
   it('disposes active session on edge switch and unmount cleanup', async () => {

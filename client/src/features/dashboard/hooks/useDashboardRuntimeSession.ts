@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  upsertDashboardAlarmIncident,
+} from '@/features/dashboard/model/alarmIncidents'
+import {
   createDashboardBindingKey,
   mergeTelemetryReadingsByBindingKey,
 } from '@/features/dashboard/model/selectors'
 import type {
+  DashboardAlarmAckErrorByIncidentId,
+  DashboardAlarmAckPendingByIncidentId,
+  DashboardAlarmIncidentList,
+  DashboardAlarmJournalInitialLoadBlockedMarker,
   DashboardEdgeAvailability,
   DashboardMetricRevisionByBindingKey,
   DashboardMetricValueByBindingKey,
@@ -29,11 +36,21 @@ export interface DashboardRuntimeSessionState {
   edgeAvailability: DashboardEdgeAvailability
   latestMetricValueByBindingKey: DashboardMetricValueByBindingKey
   metricRevisionByBindingKey: DashboardMetricRevisionByBindingKey
+  alarmIncidents: DashboardAlarmIncidentList
+  alarmJournalInitialLoadBlocked: DashboardAlarmJournalInitialLoadBlockedMarker | null
+  alarmAckPendingByIncidentId: DashboardAlarmAckPendingByIncidentId
+  alarmAckErrorByIncidentId: DashboardAlarmAckErrorByIncidentId
   lastServerTimestamp: number | null
   runtimeError: string | null
+  acknowledgeAlarmIncident: (incidentId: string) => Promise<void>
 }
 
 export type UseDashboardRuntimeSessionResult = DashboardRuntimeSessionState
+
+const alarmJournalInitialLoadBlocked: DashboardAlarmJournalInitialLoadBlockedMarker = {
+  blocked: true,
+  reason: 'missing-cloud-incident-list-endpoint',
+}
 
 function createIdleState(): DashboardRuntimeSessionState {
   return {
@@ -42,8 +59,15 @@ function createIdleState(): DashboardRuntimeSessionState {
     edgeAvailability: 'unknown',
     latestMetricValueByBindingKey: {},
     metricRevisionByBindingKey: {},
+    alarmIncidents: [],
+    alarmJournalInitialLoadBlocked: null,
+    alarmAckPendingByIncidentId: {},
+    alarmAckErrorByIncidentId: {},
     lastServerTimestamp: null,
     runtimeError: null,
+    acknowledgeAlarmIncident: async () => {
+      throw new Error('Alarm incident acknowledgement is not implemented yet.')
+    },
   }
 }
 
@@ -105,6 +129,10 @@ export function useDashboardRuntimeSession(
   const sessionRef = useRef<DashboardRuntimeSession | null>(null)
   const generationRef = useRef(0)
 
+  const acknowledgeAlarmIncident = useCallback(async () => {
+    throw new Error('Alarm incident acknowledgement is not implemented yet.')
+  }, [])
+
   const disposeSession = useCallback(() => {
     if (!sessionRef.current) {
       return
@@ -138,8 +166,13 @@ export function useDashboardRuntimeSession(
       edgeAvailability: 'unknown',
       latestMetricValueByBindingKey: {},
       metricRevisionByBindingKey: {},
+      alarmIncidents: [],
+      alarmJournalInitialLoadBlocked,
+      alarmAckPendingByIncidentId: {},
+      alarmAckErrorByIncidentId: {},
       lastServerTimestamp: null,
       runtimeError: null,
+      acknowledgeAlarmIncident,
     })
 
     try {
@@ -183,6 +216,23 @@ export function useDashboardRuntimeSession(
             lastServerTimestamp: telemetryEvent.serverTs,
           }))
         },
+        onAlarmIncidentChanged: (alarmIncidentEvent) => {
+          if (
+            generation !== generationRef.current ||
+            alarmIncidentEvent.edgeId !== normalizedEdgeId ||
+            alarmIncidentEvent.incident.edgeId !== normalizedEdgeId
+          ) {
+            return
+          }
+
+          setState((previous) => ({
+            ...previous,
+            alarmIncidents: upsertDashboardAlarmIncident(
+              previous.alarmIncidents,
+              alarmIncidentEvent.incident,
+            ),
+          }))
+        },
         onRuntimeError: (runtimeError) => {
           if (generation !== generationRef.current) {
             return
@@ -203,15 +253,23 @@ export function useDashboardRuntimeSession(
         edgeAvailability: 'unknown',
         latestMetricValueByBindingKey: {},
         metricRevisionByBindingKey: {},
+        alarmIncidents: [],
+        alarmJournalInitialLoadBlocked,
+        alarmAckPendingByIncidentId: {},
+        alarmAckErrorByIncidentId: {},
         lastServerTimestamp: null,
         runtimeError: toErrorMessage(error, 'Dashboard runtime session failed to start.'),
+        acknowledgeAlarmIncident,
       })
     }
 
     return () => {
       disposeSession()
     }
-  }, [disposeSession, enabled, normalizedEdgeId, runtimeClient])
+  }, [acknowledgeAlarmIncident, disposeSession, enabled, normalizedEdgeId, runtimeClient])
 
-  return state
+  return {
+    ...state,
+    acknowledgeAlarmIncident,
+  }
 }
