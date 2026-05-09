@@ -310,6 +310,90 @@ describe('DashboardPage (US1)', () => {
     ).toBeInTheDocument()
   })
 
+  it('keeps a failed ACK incident unacknowledged and open with a bounded row error', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const edgeId = 'edge-visual-1'
+    const ackRequests: Array<{ edgeId: string; incidentId: string }> = []
+
+    server.use(
+      http.post('/api/edge-servers/:edgeId/alarm-incidents/:incidentId/ack', ({ params }) => {
+        ackRequests.push({
+          edgeId: String(params.edgeId),
+          incidentId: String(params.incidentId),
+        })
+
+        return HttpResponse.json(
+          { status: 'error', message: 'ACK unavailable' },
+          { status: 503 },
+        )
+      }),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId }),
+      )
+    })
+
+    act(() => {
+      runtimeHarness.emitAlarmIncidentChanged(
+        createDashboardAlarmIncidentChangedEventFixture({
+          edgeId,
+          incident: {
+            incidentId: 'incident-pressure-failure',
+            edgeId,
+            deviceId: 'compressor-7',
+            metric: 'pressure',
+            ruleId: 'rule-pressure-high',
+            isActive: true,
+            isAcknowledged: false,
+            activatedAt: '2026-05-09T09:25:00.000Z',
+            latestDetectedAt: 1778318730000,
+            updatedAt: '2026-05-09T09:25:30.000Z',
+            rule: {
+              severity: 'danger',
+              label: 'Compressor pressure high',
+            },
+          },
+        }),
+      )
+    })
+
+    const row = await screen.findByTestId(
+      'dashboard-alarm-incident-row-incident-pressure-failure',
+    )
+    const ackButton = within(row).getByRole('button', {
+      name: 'Acknowledge incident Compressor pressure high',
+    })
+
+    await userEvent.setup().click(ackButton)
+
+    await waitFor(() => {
+      expect(ackRequests).toEqual([
+        { edgeId, incidentId: 'incident-pressure-failure' },
+      ])
+      expect(
+        within(row).getByRole('button', {
+          name: 'Acknowledge incident Compressor pressure high',
+        }),
+      ).not.toBeDisabled()
+    })
+
+    expect(row).toBeInTheDocument()
+    expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
+    expect(within(row).queryByText('Active Acknowledged')).not.toBeInTheDocument()
+    expect(within(row).queryByText('Closed')).not.toBeInTheDocument()
+    expect(within(row).getByRole('alert')).toHaveTextContent('ACK unavailable')
+    expect(
+      within(row).getByRole('button', {
+        name: 'Acknowledge incident Compressor pressure high',
+      }),
+    ).toBeInTheDocument()
+  })
+
   it('keeps dashboard route and renders invalid-selection for edge-only query', async () => {
     setupDashboardApiFixtures()
     const router = mount('/hub/dashboard?edgeId=edge-1')

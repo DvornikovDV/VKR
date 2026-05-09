@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  getDashboardAlarmIncidentRowTimeMs,
   upsertDashboardAlarmIncident,
 } from '@/features/dashboard/model/alarmIncidents'
 import {
@@ -10,6 +11,7 @@ import type {
   DashboardAlarmAckErrorByIncidentId,
   DashboardAlarmAckPendingByIncidentId,
   DashboardAlarmIncidentList,
+  DashboardAlarmIncidentProjection,
   DashboardAlarmJournalInitialLoadBlockedMarker,
   DashboardEdgeAvailability,
   DashboardMetricRevisionByBindingKey,
@@ -125,6 +127,25 @@ function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string
   return next
 }
 
+function shouldApplyAckResponseIncident(
+  existingIncident: DashboardAlarmIncidentProjection | undefined,
+  responseIncident: DashboardAlarmIncidentProjection,
+): boolean {
+  if (!responseIncident.isAcknowledged) {
+    return false
+  }
+
+  if (
+    existingIncident?.isAcknowledged &&
+    getDashboardAlarmIncidentRowTimeMs(responseIncident) <
+      getDashboardAlarmIncidentRowTimeMs(existingIncident)
+  ) {
+    return false
+  }
+
+  return true
+}
+
 export function useDashboardRuntimeSession(
   options: UseDashboardRuntimeSessionOptions,
 ): UseDashboardRuntimeSessionResult {
@@ -136,7 +157,7 @@ export function useDashboardRuntimeSession(
   const stateRef = useRef(state)
   const sessionRef = useRef<DashboardRuntimeSession | null>(null)
   const generationRef = useRef(0)
-  const ackRequestInFlightRef = useRef(new Set<string>())
+  const ackRequestInFlightRef = useRef(new Map<string, number>())
 
   useEffect(() => {
     stateRef.current = state
@@ -164,12 +185,12 @@ export function useDashboardRuntimeSession(
     }
 
     const requestKey = `${normalizedEdgeId}:${normalizedIncidentId}`
-    if (ackRequestInFlightRef.current.has(requestKey)) {
+    const generation = generationRef.current
+    if (ackRequestInFlightRef.current.get(requestKey) === generation) {
       return
     }
 
-    const generation = generationRef.current
-    ackRequestInFlightRef.current.add(requestKey)
+    ackRequestInFlightRef.current.set(requestKey, generation)
 
     setState((previous) => {
       if (previous.activeEdgeId !== normalizedEdgeId) {
@@ -192,11 +213,7 @@ export function useDashboardRuntimeSession(
     try {
       const incident = await ackAlarmIncident(normalizedEdgeId, normalizedIncidentId)
 
-      if (
-        generation !== generationRef.current ||
-        incident.edgeId !== normalizedEdgeId ||
-        incident.incidentId !== normalizedIncidentId
-      ) {
+      if (generation !== generationRef.current) {
         return
       }
 
@@ -205,17 +222,31 @@ export function useDashboardRuntimeSession(
           return previous
         }
 
+        const matchesRequestedIncident =
+          incident.edgeId === normalizedEdgeId && incident.incidentId === normalizedIncidentId
+        const existingIncident = previous.alarmIncidents.find(
+          (candidate) => candidate.incidentId === normalizedIncidentId,
+        )
+        const shouldApplyIncident =
+          matchesRequestedIncident && shouldApplyAckResponseIncident(existingIncident, incident)
+        const hasAcknowledgedProjection =
+          shouldApplyIncident || Boolean(existingIncident?.isAcknowledged)
+
         return {
           ...previous,
-          alarmIncidents: upsertDashboardAlarmIncident(previous.alarmIncidents, incident),
+          alarmIncidents: shouldApplyIncident
+            ? upsertDashboardAlarmIncident(previous.alarmIncidents, incident)
+            : previous.alarmIncidents,
           alarmAckPendingByIncidentId: omitRecordKey(
             previous.alarmAckPendingByIncidentId,
             normalizedIncidentId,
           ),
-          alarmAckErrorByIncidentId: omitRecordKey(
-            previous.alarmAckErrorByIncidentId,
-            normalizedIncidentId,
-          ),
+          alarmAckErrorByIncidentId: hasAcknowledgedProjection
+            ? omitRecordKey(previous.alarmAckErrorByIncidentId, normalizedIncidentId)
+            : {
+                ...previous.alarmAckErrorByIncidentId,
+                [normalizedIncidentId]: 'Alarm incident acknowledgement was not confirmed by Cloud.',
+              },
         }
       })
     } catch (error) {
@@ -241,7 +272,9 @@ export function useDashboardRuntimeSession(
         }
       })
     } finally {
-      ackRequestInFlightRef.current.delete(requestKey)
+      if (ackRequestInFlightRef.current.get(requestKey) === generation) {
+        ackRequestInFlightRef.current.delete(requestKey)
+      }
     }
   }, [enabled, normalizedEdgeId])
 
@@ -264,6 +297,7 @@ export function useDashboardRuntimeSession(
   useEffect(() => {
     generationRef.current += 1
     const generation = generationRef.current
+    ackRequestInFlightRef.current.clear()
 
     disposeSession()
 
