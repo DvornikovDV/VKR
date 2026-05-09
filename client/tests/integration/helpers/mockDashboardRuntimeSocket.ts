@@ -5,6 +5,7 @@ import type {
 } from '@/features/dashboard/services/cloudRuntimeClient'
 import { dashboardVisualBindingProfile } from '../../fixtures/dashboardVisualLayout'
 import type {
+  DashboardAlarmIncidentChangedEvent,
   DashboardEdgeStatusEvent,
   DashboardTelemetryReading,
   DashboardTelemetryEvent,
@@ -55,6 +56,7 @@ export interface MockDashboardRuntimeSocketHarness {
   emitConnectError: (error?: unknown) => void
   emitTelemetry: (event: DashboardTelemetryEvent) => void
   emitEdgeStatus: (event: DashboardEdgeStatusEvent) => void
+  emitAlarmIncidentChanged: (event: DashboardAlarmIncidentChangedEvent | unknown) => void
   getLastSubscribePayload: () => { edgeId: string } | null
   getEmittedEvents: () => Array<{ event: string; payload: unknown }>
   reset: () => void
@@ -106,6 +108,47 @@ export function createDashboardEdgeStatusEventFixture(
   return {
     edgeId: overrides.edgeId ?? 'edge-1',
     online: overrides.online ?? true,
+  }
+}
+
+export function createDashboardAlarmIncidentChangedEventFixture(
+  overrides: Partial<DashboardAlarmIncidentChangedEvent> = {},
+): DashboardAlarmIncidentChangedEvent {
+  const edgeId = overrides.edgeId ?? 'edge-1'
+
+  return {
+    edgeId,
+    incident: {
+      incidentId: 'incident-1',
+      edgeId,
+      sourceId: 'source-1',
+      deviceId: 'pump-1',
+      metric: 'temperature',
+      ruleId: 'rule-1',
+      lifecycleState: 'active_unacknowledged',
+      isActive: true,
+      isAcknowledged: false,
+      activatedAt: '2026-05-09T10:00:00.000Z',
+      clearedAt: null,
+      acknowledgedAt: null,
+      acknowledgedBy: null,
+      latestValue: 42.5,
+      latestTs: 1778320800000,
+      latestDetectedAt: 1778320800100,
+      rule: {
+        ruleId: 'rule-1',
+        ruleRevision: 'rev-1',
+        conditionType: 'high',
+        triggerThreshold: 40,
+        clearThreshold: 35,
+        expectedValue: null,
+        severity: 'warning',
+        label: 'High temperature',
+      },
+      createdAt: '2026-05-09T10:00:00.000Z',
+      updatedAt: '2026-05-09T10:00:00.000Z',
+      ...overrides.incident,
+    },
   }
 }
 
@@ -222,6 +265,9 @@ export function createMockDashboardRuntimeSocketHarness(): MockDashboardRuntimeS
     },
     emitEdgeStatus: (event) => {
       dispatchEvent(state, 'edge_status', event)
+    },
+    emitAlarmIncidentChanged: (event) => {
+      dispatchEvent(state, 'alarm_incident_changed', event)
     },
     getLastSubscribePayload: () => state.lastSubscribePayload,
     getEmittedEvents: () => [...state.emittedEvents],

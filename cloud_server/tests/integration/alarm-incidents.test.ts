@@ -139,6 +139,16 @@ describe('Alarm incidents trusted Edge socket path', () => {
                 isAcknowledged: false,
                 lifecycleState: 'active_unacknowledged',
             });
+            expect(activeChanged.incident.rule).toMatchObject({
+                ruleId: 'pump-temperature-high',
+                ruleRevision: 'rev-1',
+                conditionType: 'high',
+                triggerThreshold: 90,
+                clearThreshold: 85,
+                expectedValue: null,
+                severity: 'danger',
+                label: 'Pump temperature high',
+            });
 
             const incidentId = activeChanged.incident.incidentId;
             const acknowledgedAt = new Date('2026-05-09T06:00:00.000Z');
@@ -169,6 +179,16 @@ describe('Alarm incidents trusted Edge socket path', () => {
                 latestTs: 1_777_777_011,
                 latestDetectedAt: 1_777_777_012,
             });
+            expect(duplicateChanged.incident.rule).toMatchObject({
+                ruleId: 'pump-temperature-high',
+                ruleRevision: 'rev-1',
+                conditionType: 'high',
+                triggerThreshold: 90,
+                clearThreshold: 85,
+                expectedValue: null,
+                severity: 'danger',
+                label: 'Pump temperature high',
+            });
             await expect(AlarmIncident.countDocuments({
                 edgeId: registered.edgeId,
                 ruleId: 'pump-temperature-high',
@@ -198,6 +218,16 @@ describe('Alarm incidents trusted Edge socket path', () => {
                 latestDetectedAt: 1_777_777_022,
             });
             expect(clearChanged.incident.clearedAt).toEqual(expect.any(String));
+            expect(clearChanged.incident.rule).toMatchObject({
+                ruleId: 'pump-temperature-high',
+                ruleRevision: 'rev-1',
+                conditionType: 'high',
+                triggerThreshold: 90,
+                clearThreshold: 85,
+                expectedValue: null,
+                severity: 'danger',
+                label: 'Pump temperature high',
+            });
 
             const incidents = await AlarmIncident.find({
                 edgeId: registered.edgeId,
@@ -210,6 +240,16 @@ describe('Alarm incidents trusted Edge socket path', () => {
             expect(incidents[0]!.isAcknowledged).toBe(true);
             expect(incidents[0]!.acknowledgedAt?.toISOString()).toBe(acknowledgedAt.toISOString());
             expect(incidents[0]!.acknowledgedBy?.toHexString()).toBe(userId);
+            expect(incidents[0]!.rule).toMatchObject({
+                ruleId: 'pump-temperature-high',
+                ruleRevision: 'rev-1',
+                conditionType: 'high',
+                triggerThreshold: 90,
+                clearThreshold: 85,
+                expectedValue: null,
+                severity: 'danger',
+                label: 'Pump temperature high',
+            });
         },
         12000,
     );

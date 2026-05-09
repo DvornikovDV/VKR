@@ -84,6 +84,20 @@ function isDuplicateKeyError(error: unknown): boolean {
     );
 }
 
+function logRuleRevisionDrift(
+    context: 'active' | 'clear',
+    incident: IAlarmIncident,
+    payload: AlarmEventPayloadDto,
+): void {
+    if (incident.rule.ruleRevision === payload.rule.ruleRevision) {
+        return;
+    }
+
+    console.warn(
+        `[alarm-incidents] ${context} ruleRevision drift for edge=${payload.edgeId} rule=${payload.rule.ruleId} device=${payload.deviceId} metric=${payload.metric}: incident=${incident.rule.ruleRevision} event=${payload.rule.ruleRevision}`,
+    );
+}
+
 export function projectAlarmIncident(incident: IAlarmIncident): AlarmIncidentProjectionDto {
     return {
         incidentId: incident._id.toHexString(),
@@ -151,7 +165,6 @@ export async function persistActiveAlarmIncident(
             latestValue: payload.value,
             latestTs: payload.ts,
             latestDetectedAt: payload.detectedAt,
-            rule: payload.rule,
             isActive: true,
             clearedAt: null,
         },
@@ -168,6 +181,7 @@ export async function persistActiveAlarmIncident(
         reusableOptions,
     ).exec();
     if (reusable) {
+        logRuleRevisionDrift('active', reusable, payload);
         return reusable;
     }
 
@@ -194,11 +208,16 @@ export async function persistActiveAlarmIncident(
             throw error;
         }
 
-        return await AlarmIncident.findOneAndUpdate(
+        const racedReusable = await AlarmIncident.findOneAndUpdate(
             reusableFilter,
             reusableUpdate,
             reusableOptions,
         ).exec();
+        if (racedReusable) {
+            logRuleRevisionDrift('active', racedReusable, payload);
+        }
+
+        return racedReusable;
     }
 }
 
@@ -232,6 +251,8 @@ export async function persistClearAlarmIncident(
         console.warn(
             `[alarm-incidents] Ignored clear for edge=${payload.edgeId} rule=${payload.rule.ruleId} device=${payload.deviceId} metric=${payload.metric}: no reusable incident`,
         );
+    } else {
+        logRuleRevisionDrift('clear', cleared, payload);
     }
 
     return cleared;

@@ -1,11 +1,22 @@
 import { io } from 'socket.io-client'
 import { useAuthStore } from '@/shared/store/useAuthStore'
 import type {
+  DashboardAlarmConditionType,
+  DashboardAlarmIncidentChangedEvent,
+  DashboardAlarmIncidentLifecycleState,
+  DashboardAlarmObservedValue,
+  DashboardAlarmSeverity,
   DashboardEdgeStatusEvent,
   DashboardTelemetryEvent,
   DashboardTelemetryReading,
   DashboardTransportStatus,
   DashboardRuntimeValue,
+} from '@/features/dashboard/model/types'
+import {
+  DASHBOARD_ALARM_CONDITION_TYPES,
+  DASHBOARD_ALARM_INCIDENT_CHANGED_EVENT,
+  DASHBOARD_ALARM_INCIDENT_LIFECYCLE_STATES,
+  DASHBOARD_ALARM_SEVERITIES,
 } from '@/features/dashboard/model/types'
 
 type DashboardSocketListener = (...args: unknown[]) => void
@@ -27,6 +38,7 @@ export interface StartDashboardRuntimeSessionOptions {
   onTransportStatusChange?: (status: DashboardTransportStatus) => void
   onTelemetry?: (event: DashboardTelemetryEvent) => void
   onEdgeStatus?: (event: DashboardEdgeStatusEvent) => void
+  onAlarmIncidentChanged?: (event: DashboardAlarmIncidentChangedEvent) => void
   onRuntimeError?: (error: Error) => void
 }
 
@@ -79,6 +91,42 @@ function toRuntimeValue(value: unknown): DashboardRuntimeValue | null {
   }
 
   return null
+}
+
+function toNullableNumber(value: unknown): number | null | undefined {
+  if (value === null) {
+    return null
+  }
+
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function toObservedValue(value: unknown): DashboardAlarmObservedValue | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  return null
+}
+
+function toNullableObservedValue(value: unknown): DashboardAlarmObservedValue | null {
+  if (value === null) {
+    return null
+  }
+
+  return toObservedValue(value)
+}
+
+function isOneOf<T extends string>(value: unknown, allowed: readonly T[]): value is T {
+  return typeof value === 'string' && allowed.includes(value as T)
+}
+
+function toOptionalString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
 }
 
 function toFiniteNumber(value: unknown, fallback: number): number {
@@ -144,6 +192,125 @@ function parseEdgeStatusEvent(payload: unknown, expectedEdgeId: string): Dashboa
   return {
     edgeId,
     online: payload.online,
+  }
+}
+
+function parseAlarmIncidentChangedEvent(
+  payload: unknown,
+  expectedEdgeId: string,
+): DashboardAlarmIncidentChangedEvent | null {
+  if (!isRecord(payload)) {
+    return null
+  }
+
+  const edgeId = toNonEmptyString(payload.edgeId)
+  if (!edgeId || edgeId !== expectedEdgeId || !isRecord(payload.incident)) {
+    return null
+  }
+
+  const incident = payload.incident
+  const incidentEdgeId = toNonEmptyString(incident.edgeId)
+  const rule = isRecord(incident.rule) ? incident.rule : null
+  if (!incidentEdgeId || incidentEdgeId !== expectedEdgeId || !rule) {
+    return null
+  }
+
+  const incidentId = toNonEmptyString(incident.incidentId)
+  const sourceId = toNonEmptyString(incident.sourceId)
+  const deviceId = toNonEmptyString(incident.deviceId)
+  const metric = toNonEmptyString(incident.metric)
+  const ruleId = toNonEmptyString(incident.ruleId)
+  const lifecycleState = isOneOf(
+    incident.lifecycleState,
+    DASHBOARD_ALARM_INCIDENT_LIFECYCLE_STATES,
+  )
+    ? incident.lifecycleState
+    : null
+  const activatedAt = toNonEmptyString(incident.activatedAt)
+  const clearedAt = toOptionalString(incident.clearedAt)
+  const acknowledgedAt = toOptionalString(incident.acknowledgedAt)
+  const acknowledgedBy = toOptionalString(incident.acknowledgedBy)
+  const latestValue = toObservedValue(incident.latestValue)
+  const latestTs = toNullableNumber(incident.latestTs)
+  const latestDetectedAt = toNullableNumber(incident.latestDetectedAt)
+  const createdAt = toNonEmptyString(incident.createdAt)
+  const updatedAt = toNonEmptyString(incident.updatedAt)
+
+  const snapshotRuleId = toNonEmptyString(rule.ruleId)
+  const ruleRevision = toNonEmptyString(rule.ruleRevision)
+  const conditionType = isOneOf(rule.conditionType, DASHBOARD_ALARM_CONDITION_TYPES)
+    ? rule.conditionType
+    : null
+  const triggerThreshold = toNullableNumber(rule.triggerThreshold)
+  const clearThreshold = toNullableNumber(rule.clearThreshold)
+  const expectedValue = toNullableObservedValue(rule.expectedValue)
+  const severity = isOneOf(rule.severity, DASHBOARD_ALARM_SEVERITIES) ? rule.severity : null
+  const label = toNonEmptyString(rule.label)
+
+  if (
+    !incidentId ||
+    !sourceId ||
+    !deviceId ||
+    !metric ||
+    !ruleId ||
+    !lifecycleState ||
+    typeof incident.isActive !== 'boolean' ||
+    typeof incident.isAcknowledged !== 'boolean' ||
+    !activatedAt ||
+    (clearedAt === null && incident.clearedAt !== null) ||
+    (acknowledgedAt === null && incident.acknowledgedAt !== null) ||
+    (acknowledgedBy === null && incident.acknowledgedBy !== null) ||
+    latestValue === null ||
+    latestTs === null ||
+    latestTs === undefined ||
+    latestDetectedAt === null ||
+    latestDetectedAt === undefined ||
+    !snapshotRuleId ||
+    !ruleRevision ||
+    !conditionType ||
+    triggerThreshold === undefined ||
+    clearThreshold === undefined ||
+    (expectedValue === null && rule.expectedValue !== null) ||
+    !severity ||
+    !label ||
+    !createdAt ||
+    !updatedAt
+  ) {
+    return null
+  }
+
+  return {
+    edgeId,
+    incident: {
+      incidentId,
+      edgeId: incidentEdgeId,
+      sourceId,
+      deviceId,
+      metric,
+      ruleId,
+      lifecycleState: lifecycleState as DashboardAlarmIncidentLifecycleState,
+      isActive: incident.isActive,
+      isAcknowledged: incident.isAcknowledged,
+      activatedAt,
+      clearedAt,
+      acknowledgedAt,
+      acknowledgedBy,
+      latestValue,
+      latestTs,
+      latestDetectedAt,
+      rule: {
+        ruleId: snapshotRuleId,
+        ruleRevision,
+        conditionType: conditionType as DashboardAlarmConditionType,
+        triggerThreshold,
+        clearThreshold,
+        expectedValue,
+        severity: severity as DashboardAlarmSeverity,
+        label,
+      },
+      createdAt,
+      updatedAt,
+    },
   }
 }
 
@@ -242,12 +409,22 @@ export function createCloudRuntimeClient(
         options.onEdgeStatus?.(parsed)
       }
 
+      const handleAlarmIncidentChanged = (payload: unknown) => {
+        const parsed = parseAlarmIncidentChangedEvent(payload, edgeId)
+        if (!parsed) {
+          return
+        }
+
+        options.onAlarmIncidentChanged?.(parsed)
+      }
+
       notifyTransportStatus('connecting')
       socket.on('connect', handleConnect)
       socket.on('disconnect', handleDisconnect)
       socket.on('connect_error', handleConnectError)
       socket.on('telemetry', handleTelemetry)
       socket.on('edge_status', handleEdgeStatus)
+      socket.on(DASHBOARD_ALARM_INCIDENT_CHANGED_EVENT, handleAlarmIncidentChanged)
       socket.connect()
 
       return {
@@ -263,6 +440,7 @@ export function createCloudRuntimeClient(
           socket.off('connect_error', handleConnectError)
           socket.off('telemetry', handleTelemetry)
           socket.off('edge_status', handleEdgeStatus)
+          socket.off(DASHBOARD_ALARM_INCIDENT_CHANGED_EVENT, handleAlarmIncidentChanged)
           socket.disconnect()
         },
         isConnected: () => socket.connected,

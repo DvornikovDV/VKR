@@ -699,6 +699,69 @@ paths:
               schema:
                 $ref: '#/components/schemas/CommandErrorResponse'
 
+  /api/edge-servers/{edgeId}/alarm-incidents/{incidentId}/ack:
+    post:
+      operationId: acknowledgeAlarmIncident
+      summary: Acknowledge an alarm incident for a trusted Edge Server (USER only)
+      description: >
+        Marks the selected Cloud-owned alarm incident as acknowledged. The
+        requesting USER must be in `EdgeServer.trustedUsers` for the selected
+        Edge Server, and the incident must belong to that Edge Server. ACK is
+        idempotent for already acknowledged incidents and does not clear active
+        incidents or mutate alarm rule snapshot fields.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the target Edge Server
+        - name: incidentId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the alarm incident to acknowledge
+      responses:
+        '200':
+          description: Alarm incident acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlarmIncidentAckResponse'
+        '400':
+          description: Invalid edgeId or incidentId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized — missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden — USER is not trusted for this Edge Server or does not have the USER role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Edge Server or alarm incident not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict — ACK cannot be applied because the incident state conflicts with the request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/edge-servers/{edgeId}/bind:
     post:
       operationId: bindEdgeServerToUser
@@ -1122,6 +1185,145 @@ components:
         message:
           type: string
           description: Human-readable error description
+    AlarmRuleSnapshot:
+      type: object
+      required:
+        - ruleId
+        - ruleRevision
+        - conditionType
+        - triggerThreshold
+        - clearThreshold
+        - expectedValue
+        - severity
+        - label
+      properties:
+        ruleId:
+          type: string
+          description: Stable Edge alarm rule identifier
+        ruleRevision:
+          type: string
+          description: Edge-provided alarm rule revision captured at diagnosis time
+        conditionType:
+          type: string
+          enum: [high, low, state, connectivity]
+        triggerThreshold:
+          type: number
+          nullable: true
+        clearThreshold:
+          type: number
+          nullable: true
+        expectedValue:
+          oneOf:
+            - type: number
+              nullable: true
+            - type: boolean
+        severity:
+          type: string
+          enum: [warning, danger]
+          description: Rule importance, not incident lifecycle state
+        label:
+          type: string
+    AlarmIncidentProjection:
+      type: object
+      required:
+        - incidentId
+        - edgeId
+        - sourceId
+        - deviceId
+        - metric
+        - ruleId
+        - lifecycleState
+        - isActive
+        - isAcknowledged
+        - activatedAt
+        - clearedAt
+        - acknowledgedAt
+        - acknowledgedBy
+        - latestValue
+        - latestTs
+        - latestDetectedAt
+        - rule
+        - createdAt
+        - updatedAt
+      properties:
+        incidentId:
+          type: string
+          description: MongoDB ObjectId of the alarm incident
+        edgeId:
+          type: string
+          description: MongoDB ObjectId of the owning Edge Server
+        sourceId:
+          type: string
+          description: Edge-local normalized source used for diagnosis
+        deviceId:
+          type: string
+          description: Normalized device identifier
+        metric:
+          type: string
+          description: Normalized metric identifier
+        ruleId:
+          type: string
+          description: Stable Edge alarm rule identifier
+        lifecycleState:
+          type: string
+          enum:
+            - active_unacknowledged
+            - active_acknowledged
+            - cleared_unacknowledged
+            - closed
+        isActive:
+          type: boolean
+        isAcknowledged:
+          type: boolean
+        activatedAt:
+          type: string
+          format: date-time
+        clearedAt:
+          type: string
+          format: date-time
+          nullable: true
+        acknowledgedAt:
+          type: string
+          format: date-time
+          nullable: true
+        acknowledgedBy:
+          type: string
+          nullable: true
+          description: MongoDB ObjectId of the USER that acknowledged the incident
+        latestValue:
+          oneOf:
+            - type: number
+            - type: boolean
+        latestTs:
+          type: number
+          description: Edge-provided reading timestamp
+        latestDetectedAt:
+          type: number
+          description: Edge-provided detection timestamp
+        rule:
+          $ref: '#/components/schemas/AlarmRuleSnapshot'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AlarmIncidentAckResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          required:
+            - incident
+          properties:
+            incident:
+              $ref: '#/components/schemas/AlarmIncidentProjection'
     JSendSuccess:
       type: object
       properties:

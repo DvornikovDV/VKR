@@ -17,7 +17,10 @@ import {
 } from '@/features/dashboard/model/selectors'
 import { createCloudRuntimeClient } from '@/features/dashboard/services/cloudRuntimeClient'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
-import { createMockDashboardRuntimeSocketHarness } from '../integration/helpers/mockDashboardRuntimeSocket'
+import {
+  createDashboardAlarmIncidentChangedEventFixture,
+  createMockDashboardRuntimeSocketHarness,
+} from '../integration/helpers/mockDashboardRuntimeSocket'
 
 const userSession: Session = {
   id: 'user-1',
@@ -205,5 +208,41 @@ describe('Dashboard foundational helpers (T001-T009)', () => {
     })
 
     expect(result.current.latestMetricValueByBindingKey).toEqual({})
+  })
+
+  it('parses alarm incident realtime events through an optional runtime callback', async () => {
+    const socketHarness = createMockDashboardRuntimeSocketHarness()
+    const runtimeClient = createCloudRuntimeClient(socketHarness.socketFactory)
+    const receivedEvents: unknown[] = []
+
+    const session = runtimeClient.startSession({
+      edgeId: 'edge-1',
+      onAlarmIncidentChanged: (event) => {
+        receivedEvents.push(event)
+      },
+    })
+
+    const event = createDashboardAlarmIncidentChangedEventFixture()
+
+    act(() => {
+      socketHarness.emitAlarmIncidentChanged(event)
+      socketHarness.emitAlarmIncidentChanged(
+        createDashboardAlarmIncidentChangedEventFixture({ edgeId: 'edge-2' }),
+      )
+      socketHarness.emitAlarmIncidentChanged({
+        edgeId: 'edge-1',
+        incident: {
+          ...event.incident,
+          rule: {
+            ...event.incident.rule,
+            severity: 'critical',
+          },
+        },
+      })
+    })
+
+    expect(receivedEvents).toEqual([event])
+
+    session.dispose()
   })
 })
