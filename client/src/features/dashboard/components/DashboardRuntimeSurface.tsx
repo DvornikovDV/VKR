@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp, Info, Loader2, Maximize2, Monitor } from 'lucide-react'
+import { DashboardAlarmJournalPanel } from '@/features/dashboard/components/DashboardAlarmJournalPanel'
 import { DashboardDiagnosticsPanel } from '@/features/dashboard/components/DashboardDiagnosticsPanel'
 import { DashboardVisualSurface } from '@/features/dashboard/components/DashboardVisualSurface'
 import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runtimeLayout'
@@ -15,6 +16,10 @@ import type {
   DashboardCommandLifecycleByWidgetId,
   DashboardCommandType,
   DashboardEdgeAvailability,
+  DashboardAlarmAckErrorByIncidentId,
+  DashboardAlarmAckPendingByIncidentId,
+  DashboardAlarmIncidentList,
+  DashboardAlarmJournalInitialLoadBlockedMarker,
   DashboardMetricValueByBindingKey,
   DashboardRecoveryState,
   DashboardRuntimeLayout,
@@ -40,6 +45,11 @@ interface DashboardRuntimeSurfaceProps {
   edgeAvailability: DashboardEdgeAvailability
   latestMetricValueByBindingKey: DashboardMetricValueByBindingKey
   lastServerTimestamp?: number | null
+  alarmIncidents?: DashboardAlarmIncidentList
+  alarmJournalInitialLoadBlocked?: DashboardAlarmJournalInitialLoadBlockedMarker | null
+  alarmAckPendingByIncidentId?: DashboardAlarmAckPendingByIncidentId
+  alarmAckErrorByIncidentId?: DashboardAlarmAckErrorByIncidentId
+  onAcknowledgeAlarmIncident?: (incidentId: string) => void | Promise<void>
   diagnosticsOpen: boolean
   onToggleDiagnostics: () => void
   // Toolbar props
@@ -180,6 +190,11 @@ export function DashboardRuntimeSurface({
   edgeAvailability,
   latestMetricValueByBindingKey,
   lastServerTimestamp = null,
+  alarmIncidents = [],
+  alarmJournalInitialLoadBlocked = null,
+  alarmAckPendingByIncidentId = {},
+  alarmAckErrorByIncidentId = {},
+  onAcknowledgeAlarmIncident = () => undefined,
   diagnosticsOpen,
   onToggleDiagnostics,
   diagrams,
@@ -351,19 +366,30 @@ export function DashboardRuntimeSurface({
       {/* Canvas / Recovery area */}
       <div className="relative flex flex-1 flex-col min-h-0 bg-[radial-gradient(circle_at_top,_#132238,_#0a1220_58%)]">
         {showCanvas ? (
-          <div className="relative min-h-0 min-w-0 flex-1">
-            <div ref={canvasContainerRef} className="absolute inset-x-3 bottom-3 top-2 overflow-hidden">
-              <DashboardVisualSurface
-                runtimeLayout={runtimeLayout!}
-                runtimeProjection={runtimeProjection}
-                commandLifecycleByWidgetId={commandLifecycleByWidgetId}
-                onCommandCommit={onCommandCommit}
-                viewport={viewport}
-                viewportSize={containerSize}
-                onPanViewport={(pan) => setViewport((current) => panDashboardViewport(current, pan))}
-                onZoomAtCursor={(anchor, factor) =>
-                  setViewport((current) => zoomDashboardViewport(current, { factor, anchor }))
-                }
+          <div className="relative flex min-h-0 min-w-0 flex-1 flex-col xl:flex-row">
+            <div className="relative min-h-[18rem] min-w-0 flex-1">
+              <div ref={canvasContainerRef} className="absolute inset-x-3 bottom-3 top-2 overflow-hidden">
+                <DashboardVisualSurface
+                  runtimeLayout={runtimeLayout!}
+                  runtimeProjection={runtimeProjection}
+                  commandLifecycleByWidgetId={commandLifecycleByWidgetId}
+                  onCommandCommit={onCommandCommit}
+                  viewport={viewport}
+                  viewportSize={containerSize}
+                  onPanViewport={(pan) => setViewport((current) => panDashboardViewport(current, pan))}
+                  onZoomAtCursor={(anchor, factor) =>
+                    setViewport((current) => zoomDashboardViewport(current, { factor, anchor }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="max-h-64 flex-shrink-0 border-t border-[#1f2a3d] xl:max-h-none xl:w-80 xl:border-l xl:border-t-0">
+              <DashboardAlarmJournalPanel
+                alarmIncidents={alarmIncidents}
+                initialLoadBlocked={alarmJournalInitialLoadBlocked}
+                ackPendingByIncidentId={alarmAckPendingByIncidentId}
+                ackErrorByIncidentId={alarmAckErrorByIncidentId}
+                onAcknowledgeAlarmIncident={onAcknowledgeAlarmIncident}
               />
             </div>
           </div>

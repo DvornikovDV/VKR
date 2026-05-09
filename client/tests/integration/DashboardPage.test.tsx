@@ -17,6 +17,7 @@ import {
   type DashboardRestFixtures,
 } from '../mocks/handlers'
 import {
+  createDashboardAlarmIncidentChangedEventFixture,
   createDashboardTelemetryEventFixture,
   dashboardRuntimeClientHarness as runtimeHarness,
 } from './helpers/mockDashboardRuntimeSocket'
@@ -137,6 +138,58 @@ describe('DashboardPage (US1)', () => {
 
     expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     expect(screen.getByLabelText('Edge Server')).toHaveValue('edge-1')
+  })
+
+  it('renders a realtime alarm incident row for the selected edge without claiming initial load success', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const edgeId = 'edge-visual-1'
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId }),
+      )
+    })
+
+    const journalPanel = screen.getByTestId('dashboard-alarm-journal-panel')
+    expect(within(journalPanel).getByText(/initial alarm incident load is unavailable/i)).toBeInTheDocument()
+    expect(within(journalPanel).getByText(/blocked/i)).toBeInTheDocument()
+    expect(within(journalPanel).queryByText(/no incidents/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
+
+    act(() => {
+      runtimeHarness.emitAlarmIncidentChanged(
+        createDashboardAlarmIncidentChangedEventFixture({
+          edgeId,
+          incident: {
+            incidentId: 'incident-pressure-1',
+            edgeId,
+            deviceId: 'compressor-7',
+            metric: 'pressure',
+            ruleId: 'rule-pressure-high',
+            isActive: true,
+            isAcknowledged: false,
+            activatedAt: '2026-05-09T09:25:00.000Z',
+            latestDetectedAt: 1778318730000,
+            updatedAt: '2026-05-09T09:25:30.000Z',
+            rule: {
+              severity: 'danger',
+              label: 'Compressor pressure high',
+            },
+          },
+        }),
+      )
+    })
+
+    const row = await screen.findByTestId('dashboard-alarm-incident-row-incident-pressure-1')
+    expect(within(row).getByText('danger')).toBeInTheDocument()
+    expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
+    expect(within(row).getByText('2026-05-09T09:25:30.000Z')).toBeInTheDocument()
+    expect(within(row).getByText('Compressor pressure high')).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: 'Acknowledge incident Compressor pressure high' })).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
   })
 
   it('keeps dashboard route and renders invalid-selection for edge-only query', async () => {

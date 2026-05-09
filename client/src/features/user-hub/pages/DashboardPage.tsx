@@ -547,6 +547,11 @@ export function DashboardPage() {
         edgeAvailability={runtimeSession.edgeAvailability}
         latestMetricValueByBindingKey={runtimeSession.latestMetricValueByBindingKey}
         lastServerTimestamp={runtimeSession.lastServerTimestamp}
+        alarmIncidents={runtimeSession.alarmIncidents}
+        alarmJournalInitialLoadBlocked={runtimeSession.alarmJournalInitialLoadBlocked}
+        alarmAckPendingByIncidentId={runtimeSession.alarmAckPendingByIncidentId}
+        alarmAckErrorByIncidentId={runtimeSession.alarmAckErrorByIncidentId}
+        onAcknowledgeAlarmIncident={runtimeSession.acknowledgeAlarmIncident}
         diagnosticsOpen={isDiagnosticsOpen}
         onToggleDiagnostics={() => setIsDiagnosticsOpen((isOpen) => !isOpen)}
         diagrams={diagrams}
