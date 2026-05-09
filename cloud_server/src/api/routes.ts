@@ -4,6 +4,7 @@ import { EdgeServersController } from './edge-servers.controller';
 import { UsersController } from './users.controller';
 import { AdminController } from './admin.controller';
 import { CommandsController } from './commands.controller';
+import { AlarmIncidentsController } from './alarm-incidents.controller';
 import { authMiddleware } from './middlewares/auth.middleware';
 import { requireRole } from './middlewares/role.middleware';
 import { commandRateLimit } from './commands.rate-limit';
@@ -62,6 +63,12 @@ apiRouter.post(
     authMiddleware,
     requireRole('USER'),
     CommandsController.executeCommand,
+);
+apiRouter.post(
+    '/edge-servers/:edgeId/alarm-incidents/:incidentId/ack',
+    authMiddleware,
+    requireRole('USER'),
+    AlarmIncidentsController.ackIncident,
 );
 
 // ── Users (self-service) ──────────────────────────────────────────────────

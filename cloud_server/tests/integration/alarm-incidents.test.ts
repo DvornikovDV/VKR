@@ -5,7 +5,11 @@ import { AlarmIncident } from '../../src/models/AlarmIncident';
 import { EdgeServer } from '../../src/models/EdgeServer';
 import { User } from '../../src/models/User';
 import { resetActiveEdgeSocketsForTests } from '../../src/socket/events/edge';
-import { ALARM_INCIDENT_CHANGED_EVENT_NAME, type AlarmEventPayloadDto } from '../../src/types';
+import {
+    ALARM_INCIDENT_CHANGED_EVENT_NAME,
+    type AlarmEventPayloadDto,
+    type AlarmIncidentAckResponseDto,
+} from '../../src/types';
 import {
     bindEdgeToUser,
     cleanupClientSockets,
@@ -30,6 +34,7 @@ describe('Alarm incidents trusted Edge socket path', () => {
     let adminToken = '';
     let userId = '';
     let userToken = '';
+    let untrustedUserToken = '';
 
     beforeAll(async () => {
         await connectDatabase();
@@ -43,6 +48,7 @@ describe('Alarm incidents trusted Edge socket path', () => {
 
         ({ adminToken } = await createAdminSession('alarm_incidents_admin@test.com'));
         ({ userId, userToken } = await createUserSession('alarm_incidents_user@test.com'));
+        ({ userToken: untrustedUserToken } = await createUserSession('alarm_incidents_untrusted@test.com'));
     });
 
     beforeEach(async () => {
@@ -204,6 +210,116 @@ describe('Alarm incidents trusted Edge socket path', () => {
             expect(incidents[0]!.isAcknowledged).toBe(true);
             expect(incidents[0]!.acknowledgedAt?.toISOString()).toBe(acknowledgedAt.toISOString());
             expect(incidents[0]!.acknowledgedBy?.toHexString()).toBe(userId);
+        },
+        12000,
+    );
+
+    it(
+        'ACKs an incident through the HTTP route, mutates only ACK fields, and broadcasts the update',
+        async () => {
+            const registered = await registerEdge(adminToken, 'Alarm Incident Ack Edge');
+            await bindEdgeToUser(adminToken, registered.edgeId, userId);
+
+            const dashboardSocket = await connectDashboardSocket(
+                socketBaseUrl,
+                activeSockets,
+                userToken,
+                registered.edgeId,
+            );
+            const edgeSocket = await connectEdgeSocket(socketBaseUrl, activeSockets, {
+                edgeId: registered.edgeId,
+                credentialSecret: registered.credentialSecret,
+            });
+
+            const activeBroadcast = waitForAlarmIncidentChanged(dashboardSocket);
+            emitAlarmEvent(edgeSocket, buildAlarmEvent(registered.edgeId, {
+                value: 91.25,
+                ts: 1_777_777_101,
+                detectedAt: 1_777_777_102,
+            }));
+            const activeChanged = await activeBroadcast;
+            const incidentId = activeChanged.incident.incidentId;
+            const beforeAck = await AlarmIncident.findById(incidentId).lean().exec();
+            expect(beforeAck).not.toBeNull();
+
+            await EdgeServer.findByIdAndUpdate(registered.edgeId, {
+                $set: { lifecycleState: 'Blocked' },
+            }).exec();
+
+            const deniedResponse = await fetch(
+                `${socketBaseUrl}/api/edge-servers/${registered.edgeId}/alarm-incidents/${incidentId}/ack`,
+                {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${untrustedUserToken}` },
+                },
+            );
+            await expect(expectNoEvent(dashboardSocket, ALARM_INCIDENT_CHANGED_EVENT_NAME)).resolves.toBeUndefined();
+            expect(deniedResponse.status).toBe(403);
+            await expect(AlarmIncident.findById(incidentId).then((incident) => ({
+                isAcknowledged: incident?.isAcknowledged,
+                acknowledgedAt: incident?.acknowledgedAt ?? null,
+                acknowledgedBy: incident?.acknowledgedBy ?? null,
+            }))).resolves.toEqual({
+                isAcknowledged: false,
+                acknowledgedAt: null,
+                acknowledgedBy: null,
+            });
+
+            const ackBroadcast = waitForAlarmIncidentChanged(dashboardSocket);
+            const response = await fetch(
+                `${socketBaseUrl}/api/edge-servers/${registered.edgeId}/alarm-incidents/${incidentId}/ack`,
+                {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${userToken}` },
+                },
+            );
+            const body = await response.json() as AlarmIncidentAckResponseDto;
+            const ackChanged = await ackBroadcast;
+            const afterAck = await AlarmIncident.findById(incidentId).lean().exec();
+
+            expect(response.status).toBe(200);
+            expect(body).toMatchObject({
+                status: 'success',
+                data: {
+                    incident: {
+                        incidentId,
+                        edgeId: registered.edgeId,
+                        isActive: true,
+                        isAcknowledged: true,
+                        acknowledgedBy: userId,
+                    },
+                },
+            });
+            expect(body.data?.incident?.acknowledgedAt).toEqual(expect.any(String));
+
+            expect(ackChanged.edgeId).toBe(registered.edgeId);
+            expect(ackChanged.incident).toMatchObject({
+                incidentId,
+                edgeId: registered.edgeId,
+                isActive: true,
+                isAcknowledged: true,
+                lifecycleState: 'active_acknowledged',
+                acknowledgedBy: userId,
+                latestValue: 91.25,
+                latestTs: 1_777_777_101,
+                latestDetectedAt: 1_777_777_102,
+            });
+            expect(ackChanged.incident.acknowledgedAt).toEqual(expect.any(String));
+
+            expect(afterAck).not.toBeNull();
+            expect(afterAck!.isAcknowledged).toBe(true);
+            expect(afterAck!.acknowledgedAt).toBeInstanceOf(Date);
+            expect(afterAck!.acknowledgedBy?.toHexString()).toBe(userId);
+            expect(afterAck!.isActive).toBe(beforeAck!.isActive);
+            expect(afterAck!.clearedAt).toEqual(beforeAck!.clearedAt);
+            expect(afterAck!.sourceId).toBe(beforeAck!.sourceId);
+            expect(afterAck!.deviceId).toBe(beforeAck!.deviceId);
+            expect(afterAck!.metric).toBe(beforeAck!.metric);
+            expect(afterAck!.ruleId).toBe(beforeAck!.ruleId);
+            expect(afterAck!.latestValue).toBe(beforeAck!.latestValue);
+            expect(afterAck!.latestTs).toBe(beforeAck!.latestTs);
+            expect(afterAck!.latestDetectedAt).toBe(beforeAck!.latestDetectedAt);
+            expect(afterAck!.rule).toEqual(beforeAck!.rule);
         },
         12000,
     );

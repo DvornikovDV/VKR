@@ -1,6 +1,8 @@
 import mongoose from 'mongoose';
 
+import { AppError } from '../api/middlewares/error.middleware';
 import { AlarmIncident, type IAlarmIncident } from '../models/AlarmIncident';
+import { EdgeServer } from '../models/EdgeServer';
 import type {
     AlarmEventPayloadDto,
     AlarmIncidentLifecycleState,
@@ -18,6 +20,12 @@ export interface AlarmIncidentAckInput {
     edgeId: string | mongoose.Types.ObjectId;
     incidentId: string | mongoose.Types.ObjectId;
     acknowledgedBy: string | mongoose.Types.ObjectId;
+}
+
+export interface TrustedAlarmIncidentAckInput {
+    edgeId: string;
+    incidentId: string;
+    userId: string;
 }
 
 function toObjectId(value: string | mongoose.Types.ObjectId): mongoose.Types.ObjectId | null {
@@ -268,4 +276,50 @@ export async function acknowledgeAlarmIncident(
     }
 
     return await AlarmIncident.findOne(ownershipFilter).exec();
+}
+
+export async function acknowledgeTrustedAlarmIncident(
+    input: TrustedAlarmIncidentAckInput,
+): Promise<IAlarmIncident> {
+    const edgeId = toObjectId(input.edgeId);
+    const incidentId = toObjectId(input.incidentId);
+    const userId = toObjectId(input.userId);
+
+    if (!edgeId) {
+        throw new AppError('Invalid edgeId', 400);
+    }
+
+    if (!incidentId) {
+        throw new AppError('Invalid incidentId', 400);
+    }
+
+    if (!userId) {
+        throw new AppError('Invalid userId', 400);
+    }
+
+    const edgeServer = await EdgeServer.findById(edgeId)
+        .select('trustedUsers')
+        .lean<{ trustedUsers: mongoose.Types.ObjectId[] } | null>()
+        .exec();
+
+    if (!edgeServer) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    const isTrusted = edgeServer.trustedUsers.some((trustedUserId) => trustedUserId.equals(userId));
+    if (!isTrusted) {
+        throw new AppError('Access denied: user is not trusted for this edge server', 403);
+    }
+
+    const incident = await acknowledgeAlarmIncident({
+        edgeId,
+        incidentId,
+        acknowledgedBy: userId,
+    });
+
+    if (!incident) {
+        throw new AppError('Alarm incident not found', 404);
+    }
+
+    return incident;
 }
