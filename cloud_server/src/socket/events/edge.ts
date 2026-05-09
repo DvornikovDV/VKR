@@ -10,6 +10,7 @@ import {
 import { registerCommandResultHandler } from './command';
 import { registerTelemetryHandler } from './telemetry';
 import { registerCapabilitiesCatalogHandler } from './capabilities';
+import { registerAlarmEventHandler } from './alarm';
 
 export const EDGE_NAMESPACE = '/edge';
 
@@ -169,6 +170,7 @@ export function registerEdgeNamespace(io: IOServer): void {
         registerTelemetryHandler(socket, io, edgeId);
         registerCommandResultHandler(socket, edgeId);
         registerCapabilitiesCatalogHandler(socket, edgeId);
+        registerAlarmEventHandler(socket, io, edgeId);
 
         socket.on('disconnect', (reason: string) => {
             untrackActiveEdgeSocket(edgeId, socket);
