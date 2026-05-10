@@ -273,6 +273,15 @@ export type DashboardAlarmIncidentProjection = AlarmIncidentProjection
 export type DashboardAlarmIncidentList = DashboardAlarmIncidentProjection[]
 export type DashboardAlarmAckPendingByIncidentId = Record<string, boolean>
 export type DashboardAlarmAckErrorByIncidentId = Record<string, string>
+export interface DashboardAlarmRedLightSummary {
+  unclosedCount: number
+  unclosedIncidents: DashboardAlarmIncidentList
+  newestUnclosedIncident: DashboardAlarmIncidentProjection | null
+}
+export interface DashboardAlarmToastNotice {
+  incidentId: string
+  incident: DashboardAlarmIncidentProjection
+}
 export type DashboardAlarmJournalInitialLoadBlockedReason =
   'missing-cloud-incident-list-endpoint'
 export interface DashboardAlarmJournalInitialLoadBlockedMarker {

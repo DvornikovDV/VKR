@@ -2,13 +2,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ackAlarmIncident } from '@/shared/api/alarmIncidents'
 import { apiClient } from '@/shared/api/client'
 import {
+  countDashboardUnclosedAlarmIncidents,
   getDashboardAlarmIncidentIdentityLabel,
   getDashboardAlarmIncidentLifecycleLabel,
   getDashboardAlarmIncidentRowTime,
+  isDashboardAlarmIncidentUnclosed,
+  selectDashboardAlarmRedLightSummary,
+  selectDashboardUnclosedAlarmIncidents,
+  selectNewestDashboardUnclosedAlarmIncident,
   upsertDashboardAlarmIncident,
 } from '@/features/dashboard/model/alarmIncidents'
 import {
   createDashboardAlarmIncidentChangedEventFixture,
+  createDashboardClosedAlarmIncidentChangedEventFixture,
+  createDashboardUnclosedAlarmIncidentChangedEventFixture,
   createMockDashboardRuntimeClientHarness,
 } from '../integration/helpers/mockDashboardRuntimeSocket'
 
@@ -95,6 +102,50 @@ describe('alarm incident contract anchors', () => {
     expect(getDashboardAlarmIncidentRowTime(newerEvent.incident)).toBe(
       '2026-05-09T10:11:00.000Z',
     )
+  })
+
+  it('derives red-light incidents only from active and acknowledged lifecycle flags', () => {
+    const activeAcknowledged = createDashboardUnclosedAlarmIncidentChangedEventFixture({
+      incident: {
+        incidentId: 'incident-active-acked',
+        isAcknowledged: true,
+        lifecycleState: 'active_acknowledged',
+        updatedAt: '2026-05-09T10:05:00.000Z',
+      },
+    }).incident
+    const clearedUnacknowledged = createDashboardUnclosedAlarmIncidentChangedEventFixture({
+      incident: {
+        incidentId: 'incident-cleared-unacked',
+        isActive: false,
+        lifecycleState: 'cleared_unacknowledged',
+        clearedAt: '2026-05-09T10:10:00.000Z',
+        updatedAt: '2026-05-09T10:10:00.000Z',
+      },
+    }).incident
+    const closed = createDashboardClosedAlarmIncidentChangedEventFixture({
+      incident: {
+        incidentId: 'incident-closed',
+        updatedAt: '2026-05-09T10:15:00.000Z',
+      },
+    }).incident
+
+    const incidents = [closed, clearedUnacknowledged, activeAcknowledged]
+    const summary = selectDashboardAlarmRedLightSummary(incidents)
+
+    expect(isDashboardAlarmIncidentUnclosed(activeAcknowledged)).toBe(true)
+    expect(isDashboardAlarmIncidentUnclosed(clearedUnacknowledged)).toBe(true)
+    expect(isDashboardAlarmIncidentUnclosed(closed)).toBe(false)
+    expect(selectDashboardUnclosedAlarmIncidents(incidents)).toEqual([
+      clearedUnacknowledged,
+      activeAcknowledged,
+    ])
+    expect(countDashboardUnclosedAlarmIncidents(incidents)).toBe(2)
+    expect(selectNewestDashboardUnclosedAlarmIncident(incidents)).toBe(clearedUnacknowledged)
+    expect(summary).toEqual({
+      unclosedCount: 2,
+      unclosedIncidents: [clearedUnacknowledged, activeAcknowledged],
+      newestUnclosedIncident: clearedUnacknowledged,
+    })
   })
 
   it('lets runtime harness emit alarm incident callbacks for later runtime tests', () => {

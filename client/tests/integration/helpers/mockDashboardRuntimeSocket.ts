@@ -174,6 +174,41 @@ export function createDashboardAlarmIncidentChangedEventFixture(
   }
 }
 
+export function createDashboardUnclosedAlarmIncidentChangedEventFixture(
+  overrides: DashboardAlarmIncidentFixtureOverrides = {},
+): DashboardAlarmIncidentChangedEvent {
+  return createDashboardAlarmIncidentChangedEventFixture({
+    ...overrides,
+    incident: {
+      lifecycleState: 'active_unacknowledged',
+      isActive: true,
+      isAcknowledged: false,
+      clearedAt: null,
+      acknowledgedAt: null,
+      acknowledgedBy: null,
+      ...overrides.incident,
+    },
+  })
+}
+
+export function createDashboardClosedAlarmIncidentChangedEventFixture(
+  overrides: DashboardAlarmIncidentFixtureOverrides = {},
+): DashboardAlarmIncidentChangedEvent {
+  return createDashboardAlarmIncidentChangedEventFixture({
+    ...overrides,
+    incident: {
+      lifecycleState: 'closed',
+      isActive: false,
+      isAcknowledged: true,
+      clearedAt: '2026-05-09T10:10:00.000Z',
+      acknowledgedAt: '2026-05-09T10:11:00.000Z',
+      acknowledgedBy: 'operator-1',
+      updatedAt: '2026-05-09T10:11:00.000Z',
+      ...overrides.incident,
+    },
+  })
+}
+
 export function createMockDashboardRuntimeClientHarness(): MockDashboardRuntimeClientHarness {
   const activeCallbacksByEdge = new Map<string, MockDashboardRuntimeClientSessionOptions>()
   const disposeCountByEdge = new Map<string, number>()

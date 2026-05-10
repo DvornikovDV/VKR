@@ -1,6 +1,8 @@
 import type {
+  DashboardAlarmIncidentList,
   DashboardAlarmIncidentLifecycleState,
   DashboardAlarmIncidentProjection,
+  DashboardAlarmRedLightSummary,
 } from '@/features/dashboard/model/types'
 
 const lifecycleLabels: Record<DashboardAlarmIncidentLifecycleState, string> = {
@@ -45,6 +47,12 @@ export function getDashboardAlarmIncidentLifecycleLabel(
   incident: Pick<DashboardAlarmIncidentProjection, 'isActive' | 'isAcknowledged'>,
 ): string {
   return lifecycleLabels[getDashboardAlarmIncidentLifecycleState(incident)]
+}
+
+export function isDashboardAlarmIncidentUnclosed(
+  incident: Pick<DashboardAlarmIncidentProjection, 'isActive' | 'isAcknowledged'>,
+): boolean {
+  return incident.isActive || !incident.isAcknowledged
 }
 
 export function getDashboardAlarmIncidentIdentityLabel(
@@ -102,6 +110,36 @@ export function sortDashboardAlarmIncidents(
   incidents: readonly DashboardAlarmIncidentProjection[],
 ): DashboardAlarmIncidentProjection[] {
   return [...incidents].sort(compareDashboardAlarmIncidentRows)
+}
+
+export function selectDashboardUnclosedAlarmIncidents(
+  incidents: readonly DashboardAlarmIncidentProjection[],
+): DashboardAlarmIncidentList {
+  return sortDashboardAlarmIncidents(incidents.filter(isDashboardAlarmIncidentUnclosed))
+}
+
+export function countDashboardUnclosedAlarmIncidents(
+  incidents: readonly DashboardAlarmIncidentProjection[],
+): number {
+  return incidents.filter(isDashboardAlarmIncidentUnclosed).length
+}
+
+export function selectNewestDashboardUnclosedAlarmIncident(
+  incidents: readonly DashboardAlarmIncidentProjection[],
+): DashboardAlarmIncidentProjection | null {
+  return selectDashboardUnclosedAlarmIncidents(incidents)[0] ?? null
+}
+
+export function selectDashboardAlarmRedLightSummary(
+  incidents: readonly DashboardAlarmIncidentProjection[],
+): DashboardAlarmRedLightSummary {
+  const unclosedIncidents = selectDashboardUnclosedAlarmIncidents(incidents)
+
+  return {
+    unclosedCount: unclosedIncidents.length,
+    unclosedIncidents,
+    newestUnclosedIncident: unclosedIncidents[0] ?? null,
+  }
 }
 
 export function upsertDashboardAlarmIncident(
