@@ -1,4 +1,5 @@
 import { type Server as IOServer, type Socket } from 'socket.io';
+import { clearConnectivityAlarmIncident } from '../../services/connectivity-alarm.service';
 import { markEdgeOffline } from '../../services/edge-servers.service';
 import { authenticatePersistentEdgeRuntime } from './edge-runtime-auth';
 import {
@@ -10,7 +11,7 @@ import {
 import { registerCommandResultHandler } from './command';
 import { registerTelemetryHandler } from './telemetry';
 import { registerCapabilitiesCatalogHandler } from './capabilities';
-import { registerAlarmEventHandler } from './alarm';
+import { emitAlarmIncidentChanged, registerAlarmEventHandler } from './alarm';
 
 export const EDGE_NAMESPACE = '/edge';
 
@@ -165,6 +166,16 @@ export function registerEdgeNamespace(io: IOServer): void {
             socket.disconnect(true);
             return;
         }
+        void clearConnectivityAlarmIncident(edgeId, new Date())
+            .then((incident) => {
+                if (incident) {
+                    emitAlarmIncidentChanged(io, edgeId, incident);
+                }
+            })
+            .catch((error: unknown) => {
+                const message = error instanceof Error ? error.message : String(error);
+                console.warn(`[edge] Failed to clear connectivity alarm for edge ${edgeId}: ${message}`);
+            });
         console.log(`[edge] Edge connected: ${edgeId} (socket: ${socket.id})`);
 
         registerTelemetryHandler(socket, io, edgeId);

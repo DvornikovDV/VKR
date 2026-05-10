@@ -2,8 +2,10 @@ import { type AddressInfo } from 'node:net';
 import { io as createSocketClient, type Socket as ClientSocket } from 'socket.io-client';
 import request from 'supertest';
 import { app, server } from '../../src/app';
+import { AlarmIncident, type IAlarmIncident } from '../../src/models/AlarmIncident';
 import { User } from '../../src/models/User';
 import { AuthService } from '../../src/services/auth.service';
+import { getConnectivityAlarmIdentity } from '../../src/services/connectivity-alarm.service';
 import { EDGE_NAMESPACE } from '../../src/socket/events/edge';
 import {
     ALARM_EDGE_EVENT_NAME,
@@ -450,12 +452,24 @@ export function emitCommandResult(
 
 export type AlarmEventPayload = AlarmEventPayloadDto;
 export type AlarmIncidentChangedPayload = AlarmIncidentChangedEventDto;
+export interface EdgeStatusPayload {
+    edgeId: string;
+    online: boolean;
+    lastSeenAt: string | null;
+}
 
 export function emitAlarmEvent(
     edgeSocket: ClientSocket,
     payload: AlarmEventPayload,
 ): void {
     edgeSocket.emit(ALARM_EDGE_EVENT_NAME, payload);
+}
+
+export async function waitForEdgeStatus(
+    dashboardSocket: ClientSocket,
+    timeoutMs = 4000,
+): Promise<EdgeStatusPayload> {
+    return await waitForEvent<EdgeStatusPayload>(dashboardSocket, 'edge_status', timeoutMs);
 }
 
 export async function waitForAlarmIncidentChanged(
@@ -467,6 +481,30 @@ export async function waitForAlarmIncidentChanged(
         ALARM_INCIDENT_CHANGED_EVENT_NAME,
         timeoutMs,
     );
+}
+
+export async function findConnectivityAlarmIncidents(edgeId: string): Promise<IAlarmIncident[]> {
+    const identity = getConnectivityAlarmIdentity(edgeId);
+
+    return await AlarmIncident.find({
+        edgeId: identity.edgeId,
+        ruleId: identity.ruleId,
+        deviceId: identity.deviceId,
+        metric: identity.metric,
+    })
+        .sort({ activatedAt: 1, createdAt: 1 })
+        .exec();
+}
+
+export async function countConnectivityAlarmIncidents(edgeId: string): Promise<number> {
+    const identity = getConnectivityAlarmIdentity(edgeId);
+
+    return await AlarmIncident.countDocuments({
+        edgeId: identity.edgeId,
+        ruleId: identity.ruleId,
+        deviceId: identity.deviceId,
+        metric: identity.metric,
+    }).exec();
 }
 
 export async function waitForForcedDisconnect(
