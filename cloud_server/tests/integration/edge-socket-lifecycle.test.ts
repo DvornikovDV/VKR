@@ -18,6 +18,7 @@ import {
     createUserSession,
     ensureServerListening,
     expectNoEvent,
+    countConnectivityAlarmIncidents,
     findConnectivityAlarmIncidents,
     registerEdge,
     rotateEdgeCredential,
@@ -133,6 +134,39 @@ describe('Edge socket lifecycle runtime path', () => {
         });
 
         const incidentId = activeChanged.incident.incidentId;
+
+        const firstClearBroadcast = waitForAlarmIncidentChanged(dashboardSocket);
+        const firstReconnectedSocket = await connectEdgeSocket(socketBaseUrl, activeSockets, {
+            edgeId: registered.edgeId,
+            credentialSecret: registered.credentialSecret,
+        });
+        await expect(expectNoEvent(dashboardSocket, 'edge_status')).resolves.toBeUndefined();
+        const firstClearChanged = await firstClearBroadcast;
+        expect(firstClearChanged.incident).toMatchObject({
+            incidentId,
+            isActive: false,
+            isAcknowledged: false,
+            lifecycleState: 'cleared_unacknowledged',
+            acknowledgedBy: null,
+            latestValue: true,
+        });
+        await expect(countConnectivityAlarmIncidents(registered.edgeId)).resolves.toBe(1);
+
+        const duplicateOfflineStatus = waitForEdgeStatus(dashboardSocket);
+        const duplicateActiveBroadcast = waitForAlarmIncidentChanged(dashboardSocket);
+        await closeSocket(firstReconnectedSocket);
+
+        expectOfflineEdgeStatus(await duplicateOfflineStatus, registered.edgeId);
+        const duplicateActiveChanged = await duplicateActiveBroadcast;
+        expect(duplicateActiveChanged.incident).toMatchObject({
+            incidentId,
+            isActive: true,
+            isAcknowledged: false,
+            lifecycleState: 'active_unacknowledged',
+            latestValue: false,
+        });
+        await expect(countConnectivityAlarmIncidents(registered.edgeId)).resolves.toBe(1);
+
         const ackBroadcast = waitForAlarmIncidentChanged(dashboardSocket);
         const ackResponse = await fetch(
             `${socketBaseUrl}/api/edge-servers/${registered.edgeId}/alarm-incidents/${incidentId}/ack`,
@@ -151,14 +185,14 @@ describe('Edge socket lifecycle runtime path', () => {
             acknowledgedBy: userId,
         });
 
-        const clearBroadcast = waitForAlarmIncidentChanged(dashboardSocket);
+        const closedBroadcast = waitForAlarmIncidentChanged(dashboardSocket);
         const reconnectedSocket = await connectEdgeSocket(socketBaseUrl, activeSockets, {
             edgeId: registered.edgeId,
             credentialSecret: registered.credentialSecret,
         });
         await expect(expectNoEvent(dashboardSocket, 'edge_status')).resolves.toBeUndefined();
-        const clearChanged = await clearBroadcast;
-        expect(clearChanged.incident).toMatchObject({
+        const closedChanged = await closedBroadcast;
+        expect(closedChanged.incident).toMatchObject({
             incidentId,
             isActive: false,
             isAcknowledged: true,
