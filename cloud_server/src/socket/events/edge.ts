@@ -1,5 +1,8 @@
 import { type Server as IOServer, type Socket } from 'socket.io';
-import { clearConnectivityAlarmIncident } from '../../services/connectivity-alarm.service';
+import {
+    activateConnectivityAlarmIncident,
+    clearConnectivityAlarmIncident,
+} from '../../services/connectivity-alarm.service';
 import { markEdgeOffline } from '../../services/edge-servers.service';
 import { authenticatePersistentEdgeRuntime } from './edge-runtime-auth';
 import {
@@ -189,14 +192,24 @@ export function registerEdgeNamespace(io: IOServer): void {
             markTrustedSessionLost(socket);
             console.log(`[edge] Edge disconnected: ${edgeId} - reason: ${reason}`);
             if (getActiveEdgeSocketCount(edgeId) === 0 && !shouldSkipOfflineTransition(socket)) {
-                void markEdgeOffline(edgeId).then((lastSeenAt) => {
+                void (async () => {
+                    const lastSeenAt = await markEdgeOffline(edgeId);
                     io.to(edgeId).emit('edge_status', {
                         edgeId,
                         online: false,
                         lastSeenAt: lastSeenAt?.toISOString() ?? null,
                     });
-                }).catch((error) => {
-                    console.error(`[edge] Failed to mark edge offline (${edgeId}):`, error);
+
+                    if (getActiveEdgeSocketCount(edgeId) !== 0) {
+                        return;
+                    }
+
+                    const incident = await activateConnectivityAlarmIncident(edgeId, new Date());
+                    if (incident) {
+                        emitAlarmIncidentChanged(io, edgeId, incident);
+                    }
+                })().catch((error) => {
+                    console.error(`[edge] Failed to process edge offline transition (${edgeId}):`, error);
                 });
             }
         });

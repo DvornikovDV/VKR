@@ -109,6 +109,9 @@ export async function cleanupClientSockets(activeSockets: Set<ClientSocket>): Pr
     const sockets = Array.from(activeSockets);
     activeSockets.clear();
     await Promise.all(sockets.map((socket) => closeSocket(socket)));
+    if (sockets.length > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+    }
 }
 
 export async function registerEdge(
