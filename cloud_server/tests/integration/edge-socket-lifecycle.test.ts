@@ -300,6 +300,11 @@ describe('Edge socket lifecycle runtime path', () => {
             dashboardSocket,
             'edge_status',
         );
+        const noConnectivityAlarmBroadcast = expectNoEvent(
+            dashboardSocket,
+            'alarm_incident_changed',
+            1500,
+        );
         const rotated = await rotateEdgeCredential(adminToken, registered.edgeId);
 
         await expect(forcedDisconnect).resolves.toEqual({
@@ -313,6 +318,8 @@ describe('Edge socket lifecycle runtime path', () => {
                 lastSeenAt: expect.any(String),
             }),
         );
+        await expect(noConnectivityAlarmBroadcast).resolves.toBeUndefined();
+        await expect(countConnectivityAlarmIncidents(registered.edgeId)).resolves.toBe(0);
 
         edgeSocket.emit('telemetry', {
             readings: [
@@ -332,6 +339,7 @@ describe('Edge socket lifecycle runtime path', () => {
             edgeId: registered.edgeId,
             credentialSecret: rotated.credentialSecret,
         });
+        await expect(countConnectivityAlarmIncidents(registered.edgeId)).resolves.toBe(0);
 
         const restoredOnlineStatus = waitForEvent<{ edgeId: string; online: boolean; lastSeenAt: string | null }>(
             dashboardSocket,
