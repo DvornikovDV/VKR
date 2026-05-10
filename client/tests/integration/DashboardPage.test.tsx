@@ -18,7 +18,9 @@ import {
 } from '../mocks/handlers'
 import {
   createDashboardAlarmIncidentChangedEventFixture,
+  createDashboardClosedAlarmIncidentChangedEventFixture,
   createDashboardTelemetryEventFixture,
+  createDashboardUnclosedAlarmIncidentChangedEventFixture,
   dashboardRuntimeClientHarness as runtimeHarness,
 } from './helpers/mockDashboardRuntimeSocket'
 import { userHubRouteChildren } from '@/app/userHubRoutes'
@@ -308,6 +310,143 @@ describe('DashboardPage (US1)', () => {
     expect(
       within(otherRow).getByRole('button', { name: 'Acknowledge incident Compressor temperature high' }),
     ).toBeInTheDocument()
+  })
+
+  it('shows red-light and one toast for a newly known unclosed incident through the runtime path', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const edgeId = 'edge-visual-1'
+    const user = userEvent.setup()
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId }),
+      )
+    })
+    expect(screen.queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-alarm-toast-notice')).not.toBeInTheDocument()
+
+    act(() => {
+      runtimeHarness.emitAlarmIncidentChanged(
+        createDashboardUnclosedAlarmIncidentChangedEventFixture({
+          edgeId,
+          incident: {
+            incidentId: 'incident-pressure-toast',
+            edgeId,
+            deviceId: 'compressor-7',
+            metric: 'pressure',
+            ruleId: 'rule-pressure-high',
+            updatedAt: '2026-05-09T09:25:30.000Z',
+            rule: {
+              severity: 'danger',
+              label: 'Compressor pressure high',
+            },
+          },
+        }),
+      )
+    })
+
+    expect(await screen.findByTestId('dashboard-alarm-red-light-indicator')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-alarm-red-light-count')).toHaveTextContent('1')
+    const toasts = await screen.findAllByTestId('dashboard-alarm-toast-notice')
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0]).toHaveAttribute('data-incident-id', 'incident-pressure-toast')
+
+    act(() => {
+      runtimeHarness.emitAlarmIncidentChanged(
+        createDashboardUnclosedAlarmIncidentChangedEventFixture({
+          edgeId,
+          incident: {
+            incidentId: 'incident-pressure-toast',
+            edgeId,
+            latestValue: 45,
+            updatedAt: '2026-05-09T09:26:00.000Z',
+            rule: {
+              severity: 'danger',
+              label: 'Compressor pressure high',
+            },
+          },
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId('dashboard-alarm-toast-notice')).toHaveLength(1)
+      expect(screen.getByTestId('dashboard-alarm-red-light-count')).toHaveTextContent('1')
+    })
+
+    await user.click(
+      screen.getByRole('button', {
+        name: 'Dismiss alarm incident notice incident-pressure-toast',
+      }),
+    )
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('dashboard-alarm-toast-notice')).not.toBeInTheDocument()
+    })
+    expect(screen.getByTestId('dashboard-alarm-red-light-count')).toHaveTextContent('1')
+    expect(
+      screen.getByTestId('dashboard-alarm-incident-row-incident-pressure-toast'),
+    ).toHaveTextContent('Active Unacknowledged')
+
+    act(() => {
+      runtimeHarness.emitAlarmIncidentChanged(
+        createDashboardClosedAlarmIncidentChangedEventFixture({
+          edgeId,
+          incident: {
+            incidentId: 'incident-pressure-toast',
+            edgeId,
+            rule: {
+              label: 'Compressor pressure high',
+            },
+          },
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
+    })
+    expect(
+      screen.getByTestId('dashboard-alarm-incident-row-incident-pressure-toast'),
+    ).toHaveTextContent('Closed')
+  })
+
+  it('does not activate red-light or toast for a closed-first runtime incident projection', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const edgeId = 'edge-visual-1'
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId }),
+      )
+    })
+    expect(screen.queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-alarm-toast-notice')).not.toBeInTheDocument()
+
+    act(() => {
+      runtimeHarness.emitAlarmIncidentChanged(
+        createDashboardClosedAlarmIncidentChangedEventFixture({
+          edgeId,
+          incident: {
+            incidentId: 'incident-closed-first',
+            edgeId,
+            rule: {
+              label: 'Closed first pressure',
+            },
+          },
+        }),
+      )
+    })
+
+    await screen.findByTestId('dashboard-alarm-incident-row-incident-closed-first')
+    expect(screen.queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-alarm-toast-notice')).not.toBeInTheDocument()
   })
 
   it('keeps a failed ACK incident unacknowledged and open with a bounded row error', async () => {

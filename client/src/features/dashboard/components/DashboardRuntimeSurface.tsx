@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp, Info, Loader2, Maximize2, Monitor } from 'lucide-react'
 import { DashboardAlarmJournalPanel } from '@/features/dashboard/components/DashboardAlarmJournalPanel'
+import { DashboardAlarmRedLightIndicator } from '@/features/dashboard/components/DashboardAlarmRedLightIndicator'
+import { DashboardAlarmToastNotice } from '@/features/dashboard/components/DashboardAlarmToastNotice'
 import { DashboardDiagnosticsPanel } from '@/features/dashboard/components/DashboardDiagnosticsPanel'
 import { DashboardVisualSurface } from '@/features/dashboard/components/DashboardVisualSurface'
+import {
+  countDashboardUnclosedAlarmIncidents,
+  isDashboardAlarmIncidentUnclosed,
+} from '@/features/dashboard/model/alarmIncidents'
 import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runtimeLayout'
 import {
   createDashboardInitialViewport,
@@ -20,6 +26,7 @@ import type {
   DashboardAlarmAckPendingByIncidentId,
   DashboardAlarmIncidentList,
   DashboardAlarmJournalInitialLoadBlockedMarker,
+  DashboardAlarmToastNotice as DashboardAlarmToastNoticeModel,
   DashboardMetricValueByBindingKey,
   DashboardRecoveryState,
   DashboardRuntimeLayout,
@@ -218,6 +225,57 @@ export function DashboardRuntimeSurface({
     createDashboardInitialViewport(createFallbackRuntimeLayout().diagramBounds, FALLBACK_VIEWPORT_SIZE),
   )
   const showCanvas = Boolean(isActiveContext && savedDiagram && runtimeLayout)
+  const activeEdgeAlarmIncidents = useMemo(
+    () =>
+      isActiveContext && selectedEdgeId
+        ? alarmIncidents.filter((incident) => incident.edgeId === selectedEdgeId)
+        : [],
+    [alarmIncidents, isActiveContext, selectedEdgeId],
+  )
+  const unclosedAlarmIncidentCount = useMemo(
+    () => countDashboardUnclosedAlarmIncidents(activeEdgeAlarmIncidents),
+    [activeEdgeAlarmIncidents],
+  )
+  const toastSessionEdgeId = isActiveContext ? selectedEdgeId : null
+  const toastKnownIncidentIdsRef = useRef<Set<string>>(new Set())
+  const [alarmToastNotice, setAlarmToastNotice] =
+    useState<DashboardAlarmToastNoticeModel | null>(null)
+
+  useEffect(() => {
+    toastKnownIncidentIdsRef.current = new Set()
+    setAlarmToastNotice(null)
+  }, [toastSessionEdgeId])
+
+  useEffect(() => {
+    if (!toastSessionEdgeId) {
+      return
+    }
+
+    if (activeEdgeAlarmIncidents.length === 0) {
+      toastKnownIncidentIdsRef.current = new Set()
+      setAlarmToastNotice(null)
+      return
+    }
+
+    for (const incident of activeEdgeAlarmIncidents) {
+      const incidentId = incident.incidentId.trim()
+      if (!incidentId || toastKnownIncidentIdsRef.current.has(incidentId)) {
+        continue
+      }
+
+      toastKnownIncidentIdsRef.current.add(incidentId)
+
+      if (isDashboardAlarmIncidentUnclosed(incident)) {
+        setAlarmToastNotice({ incidentId, incident })
+      }
+    }
+  }, [activeEdgeAlarmIncidents, toastSessionEdgeId])
+
+  const handleDismissAlarmToast = useCallback((incidentId: string) => {
+    setAlarmToastNotice((currentNotice) =>
+      currentNotice?.incidentId === incidentId ? null : currentNotice,
+    )
+  }, [])
 
   // Recalculate viewport when runtimeLayout changes, using current containerSize
   useEffect(() => {
@@ -335,6 +393,8 @@ export function DashboardRuntimeSurface({
         </label>
 
         <div className="ml-auto flex items-center gap-1">
+          <DashboardAlarmRedLightIndicator count={unclosedAlarmIncidentCount} />
+
           {/* Fit to View button */}
           {showCanvas && (
             <button
@@ -368,6 +428,14 @@ export function DashboardRuntimeSurface({
         {showCanvas ? (
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col xl:flex-row">
             <div className="relative min-h-[18rem] min-w-0 flex-1">
+              {alarmToastNotice ? (
+                <div className="absolute right-3 top-3 z-20">
+                  <DashboardAlarmToastNotice
+                    notice={alarmToastNotice}
+                    onDismiss={handleDismissAlarmToast}
+                  />
+                </div>
+              ) : null}
               <div ref={canvasContainerRef} className="absolute inset-x-3 bottom-3 top-2 overflow-hidden">
                 <DashboardVisualSurface
                   runtimeLayout={runtimeLayout!}
