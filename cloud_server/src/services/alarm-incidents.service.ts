@@ -6,7 +6,23 @@ import { EdgeServer } from '../models/EdgeServer';
 import type {
     AlarmEventPayloadDto,
     AlarmIncidentLifecycleState,
+    AlarmIncidentListOrder,
+    AlarmIncidentListQueryDto,
+    AlarmIncidentListResponseDto,
+    AlarmIncidentListSort,
+    AlarmIncidentListState,
     AlarmIncidentProjectionDto,
+} from '../types';
+import {
+    ALARM_INCIDENT_LIST_DEFAULT_LIMIT,
+    ALARM_INCIDENT_LIST_DEFAULT_ORDER,
+    ALARM_INCIDENT_LIST_DEFAULT_PAGE,
+    ALARM_INCIDENT_LIST_DEFAULT_SORT,
+    ALARM_INCIDENT_LIST_DEFAULT_STATE,
+    ALARM_INCIDENT_LIST_MAX_LIMIT,
+    ALARM_INCIDENT_LIST_ORDERS,
+    ALARM_INCIDENT_LIST_SORTS,
+    ALARM_INCIDENT_LIST_STATES,
 } from '../types';
 
 export interface AlarmIncidentIdentity {
@@ -26,6 +42,20 @@ export interface TrustedAlarmIncidentAckInput {
     edgeId: string;
     incidentId: string;
     userId: string;
+}
+
+export interface AlarmIncidentListQueryInput {
+    state?: unknown;
+    page?: unknown;
+    limit?: unknown;
+    sort?: unknown;
+    order?: unknown;
+}
+
+export interface TrustedAlarmIncidentListInput {
+    edgeId: string;
+    userId: string;
+    query?: AlarmIncidentListQueryInput;
 }
 
 function toObjectId(value: string | mongoose.Types.ObjectId): mongoose.Types.ObjectId | null {
@@ -58,6 +88,144 @@ function getLifecycleState(incident: Pick<IAlarmIncident, 'isActive' | 'isAcknow
     }
 
     return incident.isAcknowledged ? 'closed' : 'cleared_unacknowledged';
+}
+
+function getSingleQueryValue(value: unknown, fieldName: string): unknown {
+    if (Array.isArray(value)) {
+        throw new AppError(`Invalid ${fieldName}`, 400);
+    }
+
+    return value;
+}
+
+function parseEnumValue<T extends string>(
+    value: unknown,
+    fieldName: string,
+    allowed: readonly T[],
+    defaultValue: T,
+): T {
+    const normalized = getSingleQueryValue(value, fieldName);
+    if (normalized === undefined) {
+        return defaultValue;
+    }
+
+    if (typeof normalized !== 'string' || !allowed.includes(normalized as T)) {
+        throw new AppError(`Unsupported ${fieldName}`, 400);
+    }
+
+    return normalized as T;
+}
+
+function parsePositiveInteger(value: unknown, fieldName: string, defaultValue: number): number {
+    const normalized = getSingleQueryValue(value, fieldName);
+    if (normalized === undefined) {
+        return defaultValue;
+    }
+
+    if (
+        (typeof normalized !== 'string' && typeof normalized !== 'number') ||
+        normalized === '' ||
+        !Number.isInteger(Number(normalized))
+    ) {
+        throw new AppError(`Invalid ${fieldName}`, 400);
+    }
+
+    const parsed = Number(normalized);
+    if (parsed < 1) {
+        throw new AppError(`Invalid ${fieldName}`, 400);
+    }
+
+    return parsed;
+}
+
+export function parseAlarmIncidentListQuery(
+    query: AlarmIncidentListQueryInput = {},
+): AlarmIncidentListQueryDto {
+    const parsed = {
+        state: parseEnumValue<AlarmIncidentListState>(
+            query.state,
+            'state',
+            ALARM_INCIDENT_LIST_STATES,
+            ALARM_INCIDENT_LIST_DEFAULT_STATE,
+        ),
+        page: parsePositiveInteger(query.page, 'page', ALARM_INCIDENT_LIST_DEFAULT_PAGE),
+        limit: parsePositiveInteger(query.limit, 'limit', ALARM_INCIDENT_LIST_DEFAULT_LIMIT),
+        sort: parseEnumValue<AlarmIncidentListSort>(
+            query.sort,
+            'sort',
+            ALARM_INCIDENT_LIST_SORTS,
+            ALARM_INCIDENT_LIST_DEFAULT_SORT,
+        ),
+        order: parseEnumValue<AlarmIncidentListOrder>(
+            query.order,
+            'order',
+            ALARM_INCIDENT_LIST_ORDERS,
+            ALARM_INCIDENT_LIST_DEFAULT_ORDER,
+        ),
+    };
+
+    if (parsed.limit > ALARM_INCIDENT_LIST_MAX_LIMIT) {
+        throw new AppError(`Invalid limit: maximum is ${ALARM_INCIDENT_LIST_MAX_LIMIT}`, 400);
+    }
+
+    return parsed;
+}
+
+function normalizeComparableTimeMs(value: Date | string | number | null | undefined): number {
+    if (value === null || value === undefined) {
+        return Number.NEGATIVE_INFINITY;
+    }
+
+    if (value instanceof Date) {
+        const time = value.getTime();
+        return Number.isFinite(time) ? time : Number.NEGATIVE_INFINITY;
+    }
+
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY;
+    }
+
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
+export function getAlarmIncidentLatestRowTimeMs(
+    incident: Pick<IAlarmIncident, 'updatedAt' | 'acknowledgedAt' | 'clearedAt' | 'latestDetectedAt' | 'activatedAt'>,
+): number {
+    return Math.max(
+        normalizeComparableTimeMs(incident.updatedAt),
+        normalizeComparableTimeMs(incident.acknowledgedAt),
+        normalizeComparableTimeMs(incident.clearedAt),
+        normalizeComparableTimeMs(incident.latestDetectedAt),
+        normalizeComparableTimeMs(incident.activatedAt),
+    );
+}
+
+function compareAlarmIncidentsByLatest(
+    left: IAlarmIncident,
+    right: IAlarmIncident,
+    order: AlarmIncidentListOrder,
+): number {
+    const latestDelta = getAlarmIncidentLatestRowTimeMs(left) - getAlarmIncidentLatestRowTimeMs(right);
+    if (latestDelta !== 0) {
+        return order === 'asc' ? latestDelta : -latestDelta;
+    }
+
+    const leftId = left._id.toHexString();
+    const rightId = right._id.toHexString();
+    return leftId.localeCompare(rightId);
+}
+
+function buildAlarmIncidentListFilter(
+    edgeId: mongoose.Types.ObjectId,
+    state: AlarmIncidentListState,
+): Record<string, unknown> {
+    const filter: Record<string, unknown> = { edgeId };
+    if (state === 'unclosed') {
+        filter.$or = [{ isActive: true }, { isAcknowledged: false }];
+    }
+
+    return filter;
 }
 
 function getReusableFilter(payload: AlarmEventPayloadDto): Record<string, unknown> | null {
@@ -343,4 +511,53 @@ export async function acknowledgeTrustedAlarmIncident(
     }
 
     return incident;
+}
+
+export async function listTrustedAlarmIncidents(
+    input: TrustedAlarmIncidentListInput,
+): Promise<AlarmIncidentListResponseDto> {
+    const edgeId = toObjectId(input.edgeId);
+    const userId = toObjectId(input.userId);
+
+    if (!edgeId) {
+        throw new AppError('Invalid edgeId', 400);
+    }
+
+    if (!userId) {
+        throw new AppError('Invalid userId', 400);
+    }
+
+    const edgeServer = await EdgeServer.findById(edgeId)
+        .select('trustedUsers')
+        .lean<{ trustedUsers: mongoose.Types.ObjectId[] } | null>()
+        .exec();
+
+    if (!edgeServer) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    const isTrusted = edgeServer.trustedUsers.some((trustedUserId) => trustedUserId.equals(userId));
+    if (!isTrusted) {
+        throw new AppError('Access denied: user is not trusted for this edge server', 403);
+    }
+
+    const query = parseAlarmIncidentListQuery(input.query);
+    const filter = buildAlarmIncidentListFilter(edgeId, query.state);
+    const [total, incidents] = await Promise.all([
+        AlarmIncident.countDocuments(filter).exec(),
+        AlarmIncident.find(filter).exec(),
+    ]);
+
+    const offset = (query.page - 1) * query.limit;
+    const pageIncidents = incidents
+        .sort((left, right) => compareAlarmIncidentsByLatest(left, right, query.order))
+        .slice(offset, offset + query.limit);
+
+    return {
+        incidents: pageIncidents.map(projectAlarmIncident),
+        page: query.page,
+        limit: query.limit,
+        total,
+        hasNextPage: offset + query.limit < total,
+    };
 }

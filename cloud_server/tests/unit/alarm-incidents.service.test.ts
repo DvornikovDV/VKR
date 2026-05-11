@@ -4,18 +4,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const findOneMock = vi.hoisted(() => vi.fn());
 const findOneAndUpdateMock = vi.hoisted(() => vi.fn());
 const createMock = vi.hoisted(() => vi.fn());
+const findMock = vi.hoisted(() => vi.fn());
+const countDocumentsMock = vi.hoisted(() => vi.fn());
+const edgeFindByIdMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../src/models/AlarmIncident', () => ({
     AlarmIncident: {
         create: createMock,
+        countDocuments: countDocumentsMock,
+        find: findMock,
         findOne: findOneMock,
         findOneAndUpdate: findOneAndUpdateMock,
+    },
+}));
+
+vi.mock('../../src/models/EdgeServer', () => ({
+    EdgeServer: {
+        findById: edgeFindByIdMock,
     },
 }));
 
 import {
     acknowledgeAlarmIncident,
     findReusableAlarmIncident,
+    getAlarmIncidentLatestRowTimeMs,
+    listTrustedAlarmIncidents,
     persistActiveAlarmIncident,
     persistClearAlarmIncident,
     projectAlarmIncident,
@@ -88,11 +101,24 @@ function queryResult(value: unknown) {
     };
 }
 
+function edgeLookupResult(value: unknown) {
+    const exec = vi.fn().mockResolvedValue(value);
+    const lean = vi.fn().mockReturnValue({ exec });
+    const select = vi.fn().mockReturnValue({ lean });
+
+    edgeFindByIdMock.mockReturnValueOnce({ select });
+
+    return { select, lean, exec };
+}
+
 describe('alarm incident service helpers', () => {
     beforeEach(() => {
         findOneMock.mockReset();
         findOneAndUpdateMock.mockReset();
         createMock.mockReset();
+        findMock.mockReset();
+        countDocumentsMock.mockReset();
+        edgeFindByIdMock.mockReset();
         vi.useFakeTimers();
         vi.setSystemTime(new Date('2026-05-08T06:10:00.000Z'));
     });
@@ -394,5 +420,221 @@ describe('alarm incident service helpers', () => {
             incidentId: '66336f9be7b3b3b9c6f10003',
             acknowledgedBy: USER_ID.toHexString(),
         })).resolves.toBeNull();
+    });
+
+    it('lists trusted unclosed incidents as projections with defaults, pagination metadata, and latest ordering', async () => {
+        const olderActive = buildIncident({
+            _id: new Types.ObjectId('66336f9be7b3b3b9c6f10010'),
+            ruleId: 'older-active',
+            rule: { ...buildIncident().rule, ruleId: 'older-active' },
+            updatedAt: new Date('2026-05-08T06:01:00.000Z'),
+        });
+        const latestClearedUnacknowledged = buildIncident({
+            _id: new Types.ObjectId('66336f9be7b3b3b9c6f10011'),
+            ruleId: 'latest-clear',
+            rule: { ...buildIncident().rule, ruleId: 'latest-clear' },
+            isActive: false,
+            isAcknowledged: false,
+            clearedAt: new Date('2026-05-08T06:12:00.000Z'),
+            updatedAt: new Date('2026-05-08T06:02:00.000Z'),
+        });
+        const acknowledgedActive = buildIncident({
+            _id: new Types.ObjectId('66336f9be7b3b3b9c6f10012'),
+            ruleId: 'ack-active',
+            rule: { ...buildIncident().rule, ruleId: 'ack-active' },
+            isActive: true,
+            isAcknowledged: true,
+            acknowledgedAt: new Date('2026-05-08T06:11:00.000Z'),
+            acknowledgedBy: USER_ID,
+            updatedAt: new Date('2026-05-08T06:03:00.000Z'),
+        });
+
+        edgeLookupResult({ trustedUsers: [USER_ID] });
+        countDocumentsMock.mockReturnValueOnce(queryResult(3));
+        findMock.mockReturnValueOnce(queryResult([
+            olderActive,
+            acknowledgedActive,
+            latestClearedUnacknowledged,
+        ]));
+
+        const result = await listTrustedAlarmIncidents({
+            edgeId: EDGE_ID.toHexString(),
+            userId: USER_ID.toHexString(),
+            query: { limit: '2' },
+        });
+
+        expect(edgeFindByIdMock).toHaveBeenCalledWith(EDGE_ID);
+        expect(countDocumentsMock).toHaveBeenCalledWith({
+            edgeId: EDGE_ID,
+            $or: [{ isActive: true }, { isAcknowledged: false }],
+        });
+        expect(findMock).toHaveBeenCalledWith({
+            edgeId: EDGE_ID,
+            $or: [{ isActive: true }, { isAcknowledged: false }],
+        });
+        expect(result).toMatchObject({
+            page: 1,
+            limit: 2,
+            total: 3,
+            hasNextPage: true,
+        });
+        expect(result.incidents.map((incident) => incident.ruleId)).toEqual([
+            'latest-clear',
+            'ack-active',
+        ]);
+        expect(result.incidents[0]).toMatchObject({
+            incidentId: '66336f9be7b3b3b9c6f10011',
+            edgeId: EDGE_ID.toHexString(),
+            lifecycleState: 'cleared_unacknowledged',
+        });
+        expect(result.incidents[0]).not.toHaveProperty('_id');
+    });
+
+    it('supports state all, ascending latest ordering, and stable ObjectId fallback', async () => {
+        const firstFallback = buildIncident({
+            _id: new Types.ObjectId('66336f9be7b3b3b9c6f10020'),
+            ruleId: 'fallback-a',
+            rule: { ...buildIncident().rule, ruleId: 'fallback-a' },
+            isActive: false,
+            isAcknowledged: true,
+            clearedAt: new Date('2026-05-08T06:01:00.000Z'),
+            acknowledgedAt: new Date('2026-05-08T06:01:00.000Z'),
+            updatedAt: new Date('2026-05-08T06:01:00.000Z'),
+        });
+        const secondFallback = buildIncident({
+            _id: new Types.ObjectId('66336f9be7b3b3b9c6f10021'),
+            ruleId: 'fallback-b',
+            rule: { ...buildIncident().rule, ruleId: 'fallback-b' },
+            isActive: false,
+            isAcknowledged: true,
+            clearedAt: new Date('2026-05-08T06:01:00.000Z'),
+            acknowledgedAt: new Date('2026-05-08T06:01:00.000Z'),
+            updatedAt: new Date('2026-05-08T06:01:00.000Z'),
+        });
+
+        edgeLookupResult({ trustedUsers: [USER_ID] });
+        countDocumentsMock.mockReturnValueOnce(queryResult(2));
+        findMock.mockReturnValueOnce(queryResult([secondFallback, firstFallback]));
+
+        const result = await listTrustedAlarmIncidents({
+            edgeId: EDGE_ID.toHexString(),
+            userId: USER_ID.toHexString(),
+            query: { state: 'all', order: 'asc' },
+        });
+
+        expect(findMock).toHaveBeenCalledWith({ edgeId: EDGE_ID });
+        expect(result).toMatchObject({
+            page: 1,
+            limit: 50,
+            total: 2,
+            hasNextPage: false,
+        });
+        expect(result.incidents.map((incident) => incident.ruleId)).toEqual([
+            'fallback-a',
+            'fallback-b',
+        ]);
+        expect(result.incidents.every((incident) => incident.lifecycleState === 'closed')).toBe(true);
+    });
+
+    it('uses the Client-compatible ascending ObjectId fallback for default latest desc ties', async () => {
+        const firstFallback = buildIncident({
+            _id: new Types.ObjectId('66336f9be7b3b3b9c6f10020'),
+            ruleId: 'fallback-a',
+            rule: { ...buildIncident().rule, ruleId: 'fallback-a' },
+            isActive: true,
+            isAcknowledged: true,
+            acknowledgedAt: new Date('2026-05-08T06:01:00.000Z'),
+            updatedAt: new Date('2026-05-08T06:01:00.000Z'),
+        });
+        const secondFallback = buildIncident({
+            _id: new Types.ObjectId('66336f9be7b3b3b9c6f10021'),
+            ruleId: 'fallback-b',
+            rule: { ...buildIncident().rule, ruleId: 'fallback-b' },
+            isActive: true,
+            isAcknowledged: true,
+            acknowledgedAt: new Date('2026-05-08T06:01:00.000Z'),
+            updatedAt: new Date('2026-05-08T06:01:00.000Z'),
+        });
+
+        edgeLookupResult({ trustedUsers: [USER_ID] });
+        countDocumentsMock.mockReturnValueOnce(queryResult(2));
+        findMock.mockReturnValueOnce(queryResult([secondFallback, firstFallback]));
+
+        const result = await listTrustedAlarmIncidents({
+            edgeId: EDGE_ID.toHexString(),
+            userId: USER_ID.toHexString(),
+        });
+
+        expect(result.incidents.map((incident) => incident.ruleId)).toEqual([
+            'fallback-a',
+            'fallback-b',
+        ]);
+    });
+
+    it('normalizes latest row time candidates from dates, strings, and numbers', () => {
+        expect(getAlarmIncidentLatestRowTimeMs({
+            updatedAt: '2026-05-08T06:01:00.000Z' as never,
+            acknowledgedAt: new Date('2026-05-08T06:02:00.000Z'),
+            clearedAt: '2026-05-08T06:03:00.000Z' as never,
+            latestDetectedAt: new Date('2026-05-08T06:04:00.000Z').getTime(),
+            activatedAt: new Date('2026-05-08T06:00:00.000Z'),
+        })).toBe(new Date('2026-05-08T06:04:00.000Z').getTime());
+    });
+
+    it('rejects invalid ids, untrusted users, and invalid list query before reading incidents', async () => {
+        await expect(listTrustedAlarmIncidents({
+            edgeId: 'not-an-edge-id',
+            userId: USER_ID.toHexString(),
+        })).rejects.toMatchObject({ statusCode: 400 });
+
+        edgeLookupResult({ trustedUsers: [new Types.ObjectId('66336f9be7b3b3b9c6f10030')] });
+        await expect(listTrustedAlarmIncidents({
+            edgeId: EDGE_ID.toHexString(),
+            userId: USER_ID.toHexString(),
+        })).rejects.toMatchObject({ statusCode: 403 });
+
+        edgeLookupResult({ trustedUsers: [USER_ID] });
+        await expect(listTrustedAlarmIncidents({
+            edgeId: EDGE_ID.toHexString(),
+            userId: USER_ID.toHexString(),
+            query: { limit: '101' },
+        })).rejects.toMatchObject({ statusCode: 400 });
+
+        edgeLookupResult({ trustedUsers: [USER_ID] });
+        await expect(listTrustedAlarmIncidents({
+            edgeId: EDGE_ID.toHexString(),
+            userId: USER_ID.toHexString(),
+            query: { state: 'open' },
+        })).rejects.toMatchObject({ statusCode: 400 });
+
+        edgeLookupResult({ trustedUsers: [USER_ID] });
+        await expect(listTrustedAlarmIncidents({
+            edgeId: EDGE_ID.toHexString(),
+            userId: USER_ID.toHexString(),
+            query: { page: '0' },
+        })).rejects.toMatchObject({ statusCode: 400 });
+
+        edgeLookupResult({ trustedUsers: [USER_ID] });
+        await expect(listTrustedAlarmIncidents({
+            edgeId: EDGE_ID.toHexString(),
+            userId: USER_ID.toHexString(),
+            query: { sort: 'createdAt' },
+        })).rejects.toMatchObject({ statusCode: 400 });
+
+        edgeLookupResult({ trustedUsers: [USER_ID] });
+        await expect(listTrustedAlarmIncidents({
+            edgeId: EDGE_ID.toHexString(),
+            userId: USER_ID.toHexString(),
+            query: { order: 'sideways' },
+        })).rejects.toMatchObject({ statusCode: 400 });
+
+        edgeLookupResult(null);
+        await expect(listTrustedAlarmIncidents({
+            edgeId: EDGE_ID.toHexString(),
+            userId: USER_ID.toHexString(),
+        })).rejects.toMatchObject({ statusCode: 404 });
+
+        expect(findMock).not.toHaveBeenCalled();
+        expect(countDocumentsMock).not.toHaveBeenCalled();
     });
 });
