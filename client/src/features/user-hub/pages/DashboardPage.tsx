@@ -548,6 +548,7 @@ export function DashboardPage() {
         latestMetricValueByBindingKey={runtimeSession.latestMetricValueByBindingKey}
         lastServerTimestamp={runtimeSession.lastServerTimestamp}
         alarmIncidents={runtimeSession.alarmIncidents}
+        alarmJournalLoadState={runtimeSession.alarmJournalLoadState}
         alarmJournalInitialLoadBlocked={runtimeSession.alarmJournalInitialLoadBlocked}
         alarmAckPendingByIncidentId={runtimeSession.alarmAckPendingByIncidentId}
         alarmAckErrorByIncidentId={runtimeSession.alarmAckErrorByIncidentId}

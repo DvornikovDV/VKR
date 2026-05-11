@@ -26,6 +26,7 @@ import type {
   DashboardAlarmAckPendingByIncidentId,
   DashboardAlarmIncidentList,
   DashboardAlarmJournalInitialLoadBlockedMarker,
+  DashboardAlarmJournalLoadState,
   DashboardAlarmToastNotice as DashboardAlarmToastNoticeModel,
   DashboardMetricValueByBindingKey,
   DashboardRecoveryState,
@@ -53,6 +54,7 @@ interface DashboardRuntimeSurfaceProps {
   latestMetricValueByBindingKey: DashboardMetricValueByBindingKey
   lastServerTimestamp?: number | null
   alarmIncidents?: DashboardAlarmIncidentList
+  alarmJournalLoadState?: DashboardAlarmJournalLoadState
   alarmJournalInitialLoadBlocked?: DashboardAlarmJournalInitialLoadBlockedMarker | null
   alarmAckPendingByIncidentId?: DashboardAlarmAckPendingByIncidentId
   alarmAckErrorByIncidentId?: DashboardAlarmAckErrorByIncidentId
@@ -198,6 +200,7 @@ export function DashboardRuntimeSurface({
   latestMetricValueByBindingKey,
   lastServerTimestamp = null,
   alarmIncidents = [],
+  alarmJournalLoadState = { status: 'idle', error: null },
   alarmJournalInitialLoadBlocked = null,
   alarmAckPendingByIncidentId = {},
   alarmAckErrorByIncidentId = {},
@@ -454,6 +457,7 @@ export function DashboardRuntimeSurface({
             <div className="max-h-64 flex-shrink-0 border-t border-[#1f2a3d] xl:max-h-none xl:w-80 xl:border-l xl:border-t-0">
               <DashboardAlarmJournalPanel
                 alarmIncidents={alarmIncidents}
+                loadState={alarmJournalLoadState}
                 initialLoadBlocked={alarmJournalInitialLoadBlocked}
                 ackPendingByIncidentId={alarmAckPendingByIncidentId}
                 ackErrorByIncidentId={alarmAckErrorByIncidentId}

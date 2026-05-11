@@ -95,6 +95,18 @@ function setupDashboardApiFixtures(overrides: Partial<DashboardRestFixtures> = {
             : { edgeServerId: String(params.edgeId), telemetry: [], commands: [] },
       }),
     ),
+    http.get('/api/edge-servers/:edgeId/alarm-incidents', () =>
+      HttpResponse.json({
+        status: 'success',
+        data: {
+          incidents: [],
+          page: 1,
+          limit: 50,
+          total: 0,
+          hasNextPage: false,
+        },
+      }),
+    ),
   )
   return fixtures
 }
@@ -217,8 +229,9 @@ describe('DashboardPage (US1)', () => {
     })
 
     const journalPanel = screen.getByTestId('dashboard-alarm-journal-panel')
-    expect(within(journalPanel).getByText(/initial alarm incident load is unavailable/i)).toBeInTheDocument()
-    expect(within(journalPanel).getByText(/blocked/i)).toBeInTheDocument()
+    await waitFor(() => {
+      expect(within(journalPanel).getByText(/no unclosed alarm incidents/i)).toBeInTheDocument()
+    })
     expect(within(journalPanel).queryByText(/no incidents/i)).not.toBeInTheDocument()
     expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
 

@@ -3,9 +3,14 @@ import { ackAlarmIncident, listAlarmIncidents } from '@/shared/api/alarmIncident
 import { apiClient } from '@/shared/api/client'
 import {
   countDashboardUnclosedAlarmIncidents,
+  getDashboardAlarmIncidentConditionSummary,
+  getDashboardAlarmIncidentDisplayDetails,
+  getDashboardAlarmIncidentEquipmentIdentityLabel,
   getDashboardAlarmIncidentIdentityLabel,
+  getDashboardAlarmIncidentLifecycleTimestamps,
   getDashboardAlarmIncidentLifecycleLabel,
   getDashboardAlarmIncidentRowTime,
+  getDashboardAlarmIncidentRuleTitle,
   isDashboardAlarmIncidentUnclosed,
   selectDashboardAlarmRedLightSummary,
   selectDashboardUnclosedAlarmIncidents,
@@ -131,8 +136,30 @@ describe('alarm incident contract anchors', () => {
     expect(getDashboardAlarmIncidentIdentityLabel(olderEvent.incident)).toBe(
       'pump-1.temperature (rule-1)',
     )
+    expect(getDashboardAlarmIncidentRuleTitle(olderEvent.incident)).toBe('rule-1')
+    expect(getDashboardAlarmIncidentEquipmentIdentityLabel(olderEvent.incident)).toBe(
+      'pump-1 / temperature',
+    )
+    expect(getDashboardAlarmIncidentConditionSummary(olderEvent.incident)).toBe(
+      'High condition: latest 42.5; trigger 40; clear 35',
+    )
     expect(getDashboardAlarmIncidentRowTime(newerEvent.incident)).toBe(
       '2026-05-09T10:11:00.000Z',
+    )
+    expect(getDashboardAlarmIncidentLifecycleTimestamps(newerEvent.incident)).toEqual({
+      activatedAt: '2026-05-09T10:00:00.000Z',
+      clearedAt: '2026-05-09T10:10:00.000Z',
+      acknowledgedAt: '2026-05-09T10:11:00.000Z',
+      closedAt: '2026-05-09T10:11:00.000Z',
+    })
+    expect(getDashboardAlarmIncidentDisplayDetails(newerEvent.incident)).toEqual(
+      expect.objectContaining({
+        ruleTitle: 'High temperature',
+        equipmentIdentity: 'pump-1 / temperature',
+        conditionSummary: 'High condition: latest 42.5; trigger 40; clear 35',
+        lifecycleLabel: 'Closed',
+        latestRowTime: '2026-05-09T10:11:00.000Z',
+      }),
     )
   })
 
