@@ -4,6 +4,7 @@ import { AppError } from './middlewares/error.middleware';
 import { type AuthRequest } from './middlewares/auth.middleware';
 import {
     acknowledgeTrustedAlarmIncident,
+    listTrustedAlarmIncidents,
     projectAlarmIncident,
 } from '../services/alarm-incidents.service';
 import { emitAlarmIncidentChanged } from '../socket/events/alarm';
@@ -41,6 +42,33 @@ async function ackIncident(
     }
 }
 
+async function listIncidents(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+): Promise<void> {
+    try {
+        if (!req.user) {
+            throw new AppError('Authentication required', 401);
+        }
+
+        const edgeId = req.params['edgeId'] ?? '';
+        const data = await listTrustedAlarmIncidents({
+            edgeId,
+            userId: req.user.userId,
+            query: req.query,
+        });
+
+        res.status(200).json({
+            status: 'success',
+            data,
+        });
+    } catch (err) {
+        next(err);
+    }
+}
+
 export const AlarmIncidentsController = {
     ackIncident,
+    listIncidents,
 };

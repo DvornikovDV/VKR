@@ -20,11 +20,18 @@ import {
     emitAlarmEvent,
     ensureServerListening,
     expectNoEvent,
+    getAlarmIncidentListPayload,
+    readAlarmIncidentListResponse,
     registerEdge,
+    seedAlarmIncidentRecord,
     stopServerIfStarted,
     waitForAlarmIncidentChanged,
 } from './edge-socket.helpers';
 import { type Socket as ClientSocket } from 'socket.io-client';
+import request from 'supertest';
+import YAML from 'yamljs';
+import { app } from '../../src/app';
+import { projectAlarmIncident } from '../../src/services/alarm-incidents.service';
 
 describe('Alarm incidents trusted Edge socket path', () => {
     let socketBaseUrl = '';
@@ -360,6 +367,186 @@ describe('Alarm incidents trusted Edge socket path', () => {
             expect(afterAck!.latestTs).toBe(beforeAck!.latestTs);
             expect(afterAck!.latestDetectedAt).toBe(beforeAck!.latestDetectedAt);
             expect(afterAck!.rule).toEqual(beforeAck!.rule);
+        },
+        12000,
+    );
+
+    it(
+        'lists trusted persisted incidents through the HTTP route with defaults, all state, pagination, projection reuse, and limit bounds',
+        async () => {
+            const registered = await registerEdge(adminToken, 'Alarm Incident List Edge');
+            await bindEdgeToUser(adminToken, registered.edgeId, userId);
+
+            const at = (iso: string) => new Date(iso);
+            const ms = (iso: string) => at(iso).getTime();
+            const activeUnacknowledged = await seedAlarmIncidentRecord({
+                edgeId: registered.edgeId,
+                sourceId: 'line-1',
+                deviceId: 'pump-a',
+                metric: 'temperature',
+                ruleId: 'active-unacknowledged',
+                rule: { ruleId: 'active-unacknowledged', label: 'Active unacknowledged' },
+                isActive: true,
+                isAcknowledged: false,
+                activatedAt: at('2026-05-09T10:01:00.000Z'),
+                latestDetectedAt: ms('2026-05-09T10:02:00.000Z'),
+                updatedAt: at('2026-05-09T10:02:00.000Z'),
+            });
+            const activeAcknowledged = await seedAlarmIncidentRecord({
+                edgeId: registered.edgeId,
+                sourceId: 'line-1',
+                deviceId: 'pump-b',
+                metric: 'pressure',
+                ruleId: 'active-acknowledged',
+                rule: { ruleId: 'active-acknowledged', label: 'Active acknowledged' },
+                isActive: true,
+                isAcknowledged: true,
+                acknowledgedAt: at('2026-05-09T10:06:00.000Z'),
+                acknowledgedBy: userId,
+                activatedAt: at('2026-05-09T10:01:00.000Z'),
+                latestDetectedAt: ms('2026-05-09T10:03:00.000Z'),
+                updatedAt: at('2026-05-09T10:03:00.000Z'),
+            });
+            const clearedUnacknowledged = await seedAlarmIncidentRecord({
+                edgeId: registered.edgeId,
+                sourceId: 'line-2',
+                deviceId: 'pump-c',
+                metric: 'level',
+                ruleId: 'cleared-unacknowledged',
+                rule: { ruleId: 'cleared-unacknowledged', label: 'Cleared unacknowledged' },
+                isActive: false,
+                isAcknowledged: false,
+                activatedAt: at('2026-05-09T10:00:00.000Z'),
+                clearedAt: at('2026-05-09T10:05:00.000Z'),
+                latestDetectedAt: ms('2026-05-09T10:04:00.000Z'),
+                updatedAt: at('2026-05-09T10:04:00.000Z'),
+            });
+            const closed = await seedAlarmIncidentRecord({
+                edgeId: registered.edgeId,
+                sourceId: 'line-3',
+                deviceId: 'pump-d',
+                metric: 'vibration',
+                ruleId: 'closed',
+                rule: { ruleId: 'closed', label: 'Closed' },
+                isActive: false,
+                isAcknowledged: true,
+                acknowledgedAt: at('2026-05-09T10:07:00.000Z'),
+                acknowledgedBy: userId,
+                activatedAt: at('2026-05-09T10:00:00.000Z'),
+                clearedAt: at('2026-05-09T10:04:00.000Z'),
+                latestDetectedAt: ms('2026-05-09T10:04:00.000Z'),
+                updatedAt: at('2026-05-09T10:04:00.000Z'),
+            });
+
+            const unauthenticated = await request(app)
+                .get(`/api/edge-servers/${registered.edgeId}/alarm-incidents`);
+            expect(unauthenticated.status).toBe(401);
+
+            const denied = await readAlarmIncidentListResponse(untrustedUserToken, registered.edgeId);
+            expect(denied.status).toBe(403);
+
+            const defaultResponse = await readAlarmIncidentListResponse(userToken, registered.edgeId);
+            const defaultPayload = getAlarmIncidentListPayload(defaultResponse);
+
+            expect(defaultResponse.status).toBe(200);
+            expect(defaultPayload).toMatchObject({
+                page: 1,
+                limit: 50,
+                total: 3,
+                hasNextPage: false,
+            });
+            expect(defaultPayload.incidents.map((incident) => incident.ruleId)).toEqual([
+                'active-acknowledged',
+                'cleared-unacknowledged',
+                'active-unacknowledged',
+            ]);
+            expect(defaultPayload.incidents.map((incident) => incident.incidentId)).not.toContain(
+                closed._id.toHexString(),
+            );
+            expect(defaultPayload.incidents[0]).toEqual(projectAlarmIncident(activeAcknowledged));
+            expect(defaultPayload.incidents[1]).toEqual(projectAlarmIncident(clearedUnacknowledged));
+            expect(defaultPayload.incidents[2]).toEqual(projectAlarmIncident(activeUnacknowledged));
+
+            const allResponse = await readAlarmIncidentListResponse(userToken, registered.edgeId, {
+                state: 'all',
+                page: 1,
+                limit: 2,
+                sort: 'latest',
+                order: 'desc',
+            });
+            const allPayload = getAlarmIncidentListPayload(allResponse);
+
+            expect(allResponse.status).toBe(200);
+            expect(allPayload).toMatchObject({
+                page: 1,
+                limit: 2,
+                total: 4,
+                hasNextPage: true,
+            });
+            expect(allPayload.incidents.map((incident) => incident.ruleId)).toEqual([
+                'closed',
+                'active-acknowledged',
+            ]);
+            expect(allPayload.incidents[0]).toEqual(projectAlarmIncident(closed));
+
+            const limitBoundViolation = await readAlarmIncidentListResponse(userToken, registered.edgeId, {
+                limit: 101,
+            });
+            expect(limitBoundViolation.status).toBe(400);
+
+            const openapi = YAML.load('openapi.yaml') as {
+                paths?: Record<string, {
+                    get?: {
+                        operationId?: string;
+                        security?: unknown;
+                        parameters?: Array<{ name?: string }>;
+                        responses?: Record<string, unknown>;
+                    };
+                }>;
+                components?: {
+                    schemas?: Record<string, {
+                        properties?: Record<string, unknown>;
+                    }>;
+                };
+            };
+            const documentedList = openapi.paths?.['/api/edge-servers/{edgeId}/alarm-incidents']?.get;
+
+            expect(documentedList).toMatchObject({
+                operationId: 'listAlarmIncidents',
+                security: [{ bearerAuth: [] }],
+                responses: {
+                    '200': {
+                        content: {
+                            'application/json': {
+                                schema: { $ref: '#/components/schemas/AlarmIncidentListResponse' },
+                            },
+                        },
+                    },
+                    '400': expect.any(Object),
+                    '401': expect.any(Object),
+                    '403': expect.any(Object),
+                    '404': expect.any(Object),
+                },
+            });
+            expect(documentedList?.parameters?.map((parameter) => parameter.name)).toEqual([
+                'edgeId',
+                'state',
+                'page',
+                'limit',
+                'sort',
+                'order',
+            ]);
+            expect(openapi.components?.schemas?.['AlarmIncidentListResponse']).toMatchObject({
+                properties: {
+                    data: {
+                        properties: {
+                            incidents: {
+                                items: { $ref: '#/components/schemas/AlarmIncidentProjection' },
+                            },
+                        },
+                    },
+                },
+            });
         },
         12000,
     );

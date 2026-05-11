@@ -64,6 +64,12 @@ apiRouter.post(
     requireRole('USER'),
     CommandsController.executeCommand,
 );
+apiRouter.get(
+    '/edge-servers/:edgeId/alarm-incidents',
+    authMiddleware,
+    requireRole('USER'),
+    AlarmIncidentsController.listIncidents,
+);
 apiRouter.post(
     '/edge-servers/:edgeId/alarm-incidents/:incidentId/ack',
     authMiddleware,

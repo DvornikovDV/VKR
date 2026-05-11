@@ -699,6 +699,100 @@ paths:
               schema:
                 $ref: '#/components/schemas/CommandErrorResponse'
 
+  /api/edge-servers/{edgeId}/alarm-incidents:
+    get:
+      operationId: listAlarmIncidents
+      summary: List alarm incidents for a trusted Edge Server (USER only)
+      description: >
+        Returns a paginated list of Cloud-owned alarm incident projections for
+        the selected Edge Server. The requesting USER must be in
+        `EdgeServer.trustedUsers`. The default `state=unclosed` returns
+        incidents where `isActive == true OR isAcknowledged == false`; `state=all`
+        also includes fully closed incidents for future historical journal reuse.
+        The endpoint reads persisted Cloud incidents and does not require an
+        active Edge runtime connection.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the target Edge Server
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [unclosed, all]
+            default: unclosed
+          description: Incident lifecycle filter
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: One-based page number
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Page size. Values greater than 100 return 400.
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [latest]
+            default: latest
+          description: Sort by operator-relevant latest row time
+        - name: order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [desc, asc]
+            default: desc
+          description: Sort direction
+      responses:
+        '200':
+          description: Paginated alarm incident list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlarmIncidentListResponse'
+        '400':
+          description: Invalid edgeId or unsupported query parameter value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - USER is not trusted for this Edge Server or does not have the USER role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Edge Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/edge-servers/{edgeId}/alarm-incidents/{incidentId}/ack:
     post:
       operationId: acknowledgeAlarmIncident
@@ -1324,6 +1418,44 @@ components:
           properties:
             incident:
               $ref: '#/components/schemas/AlarmIncidentProjection'
+    AlarmIncidentListResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          required:
+            - incidents
+            - page
+            - limit
+            - total
+            - hasNextPage
+          properties:
+            incidents:
+              type: array
+              items:
+                $ref: '#/components/schemas/AlarmIncidentProjection'
+            page:
+              type: integer
+              minimum: 1
+              example: 1
+            limit:
+              type: integer
+              minimum: 1
+              maximum: 100
+              example: 50
+            total:
+              type: integer
+              minimum: 0
+              example: 0
+            hasNextPage:
+              type: boolean
+              example: false
     JSendSuccess:
       type: object
       properties:
