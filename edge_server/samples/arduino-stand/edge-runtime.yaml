@@ -106,16 +106,28 @@ sources:
             reportedMetric: actual_value
 
 alarms:
-  - ruleId: temp_high_warning
+  - ruleId: humidity_high_warning
+    enabled: false
+    sourceId: arduino_stand
+    deviceId: environment
+    metric: humidity
+    conditionType: high
+    triggerThreshold: 55.0
+    clearThreshold: 50.0
+    severity: warning
+    label: "High humidity"
+
+  - ruleId: humidity_low_warning
     enabled: true
     sourceId: arduino_stand
     deviceId: environment
-    metric: temperature
-    conditionType: high
-    triggerThreshold: 30.0
-    clearThreshold: 28.0
+    metric: humidity
+    conditionType: low
+    triggerThreshold: 45.0
+    clearThreshold: 50.0
     severity: warning
-    label: "High temperature"
+    label: "Low humidity"
+
 
 logging:
   level: info
