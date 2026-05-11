@@ -1,4 +1,5 @@
 import { type AddressInfo } from 'node:net';
+import mongoose from 'mongoose';
 import { io as createSocketClient, type Socket as ClientSocket } from 'socket.io-client';
 import request from 'supertest';
 import { app, server } from '../../src/app';
@@ -12,6 +13,7 @@ import {
     ALARM_INCIDENT_CHANGED_EVENT_NAME,
     type AlarmEventPayloadDto,
     type AlarmIncidentChangedEventDto,
+    type AlarmIncidentListResponseDto,
 } from '../../src/types';
 
 export type EdgeRuntimeAuthPayload = Record<string, unknown>;
@@ -455,10 +457,119 @@ export function emitCommandResult(
 
 export type AlarmEventPayload = AlarmEventPayloadDto;
 export type AlarmIncidentChangedPayload = AlarmIncidentChangedEventDto;
+export type AlarmIncidentListPayload = AlarmIncidentListResponseDto;
 export interface EdgeStatusPayload {
     edgeId: string;
     online: boolean;
     lastSeenAt: string | null;
+}
+
+export interface AlarmIncidentSeedOverrides {
+    edgeId: string | mongoose.Types.ObjectId;
+    sourceId?: string;
+    deviceId?: string;
+    metric?: string;
+    ruleId?: string;
+    latestValue?: number | boolean;
+    latestTs?: number;
+    latestDetectedAt?: number;
+    rule?: Partial<AlarmEventPayloadDto['rule']>;
+    isActive?: boolean;
+    isAcknowledged?: boolean;
+    activatedAt?: Date | string | number;
+    clearedAt?: Date | string | number | null;
+    acknowledgedAt?: Date | string | number | null;
+    acknowledgedBy?: string | mongoose.Types.ObjectId | null;
+    createdAt?: Date | string | number;
+    updatedAt?: Date | string | number;
+}
+
+function toSeedObjectId(
+    value: string | mongoose.Types.ObjectId,
+    fieldName: string,
+): mongoose.Types.ObjectId {
+    if (value instanceof mongoose.Types.ObjectId) {
+        return value;
+    }
+
+    if (!mongoose.isValidObjectId(value)) {
+        throw new Error(`invalid_${fieldName}`);
+    }
+
+    return new mongoose.Types.ObjectId(value);
+}
+
+function toSeedDate(value: Date | string | number | undefined, fallback: Date): Date {
+    if (value === undefined) {
+        return fallback;
+    }
+
+    return value instanceof Date ? value : new Date(value);
+}
+
+function toNullableSeedDate(value: Date | string | number | null | undefined): Date | null {
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    return value instanceof Date ? value : new Date(value);
+}
+
+export async function seedAlarmIncidentRecord(
+    overrides: AlarmIncidentSeedOverrides,
+): Promise<IAlarmIncident> {
+    const now = new Date('2026-05-09T10:00:00.000Z');
+    const ruleId = overrides.ruleId ?? overrides.rule?.ruleId ?? 'rule-1';
+    const isActive = overrides.isActive ?? true;
+    const isAcknowledged = overrides.isAcknowledged ?? false;
+    const acknowledgedBy =
+        overrides.acknowledgedBy === undefined || overrides.acknowledgedBy === null
+            ? null
+            : toSeedObjectId(overrides.acknowledgedBy, 'acknowledgedBy');
+
+    return await AlarmIncident.create({
+        edgeId: toSeedObjectId(overrides.edgeId, 'edgeId'),
+        sourceId: overrides.sourceId ?? 'source-1',
+        deviceId: overrides.deviceId ?? 'pump-1',
+        metric: overrides.metric ?? 'temperature',
+        ruleId,
+        latestValue: overrides.latestValue ?? 42.5,
+        latestTs: overrides.latestTs ?? 1778320800000,
+        latestDetectedAt: overrides.latestDetectedAt ?? 1778320800100,
+        rule: {
+            ruleId,
+            ruleRevision: overrides.rule?.ruleRevision ?? 'rev-1',
+            conditionType: overrides.rule?.conditionType ?? 'high',
+            triggerThreshold: overrides.rule?.triggerThreshold ?? 40,
+            clearThreshold: overrides.rule?.clearThreshold ?? 35,
+            expectedValue: overrides.rule?.expectedValue ?? null,
+            severity: overrides.rule?.severity ?? 'warning',
+            label: overrides.rule?.label ?? 'High temperature',
+        },
+        isActive,
+        isAcknowledged,
+        activatedAt: toSeedDate(overrides.activatedAt, now),
+        clearedAt: toNullableSeedDate(overrides.clearedAt),
+        acknowledgedAt: toNullableSeedDate(overrides.acknowledgedAt),
+        acknowledgedBy,
+        createdAt: toSeedDate(overrides.createdAt, now),
+        updatedAt: toSeedDate(overrides.updatedAt, now),
+    });
+}
+
+export async function readAlarmIncidentListResponse(
+    userToken: string,
+    edgeId: string,
+    query: Record<string, string | number | boolean> = {},
+): Promise<request.Response> {
+    return await request(app)
+        .get(`/api/edge-servers/${edgeId}/alarm-incidents`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .query(query);
+}
+
+export function getAlarmIncidentListPayload(response: request.Response): AlarmIncidentListPayload {
+    return response.body?.data as AlarmIncidentListPayload;
 }
 
 export function emitAlarmEvent(

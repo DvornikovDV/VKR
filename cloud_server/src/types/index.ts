@@ -207,6 +207,41 @@ export interface AlarmIncidentProjectionDto {
     updatedAt: string;
 }
 
+export const ALARM_INCIDENT_LIST_STATES = ['unclosed', 'all'] as const;
+
+export type AlarmIncidentListState = (typeof ALARM_INCIDENT_LIST_STATES)[number];
+
+export const ALARM_INCIDENT_LIST_SORTS = ['latest'] as const;
+
+export type AlarmIncidentListSort = (typeof ALARM_INCIDENT_LIST_SORTS)[number];
+
+export const ALARM_INCIDENT_LIST_ORDERS = ['desc', 'asc'] as const;
+
+export type AlarmIncidentListOrder = (typeof ALARM_INCIDENT_LIST_ORDERS)[number];
+
+export const ALARM_INCIDENT_LIST_DEFAULT_PAGE = 1;
+export const ALARM_INCIDENT_LIST_DEFAULT_LIMIT = 50;
+export const ALARM_INCIDENT_LIST_MAX_LIMIT = 100;
+export const ALARM_INCIDENT_LIST_DEFAULT_STATE: AlarmIncidentListState = 'unclosed';
+export const ALARM_INCIDENT_LIST_DEFAULT_SORT: AlarmIncidentListSort = 'latest';
+export const ALARM_INCIDENT_LIST_DEFAULT_ORDER: AlarmIncidentListOrder = 'desc';
+
+export interface AlarmIncidentListQueryDto {
+    state: AlarmIncidentListState;
+    page: number;
+    limit: number;
+    sort: AlarmIncidentListSort;
+    order: AlarmIncidentListOrder;
+}
+
+export interface AlarmIncidentListResponseDto {
+    incidents: AlarmIncidentProjectionDto[];
+    page: number;
+    limit: number;
+    total: number;
+    hasNextPage: boolean;
+}
+
 export interface AlarmIncidentChangedEventDto {
     edgeId: string;
     incident: AlarmIncidentProjectionDto;

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ackAlarmIncident } from '@/shared/api/alarmIncidents'
+import { ackAlarmIncident, listAlarmIncidents } from '@/shared/api/alarmIncidents'
 import { apiClient } from '@/shared/api/client'
 import {
   countDashboardUnclosedAlarmIncidents,
@@ -14,6 +14,7 @@ import {
 } from '@/features/dashboard/model/alarmIncidents'
 import {
   createDashboardAlarmIncidentChangedEventFixture,
+  createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture,
   createDashboardClosedAlarmIncidentChangedEventFixture,
   createDashboardUnclosedAlarmIncidentChangedEventFixture,
   createMockDashboardRuntimeClientHarness,
@@ -24,6 +25,7 @@ vi.mock('@/shared/api/client', async (importOriginal) => {
   return {
     ...actual,
     apiClient: {
+      get: vi.fn(),
       post: vi.fn(),
     },
   }
@@ -31,6 +33,7 @@ vi.mock('@/shared/api/client', async (importOriginal) => {
 
 describe('alarm incident contract anchors', () => {
   beforeEach(() => {
+    vi.mocked(apiClient.get).mockReset()
     vi.mocked(apiClient.post).mockReset()
   })
 
@@ -50,6 +53,35 @@ describe('alarm incident contract anchors', () => {
     expect(apiClient.post).toHaveBeenCalledWith(
       '/edge-servers/edge-1/alarm-incidents/incident-ack/ack',
     )
+  })
+
+  it('lists incidents through apiClient.get using the unwrapped Cloud list response', async () => {
+    const incident = createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      incidentId: 'incident-list',
+    })
+    const response = {
+      incidents: [incident],
+      page: 2,
+      limit: 25,
+      total: 26,
+      hasNextPage: true,
+    }
+    vi.mocked(apiClient.get).mockResolvedValue(response)
+
+    await expect(
+      listAlarmIncidents('edge-1', {
+        state: 'all',
+        page: 2,
+        limit: 25,
+        sort: 'latest',
+        order: 'asc',
+      }),
+    ).resolves.toEqual(response)
+
+    expect(apiClient.get).toHaveBeenCalledWith(
+      '/edge-servers/edge-1/alarm-incidents?state=all&page=2&limit=25&sort=latest&order=asc',
+    )
+    expect(apiClient.post).not.toHaveBeenCalled()
   })
 
   it('derives incident display state and replacement without telemetry or local seed data', () => {

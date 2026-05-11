@@ -174,6 +174,73 @@ export function createDashboardAlarmIncidentChangedEventFixture(
   }
 }
 
+export function createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture(
+  overrides: DashboardAlarmIncidentFixtureOverrides['incident'] = {},
+): DashboardAlarmIncidentProjection {
+  return createDashboardAlarmIncidentChangedEventFixture({
+    incident: {
+      lifecycleState: 'active_unacknowledged',
+      isActive: true,
+      isAcknowledged: false,
+      clearedAt: null,
+      acknowledgedAt: null,
+      acknowledgedBy: null,
+      ...overrides,
+    },
+  }).incident
+}
+
+export function createDashboardActiveAcknowledgedAlarmIncidentProjectionFixture(
+  overrides: DashboardAlarmIncidentFixtureOverrides['incident'] = {},
+): DashboardAlarmIncidentProjection {
+  return createDashboardAlarmIncidentChangedEventFixture({
+    incident: {
+      lifecycleState: 'active_acknowledged',
+      isActive: true,
+      isAcknowledged: true,
+      clearedAt: null,
+      acknowledgedAt: '2026-05-09T10:05:00.000Z',
+      acknowledgedBy: 'operator-1',
+      updatedAt: '2026-05-09T10:05:00.000Z',
+      ...overrides,
+    },
+  }).incident
+}
+
+export function createDashboardClearedUnacknowledgedAlarmIncidentProjectionFixture(
+  overrides: DashboardAlarmIncidentFixtureOverrides['incident'] = {},
+): DashboardAlarmIncidentProjection {
+  return createDashboardAlarmIncidentChangedEventFixture({
+    incident: {
+      lifecycleState: 'cleared_unacknowledged',
+      isActive: false,
+      isAcknowledged: false,
+      clearedAt: '2026-05-09T10:10:00.000Z',
+      acknowledgedAt: null,
+      acknowledgedBy: null,
+      updatedAt: '2026-05-09T10:10:00.000Z',
+      ...overrides,
+    },
+  }).incident
+}
+
+export function createDashboardClosedAlarmIncidentProjectionFixture(
+  overrides: DashboardAlarmIncidentFixtureOverrides['incident'] = {},
+): DashboardAlarmIncidentProjection {
+  return createDashboardAlarmIncidentChangedEventFixture({
+    incident: {
+      lifecycleState: 'closed',
+      isActive: false,
+      isAcknowledged: true,
+      clearedAt: '2026-05-09T10:10:00.000Z',
+      acknowledgedAt: '2026-05-09T10:11:00.000Z',
+      acknowledgedBy: 'operator-1',
+      updatedAt: '2026-05-09T10:11:00.000Z',
+      ...overrides,
+    },
+  }).incident
+}
+
 export function createDashboardUnclosedAlarmIncidentChangedEventFixture(
   overrides: DashboardAlarmIncidentFixtureOverrides = {},
 ): DashboardAlarmIncidentChangedEvent {

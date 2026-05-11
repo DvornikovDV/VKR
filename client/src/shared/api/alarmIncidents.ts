@@ -48,6 +48,61 @@ export interface AckAlarmIncidentResponse {
   incident: AlarmIncidentProjection
 }
 
+export type AlarmIncidentListState = 'unclosed' | 'all'
+export type AlarmIncidentListSort = 'latest'
+export type AlarmIncidentListOrder = 'desc' | 'asc'
+
+export interface ListAlarmIncidentsQuery {
+  state?: AlarmIncidentListState
+  page?: number
+  limit?: number
+  sort?: AlarmIncidentListSort
+  order?: AlarmIncidentListOrder
+}
+
+export interface AlarmIncidentListResponse {
+  incidents: AlarmIncidentProjection[]
+  page: number
+  limit: number
+  total: number
+  hasNextPage: boolean
+}
+
+const DEFAULT_LIST_ALARM_INCIDENTS_QUERY = {
+  state: 'unclosed',
+  page: 1,
+  limit: 50,
+  sort: 'latest',
+  order: 'desc',
+} as const satisfies Required<ListAlarmIncidentsQuery>
+
+function buildAlarmIncidentListQuery(query: ListAlarmIncidentsQuery = {}): string {
+  const mergedQuery = {
+    ...DEFAULT_LIST_ALARM_INCIDENTS_QUERY,
+    ...query,
+  }
+  const params = new URLSearchParams()
+
+  params.set('state', mergedQuery.state)
+  params.set('page', String(mergedQuery.page))
+  params.set('limit', String(mergedQuery.limit))
+  params.set('sort', mergedQuery.sort)
+  params.set('order', mergedQuery.order)
+
+  return params.toString()
+}
+
+export async function listAlarmIncidents(
+  edgeId: string,
+  query?: ListAlarmIncidentsQuery,
+): Promise<AlarmIncidentListResponse> {
+  const queryString = buildAlarmIncidentListQuery(query)
+
+  return apiClient.get<AlarmIncidentListResponse>(
+    `/edge-servers/${edgeId}/alarm-incidents?${queryString}`,
+  )
+}
+
 export async function ackAlarmIncident(
   edgeId: string,
   incidentId: string,
