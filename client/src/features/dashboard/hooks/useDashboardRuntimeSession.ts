@@ -13,6 +13,7 @@ import type {
   DashboardAlarmIncidentList,
   DashboardAlarmIncidentProjection,
   DashboardAlarmJournalInitialLoadBlockedMarker,
+  DashboardAlarmJournalLoadState,
   DashboardEdgeAvailability,
   DashboardMetricRevisionByBindingKey,
   DashboardMetricValueByBindingKey,
@@ -25,7 +26,7 @@ import {
   type CloudRuntimeClient,
   type DashboardRuntimeSession,
 } from '@/features/dashboard/services/cloudRuntimeClient'
-import { ackAlarmIncident } from '@/shared/api/alarmIncidents'
+import { ackAlarmIncident, listAlarmIncidents } from '@/shared/api/alarmIncidents'
 
 export interface UseDashboardRuntimeSessionOptions {
   edgeId: string | null
@@ -40,6 +41,7 @@ export interface DashboardRuntimeSessionState {
   latestMetricValueByBindingKey: DashboardMetricValueByBindingKey
   metricRevisionByBindingKey: DashboardMetricRevisionByBindingKey
   alarmIncidents: DashboardAlarmIncidentList
+  alarmJournalLoadState: DashboardAlarmJournalLoadState
   alarmJournalInitialLoadBlocked: DashboardAlarmJournalInitialLoadBlockedMarker | null
   alarmAckPendingByIncidentId: DashboardAlarmAckPendingByIncidentId
   alarmAckErrorByIncidentId: DashboardAlarmAckErrorByIncidentId
@@ -50,9 +52,19 @@ export interface DashboardRuntimeSessionState {
 
 export type UseDashboardRuntimeSessionResult = DashboardRuntimeSessionState
 
-const alarmJournalInitialLoadBlocked: DashboardAlarmJournalInitialLoadBlockedMarker = {
-  blocked: true,
-  reason: 'missing-cloud-incident-list-endpoint',
+const idleAlarmJournalLoadState: DashboardAlarmJournalLoadState = {
+  status: 'idle',
+  error: null,
+}
+
+const loadingAlarmJournalLoadState: DashboardAlarmJournalLoadState = {
+  status: 'loading',
+  error: null,
+}
+
+const loadedAlarmJournalLoadState: DashboardAlarmJournalLoadState = {
+  status: 'loaded',
+  error: null,
 }
 
 function createIdleState(): DashboardRuntimeSessionState {
@@ -63,6 +75,7 @@ function createIdleState(): DashboardRuntimeSessionState {
     latestMetricValueByBindingKey: {},
     metricRevisionByBindingKey: {},
     alarmIncidents: [],
+    alarmJournalLoadState: idleAlarmJournalLoadState,
     alarmJournalInitialLoadBlocked: null,
     alarmAckPendingByIncidentId: {},
     alarmAckErrorByIncidentId: {},
@@ -146,6 +159,40 @@ function shouldApplyAckResponseIncident(
   return true
 }
 
+function shouldApplyListResponseIncident(
+  existingIncident: DashboardAlarmIncidentProjection | undefined,
+  responseIncident: DashboardAlarmIncidentProjection,
+): boolean {
+  if (!existingIncident) {
+    return true
+  }
+
+  return (
+    getDashboardAlarmIncidentRowTimeMs(responseIncident) >=
+    getDashboardAlarmIncidentRowTimeMs(existingIncident)
+  )
+}
+
+function mergeDashboardAlarmIncidentList(
+  existingIncidents: readonly DashboardAlarmIncidentProjection[],
+  listIncidents: readonly DashboardAlarmIncidentProjection[],
+  edgeId: string,
+): DashboardAlarmIncidentProjection[] {
+  return listIncidents.reduce<DashboardAlarmIncidentProjection[]>((nextIncidents, incident) => {
+    if (incident.edgeId !== edgeId) {
+      return nextIncidents
+    }
+
+    const existingIncident = nextIncidents.find(
+      (candidate) => candidate.incidentId === incident.incidentId,
+    )
+
+    return shouldApplyListResponseIncident(existingIncident, incident)
+      ? upsertDashboardAlarmIncident(nextIncidents, incident)
+      : nextIncidents
+  }, [...existingIncidents])
+}
+
 export function useDashboardRuntimeSession(
   options: UseDashboardRuntimeSessionOptions,
 ): UseDashboardRuntimeSessionResult {
@@ -158,6 +205,7 @@ export function useDashboardRuntimeSession(
   const sessionRef = useRef<DashboardRuntimeSession | null>(null)
   const generationRef = useRef(0)
   const ackRequestInFlightRef = useRef(new Map<string, number>())
+  const listRequestInFlightRef = useRef(0)
 
   useEffect(() => {
     stateRef.current = state
@@ -298,6 +346,7 @@ export function useDashboardRuntimeSession(
     generationRef.current += 1
     const generation = generationRef.current
     ackRequestInFlightRef.current.clear()
+    listRequestInFlightRef.current += 1
 
     disposeSession()
 
@@ -313,13 +362,17 @@ export function useDashboardRuntimeSession(
       latestMetricValueByBindingKey: {},
       metricRevisionByBindingKey: {},
       alarmIncidents: [],
-      alarmJournalInitialLoadBlocked,
+      alarmJournalLoadState: loadingAlarmJournalLoadState,
+      alarmJournalInitialLoadBlocked: null,
       alarmAckPendingByIncidentId: {},
       alarmAckErrorByIncidentId: {},
       lastServerTimestamp: null,
       runtimeError: null,
       acknowledgeAlarmIncident,
     })
+
+    const listRequestId = listRequestInFlightRef.current + 1
+    listRequestInFlightRef.current = listRequestId
 
     try {
       const session = runtimeClient.startSession({
@@ -404,6 +457,60 @@ export function useDashboardRuntimeSession(
       })
 
       sessionRef.current = session
+
+      void listAlarmIncidents(normalizedEdgeId, {
+        state: 'unclosed',
+        page: 1,
+        limit: 50,
+        sort: 'latest',
+        order: 'desc',
+      })
+        .then((response) => {
+          if (
+            generation !== generationRef.current ||
+            listRequestId !== listRequestInFlightRef.current
+          ) {
+            return
+          }
+
+          setState((previous) => {
+            if (previous.activeEdgeId !== normalizedEdgeId) {
+              return previous
+            }
+
+            return {
+              ...previous,
+              alarmIncidents: mergeDashboardAlarmIncidentList(
+                previous.alarmIncidents,
+                response.incidents,
+                normalizedEdgeId,
+              ),
+              alarmJournalLoadState: loadedAlarmJournalLoadState,
+            }
+          })
+        })
+        .catch((error) => {
+          if (
+            generation !== generationRef.current ||
+            listRequestId !== listRequestInFlightRef.current
+          ) {
+            return
+          }
+
+          setState((previous) => {
+            if (previous.activeEdgeId !== normalizedEdgeId) {
+              return previous
+            }
+
+            return {
+              ...previous,
+              alarmJournalLoadState: {
+                status: 'error',
+                error: toErrorMessage(error, 'Alarm incident list is unavailable.'),
+              },
+            }
+          })
+        })
     } catch (error) {
       setState({
         activeEdgeId: normalizedEdgeId,
@@ -412,7 +519,8 @@ export function useDashboardRuntimeSession(
         latestMetricValueByBindingKey: {},
         metricRevisionByBindingKey: {},
         alarmIncidents: [],
-        alarmJournalInitialLoadBlocked,
+        alarmJournalLoadState: idleAlarmJournalLoadState,
+        alarmJournalInitialLoadBlocked: null,
         alarmAckPendingByIncidentId: {},
         alarmAckErrorByIncidentId: {},
         lastServerTimestamp: null,

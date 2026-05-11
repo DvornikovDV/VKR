@@ -8,6 +8,7 @@ import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
 import { server } from '../mocks/server'
 import {
   createDashboardAlarmIncidentChangedEventFixture,
+  createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture,
   createDashboardEdgeStatusEventFixture,
   createDashboardTelemetryEventFixture,
   createMockDashboardRuntimeSocketHarness,
@@ -26,6 +27,21 @@ beforeEach(() => {
     useAuthStore.setState({ session: null, isAuthenticated: false })
     useAuthStore.getState().setSession(userSession)
   })
+
+  server.use(
+    http.get('/api/edge-servers/:edgeId/alarm-incidents', () =>
+      HttpResponse.json({
+        status: 'success',
+        data: {
+          incidents: [],
+          page: 1,
+          limit: 50,
+          total: 0,
+          hasNextPage: false,
+        },
+      }),
+    ),
+  )
 })
 
 afterEach(() => {
@@ -35,6 +51,284 @@ afterEach(() => {
 })
 
 describe('useDashboardRuntimeSession (T015)', () => {
+  it('loads unclosed alarm incidents for the selected edge and reports success state', async () => {
+    const socketHarness = createMockDashboardRuntimeSocketHarness()
+    const runtimeClient = createCloudRuntimeClient(socketHarness.socketFactory)
+    const loadedIncident = createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      incidentId: 'incident-list-loaded',
+      edgeId: 'edge-1',
+      updatedAt: '2026-05-09T10:30:00.000Z',
+    })
+    const requestedUrls: URL[] = []
+    let releaseListResponse: () => void = () => {}
+
+    server.use(
+      http.get('/api/edge-servers/:edgeId/alarm-incidents', ({ params, request }) => {
+        requestedUrls.push(new URL(request.url))
+        expect(params.edgeId).toBe('edge-1')
+
+        return new Promise((resolve) => {
+          releaseListResponse = () =>
+            resolve(
+              HttpResponse.json({
+                status: 'success',
+                data: {
+                  incidents: [loadedIncident],
+                  page: 1,
+                  limit: 50,
+                  total: 1,
+                  hasNextPage: false,
+                },
+              }),
+            )
+        })
+      }),
+    )
+
+    const { result } = renderHook(() =>
+      useDashboardRuntimeSession({
+        edgeId: 'edge-1',
+        enabled: true,
+        client: runtimeClient,
+      }),
+    )
+
+    await waitFor(() => {
+      expect(result.current.alarmJournalLoadState).toEqual({
+        status: 'loading',
+        error: null,
+      })
+    })
+
+    const requestedUrl = requestedUrls[0]
+    expect(requestedUrl?.searchParams.get('state')).toBe('unclosed')
+    expect(requestedUrl?.searchParams.get('page')).toBe('1')
+    expect(requestedUrl?.searchParams.get('limit')).toBe('50')
+    expect(requestedUrl?.searchParams.get('sort')).toBe('latest')
+    expect(requestedUrl?.searchParams.get('order')).toBe('desc')
+
+    await act(async () => {
+      releaseListResponse()
+    })
+
+    await waitFor(() => {
+      expect(result.current.alarmJournalLoadState).toEqual({
+        status: 'loaded',
+        error: null,
+      })
+      expect(result.current.alarmIncidents.map((incident) => incident.incidentId)).toEqual([
+        'incident-list-loaded',
+      ])
+    })
+  })
+
+  it('reports bounded alarm incident list load errors without claiming loaded-empty success', async () => {
+    const socketHarness = createMockDashboardRuntimeSocketHarness()
+    const runtimeClient = createCloudRuntimeClient(socketHarness.socketFactory)
+
+    server.use(
+      http.get('/api/edge-servers/:edgeId/alarm-incidents', () =>
+        HttpResponse.json(
+          { status: 'error', message: 'Alarm incident list unavailable' },
+          { status: 503 },
+        ),
+      ),
+    )
+
+    const { result } = renderHook(() =>
+      useDashboardRuntimeSession({
+        edgeId: 'edge-1',
+        enabled: true,
+        client: runtimeClient,
+      }),
+    )
+
+    await waitFor(() => {
+      expect(result.current.alarmJournalLoadState.status).toBe('error')
+    })
+
+    expect(result.current.alarmJournalLoadState.error).toBe('Alarm incident list unavailable')
+    expect(result.current.alarmIncidents).toEqual([])
+  })
+
+  it('merges REST list projections without replacing newer realtime rows or stale edge state', async () => {
+    const socketHarness = createMockDashboardRuntimeSocketHarness()
+    const runtimeClient = createCloudRuntimeClient(socketHarness.socketFactory)
+    const staleListIncident = createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      incidentId: 'incident-race',
+      edgeId: 'edge-1',
+      isAcknowledged: false,
+      acknowledgedAt: null,
+      updatedAt: '2026-05-09T10:00:00.000Z',
+    })
+    const edgeTwoIncident = createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      incidentId: 'incident-edge-2',
+      edgeId: 'edge-2',
+      updatedAt: '2026-05-09T10:40:00.000Z',
+    })
+    let releaseEdgeOneList: () => void = () => {}
+    let edgeOneListRequested = false
+
+    server.use(
+      http.get('/api/edge-servers/:edgeId/alarm-incidents', ({ params }) => {
+        if (params.edgeId === 'edge-1') {
+          edgeOneListRequested = true
+
+          return new Promise((resolve) => {
+            releaseEdgeOneList = () =>
+              resolve(
+                HttpResponse.json({
+                  status: 'success',
+                  data: {
+                    incidents: [staleListIncident],
+                    page: 1,
+                    limit: 50,
+                    total: 1,
+                    hasNextPage: false,
+                  },
+                }),
+              )
+          })
+        }
+
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            incidents: [edgeTwoIncident],
+            page: 1,
+            limit: 50,
+            total: 1,
+            hasNextPage: false,
+          },
+        })
+      }),
+    )
+
+    const { result, rerender } = renderHook(
+      ({ edgeId }: { edgeId: string }) =>
+        useDashboardRuntimeSession({
+          edgeId,
+          enabled: true,
+          client: runtimeClient,
+        }),
+      {
+        initialProps: { edgeId: 'edge-1' },
+      },
+    )
+
+    await waitFor(() => {
+      expect(edgeOneListRequested).toBe(true)
+      expect(result.current.alarmJournalLoadState.status).toBe('loading')
+    })
+
+    act(() => {
+      socketHarness.emitAlarmIncidentChanged(
+        createDashboardAlarmIncidentChangedEventFixture({
+          edgeId: 'edge-1',
+          incident: {
+            incidentId: 'incident-race',
+            edgeId: 'edge-1',
+            isAcknowledged: true,
+            acknowledgedAt: '2026-05-09T10:05:00.000Z',
+            acknowledgedBy: 'user-1',
+            updatedAt: '2026-05-09T10:05:00.000Z',
+          },
+        }),
+      )
+      socketHarness.emitAlarmIncidentChanged(
+        createDashboardAlarmIncidentChangedEventFixture({
+          edgeId: 'edge-1',
+          incident: {
+            incidentId: 'incident-realtime-extra',
+            edgeId: 'edge-1',
+            updatedAt: '2026-05-09T10:06:00.000Z',
+          },
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(result.current.alarmIncidents.map((incident) => incident.incidentId)).toEqual([
+        'incident-realtime-extra',
+        'incident-race',
+      ])
+    })
+
+    await act(async () => {
+      releaseEdgeOneList()
+    })
+
+    await waitFor(() => {
+      expect(result.current.alarmJournalLoadState.status).toBe('loaded')
+      expect(result.current.alarmIncidents.map((incident) => incident.incidentId)).toEqual([
+        'incident-realtime-extra',
+        'incident-race',
+      ])
+      expect(result.current.alarmIncidents.find((incident) => incident.incidentId === 'incident-race')).toEqual(
+        expect.objectContaining({
+          isAcknowledged: true,
+          acknowledgedAt: '2026-05-09T10:05:00.000Z',
+        }),
+      )
+    })
+
+    server.use(
+      http.get('/api/edge-servers/edge-1/alarm-incidents', () =>
+        new Promise((resolve) => {
+          releaseEdgeOneList = () =>
+            resolve(
+              HttpResponse.json({
+                status: 'success',
+                data: {
+                  incidents: [staleListIncident],
+                  page: 1,
+                  limit: 50,
+                  total: 1,
+                  hasNextPage: false,
+                },
+              }),
+            )
+        }),
+      ),
+    )
+
+    rerender({ edgeId: 'edge-2' })
+
+    await waitFor(() => {
+      expect(result.current.activeEdgeId).toBe('edge-2')
+      expect(result.current.alarmJournalLoadState.status).toBe('loaded')
+    })
+
+    rerender({ edgeId: 'edge-1' })
+
+    await waitFor(() => {
+      expect(result.current.activeEdgeId).toBe('edge-1')
+      expect(result.current.alarmJournalLoadState.status).toBe('loading')
+    })
+
+    rerender({ edgeId: 'edge-2' })
+
+    await waitFor(() => {
+      expect(result.current.activeEdgeId).toBe('edge-2')
+      expect(result.current.alarmIncidents.map((incident) => incident.incidentId)).toEqual([
+        'incident-edge-2',
+      ])
+      expect(result.current.alarmJournalLoadState).toEqual({
+        status: 'loaded',
+        error: null,
+      })
+    })
+
+    await act(async () => {
+      releaseEdgeOneList()
+    })
+
+    expect(result.current.activeEdgeId).toBe('edge-2')
+    expect(result.current.alarmIncidents.map((incident) => incident.incidentId)).toEqual([
+      'incident-edge-2',
+    ])
+  })
+
   it('connects and subscribes to the selected edge session', async () => {
     const socketHarness = createMockDashboardRuntimeSocketHarness()
     const runtimeClient = createCloudRuntimeClient(socketHarness.socketFactory)
@@ -204,10 +498,9 @@ describe('useDashboardRuntimeSession (T015)', () => {
     })
 
     expect(result.current.alarmIncidents).toEqual([])
-    expect(result.current.alarmJournalInitialLoadBlocked).toEqual({
-      blocked: true,
-      reason: 'missing-cloud-incident-list-endpoint',
-    })
+    expect(result.current.alarmJournalInitialLoadBlocked).toBeNull()
+    expect(['loading', 'loaded']).toContain(result.current.alarmJournalLoadState.status)
+    expect(result.current.alarmJournalLoadState.error).toBeNull()
     expect(result.current.alarmAckPendingByIncidentId).toEqual({})
     expect(result.current.alarmAckErrorByIncidentId).toEqual({})
     expect(typeof result.current.acknowledgeAlarmIncident).toBe('function')

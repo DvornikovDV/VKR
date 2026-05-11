@@ -282,6 +282,11 @@ export interface DashboardAlarmToastNotice {
   incidentId: string
   incident: DashboardAlarmIncidentProjection
 }
+export type DashboardAlarmJournalLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
+export interface DashboardAlarmJournalLoadState {
+  status: DashboardAlarmJournalLoadStatus
+  error: string | null
+}
 export type DashboardAlarmJournalInitialLoadBlockedReason =
   'missing-cloud-incident-list-endpoint'
 export interface DashboardAlarmJournalInitialLoadBlockedMarker {
