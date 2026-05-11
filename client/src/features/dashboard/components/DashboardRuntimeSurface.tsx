@@ -456,7 +456,7 @@ export function DashboardRuntimeSurface({
             </div>
             <div className="max-h-64 flex-shrink-0 border-t border-[#1f2a3d] xl:max-h-none xl:w-80 xl:border-l xl:border-t-0">
               <DashboardAlarmJournalPanel
-                alarmIncidents={alarmIncidents}
+                alarmIncidents={activeEdgeAlarmIncidents}
                 loadState={alarmJournalLoadState}
                 initialLoadBlocked={alarmJournalInitialLoadBlocked}
                 ackPendingByIncidentId={alarmAckPendingByIncidentId}

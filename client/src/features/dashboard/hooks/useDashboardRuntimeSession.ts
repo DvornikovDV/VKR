@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  getDashboardAlarmIncidentLifecycleState,
   getDashboardAlarmIncidentRowTimeMs,
   upsertDashboardAlarmIncident,
 } from '@/features/dashboard/model/alarmIncidents'
@@ -159,6 +160,81 @@ function shouldApplyAckResponseIncident(
   return true
 }
 
+function parseComparableTimeMs(value: string | number | null): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  return null
+}
+
+function selectLatestTimestampValue<T extends string | number | null>(left: T, right: T): T {
+  const leftMs = parseComparableTimeMs(left)
+  const rightMs = parseComparableTimeMs(right)
+
+  if (leftMs === null) {
+    return right
+  }
+
+  if (rightMs === null) {
+    return left
+  }
+
+  return rightMs >= leftMs ? right : left
+}
+
+function getLatestObservationTimeMs(incident: DashboardAlarmIncidentProjection): number {
+  return Math.max(
+    parseComparableTimeMs(incident.latestDetectedAt) ?? 0,
+    parseComparableTimeMs(incident.latestTs) ?? 0,
+  )
+}
+
+function mergeAckResponseIncident(
+  existingIncident: DashboardAlarmIncidentProjection | undefined,
+  responseIncident: DashboardAlarmIncidentProjection,
+): DashboardAlarmIncidentProjection | null {
+  if (!shouldApplyAckResponseIncident(existingIncident, responseIncident)) {
+    return null
+  }
+
+  if (!existingIncident) {
+    return responseIncident
+  }
+
+  const keepExistingObservation =
+    getLatestObservationTimeMs(existingIncident) > getLatestObservationTimeMs(responseIncident)
+  const isActive = existingIncident.isActive && responseIncident.isActive
+  const isAcknowledged = existingIncident.isAcknowledged || responseIncident.isAcknowledged
+
+  return {
+    ...existingIncident,
+    ...responseIncident,
+    lifecycleState: getDashboardAlarmIncidentLifecycleState({ isActive, isAcknowledged }),
+    isActive,
+    isAcknowledged,
+    clearedAt: selectLatestTimestampValue(existingIncident.clearedAt, responseIncident.clearedAt),
+    acknowledgedAt: selectLatestTimestampValue(
+      existingIncident.acknowledgedAt,
+      responseIncident.acknowledgedAt,
+    ),
+    acknowledgedBy: responseIncident.acknowledgedBy ?? existingIncident.acknowledgedBy,
+    latestValue: keepExistingObservation
+      ? existingIncident.latestValue
+      : responseIncident.latestValue,
+    latestTs: keepExistingObservation ? existingIncident.latestTs : responseIncident.latestTs,
+    latestDetectedAt: keepExistingObservation
+      ? existingIncident.latestDetectedAt
+      : responseIncident.latestDetectedAt,
+    updatedAt: selectLatestTimestampValue(existingIncident.updatedAt, responseIncident.updatedAt),
+  }
+}
+
 function shouldApplyListResponseIncident(
   existingIncident: DashboardAlarmIncidentProjection | undefined,
   responseIncident: DashboardAlarmIncidentProjection,
@@ -275,15 +351,16 @@ export function useDashboardRuntimeSession(
         const existingIncident = previous.alarmIncidents.find(
           (candidate) => candidate.incidentId === normalizedIncidentId,
         )
-        const shouldApplyIncident =
-          matchesRequestedIncident && shouldApplyAckResponseIncident(existingIncident, incident)
+        const mergedIncident = matchesRequestedIncident
+          ? mergeAckResponseIncident(existingIncident, incident)
+          : null
         const hasAcknowledgedProjection =
-          shouldApplyIncident || Boolean(existingIncident?.isAcknowledged)
+          Boolean(mergedIncident) || Boolean(existingIncident?.isAcknowledged)
 
         return {
           ...previous,
-          alarmIncidents: shouldApplyIncident
-            ? upsertDashboardAlarmIncident(previous.alarmIncidents, incident)
+          alarmIncidents: mergedIncident
+            ? upsertDashboardAlarmIncident(previous.alarmIncidents, mergedIncident)
             : previous.alarmIncidents,
           alarmAckPendingByIncidentId: omitRecordKey(
             previous.alarmAckPendingByIncidentId,

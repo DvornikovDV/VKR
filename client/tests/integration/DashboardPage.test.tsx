@@ -17,6 +17,7 @@ import {
   type DashboardRestFixtures,
 } from '../mocks/handlers'
 import {
+  createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture,
   createDashboardAlarmIncidentChangedEventFixture,
   createDashboardClosedAlarmIncidentChangedEventFixture,
   createDashboardTelemetryEventFixture,
@@ -323,6 +324,183 @@ describe('DashboardPage (US1)', () => {
     expect(
       within(otherRow).getByRole('button', { name: 'Acknowledge incident Compressor temperature high' }),
     ).toBeInTheDocument()
+  })
+
+  it('renders REST-loaded incidents on dashboard reload and converges realtime and ACK updates on one enriched row', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const edgeId = 'edge-visual-1'
+    const incidentId = 'incident-pressure-restored'
+    const restoredIncident = createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      incidentId,
+      edgeId,
+      sourceId: 'source-pressure',
+      deviceId: 'compressor-7',
+      metric: 'pressure',
+      ruleId: 'rule-pressure-high',
+      activatedAt: '2026-05-09T09:25:00.000Z',
+      latestValue: 42.5,
+      latestTs: 1778318730000,
+      latestDetectedAt: 1778318730000,
+      updatedAt: '2026-05-09T09:25:30.000Z',
+      rule: {
+        ruleId: 'rule-pressure-high',
+        ruleRevision: 'rev-1',
+        conditionType: 'high',
+        triggerThreshold: 40,
+        clearThreshold: 35,
+        expectedValue: null,
+        severity: 'danger',
+        label: 'Compressor pressure high',
+      },
+    })
+    const listRequests: Array<{ edgeId: string; query: string }> = []
+    const ackRequests: Array<{ edgeId: string; incidentId: string }> = []
+
+    server.use(
+      http.get('/api/edge-servers/:edgeId/alarm-incidents', ({ params, request }) => {
+        listRequests.push({
+          edgeId: String(params.edgeId),
+          query: new URL(request.url).search,
+        })
+
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            incidents: [restoredIncident],
+            page: 1,
+            limit: 50,
+            total: 1,
+            hasNextPage: false,
+          },
+        })
+      }),
+      http.post('/api/edge-servers/:edgeId/alarm-incidents/:incidentId/ack', ({ params }) => {
+        ackRequests.push({
+          edgeId: String(params.edgeId),
+          incidentId: String(params.incidentId),
+        })
+
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            incident: {
+              ...restoredIncident,
+              lifecycleState: 'active_acknowledged',
+              isAcknowledged: true,
+              acknowledgedAt: '2026-05-09T09:27:00.000Z',
+              acknowledgedBy: 'user-1',
+              updatedAt: '2026-05-09T09:27:00.000Z',
+            },
+          },
+        })
+      }),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId }),
+      )
+      expect(listRequests).toEqual([
+        {
+          edgeId,
+          query: '?state=unclosed&page=1&limit=50&sort=latest&order=desc',
+        },
+      ])
+    })
+
+    const row = await screen.findByTestId(`dashboard-alarm-incident-row-${incidentId}`)
+    expect(within(row).getByText('Compressor pressure high')).toBeInTheDocument()
+    expect(within(row).getByText('compressor-7 / pressure')).toBeInTheDocument()
+    expect(
+      within(row).getByText('High condition: latest 42.5; trigger 40; clear 35'),
+    ).toBeInTheDocument()
+    expect(within(row).getByText('danger')).toBeInTheDocument()
+    expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
+    expect(within(row).getByText('2026-05-09T09:25:00.000Z')).toBeInTheDocument()
+    expect(within(row).getByText('2026-05-09T09:25:30.000Z')).toBeInTheDocument()
+    expect(screen.getByTestId('dashboard-alarm-red-light-count')).toHaveTextContent('1')
+    expect(screen.getAllByTestId(`dashboard-alarm-incident-row-${incidentId}`)).toHaveLength(1)
+
+    act(() => {
+      runtimeHarness.emitAlarmIncidentChanged(
+        createDashboardAlarmIncidentChangedEventFixture({
+          edgeId,
+          incident: {
+            ...restoredIncident,
+            latestValue: 45,
+            latestDetectedAt: 1778318760000,
+            updatedAt: '2026-05-09T09:26:00.000Z',
+          },
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId(`dashboard-alarm-incident-row-${incidentId}`)).toHaveLength(1)
+      expect(
+        within(row).getByText('High condition: latest 45; trigger 40; clear 35'),
+      ).toBeInTheDocument()
+      expect(within(row).getByText('2026-05-09T09:26:00.000Z')).toBeInTheDocument()
+    })
+
+    await userEvent.setup().click(
+      within(row).getByRole('button', {
+        name: 'Acknowledge incident Compressor pressure high',
+      }),
+    )
+
+    await waitFor(() => {
+      expect(ackRequests).toEqual([{ edgeId, incidentId }])
+      expect(screen.getAllByTestId(`dashboard-alarm-incident-row-${incidentId}`)).toHaveLength(1)
+      expect(within(row).getByText('Active Acknowledged')).toBeInTheDocument()
+      expect(
+        within(row).getByText('High condition: latest 45; trigger 40; clear 35'),
+      ).toBeInTheDocument()
+      expect(
+        within(row).queryByText('High condition: latest 42.5; trigger 40; clear 35'),
+      ).not.toBeInTheDocument()
+      expect(within(row).getAllByText('2026-05-09T09:27:00.000Z').length).toBeGreaterThan(0)
+    })
+    expect(
+      within(row).queryByRole('button', {
+        name: 'Acknowledge incident Compressor pressure high',
+      }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows a bounded unavailable state when the initial incident list fails without claiming an empty journal', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const edgeId = 'edge-visual-1'
+
+    server.use(
+      http.get('/api/edge-servers/:edgeId/alarm-incidents', () =>
+        HttpResponse.json(
+          { status: 'error', message: 'Incident list unavailable' },
+          { status: 503 },
+        ),
+      ),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId }),
+      )
+    })
+
+    const journalPanel = screen.getByTestId('dashboard-alarm-journal-panel')
+    const alert = await within(journalPanel).findByRole('alert')
+    expect(alert).toHaveTextContent('Alarm incident list is unavailable.')
+    expect(alert).toHaveTextContent('Incident list unavailable')
+    expect(within(journalPanel).queryByText(/no unclosed alarm incidents/i)).not.toBeInTheDocument()
+    expect(within(journalPanel).queryByText(/no incidents/i)).not.toBeInTheDocument()
+    expect(within(journalPanel).queryByTestId(/dashboard-alarm-incident-row-/)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
   })
 
   it('shows red-light and one toast for a newly known unclosed incident through the runtime path', async () => {
