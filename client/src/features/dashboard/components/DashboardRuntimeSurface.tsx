@@ -1,14 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, ChevronDown, ChevronUp, Info, Loader2, Maximize2, Monitor } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronUp, Loader2, Monitor } from 'lucide-react'
 import { DashboardAlarmJournalPanel } from '@/features/dashboard/components/DashboardAlarmJournalPanel'
-import { DashboardAlarmRedLightIndicator } from '@/features/dashboard/components/DashboardAlarmRedLightIndicator'
 import { DashboardAlarmToastNotice } from '@/features/dashboard/components/DashboardAlarmToastNotice'
 import { DashboardDiagnosticsPanel } from '@/features/dashboard/components/DashboardDiagnosticsPanel'
 import { DashboardVisualSurface } from '@/features/dashboard/components/DashboardVisualSurface'
-import {
-  countDashboardUnclosedAlarmIncidents,
-  isDashboardAlarmIncidentUnclosed,
-} from '@/features/dashboard/model/alarmIncidents'
+import { isDashboardAlarmIncidentUnclosed } from '@/features/dashboard/model/alarmIncidents'
 import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runtimeLayout'
 import {
   createDashboardInitialViewport,
@@ -59,6 +55,7 @@ interface DashboardRuntimeSurfaceProps {
   onAcknowledgeAlarmIncident?: (incidentId: string) => void | Promise<void>
   diagnosticsOpen: boolean
   onToggleDiagnostics: () => void
+  onFitToViewActionChange?: (action: (() => void) | null) => void
   selectedEdgeId: string | null
   // Error info for status tab
   errorMessage?: string | null
@@ -186,6 +183,7 @@ export function DashboardRuntimeSurface({
   onAcknowledgeAlarmIncident = () => undefined,
   diagnosticsOpen,
   onToggleDiagnostics,
+  onFitToViewActionChange,
   selectedEdgeId,
   errorMessage = null,
 }: DashboardRuntimeSurfaceProps) {
@@ -207,10 +205,6 @@ export function DashboardRuntimeSurface({
         ? alarmIncidents.filter((incident) => incident.edgeId === selectedEdgeId)
         : [],
     [alarmIncidents, isActiveContext, selectedEdgeId],
-  )
-  const unclosedAlarmIncidentCount = useMemo(
-    () => countDashboardUnclosedAlarmIncidents(activeEdgeAlarmIncidents),
-    [activeEdgeAlarmIncidents],
   )
   const toastSessionEdgeId = isActiveContext ? selectedEdgeId : null
   const toastKnownIncidentIdsRef = useRef<Set<string>>(new Set())
@@ -316,43 +310,31 @@ export function DashboardRuntimeSurface({
     }
   }, [runtimeLayout, showCanvas])
 
+  const handleFitToView = useCallback(() => {
+    if (!runtimeLayout) {
+      return
+    }
+
+    setViewport(createDashboardInitialViewport(runtimeLayout.diagramBounds, containerSize))
+  }, [containerSize, runtimeLayout])
+
+  useEffect(() => {
+    if (!onFitToViewActionChange) {
+      return undefined
+    }
+
+    if (!showCanvas || !runtimeLayout) {
+      onFitToViewActionChange(null)
+      return () => onFitToViewActionChange(null)
+    }
+
+    onFitToViewActionChange(handleFitToView)
+    return () => onFitToViewActionChange(null)
+  }, [handleFitToView, onFitToViewActionChange, runtimeLayout, showCanvas])
+
 
   return (
     <section className="relative flex flex-col overflow-hidden h-full">
-      {/* Inline header bar */}
-      <div className="flex flex-shrink-0 items-center gap-2 border-b border-[#1f2a3d] bg-[#0a1220] px-3 py-2">
-
-        <div className="ml-auto flex items-center gap-1">
-          <DashboardAlarmRedLightIndicator count={unclosedAlarmIncidentCount} />
-
-          {/* Fit to View button */}
-          {showCanvas && (
-            <button
-              type="button"
-              aria-label="Fit to view"
-              title="Fit to view"
-              onClick={() =>
-                setViewport(createDashboardInitialViewport(runtimeLayout!.diagramBounds, containerSize))
-              }
-              className="inline-flex h-7 w-7 items-center justify-center rounded border border-[#334155] bg-[#0f172a] text-[#e2e8f0] transition-colors hover:bg-[#1e293b]"
-            >
-              <Maximize2 size={14} aria-hidden="true" />
-            </button>
-          )}
-
-          {/* Details button */}
-          <button
-            type="button"
-            aria-expanded={diagnosticsOpen}
-            onClick={onToggleDiagnostics}
-            className="inline-flex h-7 items-center gap-1.5 rounded border border-[#334155] bg-[#0f172a] px-2 text-xs font-medium text-white transition-colors hover:bg-[#1e293b]"
-          >
-            <Info aria-hidden="true" size={13} />
-            Details
-          </button>
-        </div>
-      </div>
-
       {/* Canvas / Recovery area */}
       <div className="relative flex flex-1 flex-col min-h-0 bg-[radial-gradient(circle_at_top,_#132238,_#0a1220_58%)]">
         {showCanvas ? (

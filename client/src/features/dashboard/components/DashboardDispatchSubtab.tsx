@@ -1,12 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Info, Maximize2 } from 'lucide-react'
 import { executeEdgeServerCommand, type NormalizedCommandOutcome } from '@/shared/api/commands'
 import { useDashboardCommandLifecycle } from '@/features/dashboard/hooks/useDashboardCommandLifecycle'
 import { useDashboardRuntimeSession } from '@/features/dashboard/hooks/useDashboardRuntimeSession'
+import { DashboardAlarmRedLightIndicator } from '@/features/dashboard/components/DashboardAlarmRedLightIndicator'
 import { DashboardRuntimeSurface } from '@/features/dashboard/components/DashboardRuntimeSurface'
+import { countDashboardUnclosedAlarmIncidents } from '@/features/dashboard/model/alarmIncidents'
 import {
   createDashboardBindingKey,
   selectDashboardRuntimeProjection,
 } from '@/features/dashboard/model/selectors'
+import {
+  createDispatchActionSlotContextKey,
+  useRegisterDispatchActionSlot,
+} from '@/features/dispatch/components/DispatchActionSlot'
 import type {
   DashboardBindingProfile,
   DashboardCatalogLoadStatus,
@@ -83,6 +90,7 @@ export function DashboardDispatchSubtab({
 }: DashboardDispatchSubtabProps) {
   // Dashboard-local runtime state
   const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false)
+  const [fitToViewAction, setFitToViewAction] = useState<(() => void) | null>(null)
   const commandLifecycle = useDashboardCommandLifecycle()
 
   const isRuntimeEnabled =
@@ -96,6 +104,10 @@ export function DashboardDispatchSubtab({
   })
 
   const metricRevisionByBindingKeyRef = useRef(runtimeSession.metricRevisionByBindingKey)
+  const actionSlotContextKey = createDispatchActionSlotContextKey({
+    diagramId: selectedBindingProfile?.diagramId ?? null,
+    edgeId: selectedEdgeId,
+  })
 
   // Dashboard-local runtime projection from saved diagram + binding profile + live telemetry
   const runtimeProjection = useMemo(() => {
@@ -116,6 +128,16 @@ export function DashboardDispatchSubtab({
     selectedBindingProfile,
     savedDiagram,
   ])
+
+  const activeEdgeAlarmIncidentCount = useMemo(() => {
+    if (!isRuntimeEnabled || !selectedEdgeId) {
+      return 0
+    }
+
+    return countDashboardUnclosedAlarmIncidents(
+      runtimeSession.alarmIncidents.filter((incident) => incident.edgeId === selectedEdgeId),
+    )
+  }, [isRuntimeEnabled, runtimeSession.alarmIncidents, selectedEdgeId])
 
   // Keep metric revision ref current for command confirmation
   useEffect(() => {
@@ -179,6 +201,82 @@ export function DashboardDispatchSubtab({
     [commandLifecycle, runtimeProjection, selectedEdgeId],
   )
 
+  const handleFitToViewActionChange = useCallback((action: (() => void) | null) => {
+    setFitToViewAction(() => action)
+  }, [])
+
+  const handleToggleDiagnostics = useCallback(() => {
+    setIsDiagnosticsOpen((isOpen) => !isOpen)
+  }, [])
+
+  const actionSlotRegistration = useMemo(() => {
+    if (!isRuntimeEnabled) {
+      return null
+    }
+
+    return {
+      tabId: 'dashboard' as const,
+      contextKey: actionSlotContextKey,
+      controls: [
+        ...(activeEdgeAlarmIncidentCount > 0
+          ? [
+              {
+                id: 'dashboard.redLight' as const,
+                label: 'Known unclosed alarm incidents',
+                order: 10,
+                content: <DashboardAlarmRedLightIndicator count={activeEdgeAlarmIncidentCount} />,
+              },
+            ]
+          : []),
+        ...(fitToViewAction
+          ? [
+              {
+                id: 'dashboard.fitToView' as const,
+                label: 'Fit to view',
+                order: 20,
+                content: (
+                  <button
+                    type="button"
+                    aria-label="Fit to view"
+                    title="Fit to view"
+                    onClick={fitToViewAction}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded border border-[#334155] bg-[#0f172a] text-[#e2e8f0] transition-colors hover:bg-[#1e293b]"
+                  >
+                    <Maximize2 size={14} aria-hidden="true" />
+                  </button>
+                ),
+              },
+            ]
+          : []),
+        {
+          id: 'dashboard.details' as const,
+          label: 'Details',
+          order: 30,
+          content: (
+            <button
+              type="button"
+              aria-expanded={isDiagnosticsOpen}
+              onClick={handleToggleDiagnostics}
+              className="inline-flex h-7 items-center gap-1.5 rounded border border-[#334155] bg-[#0f172a] px-2 text-xs font-medium text-white transition-colors hover:bg-[#1e293b]"
+            >
+              <Info aria-hidden="true" size={13} />
+              Details
+            </button>
+          ),
+        },
+      ],
+    }
+  }, [
+    actionSlotContextKey,
+    activeEdgeAlarmIncidentCount,
+    fitToViewAction,
+    handleToggleDiagnostics,
+    isDiagnosticsOpen,
+    isRuntimeEnabled,
+  ])
+
+  useRegisterDispatchActionSlot(actionSlotRegistration)
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <DashboardRuntimeSurface
@@ -201,7 +299,8 @@ export function DashboardDispatchSubtab({
         alarmAckErrorByIncidentId={runtimeSession.alarmAckErrorByIncidentId}
         onAcknowledgeAlarmIncident={runtimeSession.acknowledgeAlarmIncident}
         diagnosticsOpen={isDiagnosticsOpen}
-        onToggleDiagnostics={() => setIsDiagnosticsOpen((isOpen) => !isOpen)}
+        onToggleDiagnostics={handleToggleDiagnostics}
+        onFitToViewActionChange={handleFitToViewActionChange}
         selectedEdgeId={selectedEdgeId}
         errorMessage={errorMessage ?? runtimeSession.runtimeError}
       />

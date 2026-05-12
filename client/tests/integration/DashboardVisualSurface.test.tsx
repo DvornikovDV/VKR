@@ -2,7 +2,9 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import { http, HttpResponse } from 'msw'
 import {
+  dashboardVisualCatalog,
   createDashboardVisualRestFixtures,
   dashboardVisualDiagram,
   dashboardVisualLayout,
@@ -63,7 +65,27 @@ function mount(path: string) {
 
 beforeEach(() => {
   runtimeHarness.reset()
-  server.use(...createDashboardApiHandlers(createDashboardVisualRestFixtures()))
+  server.use(
+    ...createDashboardApiHandlers(createDashboardVisualRestFixtures()),
+    http.get('/api/edge-servers/edge-visual-1/catalog', () =>
+      HttpResponse.json({
+        status: 'success',
+        data: dashboardVisualCatalog,
+      }),
+    ),
+    http.get('/api/edge-servers/edge-visual-1/alarm-incidents', () =>
+      HttpResponse.json({
+        status: 'success',
+        data: {
+          incidents: [],
+          page: 1,
+          limit: 50,
+          total: 0,
+          hasNextPage: false,
+        },
+      }),
+    ),
+  )
   act(() => {
     useAuthStore.setState({ session: null, isAuthenticated: false })
     useAuthStore.getState().setSession(userSession)
@@ -137,7 +159,18 @@ describe('Dashboard visual runtime surface (T040)', () => {
     expect(screen.getByTestId('dashboard-visual-grid-layer')).toContainElement(workspace)
     expect(workspace).toContainElement(screen.getByTestId('dashboard-visual-image-image-boiler'))
 
-    await user.click(screen.getByRole('button', { name: 'Fit to view' }))
+    await waitFor(() => {
+      expect(
+        within(screen.getByTestId('dispatch-action-slot')).getByRole('button', {
+          name: 'Fit to view',
+        }),
+      ).toBeInTheDocument()
+    })
+    await user.click(
+      within(screen.getByTestId('dispatch-action-slot')).getByRole('button', {
+        name: 'Fit to view',
+      }),
+    )
     expect(screen.getByTestId('dashboard-visual-workspace')).toContainElement(
       screen.getByTestId('dashboard-visual-image-image-boiler'),
     )
