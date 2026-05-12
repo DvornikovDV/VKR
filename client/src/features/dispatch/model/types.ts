@@ -52,6 +52,7 @@ export interface DispatchDashboardRuntimeContext {
   savedDiagram: DashboardDiagramDocument | null
   edgeCatalog: DashboardCommandCatalog | null
   edgeCatalogStatus: DashboardCatalogLoadStatus
+  edgeCatalogError: string | null
 }
 
 export interface DispatchWorkspaceContextSnapshot {

@@ -165,7 +165,7 @@ describe('DashboardPage (US1)', () => {
       incidentId: string
       body: string
     }> = []
-    let confirmAck: () => void = () => {}
+    let confirmAck: () => void = () => { }
 
     server.use(
       http.post('/api/edge-servers/:edgeId/alarm-incidents/:incidentId/ack', async ({ params, request }) => {
@@ -724,12 +724,12 @@ describe('DashboardPage (US1)', () => {
     ).toBeInTheDocument()
   })
 
-  it('keeps dashboard route and renders invalid-selection for edge-only query', async () => {
+  it('redirects legacy dashboard route and renders invalid-selection for edge-only query', async () => {
     setupDashboardApiFixtures()
     const router = mount('/hub/dashboard?edgeId=edge-1')
 
     expect(await screen.findByText('Invalid selection')).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe('/hub/dashboard')
+    expect(router.state.location.pathname).toBe('/hub/dispatch/dashboard')
   })
 
   it('denies admin access before dashboard initialization', async () => {
@@ -749,7 +749,11 @@ describe('DashboardPage (US1)', () => {
     setupDashboardApiFixtures()
     const router = mount('/hub/dashboard')
 
-    expect(await screen.findByLabelText('Diagram')).toBeInTheDocument()
+    await screen.findByLabelText('Diagram')
+    await waitFor(() => {
+      expect(screen.getByLabelText('Diagram')).not.toBeDisabled()
+      expect(screen.getByRole('option', { name: 'Pump' })).toBeInTheDocument()
+    })
 
     const user = userEvent.setup()
     await user.selectOptions(screen.getByLabelText('Diagram'), 'diagram-2')
@@ -759,6 +763,10 @@ describe('DashboardPage (US1)', () => {
     }, { timeout: 1000 })
     expect(screen.getByText('Select Diagram and Edge Server to start monitoring')).toBeInTheDocument()
 
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Edge B' })).toBeInTheDocument()
+      expect(screen.getByLabelText('Edge Server')).not.toBeDisabled()
+    })
     await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-2')
     await waitFor(() => {
       expect(router.state.location.search).toContain('diagramId=diagram-2')
@@ -771,7 +779,7 @@ describe('DashboardPage (US2)', () => {
   it('sends one toggle set_bool command from compatible saved bindings and waits for reported telemetry before changing actual state', async () => {
     setupDashboardApiFixtures(createDashboardVisualRestFixtures())
     const commandRequests: Array<{ edgeId: string; body: unknown }> = []
-    let confirmCommand = () => {}
+    let confirmCommand = () => { }
 
     server.use(
       http.post('/api/edge-servers/:edgeId/commands', async ({ params, request }) => {
@@ -973,7 +981,7 @@ describe('DashboardPage (US2)', () => {
         },
       },
     })
-    let confirmCommand = () => {}
+    let confirmCommand = () => { }
 
     server.use(
       http.post('/api/edge-servers/:edgeId/commands', () =>
@@ -1281,6 +1289,10 @@ describe('DashboardPage (US2)', () => {
 
     const user = userEvent.setup()
     await user.selectOptions(screen.getByLabelText('Diagram'), 'diagram-2')
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Edge B' })).toBeInTheDocument()
+      expect(screen.getByLabelText('Edge Server')).not.toBeDisabled()
+    })
     await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-2')
 
     await waitFor(() => {
@@ -1371,7 +1383,7 @@ describe('DashboardPage (US3)', () => {
       },
     ]
     let activeResponse: Response | null = null
-    let releaseCommand = () => {}
+    let releaseCommand = () => { }
 
     server.use(
       http.post('/api/edge-servers/:edgeId/commands', async ({ params, request }) => {
@@ -1886,7 +1898,7 @@ describe('DashboardPage (US4)', () => {
   it('retries catalog loading after leaving an in-flight selected Edge context', async () => {
     setupDashboardApiFixtures()
     const catalogRequests: string[] = []
-    let releaseFirstEdgeCatalog = () => {}
+    let releaseFirstEdgeCatalog = () => { }
     let edgeOneRequestCount = 0
 
     server.use(
@@ -1924,6 +1936,10 @@ describe('DashboardPage (US4)', () => {
 
     const user = userEvent.setup()
     await user.selectOptions(screen.getByLabelText('Diagram'), 'diagram-2')
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Edge B' })).toBeInTheDocument()
+      expect(screen.getByLabelText('Edge Server')).not.toBeDisabled()
+    })
     await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-2')
 
     await waitFor(() => {
@@ -1931,6 +1947,10 @@ describe('DashboardPage (US4)', () => {
     })
 
     await user.selectOptions(screen.getByLabelText('Diagram'), 'diagram-1')
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Edge A' })).toBeInTheDocument()
+      expect(screen.getByLabelText('Edge Server')).not.toBeDisabled()
+    })
     await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-1')
 
     await waitFor(() => {

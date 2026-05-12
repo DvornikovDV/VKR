@@ -15,9 +15,21 @@ import { userHubRouteChildren } from '@/app/userHubRoutes'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
 
-vi.mock('@/features/user-hub/pages/DashboardPage', () => ({
-  DashboardPage: () => <div>Native Dashboard target</div>,
-}))
+import { dashboardRuntimeClientHarness } from './helpers/mockDashboardRuntimeSocket'
+
+vi.mock('@/features/dashboard/services/cloudRuntimeClient', async () => {
+  const actual = await vi.importActual<typeof import('@/features/dashboard/services/cloudRuntimeClient')>(
+    '@/features/dashboard/services/cloudRuntimeClient',
+  )
+  const { dashboardRuntimeClientHarness: harness } = await import('./helpers/mockDashboardRuntimeSocket')
+
+  return {
+    ...actual,
+    cloudRuntimeClient: {
+      startSession: harness.startSession,
+    },
+  }
+})
 
 vi.mock('@/features/constructor-host/loadHostedConstructor', async () => {
   const actual = await vi.importActual<typeof import('@/features/constructor-host/loadHostedConstructor')>(
@@ -61,6 +73,7 @@ function renderTelemetryFlow(initialPath: string) {
 }
 
 beforeEach(() => {
+  dashboardRuntimeClientHarness.reset()
   mockedLoadHostedConstructor.mockReset()
   act(() => {
     useAuthStore.setState({ session: null, isAuthenticated: false })

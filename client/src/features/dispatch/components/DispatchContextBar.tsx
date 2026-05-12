@@ -7,11 +7,10 @@ import type {
   DispatchEdgeOption,
   DispatchWorkspaceContextSnapshot,
 } from '@/features/dispatch/model/types'
+import { useDispatchRouteState } from '@/features/dispatch/hooks/useDispatchRouteState'
 
-interface DispatchContextBarProps {
+export interface DispatchContextBarProps {
   workspaceContext: DispatchWorkspaceContextSnapshot
-  onDiagramChange: (diagramId: string | null) => void
-  onEdgeChange: (edgeId: string | null) => void
   activeTabId?: DispatchTabId
   disabled?: boolean
   className?: string
@@ -68,17 +67,24 @@ function getStatusLabel(context: DispatchWorkspaceContextSnapshot): string {
 
 export function DispatchContextBar({
   workspaceContext,
-  onDiagramChange,
-  onEdgeChange,
   activeTabId = workspaceContext.routeState.tabId,
   disabled = false,
   className,
 }: DispatchContextBarProps) {
+  const { setRouteState } = useDispatchRouteState()
+
+  const handleDiagramChange = (diagramId: string | null) =>
+    setRouteState({ diagramId }, { source: 'user-selection' })
+
+  const handleEdgeChange = (edgeId: string | null) =>
+    setRouteState({ edgeId }, { source: 'user-selection' })
+
   const { diagramOptions, edgeOptions, selection } = workspaceContext
   const contextKey = createDispatchActionSlotContextKey(selection)
   const hasSelectedDiagramOption = hasDiagramOption(diagramOptions, selection.diagramId)
   const hasSelectedEdgeOption = hasEdgeOption(edgeOptions, selection.edgeId)
-  const controlsDisabled = disabled || workspaceContext.status === 'loading'
+  const controlsDisabled =
+    disabled || (workspaceContext.status === 'loading' && diagramOptions.length === 0)
   const edgeDisabled = controlsDisabled || !selection.diagramId || edgeOptions.length === 0
   const statusLabel = getStatusLabel(workspaceContext)
   const selectedContextLabel = getSelectedContextLabel(workspaceContext)
@@ -100,7 +106,7 @@ export function DispatchContextBar({
             aria-label="Diagram"
             value={toSelectValue(selection.diagramId)}
             disabled={controlsDisabled}
-            onChange={(event) => onDiagramChange(fromSelectValue(event.target.value))}
+            onChange={(event) => handleDiagramChange(fromSelectValue(event.target.value))}
             className="max-w-56 rounded border border-[#334155] bg-[#0f1929] px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <option value="">Select diagram</option>
@@ -121,7 +127,7 @@ export function DispatchContextBar({
             aria-label="Edge Server"
             value={toSelectValue(selection.edgeId)}
             disabled={edgeDisabled}
-            onChange={(event) => onEdgeChange(fromSelectValue(event.target.value))}
+            onChange={(event) => handleEdgeChange(fromSelectValue(event.target.value))}
             className="max-w-56 rounded border border-[#334155] bg-[#0f1929] px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <option value="">Select edge server</option>

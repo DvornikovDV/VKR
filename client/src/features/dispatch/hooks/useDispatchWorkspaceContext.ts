@@ -387,9 +387,11 @@ export function useDispatchWorkspaceContext({
     [selectedSavedDiagram, shouldLoadDashboardRuntimeContext],
   )
 
-  const isBindingsLoading = loadingBindingDiagramId === routeDiagramId
+  const isBindingsLoading = Boolean(routeDiagramId) && loadingBindingDiagramId === routeDiagramId
   const isSavedDiagramLoading =
-    shouldLoadDashboardRuntimeContext && loadingSavedDiagramId === routeDiagramId
+    shouldLoadDashboardRuntimeContext &&
+    Boolean(routeDiagramId) &&
+    loadingSavedDiagramId === routeDiagramId
   const selectedBindingsError = routeDiagramId ? bindingErrorByDiagramId[routeDiagramId] ?? null : null
   const selectedSavedDiagramError =
     shouldLoadDashboardRuntimeContext && routeDiagramId
@@ -467,6 +469,7 @@ export function useDispatchWorkspaceContext({
       savedDiagram: selectedSavedDiagram,
       edgeCatalog: selectedCommandCatalog,
       edgeCatalogStatus: selectedCatalogStatus,
+      edgeCatalogError: selectedCatalogError,
     },
     recoveryState,
     errorMessage,

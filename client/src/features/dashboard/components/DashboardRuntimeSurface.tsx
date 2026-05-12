@@ -17,7 +17,6 @@ import {
 } from '@/features/dashboard/model/viewport'
 import type {
   DashboardDiagramDocument,
-  DashboardDiagramSummary,
   DashboardCatalogLoadStatus,
   DashboardCommandLifecycleByWidgetId,
   DashboardCommandType,
@@ -33,7 +32,6 @@ import type {
   DashboardRuntimeLayout,
   DashboardRuntimeProjection,
   DashboardTransportStatus,
-  DashboardTrustedEdgeServer,
 } from '@/features/dashboard/model/types'
 import type {
   DashboardViewportSize,
@@ -61,14 +59,7 @@ interface DashboardRuntimeSurfaceProps {
   onAcknowledgeAlarmIncident?: (incidentId: string) => void | Promise<void>
   diagnosticsOpen: boolean
   onToggleDiagnostics: () => void
-  // Toolbar props
-  diagrams: DashboardDiagramSummary[]
-  selectedDiagramId: string | null
-  edgeOptions: DashboardTrustedEdgeServer[]
   selectedEdgeId: string | null
-  disabled?: boolean
-  onDiagramChange: (diagramId: string | null) => void
-  onEdgeChange: (edgeId: string | null) => void
   // Error info for status tab
   errorMessage?: string | null
 }
@@ -107,18 +98,6 @@ function createFallbackRuntimeLayout(): DashboardRuntimeLayout {
   return normalizeDashboardRuntimeLayout({ widgets: [] })
 }
 
-function toSelectValue(value: string | null): string {
-  return value ?? ''
-}
-
-function fromSelectValue(value: string): string | null {
-  const trimmed = value.trim()
-  return trimmed.length > 0 ? trimmed : null
-}
-
-function hasOptionWithId<T extends { _id: string }>(options: T[], id: string | null): boolean {
-  return Boolean(id) && options.some((option) => option._id === id)
-}
 
 function getRecoveryLabel(state: DashboardRecoveryState): string {
   switch (state) {
@@ -207,13 +186,7 @@ export function DashboardRuntimeSurface({
   onAcknowledgeAlarmIncident = () => undefined,
   diagnosticsOpen,
   onToggleDiagnostics,
-  diagrams,
-  selectedDiagramId,
-  edgeOptions,
   selectedEdgeId,
-  disabled = false,
-  onDiagramChange,
-  onEdgeChange,
   errorMessage = null,
 }: DashboardRuntimeSurfaceProps) {
   const runtimeLayout = useMemo(
@@ -343,57 +316,11 @@ export function DashboardRuntimeSurface({
     }
   }, [runtimeLayout, showCanvas])
 
-  const isEdgeDisabled = disabled || !selectedDiagramId || edgeOptions.length === 0
-  const hasSelectedDiagramOption = hasOptionWithId(diagrams, selectedDiagramId)
-  const hasSelectedEdgeOption = hasOptionWithId(edgeOptions, selectedEdgeId)
 
   return (
     <section className="relative flex flex-col overflow-hidden h-full">
       {/* Inline header bar */}
       <div className="flex flex-shrink-0 items-center gap-2 border-b border-[#1f2a3d] bg-[#0a1220] px-3 py-2">
-        {/* Diagram select */}
-        <label className="flex items-center gap-1.5 text-xs text-[#cbd5e1]">
-          <span className="shrink-0">Diagram</span>
-          <select
-            aria-label="Diagram"
-            value={toSelectValue(selectedDiagramId)}
-            disabled={disabled}
-            onChange={(event) => onDiagramChange(fromSelectValue(event.target.value))}
-            className="rounded border border-[#334155] bg-[#0f1929] px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <option value="">Select diagram</option>
-            {selectedDiagramId && !hasSelectedDiagramOption ? (
-              <option value={selectedDiagramId}>Loading selected diagram...</option>
-            ) : null}
-            {diagrams.map((diagram) => (
-              <option key={diagram._id} value={diagram._id}>
-                {diagram.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {/* Edge Server select */}
-        <label className="flex items-center gap-1.5 text-xs text-[#cbd5e1]">
-          <span className="shrink-0">Edge Server</span>
-          <select
-            aria-label="Edge Server"
-            value={toSelectValue(selectedEdgeId)}
-            disabled={isEdgeDisabled}
-            onChange={(event) => onEdgeChange(fromSelectValue(event.target.value))}
-            className="rounded border border-[#334155] bg-[#0f1929] px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <option value="">Select edge server</option>
-            {selectedEdgeId && !hasSelectedEdgeOption ? (
-              <option value={selectedEdgeId}>Loading selected edge server...</option>
-            ) : null}
-            {edgeOptions.map((edge) => (
-              <option key={edge._id} value={edge._id}>
-                {edge.name}
-              </option>
-            ))}
-          </select>
-        </label>
 
         <div className="ml-auto flex items-center gap-1">
           <DashboardAlarmRedLightIndicator count={unclosedAlarmIncidentCount} />

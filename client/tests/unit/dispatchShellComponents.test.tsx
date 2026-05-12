@@ -70,6 +70,7 @@ function createWorkspaceSnapshot(tabId: DispatchTabId): DispatchWorkspaceContext
       savedDiagram: null,
       edgeCatalog: null,
       edgeCatalogStatus: 'idle',
+      edgeCatalogError: null,
     },
     recoveryState: 'ready',
     errorMessage: null,
@@ -118,8 +119,6 @@ function DispatchShellProbe() {
       <DispatchContextBar
         workspaceContext={workspaceContext}
         activeTabId={activeTabId}
-        onDiagramChange={() => undefined}
-        onEdgeChange={() => undefined}
       />
       {activeTabId === DISPATCH_DASHBOARD_TAB ? (
         <DashboardSlotRegistration contextKey={actionContextKey} />

@@ -1,5 +1,5 @@
 import { Navigate, useLocation } from 'react-router-dom'
-import { DashboardPage } from '@/features/user-hub/pages/DashboardPage'
+import { DashboardDispatchSubtab } from '@/features/dashboard/components/DashboardDispatchSubtab'
 import {
   DispatchActionSlotProvider,
   createDispatchActionSlotContextKey,
@@ -50,7 +50,18 @@ function renderDispatchTab(
 ) {
   switch (activeTabId) {
     case DISPATCH_DASHBOARD_TAB:
-      return <DashboardPage />
+      return (
+        <DashboardDispatchSubtab
+          recoveryState={workspaceContext.recoveryState}
+          savedDiagram={workspaceContext.dashboardRuntime.savedDiagram}
+          selectedEdgeId={workspaceContext.selection.edgeId}
+          selectedBindingProfile={workspaceContext.selection.selectedBindingProfile}
+          edgeCatalog={workspaceContext.dashboardRuntime.edgeCatalog}
+          edgeCatalogStatus={workspaceContext.dashboardRuntime.edgeCatalogStatus}
+          edgeCatalogError={workspaceContext.dashboardRuntime.edgeCatalogError}
+          errorMessage={workspaceContext.errorMessage}
+        />
+      )
     case DISPATCH_TELEMETRY_TAB:
     case DISPATCH_COMMANDS_TAB:
     case DISPATCH_TRENDS_TAB:
@@ -70,7 +81,6 @@ function DispatchWorkspacePageContent() {
   const {
     routeState,
     isStructurallyInvalid,
-    setRouteState,
   } = useDispatchRouteState()
   const activeTabId = routeState.tabId
   const workspaceContext = useDispatchWorkspaceContext({
@@ -87,22 +97,6 @@ function DispatchWorkspacePageContent() {
         <DispatchContextBar
           workspaceContext={workspaceContext}
           activeTabId={activeTabId}
-          onDiagramChange={(diagramId) =>
-            setRouteState(
-              { diagramId },
-              {
-                source: 'user-selection',
-              },
-            )
-          }
-          onEdgeChange={(edgeId) =>
-            setRouteState(
-              { edgeId },
-              {
-                source: 'user-selection',
-              },
-            )
-          }
         />
         <div className="flex min-h-[24rem] flex-1 flex-col overflow-hidden">
           {renderDispatchTab(activeTabId, workspaceContext)}

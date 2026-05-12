@@ -405,14 +405,14 @@ describe('DashboardVisualSurface command suppression', () => {
             : null,
           catalogCommand: isExecutable
             ? {
-                deviceId: 'pump-1',
-                commandType: 'set_number',
-                valueType: 'number',
-                min: 0,
-                max: 100,
-                reportedMetric: 'flowRate',
-                label: 'flowRate',
-              }
+              deviceId: 'pump-1',
+              commandType: 'set_number',
+              valueType: 'number',
+              min: 0,
+              max: 100,
+              reportedMetric: 'flowRate',
+              label: 'flowRate',
+            }
             : null,
         },
       },
