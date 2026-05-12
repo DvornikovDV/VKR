@@ -25,6 +25,10 @@ import {
   dashboardRuntimeClientHarness as runtimeHarness,
 } from './helpers/mockDashboardRuntimeSocket'
 import { userHubRouteChildren } from '@/app/userHubRoutes'
+import {
+  DISPATCH_DEFAULT_PATH,
+  DISPATCH_LEGACY_DASHBOARD_PATH,
+} from '@/features/dispatch/model/routes'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
 
@@ -81,6 +85,14 @@ function mount(path: string) {
 
   render(<RouterProvider router={router} />)
   return router
+}
+
+function dashboardPath(search = ''): string {
+  return `${DISPATCH_DEFAULT_PATH}${search}`
+}
+
+function legacyDashboardPath(search = ''): string {
+  return `${DISPATCH_LEGACY_DASHBOARD_PATH}${search}`
 }
 
 function setupDashboardApiFixtures(overrides: Partial<DashboardRestFixtures> = {}) {
@@ -146,13 +158,15 @@ beforeEach(() => {
 })
 
 describe('DashboardPage (US1)', () => {
-  it('supports valid route prefill with diagram and edge pair', async () => {
+  it('preserves legacy route prefill while reaching the Dispatch Dashboard route', async () => {
     setupDashboardApiFixtures()
 
-    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+    const router = mount(legacyDashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
     expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     expect(screen.getByLabelText('Edge Server')).toHaveValue('edge-1')
+    expect(router.state.location.pathname).toBe(DISPATCH_DEFAULT_PATH)
+    expect(router.state.location.search).toBe('?diagramId=diagram-1&edgeId=edge-1')
   })
 
   it('renders a realtime alarm incident row and acknowledges it only after Cloud confirmation', async () => {
@@ -220,7 +234,7 @@ describe('DashboardPage (US1)', () => {
       }),
     )
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -396,7 +410,7 @@ describe('DashboardPage (US1)', () => {
       }),
     )
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -421,7 +435,9 @@ describe('DashboardPage (US1)', () => {
     expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
     expect(within(row).getByText('2026-05-09T09:25:00.000Z')).toBeInTheDocument()
     expect(within(row).getByText('2026-05-09T09:25:30.000Z')).toBeInTheDocument()
-    expect(screen.getByTestId('dashboard-alarm-red-light-count')).toHaveTextContent('1')
+    await waitFor(() => {
+      expect(screen.getByTestId('dashboard-alarm-red-light-count')).toHaveTextContent('1')
+    })
     expect(screen.getAllByTestId(`dashboard-alarm-incident-row-${incidentId}`)).toHaveLength(1)
 
     act(() => {
@@ -484,7 +500,7 @@ describe('DashboardPage (US1)', () => {
       ),
     )
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -508,7 +524,7 @@ describe('DashboardPage (US1)', () => {
     const edgeId = 'edge-visual-1'
     const user = userEvent.setup()
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -609,7 +625,7 @@ describe('DashboardPage (US1)', () => {
     setupDashboardApiFixtures(createDashboardVisualRestFixtures())
     const edgeId = 'edge-visual-1'
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -659,7 +675,7 @@ describe('DashboardPage (US1)', () => {
       }),
     )
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=${edgeId}`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -724,12 +740,12 @@ describe('DashboardPage (US1)', () => {
     ).toBeInTheDocument()
   })
 
-  it('redirects legacy dashboard route and renders invalid-selection for edge-only query', async () => {
+  it('renders invalid-selection for edge-only query on the canonical Dispatch Dashboard route', async () => {
     setupDashboardApiFixtures()
-    const router = mount('/hub/dashboard?edgeId=edge-1')
+    const router = mount(dashboardPath('?edgeId=edge-1'))
 
     expect(await screen.findByText('Invalid selection')).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe('/hub/dispatch/dashboard')
+    expect(router.state.location.pathname).toBe(DISPATCH_DEFAULT_PATH)
   })
 
   it('denies admin access before dashboard initialization', async () => {
@@ -738,7 +754,7 @@ describe('DashboardPage (US1)', () => {
       useAuthStore.getState().setSession(adminSession)
     })
 
-    mount('/hub/dashboard')
+    mount(dashboardPath())
 
     expect(await screen.findByTestId('admin-home')).toBeInTheDocument()
     expect(screen.queryByLabelText('Diagram')).not.toBeInTheDocument()
@@ -747,7 +763,7 @@ describe('DashboardPage (US1)', () => {
 
   it('synchronizes URL query when user changes diagram and edge selection', async () => {
     setupDashboardApiFixtures()
-    const router = mount('/hub/dashboard')
+    const router = mount(dashboardPath())
 
     await screen.findByLabelText('Diagram')
     await waitFor(() => {
@@ -804,7 +820,7 @@ describe('DashboardPage (US2)', () => {
       }),
     )
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -1001,7 +1017,7 @@ describe('DashboardPage (US2)', () => {
       ),
     )
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -1076,7 +1092,7 @@ describe('DashboardPage (US2)', () => {
       }),
     )
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -1173,7 +1189,7 @@ describe('DashboardPage (US2)', () => {
 
   it('renders live transport and edge-availability status for active monitoring context', async () => {
     setupDashboardApiFixtures()
-    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+    mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
     expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     await waitFor(() => {
@@ -1194,7 +1210,7 @@ describe('DashboardPage (US2)', () => {
 
   it('shows reconnect messaging and preserves last runtime values in place', async () => {
     setupDashboardApiFixtures()
-    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+    mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
     expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     await waitFor(() => {
@@ -1242,7 +1258,7 @@ describe('DashboardPage (US2)', () => {
 
   it('distinguishes edge offline state from transport reconnecting state', async () => {
     setupDashboardApiFixtures()
-    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+    mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
     expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     await waitFor(() => {
@@ -1278,7 +1294,7 @@ describe('DashboardPage (US2)', () => {
 
   it('disposes the previous runtime session when monitoring context changes', async () => {
     setupDashboardApiFixtures()
-    const router = mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+    const router = mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
     expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     await waitFor(() => {
@@ -1403,7 +1419,7 @@ describe('DashboardPage (US3)', () => {
       }),
     )
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -1685,7 +1701,7 @@ describe('DashboardPage (US3)', () => {
       }),
     )
 
-    mount(`/hub/dashboard?diagramId=${diagramId}&edgeId=${edgeId}`)
+    mount(dashboardPath(`?diagramId=${diagramId}&edgeId=${edgeId}`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -1761,7 +1777,7 @@ describe('DashboardPage (US3)', () => {
 
   it('renders missing-binding-profile state when trusted edge has no saved profile for selected diagram', async () => {
     setupDashboardApiFixtures()
-    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-2')
+    mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-2'))
 
     expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     expect(
@@ -1792,7 +1808,7 @@ describe('DashboardPage (US3)', () => {
       ),
     )
 
-    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+    mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
     expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
     expect(await screen.findByText('Saved binding profile references stale widget ids')).toBeInTheDocument()
@@ -1841,7 +1857,7 @@ describe('DashboardPage (US3)', () => {
       ),
     )
 
-    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+    mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
 
@@ -1928,7 +1944,7 @@ describe('DashboardPage (US4)', () => {
       }),
     )
 
-    mount('/hub/dashboard?diagramId=diagram-1&edgeId=edge-1')
+    mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
     await waitFor(() => {
       expect(catalogRequests).toEqual(['edge-1'])
@@ -1970,7 +1986,7 @@ describe('DashboardPage (US4)', () => {
       }),
     )
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     await waitFor(() => {
@@ -2081,7 +2097,7 @@ describe('DashboardPage visual diagnostics (T051)', () => {
     setupDashboardApiFixtures(createDashboardVisualRestFixtures())
     const user = userEvent.setup()
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-diagnostics-panel')).not.toBeInTheDocument()
@@ -2101,15 +2117,15 @@ describe('DashboardPage visual diagnostics (T051)', () => {
     expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
   })
 
-  it('opens the same collapsed diagnostics state from the Details toolbar action', async () => {
+  it('opens the same collapsed diagnostics state from the Details action slot control', async () => {
     setupDashboardApiFixtures(createDashboardVisualRestFixtures())
-    const user = userEvent.setup()
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Details' }))
+    const actionSlot = await screen.findByTestId('dispatch-action-slot')
+    fireEvent.click(within(actionSlot).getByRole('button', { name: 'Details' }))
 
     expect(await screen.findByTestId('dashboard-diagnostics-panel')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Close diagnostics' })).toHaveAttribute(
@@ -2167,7 +2183,7 @@ describe('DashboardPage visual render issue recovery (T052)', () => {
       },
     })
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
 
     expect(await screen.findByText('Saved diagram visual layout cannot be rendered')).toBeInTheDocument()
     await userEvent.setup().click(screen.getByRole('button', { name: 'Open Details for more info' }))
@@ -2181,7 +2197,7 @@ describe('DashboardPage visual render issue recovery (T052)', () => {
   it('surfaces partial-visual-rendering from recoverable render issues while preserving the visual surface', async () => {
     setupDashboardApiFixtures(createDashboardVisualRestFixtures())
 
-    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     expect(screen.getByText('Visual rendering issues: 2 recoverable')).toBeInTheDocument()
