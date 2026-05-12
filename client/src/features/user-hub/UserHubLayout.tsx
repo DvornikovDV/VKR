@@ -8,8 +8,8 @@ const userHubNavItems: NavItem[] = [
     icon: <GalleryVerticalEnd size={16} />,
   },
   {
-    label: 'Dashboard',
-    to: '/hub/dashboard',
+    label: 'Dispatch',
+    to: '/hub/dispatch',
     icon: <Activity size={16} />,
   },
   {

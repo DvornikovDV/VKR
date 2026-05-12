@@ -1,17 +1,18 @@
 import { Suspense, lazy } from 'react'
-import { type RouteObject } from 'react-router-dom'
+import { Navigate, useLocation, type RouteObject } from 'react-router-dom'
 import { renderLazyRoute } from '@/app/lazyRoute'
 import { UserHubLayout } from '@/features/user-hub/UserHubLayout'
 import { userHubEquipmentRoute } from '@/features/user-hub/routes/userHubEquipmentRoute'
+import { DISPATCH_DEFAULT_PATH } from '@/features/dispatch/model/routes'
 
 const GalleryPage = lazy(async () => {
   const module = await import('@/features/user-hub/pages/GalleryPage')
   return { default: module.GalleryPage }
 })
 
-const DashboardPage = lazy(async () => {
-  const module = await import('@/features/user-hub/pages/DashboardPage')
-  return { default: module.DashboardPage }
+const DispatchWorkspacePage = lazy(async () => {
+  const module = await import('@/features/dispatch/pages/DispatchWorkspacePage')
+  return { default: module.DispatchWorkspacePage }
 })
 
 const ProfilePage = lazy(async () => {
@@ -23,6 +24,20 @@ const FullConstructorPage = lazy(async () => {
   const module = await import('@/features/user-hub/pages/FullConstructorPage')
   return { default: module.FullConstructorPage }
 })
+
+function LegacyDashboardRedirect() {
+  const location = useLocation()
+
+  return (
+    <Navigate
+      to={{
+        pathname: DISPATCH_DEFAULT_PATH,
+        search: location.search,
+      }}
+      replace
+    />
+  )
+}
 
 const userHubPlaceholderElement = (
   <div
@@ -67,8 +82,12 @@ export const userHubRouteChildren: RouteObject[] = [
         ),
       },
       {
+        path: 'dispatch/*',
+        element: renderLazyRoute(DispatchWorkspacePage, 'Loading dispatch workspace...'),
+      },
+      {
         path: 'dashboard',
-        element: renderLazyRoute(DashboardPage, 'Loading dashboard...'),
+        element: <LegacyDashboardRedirect />,
       },
       userHubEquipmentRoute,
       {

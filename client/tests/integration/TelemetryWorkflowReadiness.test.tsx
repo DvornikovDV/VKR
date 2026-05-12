@@ -1,7 +1,7 @@
 import { act } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from '../mocks/server'
@@ -69,7 +69,7 @@ beforeEach(() => {
 })
 
 describe('Telemetry workflow readiness integration (T050c)', () => {
-  it('guides empty-catalog constructor flow and hands off saved profile to native dashboard route', async () => {
+  it('guides empty-catalog constructor flow and hands off saved profile to Dispatch Dashboard route', async () => {
     const user = userEvent.setup()
     const harness = createMockHostedConstructorHarness({
       initialBindings: [{ widgetId: 'widget-1', deviceId: 'device-1', metric: 'temperature' }],
@@ -181,6 +181,7 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
     )
 
     const router = renderTelemetryFlow('/hub/editor/diagram-1?edgeId=edge-a')
+    expect(screen.getByRole('link', { name: 'Dispatch' })).toHaveAttribute('href', '/hub/dispatch')
 
     await waitFor(() => {
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
@@ -220,10 +221,27 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
     await user.click(screen.getByRole('button', { name: /Open Dashboard/i }))
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/hub/dashboard')
+      expect(router.state.location.pathname).toBe('/hub/dispatch/dashboard')
     })
     expect(router.state.location.search).toContain('diagramId=diagram-1')
     expect(router.state.location.search).toContain('edgeId=edge-a')
+
+    const dispatchTabs = await screen.findByRole('tablist', { name: 'Dispatch tabs' })
+    expect(within(dispatchTabs).getByRole('tab', { name: 'Dashboard' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+
+    await user.click(within(dispatchTabs).getByRole('tab', { name: 'Telemetry' }))
+
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe('/hub/dispatch/telemetry')
+    })
+    expect(router.state.location.search).toContain('diagramId=diagram-1')
+    expect(router.state.location.search).toContain('edgeId=edge-a')
+    expect(await screen.findByLabelText('Telemetry placeholder')).toBeInTheDocument()
+    expect(screen.getByTestId('dispatch-placeholder-context')).toHaveTextContent('Boiler Hall')
+    expect(screen.getByTestId('dispatch-placeholder-context')).toHaveTextContent('Boiler PLC A')
   })
 
   it('keeps blocked edge guidance and disables invalid native dashboard handoff across constructor and gallery flows', async () => {

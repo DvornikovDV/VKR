@@ -222,7 +222,7 @@ describe('repro_task_T057', () => {
     expect(router.state.location.search).toContain('edgeId=edge-blocked')
   })
 
-  it('keeps native dashboard handoff available when edge metadata is temporarily unresolved in /hub gallery', async () => {
+  it('keeps Dispatch Dashboard handoff available when edge metadata is temporarily unresolved in /hub gallery', async () => {
     const user = userEvent.setup()
 
     server.use(
@@ -278,7 +278,7 @@ describe('repro_task_T057', () => {
     await user.click(openDashboardButton)
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/hub/dashboard')
+      expect(router.state.location.pathname).toBe('/hub/dispatch/dashboard')
     })
     expect(router.state.location.search).toContain('diagramId=diagram-1')
     expect(router.state.location.search).toContain('edgeId=edge-active')

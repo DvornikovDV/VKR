@@ -19,6 +19,10 @@ import {
   type DiagramCardModel,
   type TelemetryProfileEntry,
 } from '@/features/user-hub/components/DiagramCard'
+import {
+  DISPATCH_DASHBOARD_TAB,
+  getDispatchTabPath,
+} from '@/features/dispatch/model/routes'
 
 interface DiagramCardState extends DiagramCardModel {
   updatedAt: string
@@ -277,7 +281,12 @@ export function GalleryPage() {
                 setCards((prev) => prev.filter((item) => item.id !== diagramId))
               }
               onOpenDashboard={(profile) =>
-                navigate(`/hub/dashboard?diagramId=${diagram.id}&edgeId=${profile.monitoredObjectId}`)
+                navigate(
+                  `${getDispatchTabPath(DISPATCH_DASHBOARD_TAB)}?${new URLSearchParams({
+                    diagramId: diagram.id,
+                    edgeId: profile.monitoredObjectId,
+                  }).toString()}`,
+                )
               }
               onEditBindings={(profile) =>
                 navigate(`/hub/editor/${diagram.id}?edgeId=${profile.monitoredObjectId}`)

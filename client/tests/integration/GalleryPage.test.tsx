@@ -28,8 +28,8 @@ function renderPage(initialPath = '/hub') {
         element: <GalleryPage />,
       },
       {
-        path: '/hub/dashboard',
-        element: <div>Native Dashboard target</div>,
+        path: '/hub/dispatch/dashboard',
+        element: <div>Dispatch Dashboard target</div>,
       },
       {
         path: '/hub/editor/:id',
@@ -204,7 +204,7 @@ describe('GalleryPage', () => {
     await user.click(offlineCard.getByRole('button', { name: /Open Dashboard/i }))
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/hub/dashboard')
+      expect(router.state.location.pathname).toBe('/hub/dispatch/dashboard')
     })
     expect(router.state.location.search).toContain('diagramId=diagram-1')
     expect(router.state.location.search).toContain('edgeId=edge-offline')
@@ -269,7 +269,7 @@ describe('GalleryPage', () => {
     await user.click(unresolvedCard.getByRole('button', { name: /Open Dashboard/i }))
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/hub/dashboard')
+      expect(router.state.location.pathname).toBe('/hub/dispatch/dashboard')
     })
     expect(router.state.location.search).toContain('diagramId=diagram-1')
     expect(router.state.location.search).toContain('edgeId=edge-active')
