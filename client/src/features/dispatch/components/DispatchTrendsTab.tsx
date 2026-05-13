@@ -319,6 +319,8 @@ export function DispatchTrendsTab({
   return (
     <section
       aria-label="Dispatch trends"
+      data-testid="dispatch-trends-tab"
+      data-edge-id={selectedEdgeId ?? ''}
       className={className ?? 'flex min-h-0 flex-1 flex-col bg-[#08111f]'}
     >
       <div className="flex flex-shrink-0 flex-col gap-1 border-b border-[#1f2a3d] bg-[#08111f] px-3 py-2">

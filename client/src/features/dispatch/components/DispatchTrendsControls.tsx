@@ -168,6 +168,7 @@ export function DispatchTrendsControls({
       <div className="flex min-w-0 flex-col justify-end gap-1 lg:col-start-5 lg:row-start-1">
         <button
           type="submit"
+          data-testid="dispatch-trends-refresh"
           disabled={refreshDisabled}
           className="inline-flex min-h-9 items-center justify-center gap-2 rounded border border-[#38bdf8] bg-[#0f172a] px-3 py-1.5 text-sm font-semibold text-[#e0f2fe] transition hover:bg-[#123049] disabled:cursor-not-allowed disabled:border-[#334155] disabled:text-[#64748b]"
         >

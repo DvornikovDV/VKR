@@ -10,9 +10,11 @@ import {
   createDashboardApiHandlers,
   createUserEdgeConsumerFixtures,
   type DashboardRestFixtures,
+  type UserEdgeCatalogFixture,
   type UserEdgeConsumerFixtures,
 } from '../../mocks/handlers'
 import { server } from '../../mocks/server'
+import type { TelemetryHistoryResponse } from '@/shared/api/telemetryHistory'
 import {
   dashboardRuntimeClientHarness,
   dashboardRuntimeSocketHarness,
@@ -34,6 +36,10 @@ export const dispatchWorkspaceUserSession: Session = {
 export interface DispatchWorkspaceRestFixtureOptions {
   dashboard?: Partial<DashboardRestFixtures>
   userEdge?: Partial<UserEdgeConsumerFixtures>
+  telemetryHistory?: {
+    resolve?: (request: DispatchTelemetryHistoryFixtureRequest) => Promise<TelemetryHistoryResponse> | TelemetryHistoryResponse
+    response?: TelemetryHistoryResponse
+  }
 }
 
 export interface DispatchWorkspaceRenderResult {
@@ -43,6 +49,52 @@ export interface DispatchWorkspaceRenderResult {
 
 export const dispatchWorkspaceRuntimeHarness = dashboardRuntimeClientHarness
 export const dispatchWorkspaceRuntimeSocketHarness = dashboardRuntimeSocketHarness
+
+export interface DispatchTelemetryHistoryFixtureRequest {
+  edgeId: string | null
+  deviceId: string | null
+  metric: string | null
+  dateStart: string | null
+  dateEnd: string | null
+  maxPoints: string | null
+}
+
+export const dispatchWorkspaceTrendsCatalog: UserEdgeCatalogFixture = {
+  ...dashboardVisualCatalog,
+  telemetry: dashboardVisualCatalog.telemetry.map((entry) => ({
+    ...entry,
+    valueType:
+      entry.metric === 'temperature' || entry.metric === 'flowRate'
+        ? 'number'
+        : 'boolean',
+  })),
+}
+
+export function createDispatchTelemetryHistoryResponseFixture(
+  overrides: Partial<TelemetryHistoryResponse> = {},
+): TelemetryHistoryResponse {
+  return {
+    edgeId: 'edge-visual-1',
+    deviceId: 'boiler-1',
+    metric: 'temperature',
+    dateStart: '2026-05-13T08:00:00.000Z',
+    dateEnd: '2026-05-13T09:00:00.000Z',
+    maxPoints: 300,
+    series: [
+      {
+        timeStart: '2026-05-13T08:00:00.000Z',
+        timeEnd: '2026-05-13T08:05:00.000Z',
+        pointTime: '2026-05-13T08:02:30.000Z',
+        min: 10,
+        max: 20,
+        avg: 15,
+        last: 19,
+        count: 60,
+      },
+    ],
+    ...overrides,
+  }
+}
 
 export {
   createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture as createDispatchActiveUnacknowledgedAlarmIncidentProjectionFixture,
@@ -68,10 +120,12 @@ export function setupDispatchWorkspaceRestFixtures(
   const userEdgeFixtures = createUserEdgeConsumerFixtures({
     ...options.userEdge,
     catalogByEdgeId: {
-      'edge-visual-1': dashboardVisualCatalog,
+      'edge-visual-1': dispatchWorkspaceTrendsCatalog,
       ...(options.userEdge?.catalogByEdgeId ?? {}),
     },
   })
+  const defaultTelemetryHistoryResponse = options.telemetryHistory?.response
+    ?? createDispatchTelemetryHistoryResponseFixture()
 
   server.use(
     ...createDashboardApiHandlers(dashboardFixtures),
@@ -106,6 +160,25 @@ export function setupDispatchWorkspaceRestFixtures(
       return HttpResponse.json({
         status: 'success',
         data: { commandStatus: 'confirmed' },
+      })
+    }),
+    http.get('/api/telemetry/historic', async ({ request }) => {
+      const url = new URL(request.url)
+      const historyRequest: DispatchTelemetryHistoryFixtureRequest = {
+        edgeId: url.searchParams.get('edgeId'),
+        deviceId: url.searchParams.get('deviceId'),
+        metric: url.searchParams.get('metric'),
+        dateStart: url.searchParams.get('date_start'),
+        dateEnd: url.searchParams.get('date_end'),
+        maxPoints: url.searchParams.get('maxPoints'),
+      }
+      const response = options.telemetryHistory?.resolve
+        ? await options.telemetryHistory.resolve(historyRequest)
+        : defaultTelemetryHistoryResponse
+
+      return HttpResponse.json({
+        status: 'success',
+        data: response,
       })
     }),
   )

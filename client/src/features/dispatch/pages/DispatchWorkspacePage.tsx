@@ -10,6 +10,7 @@ import {
   type DispatchPlaceholderTabId,
 } from '@/features/dispatch/components/DispatchPlaceholderTab'
 import { DispatchTabs } from '@/features/dispatch/components/DispatchTabs'
+import { DispatchTrendsTab } from '@/features/dispatch/components/DispatchTrendsTab'
 import {
   resolveDispatchTabIdFromPathname,
   useDispatchRouteState,
@@ -64,7 +65,6 @@ function renderDispatchTab(
       )
     case DISPATCH_TELEMETRY_TAB:
     case DISPATCH_COMMANDS_TAB:
-    case DISPATCH_TRENDS_TAB:
     case DISPATCH_ALARMS_TAB:
       return (
         <DispatchPlaceholderTab
@@ -72,6 +72,8 @@ function renderDispatchTab(
           workspaceContext={workspaceContext}
         />
       )
+    case DISPATCH_TRENDS_TAB:
+      return <DispatchTrendsTab workspaceContext={workspaceContext} />
     default:
       return null
   }

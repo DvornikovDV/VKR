@@ -61,6 +61,7 @@ export function DispatchPlaceholderTab({
 
       <dl
         data-testid="dispatch-placeholder-context"
+        data-tab-id={tabId}
         className="grid gap-3 rounded-md border border-[#1f2a3d] bg-[#0f172a] p-4 text-sm sm:grid-cols-2"
       >
         <div>
