@@ -8,6 +8,51 @@ export interface EdgeStatusRecord {
     availability: EdgeAvailabilityRecord;
 }
 
+export const TELEMETRY_HISTORY_RETENTION_DAYS = 7;
+export const TELEMETRY_HISTORY_RETENTION_MS = TELEMETRY_HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1_000;
+export const TELEMETRY_HISTORY_DEFAULT_MAX_POINTS = 300;
+export const TELEMETRY_HISTORY_MAX_POINTS = 1_000;
+export const TELEMETRY_HISTORY_NUMERIC_ROLLUP_KIND = 'numeric' as const;
+
+export const TELEMETRY_HISTORY_QUERY_FIELDS = {
+    edgeId: 'edgeId',
+    deviceId: 'deviceId',
+    metric: 'metric',
+    dateStart: 'date_start',
+    dateEnd: 'date_end',
+    maxPoints: 'maxPoints',
+} as const;
+
+export interface TelemetryHistoryQueryDto {
+    edgeId: string;
+    deviceId: string;
+    metric: string;
+    dateStart: Date;
+    dateEnd: Date;
+    maxPoints: number;
+}
+
+export interface TelemetryHistoryPointDto {
+    timeStart: string;
+    timeEnd: string;
+    pointTime: string;
+    min: number;
+    max: number;
+    avg: number;
+    last: number;
+    count: number;
+}
+
+export interface TelemetryHistoryResponseDto {
+    edgeId: string;
+    deviceId: string;
+    metric: string;
+    dateStart: string;
+    dateEnd: string;
+    maxPoints: number;
+    series: TelemetryHistoryPointDto[];
+}
+
 export interface EdgeServerUserRef {
     _id: string;
     email?: string;
