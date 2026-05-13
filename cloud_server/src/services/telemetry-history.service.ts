@@ -29,6 +29,11 @@ export interface TrustedTelemetryHistoryAccessInput {
     userId: string;
 }
 
+export interface TrustedTelemetryHistoryInput {
+    userId: string;
+    query?: TelemetryHistoryQueryInput;
+}
+
 interface RawTelemetryHistoryPoint {
     timeStart: Date | string | number;
     timeEnd: Date | string | number;
@@ -298,4 +303,17 @@ export async function aggregateNumericTelemetryHistory(
         maxPoints: query.maxPoints,
         series: series.map(projectTelemetryHistoryPoint),
     };
+}
+
+export async function getTrustedTelemetryHistory(
+    input: TrustedTelemetryHistoryInput,
+): Promise<TelemetryHistoryResponseDto> {
+    const query = parseTelemetryHistoryQuery(input.query);
+
+    await assertTrustedTelemetryHistoryAccess({
+        edgeId: query.edgeId,
+        userId: input.userId,
+    });
+
+    return await aggregateNumericTelemetryHistory(query);
 }

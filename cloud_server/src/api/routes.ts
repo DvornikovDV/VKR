@@ -5,6 +5,7 @@ import { UsersController } from './users.controller';
 import { AdminController } from './admin.controller';
 import { CommandsController } from './commands.controller';
 import { AlarmIncidentsController } from './alarm-incidents.controller';
+import { TelemetryController } from './telemetry.controller';
 import { authMiddleware } from './middlewares/auth.middleware';
 import { requireRole } from './middlewares/role.middleware';
 import { commandRateLimit } from './commands.rate-limit';
@@ -55,6 +56,14 @@ apiRouter.post(
 );
 apiRouter.get('/edge-servers/:edgeId/catalog', authMiddleware, requireRole('USER'), EdgeServersController.getEdgeServerCatalog);
 apiRouter.get('/edge-servers/:edgeId/ping', authMiddleware, requireRole('ADMIN'), EdgeServersController.pingEdgeServer);
+
+// Telemetry history (USER only: trusted Edge access validated inside service)
+apiRouter.get(
+    '/telemetry/historic',
+    authMiddleware,
+    requireRole('USER'),
+    TelemetryController.getHistoricTelemetry,
+);
 
 // ── Commands (USER only: trusted access validated inside controller) ──────────
 apiRouter.post(

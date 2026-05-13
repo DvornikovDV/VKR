@@ -8,8 +8,8 @@ info:
     url: https://opensource.org/licenses/MIT
 
 servers:
-  - url: http://localhost:4000
-    description: Local development server
+  - url: /
+    description: Current API server
 
 paths:
   /api/auth/register:
@@ -205,6 +205,90 @@ paths:
           description: Unauthorized
         '403':
           description: Forbidden
+
+  /api/telemetry/historic:
+    get:
+      operationId: getHistoricTelemetry
+      summary: Get bounded historical numeric telemetry aggregates for a trusted Edge Server
+      description: >
+        Returns Cloud-owned aggregate points for one Edge/device/metric inside
+        the 7-day telemetry retention window. The requesting USER must be in
+        `EdgeServer.trustedUsers` for the requested `edgeId`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the target Edge Server
+        - name: deviceId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Edge-local device identifier
+        - name: metric
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Numeric telemetry metric identifier
+        - name: date_start
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Inclusive UTC range start inside the telemetry retention window
+        - name: date_end
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Exclusive UTC range end inside the telemetry retention window
+        - name: maxPoints
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 300
+          description: Maximum number of aggregate buckets returned
+      responses:
+        '200':
+          description: Historical telemetry aggregate series
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryHistoryResponse'
+        '400':
+          description: Invalid query, invalid date order, retention-window violation, or maxPoints bound violation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - USER is not trusted for this Edge Server or does not have the USER role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Edge Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /api/diagrams:
     get:
@@ -1456,6 +1540,85 @@ components:
             hasNextPage:
               type: boolean
               example: false
+    TelemetryHistoryPoint:
+      type: object
+      required:
+        - timeStart
+        - timeEnd
+        - pointTime
+        - min
+        - max
+        - avg
+        - last
+        - count
+      properties:
+        timeStart:
+          type: string
+          format: date-time
+          description: First source rollup timestamp in the aggregate bucket
+        timeEnd:
+          type: string
+          format: date-time
+          description: Last source rollup timestamp in the aggregate bucket
+        pointTime:
+          type: string
+          format: date-time
+          description: Midpoint between timeStart and timeEnd
+        min:
+          type: number
+        max:
+          type: number
+        avg:
+          type: number
+          description: Weighted average computed as sum(rollup.sum) / sum(rollup.count)
+        last:
+          type: number
+          description: Latest numeric rollup last value by timestamp inside the bucket
+        count:
+          type: number
+          description: Sum of source numeric rollup counts
+    TelemetryHistoryResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          required:
+            - edgeId
+            - deviceId
+            - metric
+            - dateStart
+            - dateEnd
+            - maxPoints
+            - series
+          properties:
+            edgeId:
+              type: string
+              description: MongoDB ObjectId of the target Edge Server
+            deviceId:
+              type: string
+            metric:
+              type: string
+            dateStart:
+              type: string
+              format: date-time
+            dateEnd:
+              type: string
+              format: date-time
+            maxPoints:
+              type: integer
+              minimum: 1
+              maximum: 1000
+              default: 300
+            series:
+              type: array
+              items:
+                $ref: '#/components/schemas/TelemetryHistoryPoint'
     JSendSuccess:
       type: object
       properties:
