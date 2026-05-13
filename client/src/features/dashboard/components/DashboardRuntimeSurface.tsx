@@ -334,12 +334,12 @@ export function DashboardRuntimeSurface({
 
 
   return (
-    <section className="relative flex flex-col overflow-hidden h-full">
+    <section className="relative flex h-full min-h-0 flex-col overflow-hidden">
       {/* Canvas / Recovery area */}
-      <div className="relative flex flex-1 flex-col min-h-0 bg-[radial-gradient(circle_at_top,_#132238,_#0a1220_58%)]">
+      <div className="relative flex min-h-0 flex-1 flex-col bg-[radial-gradient(circle_at_top,_#132238,_#0a1220_58%)]">
         {showCanvas ? (
           <div className="relative flex min-h-0 min-w-0 flex-1 flex-col xl:flex-row">
-            <div className="relative min-h-[18rem] min-w-0 flex-1">
+            <div className="relative min-h-[18rem] min-w-0 flex-1 xl:min-h-0">
               {alarmToastNotice ? (
                 <div className="absolute right-3 top-3 z-20">
                   <DashboardAlarmToastNotice
@@ -363,7 +363,7 @@ export function DashboardRuntimeSurface({
                 />
               </div>
             </div>
-            <div className="max-h-64 flex-shrink-0 border-t border-[#1f2a3d] xl:max-h-none xl:w-80 xl:border-l xl:border-t-0">
+            <div className="min-h-0 max-h-64 flex-shrink-0 overflow-hidden border-t border-[#1f2a3d] xl:h-full xl:max-h-none xl:w-80 xl:border-l xl:border-t-0">
               <DashboardAlarmJournalPanel
                 alarmIncidents={activeEdgeAlarmIncidents}
                 loadState={alarmJournalLoadState}

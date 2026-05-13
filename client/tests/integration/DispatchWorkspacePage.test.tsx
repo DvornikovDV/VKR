@@ -1,5 +1,6 @@
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createDashboardVisualRestFixtures,
@@ -11,10 +12,12 @@ import { useAuthStore } from '@/shared/store/useAuthStore'
 import {
   authenticateDispatchWorkspaceUser,
   createDispatchUnclosedAlarmIncidentChangedEventFixture,
+  createDispatchTelemetryEventFixture,
   dispatchWorkspaceRuntimeHarness,
   renderDispatchWorkspaceRoute,
   setupDispatchWorkspaceRestFixtures,
 } from './helpers/dispatchWorkspaceHarness'
+import { server } from '../mocks/server'
 
 vi.mock('@/features/dashboard/services/cloudRuntimeClient', async () => {
   const actual = await vi.importActual<typeof import('@/features/dashboard/services/cloudRuntimeClient')>(
@@ -191,6 +194,9 @@ describe('DispatchWorkspacePage routing', () => {
   })
 
   it('proves Edge switch isolation, placeholder action cleanup, and Dashboard action restoration in one flow', async () => {
+    const commandRequests: Array<{ edgeId: string; body: unknown }> = []
+    let releaseEdgeOneCommand: () => void = () => {}
+
     setupDispatchWorkspaceRestFixtures({
       dashboard: {
         ...createDashboardVisualRestFixtures(),
@@ -234,6 +240,32 @@ describe('DispatchWorkspacePage routing', () => {
         },
       },
     })
+    server.use(
+      http.post('/api/edge-servers/:edgeId/commands', async ({ params, request }) => {
+        const edgeId = String(params.edgeId)
+        commandRequests.push({
+          edgeId,
+          body: await request.json(),
+        })
+
+        if (edgeId !== 'edge-visual-1') {
+          return HttpResponse.json({
+            status: 'success',
+            data: { requestId: `dispatch-command-${edgeId}`, commandStatus: 'confirmed' },
+          })
+        }
+
+        return new Promise((resolve) => {
+          releaseEdgeOneCommand = () =>
+            resolve(
+              HttpResponse.json({
+                status: 'success',
+                data: { requestId: 'dispatch-command-stale-1', commandStatus: 'confirmed' },
+              }),
+            )
+        })
+      }),
+    )
 
     const route = renderDispatchWorkspaceRoute(
       `/hub/dispatch/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`,
@@ -251,6 +283,32 @@ describe('DispatchWorkspacePage routing', () => {
           name: 'Fit to view',
         }),
       ).toBeInTheDocument()
+    })
+    act(() => {
+      dispatchWorkspaceRuntimeHarness.emitTelemetry(
+        createDispatchTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            { deviceId: 'pump-1', metric: 'running', last: false, ts: 1763895000000 },
+          ],
+        }),
+      )
+    })
+    await user.click(await screen.findByRole('button', { name: 'Command toggle widget-command-toggle' }))
+    await waitFor(() => {
+      expect(commandRequests).toEqual([
+        {
+          edgeId: 'edge-visual-1',
+          body: {
+            deviceId: 'pump-1',
+            commandType: 'set_bool',
+            payload: { value: true },
+          },
+        },
+      ])
+      expect(screen.getByTestId('dashboard-command-state-widget-command-toggle')).toHaveTextContent(
+        'pending',
+      )
     })
 
     act(() => {
@@ -294,6 +352,13 @@ describe('DispatchWorkspacePage routing', () => {
       expect(
         screen.queryByTestId('dashboard-alarm-incident-row-dispatch-incident-edge-1'),
       ).not.toBeInTheDocument()
+      expect(screen.queryByTestId('dashboard-command-state-widget-command-toggle')).not.toBeInTheDocument()
+    })
+    await act(async () => {
+      releaseEdgeOneCommand()
+    })
+    await waitFor(() => {
+      expect(screen.queryByTestId('dashboard-command-state-widget-command-toggle')).not.toBeInTheDocument()
     })
     expect(dispatchWorkspaceRuntimeHarness.startSession).toHaveBeenCalledTimes(2)
 

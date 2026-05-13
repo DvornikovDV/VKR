@@ -102,4 +102,21 @@ describe('useDashboardCommandLifecycle (T011)', () => {
     })
     expect(result.current.lifecycleByWidgetId['toggle-running']).not.toHaveProperty('value')
   })
+
+  it('clears all command lifecycle state for runtime context changes', () => {
+    const { result } = renderHook(() => useDashboardCommandLifecycle())
+
+    act(() => {
+      result.current.markPending('toggle-running')
+      result.current.markFailure('slider-flow', 'edge_unavailable', 'Edge unavailable')
+    })
+
+    expect(Object.keys(result.current.lifecycleByWidgetId)).toHaveLength(2)
+
+    act(() => {
+      result.current.clearAll()
+    })
+
+    expect(result.current.lifecycleByWidgetId).toEqual({})
+  })
 })

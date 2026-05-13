@@ -121,6 +121,12 @@ export function useDashboardCommandLifecycle() {
     })
   }, [])
 
+  const clearAll = useCallback(() => {
+    setLifecycleByWidgetId((previous) =>
+      Object.keys(previous).length === 0 ? previous : {},
+    )
+  }, [])
+
   const clearConfirmedWaitingTelemetryForUpdatedBindings = useCallback(
     (metricRevisionByBindingKey: DashboardMetricRevisionByBindingKey) => {
       setLifecycleByWidgetId((previous) => {
@@ -157,6 +163,7 @@ export function useDashboardCommandLifecycle() {
     markError,
     markFailure,
     clearLifecycle,
+    clearAll,
     clearConfirmedWaitingTelemetryForUpdatedBindings,
   }
 }

@@ -104,10 +104,12 @@ export function DashboardDispatchSubtab({
   })
 
   const metricRevisionByBindingKeyRef = useRef(runtimeSession.metricRevisionByBindingKey)
+  const commandContextGenerationRef = useRef(0)
   const actionSlotContextKey = createDispatchActionSlotContextKey({
     diagramId: selectedBindingProfile?.diagramId ?? null,
     edgeId: selectedEdgeId,
   })
+  const commandContextKey = `${selectedEdgeId ?? 'no-edge'}:${selectedBindingProfile?._id ?? 'no-binding'}:${isRuntimeEnabled ? 'runtime' : 'idle'}`
 
   // Dashboard-local runtime projection from saved diagram + binding profile + live telemetry
   const runtimeProjection = useMemo(() => {
@@ -151,6 +153,11 @@ export function DashboardDispatchSubtab({
     )
   }, [commandLifecycle, runtimeSession.metricRevisionByBindingKey])
 
+  useEffect(() => {
+    commandContextGenerationRef.current += 1
+    commandLifecycle.clearAll()
+  }, [commandContextKey, commandLifecycle.clearAll])
+
   // Dashboard-local command commit handler
   const handleCommandCommit = useCallback(
     async (command: DashboardSubtabCommandCommit) => {
@@ -175,6 +182,7 @@ export function DashboardDispatchSubtab({
         commandProjection.reportedWidgetBinding.metric,
       )
 
+      const commandGeneration = commandContextGenerationRef.current
       commandLifecycle.markPending(command.widgetId)
       const outcome = await executeEdgeServerCommand(selectedEdgeId, {
         deviceId: commandProjection.commandBinding.deviceId,
@@ -183,6 +191,10 @@ export function DashboardDispatchSubtab({
           value: command.value,
         },
       })
+
+      if (commandGeneration !== commandContextGenerationRef.current) {
+        return
+      }
 
       if (outcome === 'confirmed') {
         const confirmedMetricRevision =
@@ -278,7 +290,7 @@ export function DashboardDispatchSubtab({
   useRegisterDispatchActionSlot(actionSlotRegistration)
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       <DashboardRuntimeSurface
         isActiveContext={isRuntimeEnabled}
         recoveryState={recoveryState}

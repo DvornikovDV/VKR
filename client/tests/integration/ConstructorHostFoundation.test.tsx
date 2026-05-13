@@ -169,8 +169,8 @@ describe('Constructor host foundation tasks (T004-T007)', () => {
         deviceLabel: 'pump-1',
         deviceType: undefined,
         metrics: [
-          { key: 'pressure', label: 'pressure' },
-          { key: 'temperature', label: 'temperature' },
+          { key: 'pressure', label: 'pump-1 / pressure' },
+          { key: 'temperature', label: 'pump-1 / temperature' },
         ],
       },
     ])
