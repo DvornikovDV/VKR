@@ -153,6 +153,23 @@ describe('DispatchTrendsTab', () => {
     expect(await screen.findByTestId('dispatch-trends-history-summary')).toHaveTextContent(
       'edge-1 / pump-1 / temperature',
     )
+    expect(screen.getByTestId('dispatch-trends-chart')).toHaveAttribute('data-value-mode', 'avg')
+
+    const table = screen.getByTestId('dispatch-trends-table')
+    expect(within(table).getByRole('columnheader', { name: 'timeStart' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'timeEnd' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'min' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'max' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'avg' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'last' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'count' })).toBeInTheDocument()
+    expect(table.querySelector('time[datetime="2026-05-13T08:00:00.000Z"]')).toBeInTheDocument()
+    expect(table.querySelector('time[datetime="2026-05-13T08:05:00.000Z"]')).toBeInTheDocument()
+    expect(within(table).getByText('10')).toBeInTheDocument()
+    expect(within(table).getByText('20')).toBeInTheDocument()
+    expect(within(table).getByText('15')).toBeInTheDocument()
+    expect(within(table).getByText('19')).toBeInTheDocument()
+    expect(within(table).getByText('60')).toBeInTheDocument()
   })
 
   it('ignores stale history when the selected Edge changes before the old request resolves', async () => {

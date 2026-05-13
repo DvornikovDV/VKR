@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, BarChart3, Loader2 } from 'lucide-react'
+import { AlertTriangle, Loader2 } from 'lucide-react'
 import { getEdgeServerCatalog, type EdgeCapabilitiesCatalogSnapshot } from '@/shared/api/edgeServers'
 import {
   getTelemetryHistory,
   TELEMETRY_HISTORY_MAX_POINTS,
   type TelemetryHistoryResponse,
 } from '@/shared/api/telemetryHistory'
+import { DispatchTrendsChart } from '@/features/dispatch/components/DispatchTrendsChart'
 import { DispatchTrendsControls } from '@/features/dispatch/components/DispatchTrendsControls'
+import { DispatchTrendsTable } from '@/features/dispatch/components/DispatchTrendsTable'
 import {
   createDispatchTrendsDefaultFilter,
   createDispatchTrendsRequestGuard,
   createDispatchTrendsRequestKey,
-  formatDispatchTrendsNumber,
-  formatDispatchTrendsTimestamp,
   isDispatchTrendsRequestCurrent,
   projectDispatchTrendsHistoryResponse,
   selectDispatchTrendsNumericMetricOptions,
@@ -131,82 +131,6 @@ function isCatalogForSelectedEdge(
   edgeId: string,
 ): boolean {
   return catalog.edgeServerId === edgeId
-}
-
-function DispatchTrendsHistoryPreview({ projection }: { projection: DispatchTrendsProjection }) {
-  const firstRow = projection.tableRows[0] ?? null
-
-  return (
-    <div className="grid min-h-0 flex-1 gap-3 overflow-auto p-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.45fr)]">
-      <section
-        aria-label="Trends history preview"
-        className="min-h-[14rem] rounded-md border border-[#1f2a3d] bg-[#0f172a] p-4"
-      >
-        <div className="flex items-center gap-2 text-sm font-semibold text-white">
-          <BarChart3 size={18} className="text-[#38bdf8]" aria-hidden="true" />
-          <span>History response</span>
-        </div>
-        <p
-          data-testid="dispatch-trends-history-summary"
-          className="mt-3 text-sm text-[#cbd5e1]"
-        >
-          {projection.response.edgeId} / {projection.response.deviceId} / {projection.response.metric}
-        </p>
-        <p className="mt-2 text-xs text-[#94a3b8]">
-          {projection.response.series.length} aggregated points from the selected response.
-        </p>
-        {firstRow ? (
-          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-[#64748b]">Point time</dt>
-              <dd className="mt-1 text-[#e2e8f0]">
-                {formatDispatchTrendsTimestamp(firstRow.pointTime)}
-              </dd>
-            </div>
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-[#64748b]">
-                {projection.valueMode}
-              </dt>
-              <dd className="mt-1 text-[#e2e8f0]">
-                {formatDispatchTrendsNumber(
-                  projection.valueMode === 'avg' ? firstRow.avg : firstRow.last,
-                )}
-              </dd>
-            </div>
-          </dl>
-        ) : null}
-      </section>
-
-      <section
-        aria-label="Trends response table preview"
-        className="min-h-[14rem] rounded-md border border-[#1f2a3d] bg-[#0f172a] p-4"
-      >
-        <h3 className="text-sm font-semibold text-white">Aggregate rows</h3>
-        <div className="mt-3 max-h-72 overflow-auto">
-          <table className="w-full text-left text-xs text-[#cbd5e1]">
-            <thead className="text-[#94a3b8]">
-              <tr>
-                <th className="py-1 pr-2 font-medium">Time</th>
-                <th className="py-1 pr-2 font-medium">Avg</th>
-                <th className="py-1 pr-2 font-medium">Last</th>
-                <th className="py-1 pr-2 font-medium">Count</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projection.tableRows.slice(0, 20).map((row) => (
-                <tr key={`${row.timeStart}:${row.timeEnd}`}>
-                  <td className="py-1 pr-2">{formatDispatchTrendsTimestamp(row.pointTime)}</td>
-                  <td className="py-1 pr-2">{formatDispatchTrendsNumber(row.avg)}</td>
-                  <td className="py-1 pr-2">{formatDispatchTrendsNumber(row.last)}</td>
-                  <td className="py-1 pr-2">{row.count}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
-  )
 }
 
 export function DispatchTrendsTab({
@@ -434,7 +358,10 @@ export function DispatchTrendsTab({
           No aggregate points were returned for the selected range.
         </div>
       ) : displayProjection ? (
-        <DispatchTrendsHistoryPreview projection={displayProjection} />
+        <div className="grid min-h-0 flex-1 gap-3 overflow-auto p-3 xl:grid-cols-[minmax(0,1fr)_minmax(30rem,0.8fr)]">
+          <DispatchTrendsChart projection={displayProjection} />
+          <DispatchTrendsTable projection={displayProjection} />
+        </div>
       ) : (
         <div className="flex min-h-[12rem] flex-1 items-center justify-center p-4 text-center text-sm text-[#94a3b8]">
           Select a numeric metric and refresh trends to load historical telemetry.
