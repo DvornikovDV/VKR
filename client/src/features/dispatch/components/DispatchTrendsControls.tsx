@@ -1,9 +1,14 @@
 import { RefreshCw } from 'lucide-react'
 import { TELEMETRY_HISTORY_MAX_POINTS } from '@/shared/api/telemetryHistory'
-import type {
-  DispatchTrendsFilter,
-  DispatchTrendsNumericMetricOption,
-  DispatchTrendsValueMode,
+import {
+  DISPATCH_TRENDS_VALUE_MODES,
+  DISPATCH_TRENDS_VIEW_MODES,
+  fromDispatchTrendsDateTimeLocalValue,
+  toDispatchTrendsDateTimeLocalValue,
+  type DispatchTrendsFilter,
+  type DispatchTrendsNumericMetricOption,
+  type DispatchTrendsValueMode,
+  type DispatchTrendsViewMode,
 } from '@/features/dispatch/model/trends'
 
 interface DispatchTrendsControlsProps {
@@ -16,27 +21,14 @@ interface DispatchTrendsControlsProps {
   onRefresh: () => void
 }
 
+const segmentedGroupClassName =
+  'inline-flex min-h-8 overflow-hidden rounded border border-[#334155] bg-[#0f1929]'
+
+const segmentedOptionClassName =
+  'inline-flex cursor-pointer items-center justify-center px-2.5 text-[11px] font-semibold uppercase text-[#cbd5e1] has-[:checked]:bg-[#164e63] has-[:checked]:text-white'
+
 function toMetricValue(filter: DispatchTrendsFilter): string {
   return filter.deviceId && filter.metric ? `${filter.deviceId}:${filter.metric}` : ''
-}
-
-function toDateTimeLocalValue(value: string): string {
-  const timestamp = Date.parse(value)
-  if (!Number.isFinite(timestamp)) {
-    return ''
-  }
-
-  return new Date(timestamp).toISOString().slice(0, 16)
-}
-
-function fromDateTimeLocalValue(value: string): string {
-  if (!value) {
-    return ''
-  }
-
-  const normalized = value.length === 16 ? `${value}:00.000Z` : value
-  const timestamp = Date.parse(normalized)
-  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : value
 }
 
 function parseMaxPoints(value: string): number {
@@ -68,10 +60,14 @@ export function DispatchTrendsControls({
     onFilterChange({ valueMode })
   }
 
+  function handleViewModeChange(viewMode: DispatchTrendsViewMode) {
+    onFilterChange({ viewMode })
+  }
+
   return (
     <form
       aria-label="Trends filters"
-      className="grid flex-shrink-0 gap-3 border-b border-[#1f2a3d] bg-[#0a1220] p-3 text-sm text-[#cbd5e1] lg:grid-cols-[minmax(16rem,1.5fr)_repeat(3,minmax(10rem,1fr))_auto]"
+      className="grid flex-shrink-0 gap-2 border-b border-[#1f2a3d] bg-[#0a1220] p-3 text-sm text-[#cbd5e1] md:grid-cols-2 lg:grid-cols-[minmax(14rem,1.4fr)_repeat(3,minmax(8.5rem,1fr))] xl:grid-cols-[minmax(16rem,1.5fr)_repeat(3,minmax(9rem,1fr))_minmax(18rem,auto)_auto]"
       onSubmit={(event) => {
         event.preventDefault()
         onRefresh()
@@ -104,9 +100,9 @@ export function DispatchTrendsControls({
         <input
           aria-label="Start date"
           type="datetime-local"
-          value={toDateTimeLocalValue(filter.dateStart)}
+          value={toDispatchTrendsDateTimeLocalValue(filter.dateStart)}
           onChange={(event) =>
-            onFilterChange({ dateStart: fromDateTimeLocalValue(event.target.value) })
+            onFilterChange({ dateStart: fromDispatchTrendsDateTimeLocalValue(event.target.value) })
           }
           className="min-h-9 rounded border border-[#334155] bg-[#0f1929] px-2 py-1 text-sm text-white"
         />
@@ -117,9 +113,9 @@ export function DispatchTrendsControls({
         <input
           aria-label="End date"
           type="datetime-local"
-          value={toDateTimeLocalValue(filter.dateEnd)}
+          value={toDispatchTrendsDateTimeLocalValue(filter.dateEnd)}
           onChange={(event) =>
-            onFilterChange({ dateEnd: fromDateTimeLocalValue(event.target.value) })
+            onFilterChange({ dateEnd: fromDispatchTrendsDateTimeLocalValue(event.target.value) })
           }
           className="min-h-9 rounded border border-[#334155] bg-[#0f1929] px-2 py-1 text-sm text-white"
         />
@@ -141,31 +137,57 @@ export function DispatchTrendsControls({
         />
       </label>
 
-      <fieldset className="flex min-w-0 flex-col gap-1">
-        <legend className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
-          Value
-        </legend>
-        <div className="inline-flex min-h-9 overflow-hidden rounded border border-[#334155] bg-[#0f1929]">
-          {(['avg', 'last'] as const).map((valueMode) => (
-            <label
-              key={valueMode}
-              className="inline-flex cursor-pointer items-center justify-center px-3 text-xs font-semibold uppercase text-[#cbd5e1] has-[:checked]:bg-[#164e63] has-[:checked]:text-white"
-            >
-              <input
-                className="sr-only"
-                type="radio"
-                name="dispatch-trends-value-mode"
-                value={valueMode}
-                checked={filter.valueMode === valueMode}
-                onChange={() => handleValueModeChange(valueMode)}
-              />
-              {valueMode}
-            </label>
-          ))}
-        </div>
-      </fieldset>
+      <div className="flex min-w-0 flex-wrap items-end gap-2 lg:col-span-3 xl:col-span-1">
+        <fieldset className="flex min-w-0 flex-col gap-1">
+          <legend className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
+            Value
+          </legend>
+          <div className={segmentedGroupClassName}>
+            {DISPATCH_TRENDS_VALUE_MODES.map((valueMode) => (
+              <label
+                key={valueMode}
+                className={segmentedOptionClassName}
+              >
+                <input
+                  className="sr-only"
+                  type="radio"
+                  name="dispatch-trends-value-mode"
+                  value={valueMode}
+                  checked={filter.valueMode === valueMode}
+                  onChange={() => handleValueModeChange(valueMode)}
+                />
+                {valueMode}
+              </label>
+            ))}
+          </div>
+        </fieldset>
 
-      <div className="flex min-w-0 flex-col justify-end gap-1 lg:col-start-5 lg:row-start-1">
+        <fieldset className="flex min-w-0 flex-col gap-1">
+          <legend className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
+            View
+          </legend>
+          <div className={segmentedGroupClassName}>
+            {DISPATCH_TRENDS_VIEW_MODES.map((viewMode) => (
+              <label
+                key={viewMode}
+                className={segmentedOptionClassName}
+              >
+                <input
+                  className="sr-only"
+                  type="radio"
+                  name="dispatch-trends-view-mode"
+                  value={viewMode}
+                  checked={filter.viewMode === viewMode}
+                  onChange={() => handleViewModeChange(viewMode)}
+                />
+                {viewMode}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      </div>
+
+      <div className="flex min-w-0 flex-col justify-end gap-1 lg:col-start-4 lg:row-start-2 xl:col-start-6 xl:row-start-1">
         <button
           type="submit"
           data-testid="dispatch-trends-refresh"
@@ -184,7 +206,7 @@ export function DispatchTrendsControls({
       {validationMessage ? (
         <p
           role="alert"
-          className="text-xs text-[var(--color-danger)] lg:col-span-5"
+          className="text-xs text-[var(--color-danger)] md:col-span-2 lg:col-span-4 xl:col-span-6"
         >
           {validationMessage}
         </p>

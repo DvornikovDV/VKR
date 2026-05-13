@@ -8,7 +8,13 @@ import type {
   EdgeCatalogTelemetryMetric,
 } from '@/shared/api/edgeServersCanonical'
 
-export type DispatchTrendsValueMode = 'avg' | 'last'
+export const DISPATCH_TRENDS_VALUE_MODES = ['min', 'max', 'avg', 'last'] as const
+
+export type DispatchTrendsValueMode = (typeof DISPATCH_TRENDS_VALUE_MODES)[number]
+
+export const DISPATCH_TRENDS_VIEW_MODES = ['chart', 'table', 'both'] as const
+
+export type DispatchTrendsViewMode = (typeof DISPATCH_TRENDS_VIEW_MODES)[number]
 
 export type DispatchTrendsLoadState = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
@@ -22,6 +28,7 @@ export interface DispatchTrendsFilter extends DispatchTrendsRange {
   deviceId: string | null
   metric: string | null
   valueMode: DispatchTrendsValueMode
+  viewMode: DispatchTrendsViewMode
   maxPoints: number
 }
 
@@ -117,6 +124,39 @@ function normalizeHistoryPoint(point: TelemetryHistoryPointWithOptionalPointTime
   }
 }
 
+function padDateTimeLocalPart(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+export function toDispatchTrendsDateTimeLocalValue(value: string): string {
+  const timestamp = parseTime(value)
+  if (timestamp === null) {
+    return ''
+  }
+
+  const date = new Date(timestamp)
+  return [
+    date.getFullYear(),
+    '-',
+    padDateTimeLocalPart(date.getMonth() + 1),
+    '-',
+    padDateTimeLocalPart(date.getDate()),
+    'T',
+    padDateTimeLocalPart(date.getHours()),
+    ':',
+    padDateTimeLocalPart(date.getMinutes()),
+  ].join('')
+}
+
+export function fromDispatchTrendsDateTimeLocalValue(value: string): string {
+  if (!value) {
+    return ''
+  }
+
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : value
+}
+
 export function createDispatchTrendsDefaultRange(now: Date = new Date()): DispatchTrendsRange {
   const dateEnd = now.toISOString()
   const dateStart = new Date(now.getTime() - 60 * 60 * 1_000).toISOString()
@@ -136,6 +176,7 @@ export function createDispatchTrendsDefaultFilter(
     deviceId: null,
     metric: null,
     valueMode: 'avg',
+    viewMode: 'both',
     maxPoints: TELEMETRY_HISTORY_DEFAULT_MAX_POINTS,
     ...createDispatchTrendsDefaultRange(now),
   }
@@ -220,8 +261,13 @@ export function formatDispatchTrendsTimestamp(value: string, locale?: string): s
   }
 
   return new Intl.DateTimeFormat(locale, {
-    dateStyle: 'short',
-    timeStyle: 'medium',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
   }).format(new Date(timestamp))
 }
 

@@ -155,6 +155,10 @@ describe('DispatchTrendsTab', () => {
     )
     expect(screen.getByTestId('dispatch-trends-chart')).toHaveAttribute('data-value-mode', 'avg')
 
+    await userEvent.click(screen.getByRole('radio', { name: 'max' }))
+    expect(screen.getByTestId('dispatch-trends-chart')).toHaveAttribute('data-value-mode', 'max')
+    expect(getTelemetryHistory).toHaveBeenCalledTimes(1)
+
     const table = screen.getByTestId('dispatch-trends-table')
     expect(within(table).getByRole('columnheader', { name: 'timeStart' })).toBeInTheDocument()
     expect(within(table).getByRole('columnheader', { name: 'timeEnd' })).toBeInTheDocument()
@@ -170,6 +174,16 @@ describe('DispatchTrendsTab', () => {
     expect(within(table).getByText('15')).toBeInTheDocument()
     expect(within(table).getByText('19')).toBeInTheDocument()
     expect(within(table).getByText('60')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('radio', { name: 'table' }))
+    expect(screen.queryByTestId('dispatch-trends-chart')).not.toBeInTheDocument()
+    expect(screen.getByTestId('dispatch-trends-table')).toBeInTheDocument()
+    expect(getTelemetryHistory).toHaveBeenCalledTimes(1)
+
+    await userEvent.click(screen.getByRole('radio', { name: 'chart' }))
+    expect(screen.getByTestId('dispatch-trends-chart')).toBeInTheDocument()
+    expect(screen.queryByTestId('dispatch-trends-table')).not.toBeInTheDocument()
+    expect(getTelemetryHistory).toHaveBeenCalledTimes(1)
   })
 
   it('ignores stale history when the selected Edge changes before the old request resolves', async () => {

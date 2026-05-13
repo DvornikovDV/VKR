@@ -1,13 +1,34 @@
 import { describe, expect, it } from 'vitest'
 import {
   createDispatchTrendsDefaultFilter,
+  DISPATCH_TRENDS_VALUE_MODES,
+  formatDispatchTrendsTimestamp,
+  fromDispatchTrendsDateTimeLocalValue,
   projectDispatchTrendsHistoryResponse,
   selectDispatchTrendsNumericMetricOptions,
+  toDispatchTrendsDateTimeLocalValue,
 } from '@/features/dispatch/model/trends'
 import { TELEMETRY_HISTORY_DEFAULT_MAX_POINTS } from '@/shared/api/telemetryHistory'
 import type { EdgeCapabilitiesCatalogSnapshot } from '@/shared/api/edgeServersCanonical'
 
 describe('dispatch trends helpers', () => {
+  function toExpectedDateTimeLocalValue(value: string): string {
+    const date = new Date(value)
+    const pad = (part: number) => String(part).padStart(2, '0')
+
+    return [
+      date.getFullYear(),
+      '-',
+      pad(date.getMonth() + 1),
+      '-',
+      pad(date.getDate()),
+      'T',
+      pad(date.getHours()),
+      ':',
+      pad(date.getMinutes()),
+    ].join('')
+  }
+
   it('keeps metric choices limited to catalog telemetry entries with valueType number', () => {
     const catalog: EdgeCapabilitiesCatalogSnapshot = {
       edgeServerId: 'edge-1',
@@ -52,6 +73,7 @@ describe('dispatch trends helpers', () => {
       deviceId: null,
       metric: null,
       valueMode: 'avg',
+      viewMode: 'both',
       maxPoints: TELEMETRY_HISTORY_DEFAULT_MAX_POINTS,
       dateStart: '2026-05-13T09:15:30.000Z',
       dateEnd: '2026-05-13T10:15:30.000Z',
@@ -109,5 +131,68 @@ describe('dispatch trends helpers', () => {
     ])
     expect(projection.chartPoints[0].pointTime).toBe(projection.tableRows[0].pointTime)
     expect(projection.response.series[0].pointTime).toBe(projection.chartPoints[0].pointTime)
+  })
+
+  it('projects every numeric aggregate as a chart value mode', () => {
+    const response = {
+      edgeId: 'edge-1',
+      deviceId: 'pump-1',
+      metric: 'temperature',
+      dateStart: '2026-05-13T10:00:00.000Z',
+      dateEnd: '2026-05-13T10:10:00.000Z',
+      maxPoints: 300,
+      series: [
+        {
+          timeStart: '2026-05-13T10:00:00.000Z',
+          timeEnd: '2026-05-13T10:10:00.000Z',
+          pointTime: '2026-05-13T10:05:00.000Z',
+          min: 20,
+          max: 30,
+          avg: 25,
+          last: 29,
+          count: 600,
+        },
+      ],
+    }
+
+    expect(DISPATCH_TRENDS_VALUE_MODES).toEqual(['min', 'max', 'avg', 'last'])
+    expect(
+      DISPATCH_TRENDS_VALUE_MODES.map((valueMode) =>
+        projectDispatchTrendsHistoryResponse(response, valueMode).chartPoints[0].value,
+      ),
+    ).toEqual([20, 30, 25, 29])
+  })
+
+  it('converts between UTC ISO state and local datetime-local input values', () => {
+    const isoValue = '2026-05-13T10:15:30.000Z'
+    const localInputValue = '2026-05-13T15:50'
+
+    expect(toDispatchTrendsDateTimeLocalValue(isoValue)).toBe(
+      toExpectedDateTimeLocalValue(isoValue),
+    )
+    expect(fromDispatchTrendsDateTimeLocalValue(localInputValue)).toBe(
+      new Date(2026, 4, 13, 15, 50).toISOString(),
+    )
+    expect(toDispatchTrendsDateTimeLocalValue('not-a-date')).toBe('')
+    expect(fromDispatchTrendsDateTimeLocalValue('not-a-date')).toBe('not-a-date')
+  })
+
+  it('formats rendered timestamps with local 24-hour time', () => {
+    const isoValue = '2026-05-13T10:15:30.000Z'
+    const formatted = formatDispatchTrendsTimestamp(isoValue, 'en-US')
+
+    expect(formatted).toBe(
+      new Intl.DateTimeFormat('en-US', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      }).format(new Date(isoValue)),
+    )
+    expect(formatted).not.toMatch(/\bAM\b|\bPM\b/i)
+    expect(formatDispatchTrendsTimestamp('not-a-date')).toBe('not-a-date')
   })
 })

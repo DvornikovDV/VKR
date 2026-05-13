@@ -138,7 +138,6 @@ export function DispatchTrendsTab({
   className,
 }: DispatchTrendsTabProps) {
   const selectedEdgeId = workspaceContext.selection.edgeId
-  const selectedEdgeName = workspaceContext.selection.selectedEdge?.name ?? selectedEdgeId
   const [filter, setFilter] = useState<DispatchTrendsFilter>(() =>
     createDispatchTrendsDefaultFilter(selectedEdgeId),
   )
@@ -155,6 +154,8 @@ export function DispatchTrendsTab({
   const mountedRef = useRef(true)
 
   useEffect(() => {
+    mountedRef.current = true
+
     return () => {
       mountedRef.current = false
     }
@@ -193,9 +194,17 @@ export function DispatchTrendsTab({
         if (
           !mountedRef.current ||
           !isCurrent ||
-          requestId !== catalogRequestIdRef.current ||
-          !isCatalogForSelectedEdge(loadedCatalog, edgeId)
+          requestId !== catalogRequestIdRef.current
         ) {
+          return
+        }
+
+        if (!isCatalogForSelectedEdge(loadedCatalog, edgeId)) {
+          setCatalog(null)
+          setCatalogError(
+            `Selected Edge catalog response mismatch: expected ${edgeId}, received ${loadedCatalog.edgeServerId}.`,
+          )
+          setCatalogStatus('error')
           return
         }
 
@@ -315,6 +324,12 @@ export function DispatchTrendsTab({
     ? projectDispatchTrendsHistoryResponse(projection.response as TelemetryHistoryResponse, filter.valueMode)
     : null
   const boundedError = historyError ?? catalogError
+  const shouldShowChart = filter.viewMode === 'chart' || filter.viewMode === 'both'
+  const shouldShowTable = filter.viewMode === 'table' || filter.viewMode === 'both'
+  const resultsLayoutClassName =
+    filter.viewMode === 'both'
+      ? 'grid min-h-0 flex-1 gap-3 overflow-auto p-3 xl:grid-cols-[minmax(0,1fr)_minmax(30rem,0.8fr)]'
+      : 'grid min-h-0 flex-1 gap-3 overflow-auto p-3'
 
   return (
     <section
@@ -323,13 +338,6 @@ export function DispatchTrendsTab({
       data-edge-id={selectedEdgeId ?? ''}
       className={className ?? 'flex min-h-0 flex-1 flex-col bg-[#08111f]'}
     >
-      <div className="flex flex-shrink-0 flex-col gap-1 border-b border-[#1f2a3d] bg-[#08111f] px-3 py-2">
-        <h2 className="text-base font-semibold text-white">Trends</h2>
-        <p className="text-xs text-[#94a3b8]">
-          {selectedEdgeId ? `Selected Edge Server: ${selectedEdgeName ?? selectedEdgeId}` : 'Select an Edge Server to load historical telemetry.'}
-        </p>
-      </div>
-
       <DispatchTrendsControls
         filter={filter}
         metricOptions={metricOptions}
@@ -360,9 +368,9 @@ export function DispatchTrendsTab({
           No aggregate points were returned for the selected range.
         </div>
       ) : displayProjection ? (
-        <div className="grid min-h-0 flex-1 gap-3 overflow-auto p-3 xl:grid-cols-[minmax(0,1fr)_minmax(30rem,0.8fr)]">
-          <DispatchTrendsChart projection={displayProjection} />
-          <DispatchTrendsTable projection={displayProjection} />
+        <div className={resultsLayoutClassName}>
+          {shouldShowChart ? <DispatchTrendsChart projection={displayProjection} /> : null}
+          {shouldShowTable ? <DispatchTrendsTable projection={displayProjection} /> : null}
         </div>
       ) : (
         <div className="flex min-h-[12rem] flex-1 items-center justify-center p-4 text-center text-sm text-[#94a3b8]">
