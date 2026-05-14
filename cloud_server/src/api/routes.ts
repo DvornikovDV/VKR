@@ -74,6 +74,12 @@ apiRouter.post(
     CommandsController.executeCommand,
 );
 apiRouter.get(
+    '/edge-servers/:edgeId/command-audit',
+    authMiddleware,
+    requireRole('USER'),
+    CommandsController.listCommandAudit,
+);
+apiRouter.get(
     '/edge-servers/:edgeId/alarm-incidents',
     authMiddleware,
     requireRole('USER'),

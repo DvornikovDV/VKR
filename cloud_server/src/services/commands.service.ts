@@ -12,6 +12,7 @@ import {
 import { getActiveTrustedEdgeSocket } from '../socket/events/edge';
 import type {
     CommandAuditListQueryDto,
+    CommandAuditListResponseDto,
     CommandAuditListStatus,
     CommandAuditProjection,
     CommandFailureReason,
@@ -39,6 +40,12 @@ export interface CommandAuditListQueryInput {
 export interface CommandAuditListFilter {
     edgeId: mongoose.Types.ObjectId;
     status?: CommandAuditListStatus;
+}
+
+export interface TrustedCommandAuditListInput {
+    edgeId: string;
+    userId: string;
+    query?: CommandAuditListQueryInput;
 }
 
 function getSingleQueryValue(value: unknown, fieldName: string): unknown {
@@ -141,6 +148,56 @@ export function projectCommandAudit(
         status: audit.status,
         completedAt: audit.completedAt?.toISOString() ?? null,
         failureReason: audit.failureReason,
+    };
+}
+
+function toObjectId(value: string, fieldName: string): mongoose.Types.ObjectId {
+    if (!mongoose.isValidObjectId(value)) {
+        throw new AppError(`Invalid ${fieldName}`, 400);
+    }
+
+    return new mongoose.Types.ObjectId(value);
+}
+
+export async function listTrustedCommandAudits(
+    input: TrustedCommandAuditListInput,
+): Promise<CommandAuditListResponseDto> {
+    const edgeId = toObjectId(input.edgeId, 'edgeId');
+    const userId = toObjectId(input.userId, 'userId');
+
+    const edgeServer = await EdgeServer.findById(edgeId)
+        .select('trustedUsers')
+        .lean<{ trustedUsers: mongoose.Types.ObjectId[] } | null>()
+        .exec();
+
+    if (!edgeServer) {
+        throw new AppError('Edge server not found', 404);
+    }
+
+    const isTrusted = edgeServer.trustedUsers.some((trustedUserId) => trustedUserId.equals(userId));
+    if (!isTrusted) {
+        throw new AppError('Access denied: user is not trusted for this edge server', 403);
+    }
+
+    const query = parseCommandAuditListQuery(input.query);
+    const filter = buildCommandAuditListFilter(edgeId, query);
+    const skip = (query.page - 1) * query.limit;
+
+    const [total, audits] = await Promise.all([
+        CommandAudit.countDocuments(filter).exec(),
+        CommandAudit.find(filter)
+            .sort({ requestedAt: -1, _id: -1 })
+            .skip(skip)
+            .limit(query.limit)
+            .exec(),
+    ]);
+
+    return {
+        audits: audits.map(projectCommandAudit),
+        page: query.page,
+        limit: query.limit,
+        total,
+        hasNextPage: skip + query.limit < total,
     };
 }
 

@@ -1,7 +1,7 @@
 import { type Response, type NextFunction } from 'express';
 import { type AuthRequest } from './middlewares/auth.middleware';
 import { AppError } from './middlewares/error.middleware';
-import { loadCommandTarget, orchestrateCommand } from '../services/commands.service';
+import { listTrustedCommandAudits, loadCommandTarget, orchestrateCommand } from '../services/commands.service';
 import { validateCommandRequestBody } from '../services/commands.validation';
 import type { CommandOrchestratorOutcome } from '../services/commands.service';
 import mongoose from 'mongoose';
@@ -152,6 +152,33 @@ async function executeCommand(
     }
 }
 
+async function listCommandAudit(
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction,
+): Promise<void> {
+    try {
+        if (!req.user) {
+            throw new AppError('Authentication required', 401);
+        }
+
+        const edgeId = req.params['edgeId'] ?? '';
+        const data = await listTrustedCommandAudits({
+            edgeId,
+            userId: req.user.userId,
+            query: req.query,
+        });
+
+        res.status(200).json({
+            status: 'success',
+            data,
+        });
+    } catch (err) {
+        next(err);
+    }
+}
+
 export const CommandsController = {
     executeCommand,
+    listCommandAudit,
 };
