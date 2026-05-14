@@ -4,6 +4,7 @@ import { io as createSocketClient, type Socket as ClientSocket } from 'socket.io
 import request from 'supertest';
 import { app, server } from '../../src/app';
 import { AlarmIncident, type IAlarmIncident } from '../../src/models/AlarmIncident';
+import { CommandAudit, type ICommandAudit } from '../../src/models/CommandAudit';
 import { User } from '../../src/models/User';
 import { AuthService } from '../../src/services/auth.service';
 import { getConnectivityAlarmIdentity } from '../../src/services/connectivity-alarm.service';
@@ -14,6 +15,11 @@ import {
     type AlarmEventPayloadDto,
     type AlarmIncidentChangedEventDto,
     type AlarmIncidentListResponseDto,
+    type CommandAuditListResponseDto,
+    type CommandFailureReason,
+    type CommandRequest,
+    type CommandRpcStatus,
+    type CommandType,
 } from '../../src/types';
 
 export type EdgeRuntimeAuthPayload = Record<string, unknown>;
@@ -458,6 +464,7 @@ export function emitCommandResult(
 export type AlarmEventPayload = AlarmEventPayloadDto;
 export type AlarmIncidentChangedPayload = AlarmIncidentChangedEventDto;
 export type AlarmIncidentListPayload = AlarmIncidentListResponseDto;
+export type CommandAuditListPayload = CommandAuditListResponseDto;
 export interface EdgeStatusPayload {
     edgeId: string;
     online: boolean;
@@ -482,6 +489,19 @@ export interface AlarmIncidentSeedOverrides {
     acknowledgedBy?: string | mongoose.Types.ObjectId | null;
     createdAt?: Date | string | number;
     updatedAt?: Date | string | number;
+}
+
+export interface CommandAuditSeedOverrides {
+    edgeId: string | mongoose.Types.ObjectId;
+    requestedBy: string | mongoose.Types.ObjectId;
+    requestId?: string;
+    deviceId?: string;
+    commandType?: CommandType;
+    payload?: CommandRequest['payload'];
+    requestedAt?: Date | string | number;
+    status?: CommandRpcStatus;
+    completedAt?: Date | string | number | null;
+    failureReason?: CommandFailureReason | null;
 }
 
 function toSeedObjectId(
@@ -557,6 +577,25 @@ export async function seedAlarmIncidentRecord(
     });
 }
 
+export async function seedCommandAuditRecord(
+    overrides: CommandAuditSeedOverrides,
+): Promise<ICommandAudit> {
+    const now = new Date('2026-05-14T08:00:00.000Z');
+
+    return await CommandAudit.create({
+        requestId: overrides.requestId ?? `audit-${new mongoose.Types.ObjectId().toHexString()}`,
+        edgeId: toSeedObjectId(overrides.edgeId, 'edgeId'),
+        deviceId: overrides.deviceId ?? 'pump-1',
+        commandType: overrides.commandType ?? 'set_bool',
+        payload: overrides.payload ?? { value: true },
+        requestedBy: toSeedObjectId(overrides.requestedBy, 'requestedBy'),
+        requestedAt: toSeedDate(overrides.requestedAt, now),
+        status: overrides.status ?? 'accepted',
+        completedAt: toNullableSeedDate(overrides.completedAt),
+        failureReason: overrides.failureReason ?? null,
+    });
+}
+
 export async function readAlarmIncidentListResponse(
     userToken: string,
     edgeId: string,
@@ -570,6 +609,21 @@ export async function readAlarmIncidentListResponse(
 
 export function getAlarmIncidentListPayload(response: request.Response): AlarmIncidentListPayload {
     return response.body?.data as AlarmIncidentListPayload;
+}
+
+export async function readCommandAuditListResponse(
+    userToken: string,
+    edgeId: string,
+    query: Record<string, string | number | boolean> = {},
+): Promise<request.Response> {
+    return await request(app)
+        .get(`/api/edge-servers/${edgeId}/command-audit`)
+        .set('Authorization', `Bearer ${userToken}`)
+        .query(query);
+}
+
+export function getCommandAuditListPayload(response: request.Response): CommandAuditListPayload {
+    return response.body?.data as CommandAuditListPayload;
 }
 
 export function emitAlarmEvent(

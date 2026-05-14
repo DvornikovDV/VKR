@@ -142,13 +142,52 @@ export interface CommandResult {
     completedAt: string;
 }
 
-export type CommandAuditProjection = CommandRpcRequest & {
+export interface CommandAuditProjection {
     requestId: string;
+    edgeId: string;
+    deviceId: string;
+    commandType: CommandType;
+    payload: CommandRequest['payload'];
+    requestedBy: string;
     status: CommandRpcStatus;
     requestedAt: string;
     completedAt: string | null;
     failureReason: CommandFailureReason | null;
-};
+}
+
+export const COMMAND_AUDIT_LIST_QUERY_FIELDS = {
+    page: 'page',
+    limit: 'limit',
+    status: 'status',
+} as const;
+
+export const COMMAND_AUDIT_LIST_STATUSES = [
+    'accepted',
+    'sent_to_edge',
+    'confirmed',
+    'timeout',
+    'failed',
+] as const satisfies readonly CommandRpcStatus[];
+
+export type CommandAuditListStatus = (typeof COMMAND_AUDIT_LIST_STATUSES)[number];
+
+export const COMMAND_AUDIT_LIST_DEFAULT_PAGE = 1;
+export const COMMAND_AUDIT_LIST_DEFAULT_LIMIT = 50;
+export const COMMAND_AUDIT_LIST_MAX_LIMIT = 100;
+
+export interface CommandAuditListQueryDto {
+    page: number;
+    limit: number;
+    status?: CommandAuditListStatus;
+}
+
+export interface CommandAuditListResponseDto {
+    audits: CommandAuditProjection[];
+    page: number;
+    limit: number;
+    total: number;
+    hasNextPage: boolean;
+}
 
 export const ALARM_EDGE_EVENT_NAME = 'alarm_event' as const;
 export const ALARM_INCIDENT_CHANGED_EVENT_NAME = 'alarm_incident_changed' as const;

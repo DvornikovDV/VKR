@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 
 import { AppError } from '../api/middlewares/error.middleware';
-import { CommandAudit } from '../models/CommandAudit';
+import { CommandAudit, type ICommandAudit } from '../models/CommandAudit';
 import { EdgeServer } from '../models/EdgeServer';
 import {
     cleanupPendingCommand,
@@ -11,15 +11,138 @@ import {
 } from './command-pending-registry';
 import { getActiveTrustedEdgeSocket } from '../socket/events/edge';
 import type {
+    CommandAuditListQueryDto,
+    CommandAuditListStatus,
+    CommandAuditProjection,
     CommandFailureReason,
     CommandRequest,
     CommandTerminalStatus,
+} from '../types';
+import {
+    COMMAND_AUDIT_LIST_DEFAULT_LIMIT,
+    COMMAND_AUDIT_LIST_DEFAULT_PAGE,
+    COMMAND_AUDIT_LIST_MAX_LIMIT,
+    COMMAND_AUDIT_LIST_STATUSES,
 } from '../types';
 
 // ─── Non-terminal statuses that may still be advanced ────────────────────────
 
 const NON_TERMINAL_STATUSES = ['accepted', 'sent_to_edge'] as const;
 type NonTerminalStatus = (typeof NON_TERMINAL_STATUSES)[number];
+
+export interface CommandAuditListQueryInput {
+    page?: unknown;
+    limit?: unknown;
+    status?: unknown;
+}
+
+export interface CommandAuditListFilter {
+    edgeId: mongoose.Types.ObjectId;
+    status?: CommandAuditListStatus;
+}
+
+function getSingleQueryValue(value: unknown, fieldName: string): unknown {
+    if (Array.isArray(value)) {
+        throw new AppError(`Invalid ${fieldName}`, 400);
+    }
+
+    return value;
+}
+
+function parsePositiveInteger(value: unknown, fieldName: string, defaultValue: number): number {
+    const normalized = getSingleQueryValue(value, fieldName);
+    if (normalized === undefined) {
+        return defaultValue;
+    }
+
+    if (
+        (typeof normalized !== 'string' && typeof normalized !== 'number') ||
+        normalized === '' ||
+        !Number.isInteger(Number(normalized))
+    ) {
+        throw new AppError(`Invalid ${fieldName}`, 400);
+    }
+
+    const parsed = Number(normalized);
+    if (parsed < 1) {
+        throw new AppError(`Invalid ${fieldName}`, 400);
+    }
+
+    return parsed;
+}
+
+function parseOptionalCommandAuditStatus(value: unknown): CommandAuditListStatus | undefined {
+    const normalized = getSingleQueryValue(value, 'status');
+    if (normalized === undefined) {
+        return undefined;
+    }
+
+    if (
+        typeof normalized !== 'string' ||
+        !COMMAND_AUDIT_LIST_STATUSES.includes(normalized as CommandAuditListStatus)
+    ) {
+        throw new AppError('Unsupported status', 400);
+    }
+
+    return normalized as CommandAuditListStatus;
+}
+
+export function parseCommandAuditListQuery(
+    query: CommandAuditListQueryInput = {},
+): CommandAuditListQueryDto {
+    const parsed: CommandAuditListQueryDto = {
+        page: parsePositiveInteger(query.page, 'page', COMMAND_AUDIT_LIST_DEFAULT_PAGE),
+        limit: parsePositiveInteger(query.limit, 'limit', COMMAND_AUDIT_LIST_DEFAULT_LIMIT),
+        status: parseOptionalCommandAuditStatus(query.status),
+    };
+
+    if (parsed.limit > COMMAND_AUDIT_LIST_MAX_LIMIT) {
+        throw new AppError(`Invalid limit: maximum is ${COMMAND_AUDIT_LIST_MAX_LIMIT}`, 400);
+    }
+
+    return parsed;
+}
+
+export function buildCommandAuditListFilter(
+    edgeId: mongoose.Types.ObjectId,
+    query: Pick<CommandAuditListQueryDto, 'status'>,
+): CommandAuditListFilter {
+    const filter: CommandAuditListFilter = { edgeId };
+    if (query.status !== undefined) {
+        filter.status = query.status;
+    }
+
+    return filter;
+}
+
+export function projectCommandAudit(
+    audit: Pick<
+        ICommandAudit,
+        | 'requestId'
+        | 'edgeId'
+        | 'deviceId'
+        | 'commandType'
+        | 'payload'
+        | 'requestedBy'
+        | 'requestedAt'
+        | 'status'
+        | 'completedAt'
+        | 'failureReason'
+    >,
+): CommandAuditProjection {
+    return {
+        requestId: audit.requestId,
+        edgeId: audit.edgeId.toHexString(),
+        deviceId: audit.deviceId,
+        commandType: audit.commandType,
+        payload: audit.payload,
+        requestedBy: audit.requestedBy.toHexString(),
+        requestedAt: audit.requestedAt.toISOString(),
+        status: audit.status,
+        completedAt: audit.completedAt?.toISOString() ?? null,
+        failureReason: audit.failureReason,
+    };
+}
 
 // ─── T012: Command target access loading ─────────────────────────────────────
 
