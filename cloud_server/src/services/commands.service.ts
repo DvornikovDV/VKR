@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import { AppError } from '../api/middlewares/error.middleware';
 import { CommandAudit, type ICommandAudit } from '../models/CommandAudit';
 import { EdgeServer } from '../models/EdgeServer';
+import { User } from '../models/User';
 import {
     cleanupPendingCommand,
     registerPendingCommand,
@@ -136,14 +137,18 @@ export function projectCommandAudit(
         | 'completedAt'
         | 'failureReason'
     >,
+    requesterEmailById: ReadonlyMap<string, string> = new Map(),
 ): CommandAuditProjection {
+    const requestedBy = audit.requestedBy.toHexString();
+
     return {
         requestId: audit.requestId,
         edgeId: audit.edgeId.toHexString(),
         deviceId: audit.deviceId,
         commandType: audit.commandType,
         payload: audit.payload,
-        requestedBy: audit.requestedBy.toHexString(),
+        requestedBy,
+        requestedByEmail: requesterEmailById.get(requestedBy) ?? null,
         requestedAt: audit.requestedAt.toISOString(),
         status: audit.status,
         completedAt: audit.completedAt?.toISOString() ?? null,
@@ -191,9 +196,19 @@ export async function listTrustedCommandAudits(
             .limit(query.limit)
             .exec(),
     ]);
+    const requesterIds = Array.from(new Set(audits.map((audit) => audit.requestedBy.toHexString())));
+    const requesters = requesterIds.length > 0
+        ? await User.find({ _id: { $in: requesterIds } })
+            .select('email')
+            .lean<Array<{ _id: mongoose.Types.ObjectId; email: string }>>()
+            .exec()
+        : [];
+    const requesterEmailById = new Map(
+        requesters.map((requester) => [requester._id.toHexString(), requester.email]),
+    );
 
     return {
-        audits: audits.map(projectCommandAudit),
+        audits: audits.map((audit) => projectCommandAudit(audit, requesterEmailById)),
         page: query.page,
         limit: query.limit,
         total,

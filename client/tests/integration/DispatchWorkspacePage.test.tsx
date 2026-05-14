@@ -771,6 +771,7 @@ describe('DispatchWorkspacePage routing', () => {
                     commandType: 'set_bool',
                     payload: { value: true },
                     requestedBy: 'dispatch-user-1',
+                    requestedByEmail: 'dispatch.user@example.com',
                     requestedAt: '2026-05-14T08:00:00.000Z',
                     status: 'confirmed',
                     completedAt: '2026-05-14T08:00:02.000Z',
@@ -818,8 +819,9 @@ describe('DispatchWorkspacePage routing', () => {
     expect(within(initialRow).getByText('pump-1')).toBeInTheDocument()
     expect(within(initialRow).getByText('set_bool')).toBeInTheDocument()
     expect(within(initialRow).getByText('Confirmed')).toBeInTheDocument()
-    expect(within(initialRow).getByText('dispatch-user-1')).toBeInTheDocument()
-    expect(within(initialRow).getByText('{"value":true}')).toBeInTheDocument()
+    expect(within(initialRow).getByText('dispatch.user@example.com')).toBeInTheDocument()
+    expect(within(initialRow).queryByText('dispatch-user-1')).not.toBeInTheDocument()
+    expect(within(initialRow).getByText('true')).toBeInTheDocument()
 
     await user.click(screen.getByTestId('dispatch-command-audit-refresh'))
     await waitFor(() => {
@@ -855,6 +857,7 @@ describe('DispatchWorkspacePage routing', () => {
             commandType: 'set_number',
             payload: { value: 42 },
             requestedBy: 'dispatch-user-2',
+            requestedByEmail: 'dispatcher.two@example.com',
             requestedAt: '2026-05-14T08:05:00.000Z',
             status: 'failed',
             completedAt: '2026-05-14T08:05:03.000Z',
@@ -869,7 +872,9 @@ describe('DispatchWorkspacePage routing', () => {
     expect(within(currentRow).getByText('set_number')).toBeInTheDocument()
     expect(within(currentRow).getByText('Failed')).toBeInTheDocument()
     expect(within(currentRow).getByText('Edge command failed')).toBeInTheDocument()
-    expect(within(currentRow).getByText('{"value":42}')).toBeInTheDocument()
+    expect(within(currentRow).getByText('dispatcher.two@example.com')).toBeInTheDocument()
+    expect(within(currentRow).queryByText('dispatch-user-2')).not.toBeInTheDocument()
+    expect(within(currentRow).getByText('42')).toBeInTheDocument()
     expect(screen.queryByTestId('dispatch-command-audit-row-command-audit-edge-1-initial')).not.toBeInTheDocument()
 
     edgeOneStaleAudit.resolve(

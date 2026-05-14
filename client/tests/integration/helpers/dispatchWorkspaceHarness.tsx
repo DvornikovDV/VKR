@@ -121,6 +121,7 @@ export function createDispatchCommandAuditRowFixture(
     commandType: 'set_bool',
     payload: { value: true },
     requestedBy: 'dispatch-user-1',
+    requestedByEmail: 'dispatch.user@example.com',
     requestedAt: '2026-05-14T08:00:00.000Z',
     status: 'confirmed',
     completedAt: '2026-05-14T08:00:02.000Z',

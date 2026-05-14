@@ -149,6 +149,7 @@ export interface CommandAuditProjection {
     commandType: CommandType;
     payload: CommandRequest['payload'];
     requestedBy: string;
+    requestedByEmail: string | null;
     status: CommandRpcStatus;
     requestedAt: string;
     completedAt: string | null;

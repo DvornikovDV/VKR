@@ -39,6 +39,10 @@ const COMMAND_AUDIT_FAILURE_REASON_LABELS: Record<EdgeCommandFailureReason, stri
   edge_unavailable: 'Edge unavailable',
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 export const DISPATCH_COMMAND_AUDIT_STATUS_OPTIONS: readonly DispatchCommandAuditStatusOption[] = [
   { value: 'all', label: 'All statuses' },
   ...COMMAND_AUDIT_LIST_STATUSES.map((status) => ({
@@ -87,6 +91,10 @@ export function formatDispatchCommandAuditPayload(
 
   if (typeof payload === 'string' || typeof payload === 'number' || typeof payload === 'boolean') {
     return String(payload)
+  }
+
+  if (isRecord(payload) && 'value' in payload) {
+    return formatDispatchCommandAuditPayload(payload.value)
   }
 
   try {

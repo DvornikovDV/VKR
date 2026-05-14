@@ -45,6 +45,7 @@ export interface CommandAuditProjection {
     commandType: EdgeCommandType
     payload: EdgeCommandRequest['payload']
     requestedBy: string
+    requestedByEmail: string | null
     status: CommandAuditStatus
     requestedAt: string
     completedAt: string | null

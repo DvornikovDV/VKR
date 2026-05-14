@@ -67,7 +67,7 @@ export function DispatchCommandAuditTable({
                   {getDispatchCommandAuditFailureReasonLabel(audit.failureReason)}
                 </td>
                 <td className="whitespace-nowrap border-b border-[#172033] py-2 pr-3 align-top">
-                  {audit.requestedBy}
+                  {audit.requestedByEmail ?? audit.requestedBy}
                 </td>
                 <td className="whitespace-nowrap border-b border-[#172033] py-2 pr-3 align-top">
                   {audit.deviceId}
