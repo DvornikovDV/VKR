@@ -10,8 +10,11 @@ import {
 } from '../fixtures/dashboardVisualLayout'
 import { useAuthStore } from '@/shared/store/useAuthStore'
 import * as telemetryHistoryApi from '@/shared/api/telemetryHistory'
+import { listCommandAudit } from '@/shared/api/commands'
 import {
   authenticateDispatchWorkspaceUser,
+  createDispatchCommandAuditResponseFixture,
+  createDispatchCommandAuditRowFixture,
   createDispatchTelemetryHistoryResponseFixture,
   createDispatchUnclosedAlarmIncidentChangedEventFixture,
   createDispatchTelemetryEventFixture,
@@ -77,6 +80,55 @@ async function findComboboxByOptionValue(value: string): Promise<HTMLSelectEleme
 }
 
 describe('DispatchWorkspacePage routing', () => {
+  it('lets the Dispatch harness mock command audit GET responses with the Cloud list query shape', async () => {
+    const commandAuditRequests: Array<{
+      edgeId: string
+      page: string | null
+      limit: string | null
+      status: string | null
+    }> = []
+    const response = createDispatchCommandAuditResponseFixture({
+      audits: [
+        createDispatchCommandAuditRowFixture({
+          requestId: 'command-audit-request-timeout',
+          status: 'timeout',
+          failureReason: 'edge_command_timeout',
+        }),
+      ],
+      page: 2,
+      limit: 25,
+      total: 26,
+      hasNextPage: true,
+    })
+
+    setupDispatchWorkspaceRestFixtures({
+      commandAudit: {
+        resolve: (request) => {
+          commandAuditRequests.push(request)
+          return response
+        },
+      },
+    })
+
+    await expect(
+      listCommandAudit('edge-visual-1', {
+        page: 2,
+        limit: 25,
+        status: 'timeout',
+      }),
+    ).resolves.toEqual(response)
+
+    expect(commandAuditRequests).toEqual([
+      {
+        edgeId: 'edge-visual-1',
+        page: '2',
+        limit: '25',
+        status: 'timeout',
+      },
+    ])
+    expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
+  })
+
   it('proves Dispatch routing, query preservation, sidebar tabs, and legacy one-session compatibility through User Hub routes', async () => {
     setupDispatchWorkspaceRestFixtures({
       dashboard: createDashboardVisualRestFixtures(),

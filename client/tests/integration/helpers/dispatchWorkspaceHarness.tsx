@@ -14,6 +14,10 @@ import {
   type UserEdgeConsumerFixtures,
 } from '../../mocks/handlers'
 import { server } from '../../mocks/server'
+import type {
+  CommandAuditListResponse,
+  CommandAuditProjection,
+} from '@/shared/api/commands'
 import type { TelemetryHistoryResponse } from '@/shared/api/telemetryHistory'
 import {
   dashboardRuntimeClientHarness,
@@ -36,6 +40,10 @@ export const dispatchWorkspaceUserSession: Session = {
 export interface DispatchWorkspaceRestFixtureOptions {
   dashboard?: Partial<DashboardRestFixtures>
   userEdge?: Partial<UserEdgeConsumerFixtures>
+  commandAudit?: {
+    resolve?: (request: DispatchCommandAuditFixtureRequest) => Promise<CommandAuditListResponse> | CommandAuditListResponse
+    response?: CommandAuditListResponse
+  }
   telemetryHistory?: {
     resolve?: (request: DispatchTelemetryHistoryFixtureRequest) => Promise<TelemetryHistoryResponse> | TelemetryHistoryResponse
     response?: TelemetryHistoryResponse
@@ -57,6 +65,13 @@ export interface DispatchTelemetryHistoryFixtureRequest {
   dateStart: string | null
   dateEnd: string | null
   maxPoints: string | null
+}
+
+export interface DispatchCommandAuditFixtureRequest {
+  edgeId: string
+  page: string | null
+  limit: string | null
+  status: string | null
 }
 
 export const dispatchWorkspaceTrendsCatalog: UserEdgeCatalogFixture = {
@@ -96,6 +111,39 @@ export function createDispatchTelemetryHistoryResponseFixture(
   }
 }
 
+export function createDispatchCommandAuditRowFixture(
+  overrides: Partial<CommandAuditProjection> = {},
+): CommandAuditProjection {
+  return {
+    requestId: 'command-audit-request-1',
+    edgeId: 'edge-visual-1',
+    deviceId: 'pump-1',
+    commandType: 'set_bool',
+    payload: { value: true },
+    requestedBy: 'dispatch-user-1',
+    requestedAt: '2026-05-14T08:00:00.000Z',
+    status: 'confirmed',
+    completedAt: '2026-05-14T08:00:02.000Z',
+    failureReason: null,
+    ...overrides,
+  }
+}
+
+export function createDispatchCommandAuditResponseFixture(
+  overrides: Partial<CommandAuditListResponse> = {},
+): CommandAuditListResponse {
+  const audits = overrides.audits ?? [createDispatchCommandAuditRowFixture()]
+
+  return {
+    audits,
+    page: 1,
+    limit: 50,
+    total: audits.length,
+    hasNextPage: false,
+    ...overrides,
+  }
+}
+
 export {
   createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture as createDispatchActiveUnacknowledgedAlarmIncidentProjectionFixture,
   createDashboardAlarmIncidentChangedEventFixture as createDispatchAlarmIncidentChangedEventFixture,
@@ -126,6 +174,8 @@ export function setupDispatchWorkspaceRestFixtures(
   })
   const defaultTelemetryHistoryResponse = options.telemetryHistory?.response
     ?? createDispatchTelemetryHistoryResponseFixture()
+  const defaultCommandAuditResponse = options.commandAudit?.response
+    ?? createDispatchCommandAuditResponseFixture()
 
   server.use(
     ...createDashboardApiHandlers(dashboardFixtures),
@@ -150,6 +200,23 @@ export function setupDispatchWorkspaceRestFixtures(
         },
       }),
     ),
+    http.get('/api/edge-servers/:edgeId/command-audit', async ({ params, request }) => {
+      const url = new URL(request.url)
+      const auditRequest: DispatchCommandAuditFixtureRequest = {
+        edgeId: String(params.edgeId),
+        page: url.searchParams.get('page'),
+        limit: url.searchParams.get('limit'),
+        status: url.searchParams.get('status'),
+      }
+      const response = options.commandAudit?.resolve
+        ? await options.commandAudit.resolve(auditRequest)
+        : defaultCommandAuditResponse
+
+      return HttpResponse.json({
+        status: 'success',
+        data: response,
+      })
+    }),
     http.post('/api/edge-servers/:edgeId/commands', ({ params }) => {
       const overrideResponse = userEdgeFixtures.commandResponsesByEdgeId?.[String(params.edgeId)]
 

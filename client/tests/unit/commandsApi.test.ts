@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { executeEdgeServerCommand } from '@/shared/api/commands'
+import { executeEdgeServerCommand, listCommandAudit } from '@/shared/api/commands'
 import { apiClient, createApiError } from '@/shared/api/client'
 
 vi.mock('@/shared/api/client', async (importOriginal) => {
@@ -7,6 +7,7 @@ vi.mock('@/shared/api/client', async (importOriginal) => {
     return {
         ...actual,
         apiClient: {
+            get: vi.fn(),
             post: vi.fn(),
         },
     }
@@ -14,7 +15,45 @@ vi.mock('@/shared/api/client', async (importOriginal) => {
 
 describe('commandsApi', () => {
     beforeEach(() => {
+        vi.mocked(apiClient.get).mockReset()
         vi.mocked(apiClient.post).mockReset()
+    })
+
+    it('lists command audit rows through apiClient.get using the unwrapped Cloud list response', async () => {
+        const response = {
+            audits: [
+                {
+                    requestId: 'request-1',
+                    edgeId: 'edge-1',
+                    deviceId: 'pump-1',
+                    commandType: 'set_bool' as const,
+                    payload: { value: true },
+                    requestedBy: 'user-1',
+                    status: 'confirmed' as const,
+                    requestedAt: '2026-05-14T08:00:00.000Z',
+                    completedAt: '2026-05-14T08:00:02.000Z',
+                    failureReason: null,
+                },
+            ],
+            page: 2,
+            limit: 25,
+            total: 26,
+            hasNextPage: true,
+        }
+        vi.mocked(apiClient.get).mockResolvedValue(response)
+
+        await expect(
+            listCommandAudit('edge-1', {
+                page: 2,
+                limit: 25,
+                status: 'confirmed',
+            }),
+        ).resolves.toEqual(response)
+
+        expect(apiClient.get).toHaveBeenCalledWith(
+            '/edge-servers/edge-1/command-audit?page=2&limit=25&status=confirmed',
+        )
+        expect(apiClient.post).not.toHaveBeenCalled()
     })
 
     it('returns confirmed when the API returns commandStatus confirmed', async () => {
