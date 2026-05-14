@@ -1,0 +1,128 @@
+runtime:
+  edgeId: replace-with-edge-id
+  stateDir: ./replace-with-edge-state-dir
+  instanceName: arduino-stand-edge
+
+cloud:
+  url: http://replace-with-cloud-host.invalid
+  namespace: /edge
+  connectTimeoutMs: 10000
+  reconnect:
+    baseDelayMs: 1000
+    maxDelayMs: 30000
+    maxAttempts: 0
+
+batch:
+  intervalMs: 1000
+  maxReadings: 100
+
+sources:
+  - sourceId: arduino_stand
+    adapterKind: modbus_rtu
+    enabled: true
+    pollIntervalMs: 1000
+    connection:
+      port: replace-with-serial-port
+      baudRate: 9600
+      dataBits: 8
+      parity: none
+      stopBits: 1
+      slaveId: 1
+      timeoutMs: 500
+      settleDelayMs: 2000
+    devices:
+      - deviceId: environment
+        address:
+          node: 1
+        metrics:
+          - metric: temperature
+            valueType: number
+            mapping:
+              registerType: input
+              address: 0
+              dataType: int16
+              scale: 0.1
+          - metric: humidity
+            valueType: number
+            mapping:
+              registerType: input
+              address: 1
+              scale: 0.1
+      - deviceId: pump_main
+        address:
+          node: 2
+        metrics:
+          - metric: actual_state
+            valueType: boolean
+            mapping:
+              registerType: input
+              address: 16
+          - metric: local_button_pressed
+            valueType: boolean
+            mapping:
+              registerType: input
+              address: 2
+        commands:
+          - command: set_bool
+            mapping:
+              registerType: holding
+              address: 160
+            reportedMetric: actual_state
+      - deviceId: siren_alert
+        address:
+          node: 3
+        metrics:
+          - metric: actual_state
+            valueType: boolean
+            mapping:
+              registerType: input
+              address: 17
+        commands:
+          - command: set_bool
+            mapping:
+              registerType: holding
+              address: 161
+            reportedMetric: actual_state
+      - deviceId: valve_pwm
+        address:
+          node: 4
+        metrics:
+          - metric: actual_value
+            valueType: number
+            mapping:
+              registerType: input
+              address: 18
+        commands:
+          - command: set_number
+            mapping:
+              registerType: holding
+              address: 162
+            min: 0
+            max: 255
+            reportedMetric: actual_value
+
+alarms:
+  - ruleId: humidity_high_warning
+    enabled: false
+    sourceId: arduino_stand
+    deviceId: environment
+    metric: humidity
+    conditionType: high
+    triggerThreshold: 55.0
+    clearThreshold: 50.0
+    severity: warning
+    label: "High humidity"
+
+  - ruleId: humidity_low_warning
+    enabled: true
+    sourceId: arduino_stand
+    deviceId: environment
+    metric: humidity
+    conditionType: low
+    triggerThreshold: 45.0
+    clearThreshold: 50.0
+    severity: warning
+    label: "Low humidity"
+
+logging:
+  level: info

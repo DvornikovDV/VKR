@@ -206,37 +206,58 @@ func TestParseAcceptsArduinoStandCommandMapping(t *testing.T) {
 	}
 }
 
-func TestParseAcceptsArduinoStandAlarmRule(t *testing.T) {
+func TestParseAcceptsArduinoStandAlarmRules(t *testing.T) {
 	cfg, err := Parse(arduinoStandSampleYAML(t))
 	if err != nil {
-		t.Fatalf("parse Arduino stand sample with alarm rule: %v", err)
+		t.Fatalf("parse Arduino stand sample with alarm rules: %v", err)
 	}
-	if len(cfg.Alarms) != 1 {
-		t.Fatalf("expected one Arduino stand alarm rule, got %d", len(cfg.Alarms))
+	if len(cfg.Alarms) != 2 {
+		t.Fatalf("expected two Arduino stand alarm rules, got %d", len(cfg.Alarms))
 	}
-	alarm := cfg.Alarms[0]
-	if alarm.RuleID != "temp_high_warning" {
-		t.Fatalf("unexpected alarm ruleId: %q", alarm.RuleID)
+
+	highAlarm := cfg.Alarms[0]
+	if highAlarm.RuleID != "humidity_high_warning" {
+		t.Fatalf("unexpected high alarm ruleId: %q", highAlarm.RuleID)
 	}
-	if alarm.Enabled == nil || !*alarm.Enabled {
-		t.Fatalf("expected alarm enabled: true, got %#v", alarm.Enabled)
+	if highAlarm.Enabled == nil || *highAlarm.Enabled {
+		t.Fatalf("expected high alarm enabled: false, got %#v", highAlarm.Enabled)
 	}
-	if alarm.SourceID != "arduino_stand" || alarm.DeviceID != "environment" || alarm.Metric != "temperature" {
-		t.Fatalf("unexpected alarm identity: source=%q device=%q metric=%q", alarm.SourceID, alarm.DeviceID, alarm.Metric)
+	if highAlarm.SourceID != "arduino_stand" || highAlarm.DeviceID != "environment" || highAlarm.Metric != "humidity" {
+		t.Fatalf("unexpected high alarm identity: source=%q device=%q metric=%q", highAlarm.SourceID, highAlarm.DeviceID, highAlarm.Metric)
 	}
-	if alarm.ConditionType != "high" || alarm.Severity != "warning" {
-		t.Fatalf("unexpected alarm condition/severity: condition=%q severity=%q", alarm.ConditionType, alarm.Severity)
+	if highAlarm.ConditionType != "high" || highAlarm.Severity != "warning" {
+		t.Fatalf("unexpected high alarm condition/severity: condition=%q severity=%q", highAlarm.ConditionType, highAlarm.Severity)
 	}
-	if alarm.TriggerThreshold == nil || *alarm.TriggerThreshold != 30.0 {
-		t.Fatalf("unexpected alarm triggerThreshold: %#v", alarm.TriggerThreshold)
+	if highAlarm.TriggerThreshold == nil || *highAlarm.TriggerThreshold != 55.0 {
+		t.Fatalf("unexpected high alarm triggerThreshold: %#v", highAlarm.TriggerThreshold)
 	}
-	if alarm.ClearThreshold == nil || *alarm.ClearThreshold != 28.0 {
-		t.Fatalf("unexpected alarm clearThreshold: %#v", alarm.ClearThreshold)
+	if highAlarm.ClearThreshold == nil || *highAlarm.ClearThreshold != 50.0 {
+		t.Fatalf("unexpected high alarm clearThreshold: %#v", highAlarm.ClearThreshold)
+	}
+
+	lowAlarm := cfg.Alarms[1]
+	if lowAlarm.RuleID != "humidity_low_warning" {
+		t.Fatalf("unexpected low alarm ruleId: %q", lowAlarm.RuleID)
+	}
+	if lowAlarm.Enabled == nil || !*lowAlarm.Enabled {
+		t.Fatalf("expected low alarm enabled: true, got %#v", lowAlarm.Enabled)
+	}
+	if lowAlarm.SourceID != "arduino_stand" || lowAlarm.DeviceID != "environment" || lowAlarm.Metric != "humidity" {
+		t.Fatalf("unexpected low alarm identity: source=%q device=%q metric=%q", lowAlarm.SourceID, lowAlarm.DeviceID, lowAlarm.Metric)
+	}
+	if lowAlarm.ConditionType != "low" || lowAlarm.Severity != "warning" {
+		t.Fatalf("unexpected low alarm condition/severity: condition=%q severity=%q", lowAlarm.ConditionType, lowAlarm.Severity)
+	}
+	if lowAlarm.TriggerThreshold == nil || *lowAlarm.TriggerThreshold != 45.0 {
+		t.Fatalf("unexpected low alarm triggerThreshold: %#v", lowAlarm.TriggerThreshold)
+	}
+	if lowAlarm.ClearThreshold == nil || *lowAlarm.ClearThreshold != 50.0 {
+		t.Fatalf("unexpected low alarm clearThreshold: %#v", lowAlarm.ClearThreshold)
 	}
 }
 
 func TestParseRejectsHighAlarmInvalidHysteresis(t *testing.T) {
-	body := strings.Replace(string(arduinoStandSampleYAML(t)), "    clearThreshold: 28.0", "    clearThreshold: 30.0", 1)
+	body := strings.Replace(string(arduinoStandSampleYAML(t)), "    clearThreshold: 50.0", "    clearThreshold: 55.0", 1)
 
 	_, err := Parse([]byte(body))
 	if err == nil {
