@@ -783,6 +783,81 @@ paths:
               schema:
                 $ref: '#/components/schemas/CommandErrorResponse'
 
+  /api/edge-servers/{edgeId}/command-audit:
+    get:
+      operationId: listEdgeServerCommandAudit
+      summary: List command audit rows for a trusted Edge Server (USER only)
+      description: >
+        Returns a paginated newest-first list of persisted `CommandAudit`
+        projection rows for the selected Edge Server. The requesting USER must
+        be in `EdgeServer.trustedUsers`. The endpoint reads audit evidence only
+        and does not execute commands, start an Edge runtime session, or infer
+        telemetry state from command payloads.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the target Edge Server
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: One-based page number
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Page size. Values greater than 100 return 400.
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [accepted, sent_to_edge, confirmed, timeout, failed]
+          description: Optional command audit status filter
+      responses:
+        '200':
+          description: Paginated command audit list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandAuditListResponse'
+        '400':
+          description: Invalid edgeId, pagination value, or unsupported status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - USER is not trusted for this Edge Server or does not have the USER role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Edge Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/edge-servers/{edgeId}/alarm-incidents:
     get:
       operationId: listAlarmIncidents
@@ -1351,6 +1426,110 @@ components:
           type: string
           format: date-time
           description: ISO timestamp of terminal audit update
+    CommandAuditPayload:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          oneOf:
+            - type: boolean
+            - type: number
+      description: Persisted command payload value captured as audit evidence
+    CommandAuditProjection:
+      type: object
+      required:
+        - requestId
+        - edgeId
+        - deviceId
+        - commandType
+        - payload
+        - requestedBy
+        - status
+        - requestedAt
+        - completedAt
+        - failureReason
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: RPC request identifier for the audited command
+        edgeId:
+          type: string
+          description: MongoDB ObjectId of the owning Edge Server
+        deviceId:
+          type: string
+          description: Edge-local device identifier targeted by the command
+        commandType:
+          type: string
+          enum: [set_bool, set_number]
+          description: Type of write operation requested
+        payload:
+          $ref: '#/components/schemas/CommandAuditPayload'
+        requestedBy:
+          type: string
+          description: MongoDB ObjectId of the USER that requested the command
+        status:
+          type: string
+          enum: [accepted, sent_to_edge, confirmed, timeout, failed]
+          description: Current persisted command audit status
+        requestedAt:
+          type: string
+          format: date-time
+          description: ISO timestamp when Cloud accepted the command request
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO timestamp of terminal audit update, or null while non-terminal
+        failureReason:
+          type: string
+          enum:
+            - cloud_rpc_timeout
+            - edge_command_timeout
+            - edge_unavailable
+            - edge_command_failed
+          nullable: true
+          description: Machine-readable failure category, or null when not failed
+    CommandAuditListResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          enum: [success]
+          example: success
+        data:
+          type: object
+          required:
+            - audits
+            - page
+            - limit
+            - total
+            - hasNextPage
+          properties:
+            audits:
+              type: array
+              items:
+                $ref: '#/components/schemas/CommandAuditProjection'
+            page:
+              type: integer
+              minimum: 1
+              example: 1
+            limit:
+              type: integer
+              minimum: 1
+              maximum: 100
+              example: 50
+            total:
+              type: integer
+              minimum: 0
+              example: 0
+            hasNextPage:
+              type: boolean
+              example: false
     ErrorResponse:
       type: object
       required:
