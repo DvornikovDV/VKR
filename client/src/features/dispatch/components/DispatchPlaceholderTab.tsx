@@ -9,7 +9,10 @@ import {
 } from '@/features/dispatch/model/routes'
 import type { DispatchWorkspaceContextSnapshot } from '@/features/dispatch/model/types'
 
-export type DispatchPlaceholderTabId = Exclude<DispatchTabId, typeof DISPATCH_DASHBOARD_TAB>
+export type DispatchPlaceholderTabId = Exclude<
+  DispatchTabId,
+  typeof DISPATCH_DASHBOARD_TAB | typeof DISPATCH_COMMANDS_TAB
+>
 
 interface DispatchPlaceholderTabProps {
   tabId: DispatchPlaceholderTabId
@@ -19,7 +22,6 @@ interface DispatchPlaceholderTabProps {
 
 const PLACEHOLDER_MESSAGES = {
   [DISPATCH_TELEMETRY_TAB]: 'Live telemetry tables are not implemented in this Dispatch slice.',
-  [DISPATCH_COMMANDS_TAB]: 'Command audit and command workspace surfaces are not implemented in this Dispatch slice.',
   [DISPATCH_TRENDS_TAB]: 'Trends charts and historical telemetry tables are not implemented in this Dispatch slice.',
   [DISPATCH_ALARMS_TAB]: 'Expanded Alarm Journal workspace surfaces are not implemented in this Dispatch slice.',
 } as const satisfies Record<DispatchPlaceholderTabId, string>

@@ -22,6 +22,7 @@ import {
   dispatchWorkspaceRuntimeHarness,
   renderDispatchWorkspaceRoute,
   setupDispatchWorkspaceRestFixtures,
+  type DispatchCommandAuditFixtureRequest,
 } from './helpers/dispatchWorkspaceHarness'
 import { server } from '../mocks/server'
 
@@ -258,10 +259,13 @@ describe('DispatchWorkspacePage routing', () => {
     await waitFor(() => {
       expect(canonicalRoute.router.state.location.pathname).toBe('/hub/dispatch/commands')
     })
-    expect(screen.getByTestId('dispatch-placeholder-context')).toHaveAttribute(
-      'data-tab-id',
-      'commands',
-    )
+    await waitFor(() => {
+      expect(screen.getByTestId('dispatch-command-audit-tab')).toHaveAttribute(
+        'data-edge-id',
+        'edge-visual-1',
+      )
+    })
+    expect(screen.queryByTestId('dispatch-placeholder-context')).not.toBeInTheDocument()
     expect(dispatchWorkspaceRuntimeHarness.startSession).toHaveBeenCalledTimes(1)
 
     await user.click(within(screen.getByRole('tablist', { name: 'Dispatch tabs' })).getByRole('tab', { name: 'Alarms' }))
@@ -707,6 +711,194 @@ describe('DispatchWorkspacePage routing', () => {
       'edge-visual-1:boiler-1:temperature',
       'edge-visual-2:boiler-2:pressure',
     ])
+    expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
+  })
+
+  it('proves Dispatch Commands route uses selected Edge audit list, refresh, empty state, stale rejection, and no runtime session', async () => {
+    const edgeOneStaleAudit = createDeferred<ReturnType<typeof createDispatchCommandAuditResponseFixture>>()
+    const edgeTwoAudit = createDeferred<ReturnType<typeof createDispatchCommandAuditResponseFixture>>()
+    const auditRequests: DispatchCommandAuditFixtureRequest[] = []
+    let edgeOneRequestCount = 0
+
+    setupDispatchWorkspaceRestFixtures({
+      dashboard: {
+        ...createDashboardVisualRestFixtures(),
+        trustedEdges: [
+          {
+            _id: 'edge-visual-1',
+            name: 'Visual Edge',
+            lifecycleState: 'Active',
+            availability: {
+              online: true,
+              lastSeenAt: '2026-04-24T08:14:30.000Z',
+            },
+          },
+          {
+            _id: 'edge-visual-2',
+            name: 'Backup Visual Edge',
+            lifecycleState: 'Active',
+            availability: {
+              online: true,
+              lastSeenAt: '2026-04-24T08:15:30.000Z',
+            },
+          },
+        ],
+        bindingProfilesByDiagramId: {
+          [dashboardVisualDiagram._id]: [
+            dashboardVisualBindingProfile,
+            {
+              ...dashboardVisualBindingProfile,
+              _id: 'binding-visual-2',
+              edgeServerId: 'edge-visual-2',
+            },
+          ],
+        },
+      },
+      commandAudit: {
+        resolve: (request) => {
+          auditRequests.push(request)
+
+          if (request.edgeId === 'edge-visual-1') {
+            edgeOneRequestCount += 1
+
+            if (edgeOneRequestCount === 1) {
+              return createDispatchCommandAuditResponseFixture({
+                audits: [
+                  createDispatchCommandAuditRowFixture({
+                    requestId: 'command-audit-edge-1-initial',
+                    edgeId: 'edge-visual-1',
+                    deviceId: 'pump-1',
+                    commandType: 'set_bool',
+                    payload: { value: true },
+                    requestedBy: 'dispatch-user-1',
+                    requestedAt: '2026-05-14T08:00:00.000Z',
+                    status: 'confirmed',
+                    completedAt: '2026-05-14T08:00:02.000Z',
+                    failureReason: null,
+                  }),
+                ],
+              })
+            }
+
+            return edgeOneStaleAudit.promise
+          }
+
+          if (request.edgeId === 'edge-visual-2' && request.status === 'failed') {
+            return createDispatchCommandAuditResponseFixture({
+              audits: [],
+              total: 0,
+              hasNextPage: false,
+            })
+          }
+
+          return edgeTwoAudit.promise
+        },
+      },
+    })
+
+    const route = renderDispatchWorkspaceRoute(
+      `/hub/dispatch/commands?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`,
+    )
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(route.router.state.location.pathname).toBe('/hub/dispatch/commands')
+    })
+    await waitFor(() => {
+      expect(auditRequests[0]).toEqual({
+        edgeId: 'edge-visual-1',
+        page: '1',
+        limit: '50',
+        status: null,
+      })
+    })
+    expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
+
+    const initialRow = await screen.findByTestId('dispatch-command-audit-row-command-audit-edge-1-initial')
+    expect(within(initialRow).getByText('pump-1')).toBeInTheDocument()
+    expect(within(initialRow).getByText('set_bool')).toBeInTheDocument()
+    expect(within(initialRow).getByText('Confirmed')).toBeInTheDocument()
+    expect(within(initialRow).getByText('dispatch-user-1')).toBeInTheDocument()
+    expect(within(initialRow).getByText('{"value":true}')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('dispatch-command-audit-refresh'))
+    await waitFor(() => {
+      expect(auditRequests).toHaveLength(2)
+      expect(auditRequests[1]).toEqual({
+        edgeId: 'edge-visual-1',
+        page: '1',
+        limit: '50',
+        status: null,
+      })
+    })
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Edge Server' }), 'edge-visual-2')
+    await waitFor(() => {
+      expect(route.router.state.location.search).toContain('edgeId=edge-visual-2')
+    })
+    await waitFor(() => {
+      expect(auditRequests[2]).toEqual({
+        edgeId: 'edge-visual-2',
+        page: '1',
+        limit: '50',
+        status: null,
+      })
+    })
+
+    edgeTwoAudit.resolve(
+      createDispatchCommandAuditResponseFixture({
+        audits: [
+          createDispatchCommandAuditRowFixture({
+            requestId: 'command-audit-edge-2-current',
+            edgeId: 'edge-visual-2',
+            deviceId: 'pump-2',
+            commandType: 'set_number',
+            payload: { value: 42 },
+            requestedBy: 'dispatch-user-2',
+            requestedAt: '2026-05-14T08:05:00.000Z',
+            status: 'failed',
+            completedAt: '2026-05-14T08:05:03.000Z',
+            failureReason: 'edge_command_failed',
+          }),
+        ],
+      }),
+    )
+
+    const currentRow = await screen.findByTestId('dispatch-command-audit-row-command-audit-edge-2-current')
+    expect(within(currentRow).getByText('pump-2')).toBeInTheDocument()
+    expect(within(currentRow).getByText('set_number')).toBeInTheDocument()
+    expect(within(currentRow).getByText('Failed')).toBeInTheDocument()
+    expect(within(currentRow).getByText('Edge command failed')).toBeInTheDocument()
+    expect(within(currentRow).getByText('{"value":42}')).toBeInTheDocument()
+    expect(screen.queryByTestId('dispatch-command-audit-row-command-audit-edge-1-initial')).not.toBeInTheDocument()
+
+    edgeOneStaleAudit.resolve(
+      createDispatchCommandAuditResponseFixture({
+        audits: [
+          createDispatchCommandAuditRowFixture({
+            requestId: 'command-audit-edge-1-stale',
+            edgeId: 'edge-visual-1',
+            deviceId: 'stale-pump',
+          }),
+        ],
+      }),
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('dispatch-command-audit-row-command-audit-edge-2-current')).toBeInTheDocument()
+      expect(screen.queryByTestId('dispatch-command-audit-row-command-audit-edge-1-stale')).not.toBeInTheDocument()
+    })
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Command status' }), 'failed')
+    await waitFor(() => {
+      expect(auditRequests[3]).toEqual({
+        edgeId: 'edge-visual-2',
+        page: '1',
+        limit: '50',
+        status: 'failed',
+      })
+    })
+    expect(await screen.findByTestId('dispatch-command-audit-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('dispatch-command-audit-row-command-audit-edge-2-current')).not.toBeInTheDocument()
     expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
   })
 })

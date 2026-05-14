@@ -4,6 +4,7 @@ import {
   DispatchActionSlotProvider,
   createDispatchActionSlotContextKey,
 } from '@/features/dispatch/components/DispatchActionSlot'
+import { DispatchCommandAuditTab } from '@/features/dispatch/components/DispatchCommandAuditTab'
 import { DispatchContextBar } from '@/features/dispatch/components/DispatchContextBar'
 import {
   DispatchPlaceholderTab,
@@ -64,7 +65,6 @@ function renderDispatchTab(
         />
       )
     case DISPATCH_TELEMETRY_TAB:
-    case DISPATCH_COMMANDS_TAB:
     case DISPATCH_ALARMS_TAB:
       return (
         <DispatchPlaceholderTab
@@ -72,6 +72,8 @@ function renderDispatchTab(
           workspaceContext={workspaceContext}
         />
       )
+    case DISPATCH_COMMANDS_TAB:
+      return <DispatchCommandAuditTab workspaceContext={workspaceContext} />
     case DISPATCH_TRENDS_TAB:
       return <DispatchTrendsTab workspaceContext={workspaceContext} />
     default:
