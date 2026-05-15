@@ -17,13 +17,31 @@ const (
 )
 
 func EnsureRuntimePersistenceBoundaries(stateDir string) error {
+	return EnsureRuntimePersistenceBoundariesWithRepair(stateDir, PermissionRepairDisabled)
+}
+
+func EnsureRuntimePersistenceBoundariesWithRepair(stateDir string, repairMode PermissionRepairMode) error {
 	normalizedStateDir := strings.TrimSpace(stateDir)
 	if normalizedStateDir == "" {
 		return fmt.Errorf("runtime state directory is required")
 	}
 
+	stateDirExists := true
+	if _, err := os.Stat(normalizedStateDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			stateDirExists = false
+		} else {
+			return fmt.Errorf("inspect state directory: %w", err)
+		}
+	}
+
 	if err := os.MkdirAll(normalizedStateDir, stateDirectoryMode); err != nil {
 		return fmt.Errorf("create state directory: %w", err)
+	}
+	if !stateDirExists || repairMode == PermissionRepairManagedOnly {
+		if err := RepairRuntimeDirectoryPermissions(normalizedStateDir); err != nil {
+			return fmt.Errorf("repair state directory permissions: %w", err)
+		}
 	}
 
 	for _, file := range ManagedRuntimeStateFiles() {
@@ -40,6 +58,11 @@ func EnsureRuntimePersistenceBoundaries(stateDir string) error {
 			return fmt.Errorf("%s must be a regular file", file)
 		}
 
+		if repairMode == PermissionRepairManagedOnly {
+			if err := RepairRuntimeFilePermissions(path, file); err != nil {
+				return fmt.Errorf("repair %s permissions: %w", file, err)
+			}
+		}
 		if err := VerifyRuntimeFilePermissions(path, file); err != nil {
 			return fmt.Errorf("verify %s permissions: %w", file, err)
 		}
@@ -104,8 +127,14 @@ func atomicWriteJSON(path string, value any, mode os.FileMode) error {
 	if err := os.Chmod(tmpPath, profile.POSIXFallbackMode); err != nil {
 		return fmt.Errorf("set state file mode: %w", err)
 	}
+	if err := RepairRuntimeFilePermissions(tmpPath, profile.FileName); err != nil {
+		return fmt.Errorf("repair temp %s permissions: %w", profile.FileName, err)
+	}
 	if err := replaceFile(tmpPath, path); err != nil {
 		return fmt.Errorf("atomic replace %s: %w", filepath.Base(path), err)
+	}
+	if err := RepairRuntimeFilePermissions(path, profile.FileName); err != nil {
+		return fmt.Errorf("repair %s permissions: %w", profile.FileName, err)
 	}
 	if err := VerifyRuntimeFilePermissions(path, profile.FileName); err != nil {
 		return fmt.Errorf("verify %s permissions: %w", profile.FileName, err)

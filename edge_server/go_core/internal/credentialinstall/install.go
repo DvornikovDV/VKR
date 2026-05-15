@@ -8,7 +8,11 @@ import (
 )
 
 func InstallFromDisclosureJSON(configPath string, payload []byte, installedAt time.Time) (InstallResult, error) {
-	context, err := LoadLocalInstallContext(configPath)
+	return InstallFromDisclosureJSONWithOptions(configPath, payload, installedAt, InstallOptions{})
+}
+
+func InstallFromDisclosureJSONWithOptions(configPath string, payload []byte, installedAt time.Time, options InstallOptions) (InstallResult, error) {
+	context, err := LoadLocalInstallContextWithOptions(configPath, options.Context)
 	if err != nil {
 		return InstallResult{}, err
 	}

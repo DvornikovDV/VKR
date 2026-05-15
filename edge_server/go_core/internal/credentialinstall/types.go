@@ -48,12 +48,20 @@ type NormalizedCredentialInput struct {
 	IssuedAt         time.Time
 }
 
+type InstallOptions struct {
+	Context LocalInstallContextOptions
+}
+
 type LocalInstallContext struct {
 	EdgeID                     string
 	StateDir                   string
 	ExistingCredential         *state.Credential
 	ExistingRuntimeState       *state.RuntimeState
 	ExistingCredentialFilePath string
+}
+
+type LocalInstallContextOptions struct {
+	PermissionRepair state.PermissionRepairMode
 }
 
 type InstallResult struct {

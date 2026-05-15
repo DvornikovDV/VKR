@@ -113,6 +113,29 @@ func TestEdgeCredentialInstallSelectsStdinModeThroughInjectedIO(t *testing.T) {
 	}
 }
 
+func TestEdgeCredentialInstallSelectsPermissionRepairThroughInjectedIO(t *testing.T) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	var gotOptions edgeCredentialOptions
+
+	code := runEdgeCredential(context.Background(), []string{"install", "--config", "edge-runtime.yaml", "--from-stdin", "--fix-permissions"}, strings.NewReader("{}"), &stdout, &stderr, edgeCredentialDependencies{
+		install: func(ctx context.Context, options edgeCredentialOptions, streams commandIO) error {
+			gotOptions = options
+			return nil
+		},
+	})
+
+	if code != 0 {
+		t.Fatalf("expected success exit code 0, got %d; stderr=%q", code, stderr.String())
+	}
+	if !gotOptions.fixPerms {
+		t.Fatal("expected --fix-permissions to enable permission repair")
+	}
+	if gotOptions.mode != installModeStdin {
+		t.Fatalf("expected stdin mode with permission repair, got %q", gotOptions.mode)
+	}
+}
+
 func TestEdgeCredentialInstallSelectsInteractiveModeThroughInjectedIO(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -161,6 +184,17 @@ func TestEdgeCredentialInstallReportsInjectedInstallError(t *testing.T) {
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("install failure must not print stdout, got %q", stdout.String())
+	}
+}
+
+func TestEdgeCredentialInstallAddsPermissionRepairHint(t *testing.T) {
+	err := withPermissionRepairHint(
+		errors.New("verify credential.json permissions: credential.json ACL grants broad-read SID S-1-5-32-545"),
+		edgeCredentialOptions{},
+	)
+
+	if err == nil || !strings.Contains(err.Error(), "--fix-permissions") {
+		t.Fatalf("expected permission error to suggest --fix-permissions, got %v", err)
 	}
 }
 

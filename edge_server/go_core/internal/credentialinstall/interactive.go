@@ -11,6 +11,10 @@ import (
 )
 
 func InstallInteractively(configPath string, input io.Reader, output io.Writer, now time.Time) (InstallResult, bool, error) {
+	return InstallInteractivelyWithOptions(configPath, input, output, now, InstallOptions{})
+}
+
+func InstallInteractivelyWithOptions(configPath string, input io.Reader, output io.Writer, now time.Time, options InstallOptions) (InstallResult, bool, error) {
 	if input == nil {
 		return InstallResult{}, false, errors.New("stdin is required for interactive install")
 	}
@@ -18,7 +22,7 @@ func InstallInteractively(configPath string, input io.Reader, output io.Writer, 
 		return InstallResult{}, false, errors.New("stdout is required for interactive install")
 	}
 
-	context, err := LoadLocalInstallContext(configPath)
+	context, err := LoadLocalInstallContextWithOptions(configPath, options.Context)
 	if err != nil {
 		return InstallResult{}, false, err
 	}

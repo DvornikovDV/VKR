@@ -28,6 +28,13 @@ type PermissionProfile struct {
 	WindowsForbiddenBroadReadSIDs  []string
 }
 
+type PermissionRepairMode int
+
+const (
+	PermissionRepairDisabled PermissionRepairMode = iota
+	PermissionRepairManagedOnly
+)
+
 func PermissionProfileForFile(file RuntimeStateFile) (PermissionProfile, error) {
 	switch file {
 	case RuntimeStateFileCredential:
@@ -95,4 +102,24 @@ func VerifyRuntimeFilePermissions(path string, file RuntimeStateFile) error {
 	}
 
 	return verifyRuntimeFilePermissionsPlatform(path, profile)
+}
+
+func RepairRuntimeFilePermissions(path string, file RuntimeStateFile) error {
+	profile, err := PermissionProfileForFile(file)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("%s path is required", file)
+	}
+
+	return repairRuntimeFilePermissionsPlatform(path, profile)
+}
+
+func RepairRuntimeDirectoryPermissions(path string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("runtime state directory path is required")
+	}
+
+	return repairRuntimeDirectoryPermissionsPlatform(path)
 }

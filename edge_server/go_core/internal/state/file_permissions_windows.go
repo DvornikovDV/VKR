@@ -4,6 +4,7 @@ package state
 
 import (
 	"fmt"
+	"os"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -70,6 +71,91 @@ func verifyRuntimeFilePermissionsPlatform(path string, profile PermissionProfile
 	}
 
 	return nil
+}
+
+func repairRuntimeFilePermissionsPlatform(path string, profile PermissionProfile) error {
+	return setRuntimePathDACL(path, false)
+}
+
+func repairRuntimeDirectoryPermissionsPlatform(path string) error {
+	return setRuntimePathDACL(path, true)
+}
+
+func setRuntimePathDACL(path string, directory bool) error {
+	if _, err := os.Stat(path); err != nil {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+
+	sids, err := runtimePermissionSIDs()
+	if err != nil {
+		return err
+	}
+
+	inheritance := uint32(0)
+	if directory {
+		inheritance = windows.OBJECT_INHERIT_ACE | windows.CONTAINER_INHERIT_ACE
+	}
+
+	entries := make([]windows.EXPLICIT_ACCESS, 0, len(sids))
+	for _, item := range sids {
+		entries = append(entries, windows.EXPLICIT_ACCESS{
+			AccessPermissions: windows.GENERIC_ALL,
+			AccessMode:        windows.SET_ACCESS,
+			Inheritance:       inheritance,
+			Trustee: windows.TRUSTEE{
+				TrusteeForm:  windows.TRUSTEE_IS_SID,
+				TrusteeType:  item.trusteeType,
+				TrusteeValue: windows.TrusteeValueFromSID(item.sid),
+			},
+		})
+	}
+
+	acl, err := windows.ACLFromEntries(entries, nil)
+	if err != nil {
+		return fmt.Errorf("build ACL for %s: %w", path, err)
+	}
+
+	if err := windows.SetNamedSecurityInfo(
+		path,
+		windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION,
+		nil,
+		nil,
+		acl,
+		nil,
+	); err != nil {
+		return fmt.Errorf("set ACL for %s: %w", path, err)
+	}
+
+	return nil
+}
+
+type runtimePermissionSID struct {
+	sid         *windows.SID
+	trusteeType windows.TRUSTEE_TYPE
+}
+
+func runtimePermissionSIDs() ([]runtimePermissionSID, error) {
+	token := windows.GetCurrentProcessToken()
+	user, err := token.GetTokenUser()
+	if err != nil {
+		return nil, fmt.Errorf("read current user token: %w", err)
+	}
+
+	systemSID, err := windows.StringToSid("S-1-5-18")
+	if err != nil {
+		return nil, fmt.Errorf("parse SYSTEM SID: %w", err)
+	}
+	adminSID, err := windows.StringToSid("S-1-5-32-544")
+	if err != nil {
+		return nil, fmt.Errorf("parse Administrators SID: %w", err)
+	}
+
+	return []runtimePermissionSID{
+		{sid: user.User.Sid, trusteeType: windows.TRUSTEE_IS_USER},
+		{sid: systemSID, trusteeType: windows.TRUSTEE_IS_WELL_KNOWN_GROUP},
+		{sid: adminSID, trusteeType: windows.TRUSTEE_IS_WELL_KNOWN_GROUP},
+	}, nil
 }
 
 func getEntriesFromACL(acl *windows.ACL) (entries []*windows.ACCESS_ALLOWED_ACE, err error) {

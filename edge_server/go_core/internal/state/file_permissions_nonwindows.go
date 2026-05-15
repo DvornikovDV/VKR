@@ -20,3 +20,19 @@ func verifyRuntimeFilePermissionsPlatform(path string, profile PermissionProfile
 
 	return nil
 }
+
+func repairRuntimeFilePermissionsPlatform(path string, profile PermissionProfile) error {
+	if err := os.Chmod(path, profile.POSIXFallbackMode); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
+	}
+
+	return nil
+}
+
+func repairRuntimeDirectoryPermissionsPlatform(path string) error {
+	if err := os.Chmod(path, stateDirectoryMode); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
+	}
+
+	return nil
+}

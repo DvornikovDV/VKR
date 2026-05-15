@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"edge_server/go_core/internal/credentialinstall"
+	"edge_server/go_core/internal/state"
 )
 
 type installMode string
@@ -24,6 +25,7 @@ type edgeCredentialOptions struct {
 	subcommand string
 	configPath string
 	fromStdin  bool
+	fixPerms   bool
 	mode       installMode
 }
 
@@ -76,6 +78,7 @@ func parseEdgeCredentialArgs(args []string, stderr io.Writer) (edgeCredentialOpt
 
 	configPath := fs.String("config", "", "Path to operator-provided runtime config YAML")
 	fromStdin := fs.Bool("from-stdin", false, "Read credential disclosure JSON from stdin")
+	fixPerms := fs.Bool("fix-permissions", false, "Repair runtime state directory and managed state file permissions before install")
 
 	if err := fs.Parse(args[1:]); err != nil {
 		return edgeCredentialOptions{}, err
@@ -85,6 +88,7 @@ func parseEdgeCredentialArgs(args []string, stderr io.Writer) (edgeCredentialOpt
 		subcommand: subcommand,
 		configPath: strings.TrimSpace(*configPath),
 		fromStdin:  *fromStdin,
+		fixPerms:   *fixPerms,
 		mode:       installModeInteractive,
 	}
 	if options.fromStdin {
@@ -112,10 +116,14 @@ func installEdgeCredential(ctx context.Context, options edgeCredentialOptions, s
 	}
 
 	installedAt := time.Now().UTC()
+	installOptions := credentialinstall.InstallOptions{}
+	if options.fixPerms {
+		installOptions.Context.PermissionRepair = state.PermissionRepairManagedOnly
+	}
 	if options.mode == installModeInteractive {
-		result, confirmed, err := credentialinstall.InstallInteractively(options.configPath, streams.stdin, streams.stdout, installedAt)
+		result, confirmed, err := credentialinstall.InstallInteractivelyWithOptions(options.configPath, streams.stdin, streams.stdout, installedAt, installOptions)
 		if err != nil {
-			return err
+			return withPermissionRepairHint(err, options)
 		}
 		if !confirmed {
 			fmt.Fprintln(streams.stdout, "install canceled")
@@ -139,13 +147,25 @@ func installEdgeCredential(ctx context.Context, options edgeCredentialOptions, s
 		return err
 	}
 
-	result, err := credentialinstall.InstallFromDisclosureJSON(options.configPath, payload, installedAt)
+	result, err := credentialinstall.InstallFromDisclosureJSONWithOptions(options.configPath, payload, installedAt, installOptions)
 	if err != nil {
-		return err
+		return withPermissionRepairHint(err, options)
 	}
 
 	printInstallResult(streams.stdout, result)
 	return nil
+}
+
+func withPermissionRepairHint(err error, options edgeCredentialOptions) error {
+	if err == nil || options.fixPerms {
+		return err
+	}
+	message := err.Error()
+	if strings.Contains(message, "permissions") || strings.Contains(message, "ACL") {
+		return fmt.Errorf("%w; rerun with --fix-permissions or restrict runtime.stateDir ACL manually", err)
+	}
+
+	return err
 }
 
 func printInstallResult(stdout io.Writer, result credentialinstall.InstallResult) {

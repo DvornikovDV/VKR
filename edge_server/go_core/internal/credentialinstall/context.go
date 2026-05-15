@@ -10,13 +10,17 @@ import (
 )
 
 func LoadLocalInstallContext(configPath string) (LocalInstallContext, error) {
+	return LoadLocalInstallContextWithOptions(configPath, LocalInstallContextOptions{})
+}
+
+func LoadLocalInstallContextWithOptions(configPath string, options LocalInstallContextOptions) (LocalInstallContext, error) {
 	cfg, err := config.LoadFromFile(configPath)
 	if err != nil {
 		return LocalInstallContext{}, err
 	}
 
 	stateDir := strings.TrimSpace(cfg.Runtime.StateDir)
-	if err := state.EnsureRuntimePersistenceBoundaries(stateDir); err != nil {
+	if err := state.EnsureRuntimePersistenceBoundariesWithRepair(stateDir, options.PermissionRepair); err != nil {
 		return LocalInstallContext{}, err
 	}
 
