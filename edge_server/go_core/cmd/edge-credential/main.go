@@ -98,9 +98,6 @@ func parseEdgeCredentialArgs(args []string, stderr io.Writer) (edgeCredentialOpt
 }
 
 func installEdgeCredential(ctx context.Context, options edgeCredentialOptions, streams commandIO) error {
-	if options.mode != installModeStdin {
-		return errors.New("interactive install behavior is not implemented")
-	}
 	if ctx == nil {
 		return errors.New("install context is required")
 	}
@@ -114,6 +111,26 @@ func installEdgeCredential(ctx context.Context, options edgeCredentialOptions, s
 		return errors.New("stdout is required")
 	}
 
+	installedAt := time.Now().UTC()
+	if options.mode == installModeInteractive {
+		result, confirmed, err := credentialinstall.InstallInteractively(options.configPath, streams.stdin, streams.stdout, installedAt)
+		if err != nil {
+			return err
+		}
+		if !confirmed {
+			fmt.Fprintln(streams.stdout, "install canceled")
+			return nil
+		}
+		printInstallResult(streams.stdout, result)
+		return nil
+	}
+	if options.mode != installModeStdin {
+		return fmt.Errorf("unknown install mode %q", options.mode)
+	}
+
+	if streams.stdin == nil {
+		return errors.New("stdin is required for --from-stdin install")
+	}
 	payload, err := io.ReadAll(streams.stdin)
 	if err != nil {
 		return fmt.Errorf("read credential disclosure from stdin: %w", err)
@@ -122,13 +139,18 @@ func installEdgeCredential(ctx context.Context, options edgeCredentialOptions, s
 		return err
 	}
 
-	result, err := credentialinstall.InstallFromDisclosureJSON(options.configPath, payload, time.Now().UTC())
+	result, err := credentialinstall.InstallFromDisclosureJSON(options.configPath, payload, installedAt)
 	if err != nil {
 		return err
 	}
 
+	printInstallResult(streams.stdout, result)
+	return nil
+}
+
+func printInstallResult(stdout io.Writer, result credentialinstall.InstallResult) {
 	fmt.Fprintf(
-		streams.stdout,
+		stdout,
 		"installed credential: edgeId=%s version=%d source=%s path=%s installedAt=%s\n",
 		result.EdgeID,
 		result.Version,
@@ -136,5 +158,4 @@ func installEdgeCredential(ctx context.Context, options edgeCredentialOptions, s
 		result.CredentialPath,
 		result.InstalledAt.Format(time.RFC3339),
 	)
-	return nil
 }

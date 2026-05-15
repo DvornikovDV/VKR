@@ -377,6 +377,98 @@ func TestEdgeCredentialInstallFromStdinRejectsUnsafeInputBeforeWrite(t *testing.
 	}
 }
 
+func TestEdgeCredentialInstallInteractiveUsesSharedInstallPath(t *testing.T) {
+	baseCredential := state.Credential{
+		EdgeID:           "507f1f77bcf86cd799439011",
+		CredentialSecret: "existing-secret",
+		Version:          2,
+		IssuedAt:         time.Date(2026, 4, 14, 10, 0, 0, 0, time.UTC),
+		Source:           string(credentialinstall.InstallSourceRegister),
+		InstalledAt:      time.Date(2026, 4, 14, 10, 5, 0, 0, time.UTC),
+	}
+
+	t.Run("confirmation denial leaves existing credential unchanged", func(t *testing.T) {
+		stateDir := t.TempDir()
+		configPath := writeEdgeCredentialRuntimeConfig(t, stateDir, baseCredential.EdgeID)
+		if err := state.NewCredentialStore(stateDir).Save(baseCredential); err != nil {
+			t.Fatalf("seed existing credential: %v", err)
+		}
+		before, err := os.ReadFile(filepath.Join(stateDir, "credential.json"))
+		if err != nil {
+			t.Fatalf("read seeded credential: %v", err)
+		}
+
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		input := strings.NewReader("interactive-secret\n3\n2026-04-15T12:10:00Z\nn\n")
+		code := runEdgeCredential(context.Background(), []string{"install", "--config", configPath}, input, &stdout, &stderr, edgeCredentialDependencies{})
+		if code != 0 {
+			t.Fatalf("expected confirmation denial to exit successfully, got %d; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		}
+		for _, snippet := range []string{"edgeId=507f1f77bcf86cd799439011", "source=rotate", "install canceled"} {
+			if !strings.Contains(stdout.String(), snippet) {
+				t.Fatalf("expected interactive output to contain %q, got %q", snippet, stdout.String())
+			}
+		}
+		if strings.Contains(stdout.String(), "interactive-secret") || strings.Contains(stderr.String(), "interactive-secret") {
+			t.Fatalf("interactive output must not disclose credential secret, stdout=%q stderr=%q", stdout.String(), stderr.String())
+		}
+		after, err := os.ReadFile(filepath.Join(stateDir, "credential.json"))
+		if err != nil {
+			t.Fatalf("read credential after denial: %v", err)
+		}
+		if !bytes.Equal(before, after) {
+			t.Fatalf("confirmation denial changed existing credential.json\nbefore=%s\nafter=%s", string(before), string(after))
+		}
+	})
+
+	t.Run("confirmation acceptance writes derived credential", func(t *testing.T) {
+		stateDir := t.TempDir()
+		configPath := writeEdgeCredentialRuntimeConfig(t, stateDir, baseCredential.EdgeID)
+		if err := state.NewCredentialStore(stateDir).Save(baseCredential); err != nil {
+			t.Fatalf("seed existing credential: %v", err)
+		}
+
+		var stdout bytes.Buffer
+		var stderr bytes.Buffer
+		input := strings.NewReader("interactive-secret\n3\n\ny\n")
+		beforeInstall := time.Now().UTC()
+		code := runEdgeCredential(context.Background(), []string{"install", "--config", configPath}, input, &stdout, &stderr, edgeCredentialDependencies{})
+		afterInstall := time.Now().UTC()
+		if code != 0 {
+			t.Fatalf("expected interactive install success, got %d; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		}
+		if stderr.Len() != 0 {
+			t.Fatalf("successful interactive install must not write stderr, got %q", stderr.String())
+		}
+		if strings.Contains(stdout.String(), "interactive-secret") || strings.Contains(stderr.String(), "interactive-secret") {
+			t.Fatalf("interactive output must not disclose credential secret, stdout=%q stderr=%q", stdout.String(), stderr.String())
+		}
+		for _, snippet := range []string{"edgeId=507f1f77bcf86cd799439011", "source=rotate", "installed credential", "version=3", "credential.json"} {
+			if !strings.Contains(stdout.String(), snippet) {
+				t.Fatalf("expected interactive output to contain %q, got %q", snippet, stdout.String())
+			}
+		}
+
+		credential, exists, err := state.NewCredentialStore(stateDir).Load()
+		if err != nil {
+			t.Fatalf("load interactive credential through state store: %v", err)
+		}
+		if !exists {
+			t.Fatal("expected interactive install to write credential.json")
+		}
+		if credential.EdgeID != baseCredential.EdgeID ||
+			credential.CredentialSecret != "interactive-secret" ||
+			credential.Version != 3 ||
+			credential.Source != string(credentialinstall.InstallSourceRotate) {
+			t.Fatalf("unexpected interactive credential: %+v", credential)
+		}
+		if credential.IssuedAt.Before(beforeInstall) || credential.IssuedAt.After(afterInstall) {
+			t.Fatalf("blank issuedAt prompt must default to current install time, got %s outside [%s, %s]", credential.IssuedAt, beforeInstall, afterInstall)
+		}
+	})
+}
+
 func writeEdgeCredentialRuntimeConfig(t *testing.T, stateDir string, edgeID string) string {
 	t.Helper()
 
