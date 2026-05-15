@@ -1,5 +1,5 @@
 import { act } from '@testing-library/react'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
@@ -29,6 +29,15 @@ interface MockEdge {
   createdBy: { _id: string; email: string } | null
   persistentCredentialVersion: number | null
   lastLifecycleEventAt: string | null
+}
+
+const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+
+function stubClipboard(writeText: Clipboard['writeText']) {
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: { writeText },
+  })
 }
 
 function renderAdminRoute(path: string) {
@@ -100,6 +109,15 @@ beforeEach(() => {
     useAuthStore.setState({ session: null, isAuthenticated: false })
     useAuthStore.getState().setSession(adminSession)
   })
+})
+
+afterEach(() => {
+  if (originalClipboardDescriptor) {
+    Object.defineProperty(navigator, 'clipboard', originalClipboardDescriptor)
+    return
+  }
+
+  Reflect.deleteProperty(navigator, 'clipboard')
 })
 
 describe('Admin Hub routes and pages (canonical edge contract)', () => {
@@ -180,6 +198,8 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
     const registrationSecret = 'register-secret-value'
     const rotateSecret = 'rotate-secret-value'
     const unblockSecret = 'unblock-secret-value'
+    const writeText = vi.fn(async (_text: string) => undefined)
+    writeText.mockRejectedValueOnce(new Error('Clipboard unavailable'))
 
     server.use(
       http.post('/api/edge-servers', async ({ request }) => {
@@ -273,6 +293,7 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
     )
 
     const user = userEvent.setup()
+    stubClipboard(writeText)
     renderAdminRoute('/admin/edge')
 
     expect(await screen.findByRole('heading', { name: 'Edge Fleet' })).toBeInTheDocument()
@@ -283,13 +304,49 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
 
     expect(await screen.findByRole('heading', { name: 'One-time persistent credential' })).toBeInTheDocument()
     expect(screen.getByText(registrationSecret)).toBeInTheDocument()
+    const registrationInstallerJson = screen.getByRole('textbox', { name: 'Installer JSON' })
+    expect((registrationInstallerJson as HTMLTextAreaElement).value).toContain(
+      `"credentialSecret": "${registrationSecret}"`,
+    )
+    expect((registrationInstallerJson as HTMLTextAreaElement).value).toContain('"edgeId": "edge-new"')
+    expect((registrationInstallerJson as HTMLTextAreaElement).value).toContain('"version": 1')
+
+    await user.click(await screen.findByRole('button', { name: 'Copy installer JSON' }))
+    expect(await screen.findByText('Copy failed. Select and copy the installer JSON manually.')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(
+        expect.stringContaining(`"credentialSecret": "${registrationSecret}"`),
+      )
+    })
+    expect(JSON.stringify(localStorage)).not.toContain(registrationSecret)
+    expect(JSON.stringify(sessionStorage)).not.toContain(registrationSecret)
 
     const newRow = await screen.findByText('New Edge')
     expect(within(newRow.closest('tr') as HTMLTableRowElement).getByText('v1')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Refresh' }))
+    await user.click(screen.getByRole('button', { name: 'Hide secret' }))
     await waitFor(() => {
       expect(screen.queryByText(registrationSecret)).not.toBeInTheDocument()
+      expect(screen.queryByDisplayValue((value) => value.includes(registrationSecret))).not.toBeInTheDocument()
+    })
+
+    await user.click(
+      within(screen.getByText('New Edge').closest('tr') as HTMLTableRowElement).getByRole('button', {
+        name: 'Rotate credential',
+      }),
+    )
+    expect(await screen.findByText(rotateSecret)).toBeInTheDocument()
+    const rotateInstallerJson = screen.getByRole('textbox', { name: 'Installer JSON' })
+    expect((rotateInstallerJson as HTMLTextAreaElement).value).toContain(
+      `"credentialSecret": "${rotateSecret}"`,
+    )
+    expect(screen.queryByText(registrationSecret)).not.toBeInTheDocument()
+    expect(screen.queryByDisplayValue((value) => value.includes(registrationSecret))).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => {
+      expect(screen.queryByText(rotateSecret)).not.toBeInTheDocument()
+      expect(screen.queryByDisplayValue((value) => value.includes(rotateSecret))).not.toBeInTheDocument()
     })
 
     await user.click(
@@ -306,7 +363,11 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
       }),
     )
     expect(await screen.findByText(unblockSecret)).toBeInTheDocument()
+    expect((screen.getByRole('textbox', { name: 'Installer JSON' }) as HTMLTextAreaElement).value).toContain(
+      `"credentialSecret": "${unblockSecret}"`,
+    )
     expect(screen.queryByText(rotateSecret)).not.toBeInTheDocument()
+    expect(screen.queryByDisplayValue((value) => value.includes(rotateSecret))).not.toBeInTheDocument()
   })
 
   it('renders canonical lifecycle controls and removes onboarding-only actions', async () => {

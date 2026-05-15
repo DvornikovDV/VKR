@@ -14,12 +14,16 @@ import {
 } from '@/shared/api/edgeServers'
 import { getUsers, type UserRow } from '@/shared/api/users'
 import { useEdgeStatus } from '@/shared/hooks/useEdgeStatus'
+import { copyInstallerJsonToClipboard } from '@/features/admin-hub/model/edgeCredentialClipboard'
+import { serializeEdgeCredentialInstallerPayload } from '@/features/admin-hub/model/edgeCredentialInstallerPayload'
 
 interface RegisterFormState {
   name: string
 }
 
 type CredentialAction = 'rotate' | 'block' | 'unblock'
+
+type CopyStatus = 'idle' | 'copied' | 'failed'
 
 const INITIAL_REGISTER_FORM: RegisterFormState = {
   name: '',
@@ -101,6 +105,7 @@ export function EdgeFleetPage() {
   const [registerForm, setRegisterForm] = useState<RegisterFormState>(INITIAL_REGISTER_FORM)
   const [isRegistering, setIsRegistering] = useState(false)
   const [latestDisclosure, setLatestDisclosure] = useState<EdgeCredentialDisclosureResponse | null>(null)
+  const [installerJsonCopyStatus, setInstallerJsonCopyStatus] = useState<CopyStatus>('idle')
   const [credentialActionEdgeId, setCredentialActionEdgeId] = useState<string | null>(null)
   const [credentialAction, setCredentialAction] = useState<CredentialAction | null>(null)
 
@@ -116,6 +121,10 @@ export function EdgeFleetPage() {
 
   const edgeIds = useMemo(() => edgeServers.map((edge) => edge._id), [edgeServers])
   const { getSnapshot, refresh: refreshEdgeStatus } = useEdgeStatus({ edgeIds, scope: 'admin' })
+  const installerJson = useMemo(
+    () => (latestDisclosure ? serializeEdgeCredentialInstallerPayload(latestDisclosure) : ''),
+    [latestDisclosure],
+  )
 
   const assignableUsers = useMemo(
     () => users.filter((user) => user.role === 'USER' && !user.isBanned && !user.isDeleted),
@@ -162,9 +171,33 @@ export function EdgeFleetPage() {
     }
 
     setLatestDisclosure(null)
+    setInstallerJsonCopyStatus('idle')
     setIsRefreshing(true)
     await Promise.all([loadData(), refreshEdgeStatus()])
     setIsRefreshing(false)
+  }
+
+  function discloseCredential(disclosure: EdgeCredentialDisclosureResponse) {
+    setInstallerJsonCopyStatus('idle')
+    setLatestDisclosure(disclosure)
+  }
+
+  function hideLatestDisclosure() {
+    setLatestDisclosure(null)
+    setInstallerJsonCopyStatus('idle')
+  }
+
+  async function handleCopyInstallerJson() {
+    if (!installerJson) {
+      return
+    }
+
+    try {
+      await copyInstallerJsonToClipboard(installerJson)
+      setInstallerJsonCopyStatus('copied')
+    } catch {
+      setInstallerJsonCopyStatus('failed')
+    }
   }
 
   async function handleRegisterSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -181,7 +214,7 @@ export function EdgeFleetPage() {
         name: registerForm.name.trim(),
       })
       setEdgeServers((prev) => [disclosure.edge, ...prev])
-      setLatestDisclosure(disclosure)
+      discloseCredential(disclosure)
       setRegisterForm(INITIAL_REGISTER_FORM)
       setRegisterOpen(false)
     } catch (registerError) {
@@ -204,14 +237,15 @@ export function EdgeFleetPage() {
       if (action === 'rotate') {
         const disclosure = await rotateEdgeServerCredential(edgeId)
         setEdgeServers((prev) => prev.map((edge) => (edge._id === edgeId ? disclosure.edge : edge)))
-        setLatestDisclosure(disclosure)
+        discloseCredential(disclosure)
       } else if (action === 'block') {
         const updated = await blockAdminEdgeServer(edgeId)
         setEdgeServers((prev) => prev.map((edge) => (edge._id === edgeId ? updated : edge)))
+        hideLatestDisclosure()
       } else {
         const disclosure = await unblockEdgeServer(edgeId)
         setEdgeServers((prev) => prev.map((edge) => (edge._id === edgeId ? disclosure.edge : edge)))
-        setLatestDisclosure(disclosure)
+        discloseCredential(disclosure)
       }
 
       await refreshEdgeStatus()
@@ -357,7 +391,7 @@ export function EdgeFleetPage() {
             </div>
             <button
               type="button"
-              onClick={() => setLatestDisclosure(null)}
+              onClick={hideLatestDisclosure}
               className="rounded-md border border-[var(--color-surface-border)] px-2 py-1 text-xs text-white hover:bg-[var(--color-surface-200)]"
             >
               Hide secret
@@ -392,6 +426,37 @@ export function EdgeFleetPage() {
               <dd>{latestDisclosure.persistentCredential.instructions}</dd>
             </div>
           </dl>
+
+          <div className="mt-3 space-y-2 text-xs text-[#e2e8f0]">
+            <label className="block text-[#94a3b8]" htmlFor="edge-installer-json">
+              Installer JSON
+            </label>
+            <textarea
+              id="edge-installer-json"
+              aria-label="Installer JSON"
+              readOnly
+              value={installerJson}
+              rows={12}
+              className="w-full resize-y rounded-md border border-[var(--color-surface-border)] bg-black/30 px-2 py-2 font-mono text-xs text-[#e2e8f0]"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCopyInstallerJson}
+                className="rounded-md border border-[var(--color-brand-600)]/50 px-2 py-1.5 text-xs text-[var(--color-brand-300)] hover:bg-[var(--color-brand-600)]/10"
+              >
+                Copy installer JSON
+              </button>
+              {installerJsonCopyStatus === 'copied' && (
+                <span className="text-xs text-[var(--color-online)]">Installer JSON copied.</span>
+              )}
+              {installerJsonCopyStatus === 'failed' && (
+                <span className="text-xs text-[var(--color-danger)]">
+                  Copy failed. Select and copy the installer JSON manually.
+                </span>
+              )}
+            </div>
+          </div>
         </section>
       )}
 
