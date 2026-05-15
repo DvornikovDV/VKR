@@ -8,6 +8,9 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
+
+	"edge_server/go_core/internal/credentialinstall"
 )
 
 type installMode string
@@ -47,9 +50,7 @@ func runEdgeCredential(ctx context.Context, args []string, stdin io.Reader, stdo
 	}
 
 	if deps.install == nil {
-		deps.install = func(context.Context, edgeCredentialOptions, commandIO) error {
-			return errors.New("install behavior is not implemented")
-		}
+		deps.install = installEdgeCredential
 	}
 
 	if err := deps.install(ctx, options, commandIO{stdin: stdin, stdout: stdout, stderr: stderr}); err != nil {
@@ -94,4 +95,46 @@ func parseEdgeCredentialArgs(args []string, stderr io.Writer) (edgeCredentialOpt
 	}
 
 	return options, nil
+}
+
+func installEdgeCredential(ctx context.Context, options edgeCredentialOptions, streams commandIO) error {
+	if options.mode != installModeStdin {
+		return errors.New("interactive install behavior is not implemented")
+	}
+	if ctx == nil {
+		return errors.New("install context is required")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if streams.stdin == nil {
+		return errors.New("stdin is required for --from-stdin install")
+	}
+	if streams.stdout == nil {
+		return errors.New("stdout is required")
+	}
+
+	payload, err := io.ReadAll(streams.stdin)
+	if err != nil {
+		return fmt.Errorf("read credential disclosure from stdin: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	result, err := credentialinstall.InstallFromDisclosureJSON(options.configPath, payload, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(
+		streams.stdout,
+		"installed credential: edgeId=%s version=%d source=%s path=%s installedAt=%s\n",
+		result.EdgeID,
+		result.Version,
+		result.Source,
+		result.CredentialPath,
+		result.InstalledAt.Format(time.RFC3339),
+	)
+	return nil
 }

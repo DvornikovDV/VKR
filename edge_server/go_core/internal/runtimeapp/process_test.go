@@ -1,10 +1,12 @@
 package runtimeapp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -244,6 +246,80 @@ func TestNewAcceptsFreshCredentialAfterBlockedRuntimeState(t *testing.T) {
 	}
 }
 
+func TestNewConsumesCredentialInstalledByEdgeCredentialCommand(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := runtimeConfigFixture(stateDir)
+	configPath := writeCredentialCommandRuntimeConfig(t, stateDir, cfg.Runtime.EdgeID)
+	const secret = "cloud-issued-runtime-secret"
+	payload := `{
+  "status": "success",
+  "data": {
+    "edge": {
+      "_id": "507f1f77bcf86cd799439011",
+      "name": "Line A Edge",
+      "lifecycleState": "Active"
+    },
+    "persistentCredential": {
+      "edgeId": "507f1f77bcf86cd799439011",
+      "credentialSecret": "` + secret + `",
+      "version": 11,
+      "issuedAt": "2026-04-15T12:10:00Z",
+      "instructions": "presentation-only"
+    }
+  }
+}`
+
+	moduleRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("resolve module root: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "run", "./cmd/edge-credential", "install", "--config", configPath, "--from-stdin")
+	cmd.Dir = moduleRoot
+	cmd.Stdin = strings.NewReader(payload)
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("run edge-credential install command: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	if strings.Contains(stdout.String(), secret) || strings.Contains(stderr.String(), secret) {
+		t.Fatalf("command output must not disclose credential secret, stdout=%q stderr=%q", stdout.String(), stderr.String())
+	}
+
+	raw, err := os.ReadFile(filepath.Join(stateDir, "credential.json"))
+	if err != nil {
+		t.Fatalf("read installed credential.json: %v", err)
+	}
+	var persisted map[string]any
+	if err := json.Unmarshal(raw, &persisted); err != nil {
+		t.Fatalf("parse installed credential.json: %v", err)
+	}
+	for _, legacyKey := range []string{"credentialMode", "lifecycleState"} {
+		if _, exists := persisted[legacyKey]; exists {
+			t.Fatalf("installed credential.json must not contain legacy key %q: %s", legacyKey, string(raw))
+		}
+	}
+
+	process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, noopTransport{}, mockSourceFactories())
+	if err != nil {
+		t.Fatalf("runtime startup must consume command-installed credential: %v", err)
+	}
+	snapshot := process.Runner.StateSnapshot()
+	if snapshot.CredentialVersion == nil || *snapshot.CredentialVersion != 11 {
+		t.Fatalf("expected startup to load credential version 11, got %+v", snapshot.CredentialVersion)
+	}
+	if snapshot.PersistentCredentialSecret == nil || *snapshot.PersistentCredentialSecret != secret {
+		t.Fatalf("expected startup to load command-installed secret")
+	}
+	if snapshot.CredentialStatus != state.CredentialStatusLoaded {
+		t.Fatalf("expected startup credentialStatus=loaded, got %q", snapshot.CredentialStatus)
+	}
+}
+
 func TestRuntimeTrustLossUpdatesOperatorStatus(t *testing.T) {
 	stateDir := t.TempDir()
 	cfg := runtimeConfigFixture(stateDir)
@@ -290,6 +366,44 @@ func mockSourceFactories() source.FactoryRegistry {
 			return mockadapter.New(), nil
 		},
 	}
+}
+
+func writeCredentialCommandRuntimeConfig(t *testing.T, stateDir string, edgeID string) string {
+	t.Helper()
+
+	configPath := filepath.Join(t.TempDir(), "edge-runtime.yaml")
+	payload := `runtime:
+  edgeId: "` + edgeID + `"
+  stateDir: "` + filepath.ToSlash(stateDir) + `"
+cloud:
+  url: "http://127.0.0.1:8080"
+  connectTimeoutMs: 1000
+  reconnect:
+    baseDelayMs: 100
+    maxDelayMs: 1000
+    maxAttempts: 1
+sources:
+  - sourceId: "mock-source-1"
+    adapterKind: "mock"
+    enabled: true
+    pollIntervalMs: 1000
+    connection:
+      port: "COM1"
+    devices:
+      - deviceId: "pump-01"
+        address:
+          unitId: 1
+        metrics:
+          - metric: "pressure"
+            valueType: "number"
+            mapping:
+              address: 1
+              registerType: "holding"
+`
+	if err := os.WriteFile(configPath, []byte(payload), 0o600); err != nil {
+		t.Fatalf("write runtime config for credential command: %v", err)
+	}
+	return configPath
 }
 
 func runtimeConfigFixture(stateDir string) config.Config {
