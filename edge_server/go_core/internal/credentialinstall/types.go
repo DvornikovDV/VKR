@@ -20,7 +20,12 @@ type RawDisclosureInput struct {
 	Version              int                             `json:"version,omitempty"`
 	IssuedAt             string                          `json:"issuedAt,omitempty"`
 	PersistentCredential *RawPersistentCredentialInput   `json:"persistentCredential,omitempty"`
+	Data                 *RawDisclosureEnvelopeData      `json:"data,omitempty"`
 	Presentation         map[string]RawPresentationField `json:"-"`
+}
+
+type RawDisclosureEnvelopeData struct {
+	PersistentCredential *RawPersistentCredentialInput `json:"persistentCredential,omitempty"`
 }
 
 type RawPersistentCredentialInput struct {
