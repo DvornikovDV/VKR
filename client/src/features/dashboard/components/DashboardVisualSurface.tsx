@@ -657,6 +657,7 @@ export function DashboardVisualSurface({
               const widgetProjection = widgetProjectionById.get(widget.id)
               const actualValue = widgetProjection?.value ?? null
               const actualText = widgetProjection ? widgetProjection.visualValue : 'Pending'
+              const isLabelWidget = widget.type === 'label'
               const isVisualValueWidget = widget.type === 'number-display' || widget.type === 'text-display'
               const isToggleWidget = widget.type === 'toggle'
               const isSliderWidget = widget.type === 'slider'
@@ -680,7 +681,19 @@ export function DashboardVisualSurface({
 
               return (
                 <Group key={widget.id} data-testid={`dashboard-visual-widget-${widget.id}`} listening={false}>
-                  {isLedWidget ? (
+                  {isLabelWidget ? (
+                    <Text
+                      data-testid={`dashboard-visual-widget-value-${widget.id}`}
+                      x={x}
+                      y={y + Math.max(0, (height - fontSize) / 2)}
+                      width={width}
+                      height={height}
+                      text={widgetCaption}
+                      fontSize={fontSize}
+                      fill={typeof widget.color === 'string' ? widget.color : '#0f172a'}
+                      listening={false}
+                    />
+                  ) : isLedWidget ? (
                     <>
                       <Circle
                         data-testid={`dashboard-visual-led-indicator-${widget.id}`}

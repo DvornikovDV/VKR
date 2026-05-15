@@ -69,4 +69,27 @@ describe('bindingValidation (T020)', () => {
     expect(validation.missingWidgetIds).toEqual([])
     expect(validation.bindingWidgetIds).toEqual(['widget-number', 'widget-text'])
   })
+
+  it('does not require a binding profile for label-only layouts', () => {
+    const validation = validateBindingProfileAgainstSavedWidgets(null, {
+      widgets: [{ id: 'widget-label', type: 'label', text: 'Pump A' }],
+    })
+
+    expect(validation.state).toBe('valid')
+    expect(validation.isValid).toBe(true)
+    expect(validation.savedWidgetIds).toEqual([])
+    expect(validation.bindingWidgetIds).toEqual([])
+  })
+
+  it('ignores label widgets when validating stale binding references', () => {
+    const validation = validateBindingProfileAgainstSavedWidgets(bindingProfiles[0], {
+      widgets: [
+        ...savedLayout.widgets!,
+        { id: 'widget-label', type: 'label', text: 'Pump A' },
+      ],
+    })
+
+    expect(validation.state).toBe('valid')
+    expect(validation.savedWidgetIds).toEqual(['widget-number', 'widget-text'])
+  })
 })

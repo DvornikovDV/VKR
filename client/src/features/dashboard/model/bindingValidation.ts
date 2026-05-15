@@ -50,10 +50,18 @@ function toDashboardWidgets(layout: DashboardLayoutDocument): DashboardWidget[] 
   )
 }
 
+function isBindableDashboardWidget(widget: DashboardWidget): boolean {
+  return widget.type !== 'label'
+}
+
 export function extractSavedWidgetIds(layout: DashboardLayoutDocument): string[] {
   const ids = new Set<string>()
 
   for (const widget of toDashboardWidgets(layout)) {
+    if (!isBindableDashboardWidget(widget)) {
+      continue
+    }
+
     const widgetId = normalizeWidgetId(widget.id)
     if (!widgetId) {
       continue
@@ -125,6 +133,16 @@ export function validateBindingProfileAgainstSavedWidgets(
   const savedWidgetIds = extractSavedWidgetIds(layout)
 
   if (!bindingProfile) {
+    if (savedWidgetIds.length === 0) {
+      return {
+        state: 'valid',
+        isValid: true,
+        savedWidgetIds,
+        bindingWidgetIds: [],
+        missingWidgetIds: [],
+      }
+    }
+
     return {
       state: 'missing-binding-profile',
       isValid: false,

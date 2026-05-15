@@ -577,11 +577,12 @@ class PropertiesPanel {
 
         const id = widget.id || 'unknown';
         const type = widget.type || 'unknown';
+        const isBindableWidget = type !== 'label' && widget.isBindable !== false;
         const x = widget.x.toFixed(0);
         const y = widget.y.toFixed(0);
         const w = widget.width.toFixed(0);
         const h = widget.height.toFixed(0);
-        const availableDevices = this.getAvailableDevices(widget);
+        const availableDevices = isBindableWidget ? this.getAvailableDevices(widget) : [];
 
         let bindingId = widget.bindingId || '';
         let bindingMetric = this.normalizeBindingMetric(widget.bindingMetric);
@@ -625,6 +626,10 @@ class PropertiesPanel {
             ${createColorProperty('Цвет (горит)', 'colorOn', colorOn)}
             ${createColorProperty('Цвет (не горит)', 'colorOff', colorOff)}
             ${createColorProperty('Цвет границы', 'borderColor', widget.borderColor || '#999999')}`;
+        } else if (type === 'label') {
+            html += `
+            ${createNumberProperty('Размер шрифта', 'fontSize', widget.fontSize || 14, 8, 48)}
+            ${createColorProperty('Цвет текста', 'color', widget.color || '#000000')}`;
         } else if (type === 'number-display' || type === 'text-display' || type === 'number-input' || type === 'text-input' || type === 'button' || type === 'slider') {
             html += createSizeAndColorProperties(widget);
         } else if (type === 'toggle') {
@@ -645,8 +650,19 @@ class PropertiesPanel {
             html += createControlParametersSection(widget);
         }
 
+        if (type === 'label') {
+            html += `
+            <div class="mb-2 mt-3"><strong>Текст</strong></div>
+            ${createTextProperty('Текст', 'text', widget.text || 'Label')}`;
+        }
+
         // Command target section (toggle -> set_bool, slider -> set_number only)
         html += this.renderCommandTargetSection(widget);
+        if (!isBindableWidget) {
+            this.container.innerHTML = html;
+            this.attachWidgetPropertyListeners(widget);
+            return;
+        }
 
         // Параметры аппаратной привязки
         html += `

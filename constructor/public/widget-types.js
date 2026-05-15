@@ -40,6 +40,7 @@ export class DisplayWidget {
 
     this.bindingId = config.bindingId || null;
     this.isReadOnly = true;
+    this.isBindable = config.isBindable !== false;
     this.displayValue = config.displayValue || null;
   }
 
@@ -246,6 +247,17 @@ export const WIDGET_DEFAULTS = {
     text: 'Label',
     readonly: true
   },
+  'label': {
+    width: 120,
+    height: 28,
+    fontSize: 14,
+    color: '#000000',
+    backgroundColor: 'transparent',
+    borderColor: 'transparent',
+    text: 'Label',
+    readonly: true,
+    isBindable: false
+  },
   'led': {
     width: 40,
     height: 40,
@@ -365,7 +377,60 @@ export class TextDisplayWidget extends DisplayWidget {
   }
 }
 
-// Виджет бинарного индикатора состояния.
+// Static diagram annotation. It is intentionally not bound to telemetry.
+export class LabelWidget extends DisplayWidget {
+  constructor(config) {
+    super(config);
+    this.text = String(config.text ?? 'Label');
+    this.isBindable = false;
+    this.bindingId = null;
+    this.bindingMetric = null;
+    this.binding = null;
+  }
+
+  getCategory() {
+    return 'static';
+  }
+
+  render(layer) {
+    if (this.konvaGroup) this.konvaGroup.destroy();
+
+    this.konvaGroup = new Konva.Group({ x: this.x, y: this.y, width: this.width, height: this.height });
+
+    const hitArea = new Konva.Rect({
+      x: 0,
+      y: 0,
+      width: this.width,
+      height: this.height,
+      fill: 'rgba(0,0,0,0)',
+      stroke: 'rgba(0,0,0,0)',
+      strokeWidth: 0
+    });
+
+    const text = new Konva.Text({
+      x: 0,
+      y: 0,
+      width: this.width,
+      height: this.height,
+      text: this.text,
+      fontSize: this.fontSize,
+      fontFamily: 'Arial',
+      fill: this.color,
+      align: 'left',
+      verticalAlign: 'middle'
+    });
+
+    this.konvaGroup.add(hitArea);
+    this.konvaGroup.add(text);
+    layer.add(this.konvaGroup);
+  }
+
+  onValueUpdate() {
+    // Labels are static annotations and ignore runtime values.
+  }
+}
+
+// Binary state indicator.
 export class LedWidget extends DisplayWidget {
   constructor(config) {
     super(config);
@@ -655,6 +720,7 @@ export function createWidget(type, config) {
   switch (type) {
     case 'number-display': return new NumberDisplayWidget(finalConfig);
     case 'text-display': return new TextDisplayWidget(finalConfig);
+    case 'label': return new LabelWidget(finalConfig);
     case 'led': return new LedWidget(finalConfig);
     case 'number-input': return new NumberInputWidget(finalConfig);
     case 'text-input': return new TextInputWidget(finalConfig);

@@ -26,6 +26,10 @@ function normalizeBindingPayload(binding) {
 }
 
 function resolveBindingPayload(widget) {
+  if (widget && (widget.type === 'label' || widget.isBindable === false)) {
+    return null;
+  }
+
   if (widget && widget.bindingId === null) {
     return null;
   }
@@ -94,10 +98,12 @@ export class Widget {
     const displayTypes = ['number-display', 'text-display', 'led', 'gauge'];
     const inputTypes = ['number-input', 'text-input'];
     const controlTypes = ['toggle', 'button', 'slider'];
+    const staticTypes = ['label'];
 
     if (displayTypes.includes(this.type)) return 'display';
     if (inputTypes.includes(this.type)) return 'input';
     if (controlTypes.includes(this.type)) return 'control';
+    if (staticTypes.includes(this.type)) return 'static';
     return 'unknown';
   }
 
@@ -425,6 +431,13 @@ export class WidgetManager {
       return;
     }
 
+    if (widget.type === 'label' || widget.isBindable === false) {
+      widget.binding = null;
+      widget.bindingMetric = null;
+      widget.bindingId = null;
+      return;
+    }
+
     if (!normalizedBinding) {
       widget.binding = null;
       widget.bindingMetric = null;
@@ -473,6 +486,15 @@ export class WidgetManager {
       }
       if (w.type === 'text-display') {
         return { ...base, text: w.text ?? '' };
+      }
+      if (w.type === 'label') {
+        return {
+          ...base,
+          text: w.text ?? '',
+          bindingId: null,
+          binding: null,
+          bindingMetric: null
+        };
       }
       if (w.type === 'led') {
         return { ...base, radius: w.radius, colorOn: w.colorOn, colorOff: w.colorOff, isOn: w.isOn };

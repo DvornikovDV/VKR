@@ -22,6 +22,7 @@ export const DASHBOARD_BINDING_KEY_SEPARATOR = '::'
 export const SUPPORTED_DASHBOARD_WIDGET_TYPES = new Set<string>([
   'number-display',
   'text-display',
+  'label',
   'led',
   'toggle',
   'slider',
@@ -30,6 +31,10 @@ export const SUPPORTED_DASHBOARD_WIDGET_TYPES = new Set<string>([
 const COMMAND_WIDGET_TYPES_BY_COMMAND_TYPE: Record<string, DashboardCommandType> = {
   toggle: 'set_bool',
   slider: 'set_number',
+}
+
+function isBindableDashboardWidgetType(widgetType: string): boolean {
+  return widgetType !== 'label'
 }
 
 function toNonEmptyString(value: string): string {
@@ -151,6 +156,10 @@ function selectPendingWidgetValue(widget: DashboardWidget): DashboardRuntimeValu
     return null
   }
 
+  if (widgetType === 'label') {
+    return typeof widget.text === 'string' ? widget.text : ''
+  }
+
   return null
 }
 
@@ -265,6 +274,10 @@ export function projectDashboardWidgetValue(
     return String(value)
   }
 
+  if (widgetType === 'label') {
+    return String(value)
+  }
+
   if (widgetType === 'led') {
     return projectLedValue(value)
   }
@@ -303,9 +316,11 @@ export function selectWidgetRuntimeProjection(
   return widgets.map((widget) => {
     const widgetId = widget.id.trim()
     const widgetType = widget.type.trim()
-    const isBound = boundWidgetIds.has(widgetId)
+    const isBindable = isBindableDashboardWidgetType(widgetType)
+    const isBound = isBindable && boundWidgetIds.has(widgetId)
     const isSupported = SUPPORTED_DASHBOARD_WIDGET_TYPES.has(widgetType)
-    const hasLiveValue = Object.prototype.hasOwnProperty.call(widgetValuesById, widgetId)
+    const hasLiveValue =
+      isBindable && Object.prototype.hasOwnProperty.call(widgetValuesById, widgetId)
     const rawValue = hasLiveValue ? widgetValuesById[widgetId] : null
     const pendingValue = selectPendingWidgetValue(widget)
     const value = isSupported ? projectDashboardWidgetValue(widgetType, rawValue) : rawValue

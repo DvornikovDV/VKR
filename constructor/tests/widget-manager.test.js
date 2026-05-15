@@ -143,6 +143,29 @@ test('WidgetManager continues widget ids after export/import into a fresh runtim
   assert.equal(nextWidget.id, 'widget_number-display_3');
 });
 
+test('WidgetManager persists label widgets without telemetry bindings', () => {
+  const imageManager = createImageManager();
+  const manager = new WidgetManager(createLayer(), imageManager, {});
+
+  const label = manager.create(createWidgetConfig('label', {
+    text: 'Pump A',
+    bindingId: 'pump-1',
+    binding: { deviceId: 'pump-1', metric: 'status' },
+  }));
+
+  assert.equal(label.id, 'widget_label_1');
+  assert.equal(label.isBindable, false);
+
+  const exported = manager.exportWidgets();
+  assert.equal(exported.length, 1);
+  assert.equal(exported[0].type, 'label');
+  assert.equal(exported[0].text, 'Pump A');
+  assert.equal(exported[0].bindingId, null);
+  assert.equal(exported[0].binding, null);
+  assert.equal(exported[0].bindingMetric, null);
+  assert.deepEqual(manager.exportBindings(), []);
+});
+
 test('FileManager layout load resyncs widget counter from mixed widget ids and ignores malformed ids', async () => {
   const layer = createLayer();
   const imageManager = createImageManager();

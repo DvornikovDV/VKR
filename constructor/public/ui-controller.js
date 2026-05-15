@@ -742,6 +742,7 @@ class UIController {
                     submenu: [
                         { label: '📊 Числовой дисплей', type: 'number-display' },
                         { label: '📝 Текстовый дисплей', type: 'text-display' },
+                        { label: 'Надпись', type: 'label' },
                         { label: '💡 Индикатор', type: 'led' },
                         { label: '🔢 Числовой ввод', type: 'number-input' },
                         { label: '✏️ Текстовый ввод', type: 'text-input' },
@@ -753,6 +754,7 @@ class UIController {
                         const defaults = {
                             'number-display': { width: 100, height: 30 },
                             'text-display': { width: 120, height: 25 },
+                            'label': { width: 120, height: 28 },
                             'led': { width: 40, height: 40 },
                             'number-input': { width: 100, height: 30 },
                             'text-input': { width: 150, height: 30 },

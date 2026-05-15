@@ -148,6 +148,37 @@ describe('dashboard runtime projection (T021)', () => {
     expect(textWidget?.value).toBe('28.7')
     expect(textWidget?.visualValue).toBe('28.7')
   })
+
+  it('projects label widgets from saved text and ignores telemetry bindings', () => {
+    const projection = selectDashboardRuntimeProjection(
+      {
+        _id: 'diagram-label',
+        name: 'Label diagram',
+        layout: {
+          widgets: [{ id: 'widget-label', type: 'label', text: 'Pump A' }],
+        },
+      },
+      {
+        ...bindingProfile,
+        widgetBindings: [
+          { widgetId: 'widget-label', deviceId: 'pump-1', metric: 'status' },
+        ],
+      },
+      buildMetricMap(),
+    )
+    const labelWidget = projection.widgets.find((item) => item.widgetId === 'widget-label')
+
+    expect(labelWidget).toEqual(
+      expect.objectContaining({
+        widgetId: 'widget-label',
+        widgetType: 'label',
+        isBound: false,
+        isSupported: true,
+        value: 'Pump A',
+        visualValue: 'Pump A',
+      }),
+    )
+  })
 })
 
 describe('dashboard command runtime projection (T006-T010)', () => {
