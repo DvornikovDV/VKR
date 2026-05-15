@@ -141,14 +141,9 @@ sources:
 }
 
 func TestParseAcceptsArduinoStandCommandMapping(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "samples", "arduino-stand", "edge-runtime.yaml"))
+	cfg, err := Parse(arduinoStandFixtureYAML(t))
 	if err != nil {
-		t.Fatalf("read Arduino stand sample: %v", err)
-	}
-
-	cfg, err := Parse(raw)
-	if err != nil {
-		t.Fatalf("parse Arduino stand sample with command mapping: %v", err)
+		t.Fatalf("parse Arduino stand fixture with command mapping: %v", err)
 	}
 
 	devices := make(map[string]*LocalDeviceDefinition)
@@ -207,9 +202,9 @@ func TestParseAcceptsArduinoStandCommandMapping(t *testing.T) {
 }
 
 func TestParseAcceptsArduinoStandAlarmRules(t *testing.T) {
-	cfg, err := Parse(arduinoStandSampleYAML(t))
+	cfg, err := Parse(arduinoStandFixtureYAML(t))
 	if err != nil {
-		t.Fatalf("parse Arduino stand sample with alarm rules: %v", err)
+		t.Fatalf("parse Arduino stand fixture with alarm rules: %v", err)
 	}
 	if len(cfg.Alarms) != 2 {
 		t.Fatalf("expected two Arduino stand alarm rules, got %d", len(cfg.Alarms))
@@ -257,7 +252,7 @@ func TestParseAcceptsArduinoStandAlarmRules(t *testing.T) {
 }
 
 func TestParseRejectsHighAlarmInvalidHysteresis(t *testing.T) {
-	body := strings.Replace(string(arduinoStandSampleYAML(t)), "    clearThreshold: 50.0", "    clearThreshold: 55.0", 1)
+	body := strings.Replace(string(arduinoStandFixtureYAML(t)), "    clearThreshold: 50.0", "    clearThreshold: 55.0", 1)
 
 	_, err := Parse([]byte(body))
 	if err == nil {
@@ -269,14 +264,9 @@ func TestParseRejectsHighAlarmInvalidHysteresis(t *testing.T) {
 }
 
 func TestParseAcceptsArduinoStandMetricMappings(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "samples", "arduino-stand", "edge-runtime.yaml"))
+	cfg, err := Parse(arduinoStandFixtureYAML(t))
 	if err != nil {
-		t.Fatalf("read Arduino stand sample: %v", err)
-	}
-
-	cfg, err := Parse(raw)
-	if err != nil {
-		t.Fatalf("parse Arduino stand sample with metric mapping: %v", err)
+		t.Fatalf("parse Arduino stand fixture with metric mapping: %v", err)
 	}
 
 	devices := make(map[string]*LocalDeviceDefinition)
@@ -792,6 +782,24 @@ sources:
             max: 255
             reportedMetric: actual_value
 `
+}
+
+func TestParseAcceptsLiveArduinoStandSample(t *testing.T) {
+	_, err := Parse(arduinoStandSampleYAML(t))
+	if err != nil {
+		t.Fatalf("parse live Arduino stand sample: %v", err)
+	}
+}
+
+func arduinoStandFixtureYAML(t *testing.T) []byte {
+	t.Helper()
+
+	raw, err := os.ReadFile(filepath.Join("testdata", "arduino-stand-valid.yaml"))
+	if err != nil {
+		t.Fatalf("read Arduino stand fixture: %v", err)
+	}
+
+	return raw
 }
 
 func arduinoStandSampleYAML(t *testing.T) []byte {

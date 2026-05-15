@@ -13,3 +13,4 @@ eslint.config.js
 .jpg
 .img/
 arduino/
+edge_server/samples/
