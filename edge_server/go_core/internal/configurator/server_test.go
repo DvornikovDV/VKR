@@ -108,14 +108,44 @@ func TestServerServesOnlyEmbeddedAssets(t *testing.T) {
 	}
 	handler := NewServer(service)
 
-	for _, path := range []string{"/", "/index.html", "/app.js", "/styles.css"} {
+	assets := map[string]struct {
+		contentType string
+		markers     []string
+	}{
+		"/": {
+			contentType: "text/html; charset=utf-8",
+			markers:     []string{`id="yaml-editor"`, `id="save-button"`, `src="/app.js"`, `href="/styles.css"`},
+		},
+		"/index.html": {
+			contentType: "text/html; charset=utf-8",
+			markers:     []string{`id="yaml-editor"`, `id="snippets-list"`, `id="enum-list"`, `id="hints-list"`},
+		},
+		"/app.js": {
+			contentType: "text/javascript; charset=utf-8",
+			markers:     []string{`/api/config`, `/api/helpers`, `/api/validate`, `/api/save`},
+		},
+		"/styles.css": {
+			contentType: "text/css; charset=utf-8",
+			markers:     []string{`#yaml-editor`, `button:disabled`},
+		},
+	}
+
+	for path, asset := range assets {
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 		if recorder.Code != http.StatusOK {
 			t.Fatalf("GET %s: expected status 200, got %d", path, recorder.Code)
 		}
+		if got := recorder.Header().Get("Content-Type"); got != asset.contentType {
+			t.Fatalf("GET %s: expected content type %q, got %q", path, asset.contentType, got)
+		}
 		if strings.TrimSpace(recorder.Body.String()) == "" {
 			t.Fatalf("GET %s: expected embedded asset content", path)
+		}
+		for _, marker := range asset.markers {
+			if !strings.Contains(recorder.Body.String(), marker) {
+				t.Fatalf("GET %s: expected embedded asset marker %q", path, marker)
+			}
 		}
 	}
 

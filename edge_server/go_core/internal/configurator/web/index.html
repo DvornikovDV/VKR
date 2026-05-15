@@ -7,9 +7,43 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <main>
-    <textarea id="yaml-editor" spellcheck="false"></textarea>
-    <script src="/app.js"></script>
+  <main class="shell">
+    <section class="editor-pane" aria-labelledby="editor-title">
+      <header class="toolbar">
+        <div>
+          <h1 id="editor-title">Edge Configurator</h1>
+          <p id="load-status" class="muted" role="status">Loading config</p>
+        </div>
+        <div class="actions" aria-label="Config actions">
+          <button id="preset-button" type="button">Preset</button>
+          <button id="validate-button" type="button">Validate</button>
+          <button id="save-button" type="button" disabled>Save</button>
+        </div>
+      </header>
+
+      <label class="editor-label" for="yaml-editor">YAML</label>
+      <textarea id="yaml-editor" spellcheck="false" autocomplete="off" autocapitalize="off"></textarea>
+      <div id="validation-status" class="status status-idle" role="status">Validation required</div>
+    </section>
+
+    <aside class="helper-pane" aria-label="Config helpers">
+      <section class="panel">
+        <h2>Snippets</h2>
+        <div id="snippets-list" class="button-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Enums</h2>
+        <div id="enum-list" class="reference-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Hints</h2>
+        <div id="hints-list" class="reference-list"></div>
+      </section>
+    </aside>
   </main>
+
+  <script src="/app.js"></script>
 </body>
 </html>
