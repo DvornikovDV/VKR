@@ -25,5 +25,5 @@ const userHubNavItems: NavItem[] = [
 ]
 
 export function UserHubLayout() {
-  return <AppShell hubTitle="User Hub" navItems={userHubNavItems} />
+  return <AppShell hubTitle="User Hub" navItems={userHubNavItems} showWorkspaceHeader={false} />
 }

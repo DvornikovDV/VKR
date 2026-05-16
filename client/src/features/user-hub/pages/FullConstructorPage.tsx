@@ -542,7 +542,7 @@ export function FullConstructorPage() {
   }, [diagram, isSubmittingDestructiveSave, persistActiveBindingSet])
 
   return (
-    <section className="flex h-full min-h-[calc(100svh-3.5rem)] w-full flex-col" style={{ overscrollBehaviorX: 'none' }}>
+    <section className="flex h-full min-h-[calc(100svh-var(--workspace-header-height,3.5rem))] w-full flex-col" style={{ overscrollBehaviorX: 'none' }}>
       {bindingsSaveError && (
         <div className="px-4 pt-3">
           <p className="rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-xs text-[var(--color-danger)]">

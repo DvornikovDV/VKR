@@ -96,7 +96,7 @@ function DispatchWorkspacePageContent() {
 
   return (
     <DispatchActionSlotProvider activeTabId={activeTabId} contextKey={contextKey}>
-      <section className="flex h-[calc(100svh-3.5rem)] min-h-0 flex-col bg-[#08111f]">
+      <section className="flex h-[calc(100svh-var(--workspace-header-height,3.5rem))] min-h-0 flex-col bg-[#08111f]">
         <DispatchTabs activeTabId={activeTabId} />
         <DispatchContextBar
           workspaceContext={workspaceContext}

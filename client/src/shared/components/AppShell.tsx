@@ -1,7 +1,7 @@
 // T008 — AppShell: base layout with top nav bar + responsive sidebar
 // Used by both Admin Hub and User Hub as their root layout wrapper.
 
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { LogOut, Menu, X, LayoutDashboard } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -18,12 +18,17 @@ interface AppShellProps {
     hubTitle: string
     /** Navigation items for the sidebar */
     navItems: NavItem[]
+    /** Whether to show the workspace header above page content */
+    showWorkspaceHeader?: boolean
 }
 
-export function AppShell({ hubTitle, navItems }: AppShellProps) {
+export function AppShell({ hubTitle, navItems, showWorkspaceHeader = true }: AppShellProps) {
     const [sidebarOpen, setSidebarOpen] = useState(false)
     const { session, logout } = useAuthStore()
     const navigate = useNavigate()
+    const workspaceShellStyle = {
+        '--workspace-header-height': showWorkspaceHeader ? '3.5rem' : '0rem',
+    } as CSSProperties
 
     function handleLogout() {
         logout()
@@ -118,9 +123,10 @@ export function AppShell({ hubTitle, navItems }: AppShellProps) {
             </aside>
 
             {/* ── Main content area ─────────────────────────────────────────── */}
-            <div className="flex flex-1 flex-col lg:pl-[var(--spacing-sidebar,15rem)]">
+            <div className="flex flex-1 flex-col lg:pl-[var(--spacing-sidebar,15rem)]" style={workspaceShellStyle}>
                 {/* Top nav bar */}
-                <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-[var(--color-surface-border)] bg-[var(--color-surface-100)]/80 px-4 backdrop-blur-sm">
+                {showWorkspaceHeader && (
+                    <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-[var(--color-surface-border)] bg-[var(--color-surface-100)]/80 px-4 backdrop-blur-sm">
                     {/* Hamburger (mobile) */}
                     <button
                         id="btn-sidebar-toggle"
@@ -140,7 +146,8 @@ export function AppShell({ hubTitle, navItems }: AppShellProps) {
 
                     {/* Online badge placeholder — extended in later phases */}
                     <div className="h-2 w-2 rounded-full bg-[var(--color-online)] animate-pulse" title="Cloud connected" />
-                </header>
+                    </header>
+                )}
 
                 {/* Page content */}
                 <main className="flex-1 overflow-auto" style={{ overscrollBehaviorX: 'none' }}>
