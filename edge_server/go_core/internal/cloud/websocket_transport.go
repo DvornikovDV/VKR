@@ -27,6 +27,7 @@ type WebSocketTransport struct {
 	header         http.Header
 	dialer         *websocket.Dialer
 
+	writeMu          sync.Mutex
 	mu               sync.RWMutex
 	conn             *websocket.Conn
 	onEdgeDisconnect func(any)
@@ -118,7 +119,7 @@ func (t *WebSocketTransport) Disconnect() error {
 		return nil
 	}
 
-	_ = conn.WriteMessage(websocket.TextMessage, []byte("41"+t.namespace+","))
+	_ = t.writeTextMessage(conn, "41"+t.namespace+",")
 	_ = conn.Close()
 	t.clearConn(conn)
 
@@ -140,7 +141,7 @@ func (t *WebSocketTransport) Emit(event string, payload any) error {
 		return err
 	}
 
-	if err := conn.WriteMessage(websocket.TextMessage, []byte(message)); err != nil {
+	if err := t.writeTextMessage(conn, message); err != nil {
 		return fmt.Errorf("emit socket.io event: %w", err)
 	}
 
@@ -188,7 +189,7 @@ func (t *WebSocketTransport) completeEngineHandshake(ctx context.Context, conn *
 		case strings.HasPrefix(message, "0"):
 			return nil
 		case message == "2":
-			if err := conn.WriteMessage(websocket.TextMessage, []byte("3")); err != nil {
+			if err := t.writeTextMessage(conn, "3"); err != nil {
 				return fmt.Errorf("send engine.io pong: %w", err)
 			}
 		}
@@ -205,7 +206,7 @@ func (t *WebSocketTransport) writeNamespaceConnect(conn *websocket.Conn, auth Ha
 	}
 
 	packet := "40" + t.namespace + "," + string(connectPayload)
-	if err := conn.WriteMessage(websocket.TextMessage, []byte(packet)); err != nil {
+	if err := t.writeTextMessage(conn, packet); err != nil {
 		return fmt.Errorf("write namespace connect packet: %w", err)
 	}
 
@@ -221,7 +222,7 @@ func (t *WebSocketTransport) awaitNamespaceConnect(ctx context.Context, conn *we
 
 		switch {
 		case message == "2":
-			if err := conn.WriteMessage(websocket.TextMessage, []byte("3")); err != nil {
+			if err := t.writeTextMessage(conn, "3"); err != nil {
 				return fmt.Errorf("send engine.io pong: %w", err)
 			}
 		case isNamespaceConnectAck(message, t.namespace):
@@ -256,7 +257,7 @@ func (t *WebSocketTransport) readLoop(conn *websocket.Conn) {
 
 		switch {
 		case message == "2":
-			_ = conn.WriteMessage(websocket.TextMessage, []byte("3"))
+			_ = t.writeTextMessage(conn, "3")
 		case isNamespaceEvent(message, t.namespace):
 			t.dispatchNamespaceEvent(message)
 		case isNamespaceDisconnect(message, t.namespace):
@@ -308,6 +309,20 @@ func (t *WebSocketTransport) readTextMessage(ctx context.Context, conn *websocke
 	}
 
 	return string(payload), nil
+}
+
+func (t *WebSocketTransport) writeTextMessage(conn *websocket.Conn, payload string) error {
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+
+	if err := conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return fmt.Errorf("set write deadline: %w", err)
+	}
+	defer func() {
+		_ = conn.SetWriteDeadline(time.Time{})
+	}()
+
+	return conn.WriteMessage(websocket.TextMessage, []byte(payload))
 }
 
 func (t *WebSocketTransport) setConn(conn *websocket.Conn, clientClosing bool) {
