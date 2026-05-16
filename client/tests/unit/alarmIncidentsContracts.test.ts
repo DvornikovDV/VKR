@@ -10,6 +10,7 @@ import {
   getDashboardAlarmIncidentLifecycleTimestamps,
   getDashboardAlarmIncidentLifecycleLabel,
   getDashboardAlarmIncidentRowTime,
+  getDashboardAlarmIncidentRowTimeMs,
   getDashboardAlarmIncidentRuleTitle,
   isDashboardAlarmIncidentUnclosed,
   selectDashboardAlarmRedLightSummary,
@@ -35,6 +36,25 @@ vi.mock('@/shared/api/client', async (importOriginal) => {
     },
   }
 })
+
+function formatExpectedLocalAlarmTimestamp(value: string | number): string {
+  const date = new Date(value)
+  const offsetMinutes = -date.getTimezoneOffset()
+  const sign = offsetMinutes >= 0 ? '+' : '-'
+  const absoluteMinutes = Math.abs(offsetMinutes)
+  const hours = String(Math.floor(absoluteMinutes / 60)).padStart(2, '0')
+  const minutes = String(absoluteMinutes % 60).padStart(2, '0')
+
+  return `${new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date)} UTC${sign}${hours}:${minutes}`
+}
 
 describe('alarm incident contract anchors', () => {
   beforeEach(() => {
@@ -143,14 +163,17 @@ describe('alarm incident contract anchors', () => {
     expect(getDashboardAlarmIncidentConditionSummary(olderEvent.incident)).toBe(
       'High condition: latest 42.5; trigger 40; clear 35',
     )
+    expect(getDashboardAlarmIncidentRowTimeMs(newerEvent.incident)).toBe(
+      Date.parse('2026-05-09T10:11:00.000Z'),
+    )
     expect(getDashboardAlarmIncidentRowTime(newerEvent.incident)).toBe(
-      '2026-05-09T10:11:00.000Z',
+      formatExpectedLocalAlarmTimestamp('2026-05-09T10:11:00.000Z'),
     )
     expect(getDashboardAlarmIncidentLifecycleTimestamps(newerEvent.incident)).toEqual({
-      activatedAt: '2026-05-09T10:00:00.000Z',
-      clearedAt: '2026-05-09T10:10:00.000Z',
-      acknowledgedAt: '2026-05-09T10:11:00.000Z',
-      closedAt: '2026-05-09T10:11:00.000Z',
+      activatedAt: formatExpectedLocalAlarmTimestamp('2026-05-09T10:00:00.000Z'),
+      clearedAt: formatExpectedLocalAlarmTimestamp('2026-05-09T10:10:00.000Z'),
+      acknowledgedAt: formatExpectedLocalAlarmTimestamp('2026-05-09T10:11:00.000Z'),
+      closedAt: formatExpectedLocalAlarmTimestamp('2026-05-09T10:11:00.000Z'),
     })
     expect(getDashboardAlarmIncidentDisplayDetails(newerEvent.incident)).toEqual(
       expect.objectContaining({
@@ -158,8 +181,11 @@ describe('alarm incident contract anchors', () => {
         equipmentIdentity: 'pump-1 / temperature',
         conditionSummary: 'High condition: latest 42.5; trigger 40; clear 35',
         lifecycleLabel: 'Closed',
-        latestRowTime: '2026-05-09T10:11:00.000Z',
+        latestRowTime: formatExpectedLocalAlarmTimestamp('2026-05-09T10:11:00.000Z'),
       }),
+    )
+    expect(getDashboardAlarmIncidentDisplayDetails(newerEvent.incident).latestRowTime).toMatch(
+      / UTC[+-]\d{2}:\d{2}$/,
     )
   })
 

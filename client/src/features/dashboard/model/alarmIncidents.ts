@@ -42,9 +42,40 @@ function parseTimeMs(value: string | number | null | undefined): number | null {
   return null
 }
 
-function formatTimeValue(value: string | number | null | undefined): string | null {
+function formatTimezoneOffset(date: Date): string {
+  const offsetMinutes = -date.getTimezoneOffset()
+  const sign = offsetMinutes >= 0 ? '+' : '-'
+  const absoluteMinutes = Math.abs(offsetMinutes)
+  const hours = String(Math.floor(absoluteMinutes / 60)).padStart(2, '0')
+  const minutes = String(absoluteMinutes % 60).padStart(2, '0')
+
+  return `UTC${sign}${hours}:${minutes}`
+}
+
+export function formatDashboardAlarmTimestamp(
+  value: string | number | null | undefined,
+): string | null {
   const timeMs = parseTimeMs(value)
-  return timeMs === null ? null : new Date(timeMs).toISOString()
+  if (timeMs === null) {
+    return null
+  }
+
+  const date = new Date(timeMs)
+  const formattedTime = new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(date)
+
+  return `${formattedTime} ${formatTimezoneOffset(date)}`
+}
+
+function formatTimeValue(value: string | number | null | undefined): string | null {
+  return formatDashboardAlarmTimestamp(value)
 }
 
 function formatAlarmValue(value: string | number | boolean | null | undefined): string {
@@ -74,7 +105,7 @@ function getComputedClosedAt(
     parseTimeMs(incident.acknowledgedAt),
   ].filter((value): value is number => value !== null)
 
-  return closedAtMs.length > 0 ? new Date(Math.max(...closedAtMs)).toISOString() : null
+  return closedAtMs.length > 0 ? formatDashboardAlarmTimestamp(Math.max(...closedAtMs)) : null
 }
 
 export function getDashboardAlarmIncidentLifecycleState(
@@ -200,7 +231,7 @@ export function getDashboardAlarmIncidentRowTime(
   >,
 ): string | null {
   const timeMs = getDashboardAlarmIncidentRowTimeMs(incident)
-  return timeMs > 0 ? new Date(timeMs).toISOString() : null
+  return timeMs > 0 ? formatDashboardAlarmTimestamp(timeMs) : null
 }
 
 export function getDashboardAlarmIncidentLifecycleTimestamps(

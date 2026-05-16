@@ -29,6 +29,7 @@ import {
   DISPATCH_DEFAULT_PATH,
   DISPATCH_LEGACY_DASHBOARD_PATH,
 } from '@/features/dispatch/model/routes'
+import { formatDashboardAlarmTimestamp } from '@/features/dashboard/model/alarmIncidents'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
 
@@ -60,6 +61,10 @@ const adminSession: Session = {
   role: 'ADMIN',
   tier: 'PRO',
   accessToken: 'admin-token',
+}
+
+function expectedAlarmTimestamp(value: string | number): string {
+  return formatDashboardAlarmTimestamp(value) ?? ''
 }
 
 function mount(path: string) {
@@ -299,7 +304,10 @@ describe('DashboardPage (US1)', () => {
     const otherRow = await screen.findByTestId('dashboard-alarm-incident-row-incident-temperature-2')
     expect(within(row).getByText('danger')).toBeInTheDocument()
     expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
-    expect(within(row).getByText('2026-05-09T09:25:30.000Z')).toBeInTheDocument()
+    expect(
+      within(row).getByText(expectedAlarmTimestamp('2026-05-09T09:25:30.000Z')),
+    ).toBeInTheDocument()
+    expect(within(row).queryByText('2026-05-09T09:25:30.000Z')).not.toBeInTheDocument()
     expect(within(row).getByText('Compressor pressure high')).toBeInTheDocument()
     const ackButton = within(row).getByRole('button', {
       name: 'Acknowledge incident Compressor pressure high',
@@ -433,8 +441,13 @@ describe('DashboardPage (US1)', () => {
     ).toBeInTheDocument()
     expect(within(row).getByText('danger')).toBeInTheDocument()
     expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
-    expect(within(row).getByText('2026-05-09T09:25:00.000Z')).toBeInTheDocument()
-    expect(within(row).getByText('2026-05-09T09:25:30.000Z')).toBeInTheDocument()
+    expect(
+      within(row).getByText(expectedAlarmTimestamp('2026-05-09T09:25:00.000Z')),
+    ).toBeInTheDocument()
+    expect(
+      within(row).getByText(expectedAlarmTimestamp('2026-05-09T09:25:30.000Z')),
+    ).toBeInTheDocument()
+    expect(within(row).queryByText('2026-05-09T09:25:30.000Z')).not.toBeInTheDocument()
     await waitFor(() => {
       expect(screen.getByTestId('dashboard-alarm-red-light-count')).toHaveTextContent('1')
     })
@@ -459,7 +472,9 @@ describe('DashboardPage (US1)', () => {
       expect(
         within(row).getByText('High condition: latest 45; trigger 40; clear 35'),
       ).toBeInTheDocument()
-      expect(within(row).getByText('2026-05-09T09:26:00.000Z')).toBeInTheDocument()
+      expect(
+        within(row).getByText(expectedAlarmTimestamp('2026-05-09T09:26:00.000Z')),
+      ).toBeInTheDocument()
     })
 
     await userEvent.setup().click(
@@ -478,7 +493,9 @@ describe('DashboardPage (US1)', () => {
       expect(
         within(row).queryByText('High condition: latest 42.5; trigger 40; clear 35'),
       ).not.toBeInTheDocument()
-      expect(within(row).getAllByText('2026-05-09T09:27:00.000Z').length).toBeGreaterThan(0)
+      expect(
+        within(row).getAllByText(expectedAlarmTimestamp('2026-05-09T09:27:00.000Z')).length,
+      ).toBeGreaterThan(0)
     })
     expect(
       within(row).queryByRole('button', {
