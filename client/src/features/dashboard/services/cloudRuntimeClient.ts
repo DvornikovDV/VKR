@@ -42,6 +42,14 @@ export interface StartDashboardRuntimeSessionOptions {
   onRuntimeError?: (error: Error) => void
 }
 
+export interface StartDashboardTelemetryOnlySessionOptions {
+  edgeId: string
+  token?: string
+  onTransportStatusChange?: (status: DashboardTransportStatus) => void
+  onTelemetry?: (event: DashboardTelemetryEvent) => void
+  onRuntimeError?: (error: Error) => void
+}
+
 export interface DashboardRuntimeSession {
   readonly edgeId: string
   dispose: () => void
@@ -50,6 +58,9 @@ export interface DashboardRuntimeSession {
 
 export interface CloudRuntimeClient {
   startSession: (options: StartDashboardRuntimeSessionOptions) => DashboardRuntimeSession
+  startTelemetryOnlySession: (
+    options: StartDashboardTelemetryOnlySessionOptions,
+  ) => DashboardRuntimeSession
 }
 
 const DEFAULT_SOCKET_PATH = '/socket.io'
@@ -440,6 +451,79 @@ export function createCloudRuntimeClient(
           socket.off('telemetry', handleTelemetry)
           socket.off('edge_status', handleEdgeStatus)
           socket.off(DASHBOARD_ALARM_INCIDENT_CHANGED_EVENT, handleAlarmIncidentChanged)
+          socket.disconnect()
+        },
+        isConnected: () => socket.connected,
+      }
+    },
+    startTelemetryOnlySession(
+      options: StartDashboardTelemetryOnlySessionOptions,
+    ): DashboardRuntimeSession {
+      const edgeId = normalizeEdgeId(options.edgeId)
+      if (!edgeId) {
+        throw new Error('Dashboard telemetry-only session requires a non-empty edgeId.')
+      }
+
+      const token = options.token ?? useAuthStore.getState().session?.accessToken ?? ''
+      if (!token) {
+        throw new Error('Dashboard telemetry-only session requires an authenticated token.')
+      }
+
+      const socket = socketFactory(token)
+      let disposed = false
+
+      const notifyTransportStatus = (status: DashboardTransportStatus) => {
+        if (disposed) {
+          return
+        }
+
+        options.onTransportStatusChange?.(status)
+      }
+
+      const handleConnect = () => {
+        notifyTransportStatus('connected')
+        emitDashboardSubscribeRequest(socket, edgeId)
+      }
+
+      const handleDisconnect = () => {
+        notifyTransportStatus('reconnecting')
+      }
+
+      const handleConnectError = (error: unknown) => {
+        notifyTransportStatus('reconnecting')
+        options.onRuntimeError?.(
+          new Error(toErrorMessage(error, 'Dashboard telemetry-only transport connection failed.')),
+        )
+      }
+
+      const handleTelemetry = (payload: unknown) => {
+        const parsed = parseTelemetryEvent(payload, edgeId)
+        if (!parsed) {
+          return
+        }
+
+        options.onTelemetry?.(parsed)
+      }
+
+      notifyTransportStatus('connecting')
+      socket.on('connect', handleConnect)
+      socket.on('disconnect', handleDisconnect)
+      socket.on('connect_error', handleConnectError)
+      socket.on('telemetry', handleTelemetry)
+      socket.connect()
+
+      return {
+        edgeId,
+        dispose: () => {
+          if (disposed) {
+            return
+          }
+
+          disposed = true
+          socket.off('connect', handleConnect)
+          socket.off('disconnect', handleDisconnect)
+          socket.off('connect_error', handleConnectError)
+          socket.off('telemetry', handleTelemetry)
           socket.disconnect()
         },
         isConnected: () => socket.connected,

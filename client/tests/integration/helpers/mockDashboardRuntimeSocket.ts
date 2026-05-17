@@ -2,6 +2,7 @@ import { vi } from 'vitest'
 import type {
   DashboardSocketFactory,
   DashboardSocketLike,
+  StartDashboardTelemetryOnlySessionOptions,
 } from '@/features/dashboard/services/cloudRuntimeClient'
 import { dashboardVisualBindingProfile } from '../../fixtures/dashboardVisualLayout'
 import type {
@@ -40,6 +41,9 @@ interface MockDashboardRuntimeClientSessionOptions {
 type MockDashboardRuntimeClientStartSession = ReturnType<typeof vi.fn> &
   ((options: MockDashboardRuntimeClientSessionOptions) => MockDashboardRuntimeClientSession)
 
+type MockDashboardTelemetryOnlyStartSession = ReturnType<typeof vi.fn> &
+  ((options: StartDashboardTelemetryOnlySessionOptions) => MockDashboardRuntimeClientSession)
+
 type DashboardAlarmIncidentFixtureOverrides =
   Omit<Partial<DashboardAlarmIncidentChangedEvent>, 'incident'> & {
     incident?: Partial<Omit<DashboardAlarmIncidentProjection, 'rule'>> & {
@@ -49,12 +53,17 @@ type DashboardAlarmIncidentFixtureOverrides =
 
 export interface MockDashboardRuntimeClientHarness {
   startSession: MockDashboardRuntimeClientStartSession
+  startTelemetryOnlySession: MockDashboardTelemetryOnlyStartSession
   emitTransportStatus: (edgeId: string, status: DashboardTransportStatus) => void
   emitTelemetry: (event: DashboardTelemetryEvent) => void
   emitEdgeStatus: (event: DashboardEdgeStatusEvent) => void
   emitAlarmIncidentChanged: (event: DashboardAlarmIncidentChangedEvent) => void
   emitRuntimeError: (edgeId: string, error?: Error) => void
+  emitTelemetryOnlyTransportStatus: (edgeId: string, status: DashboardTransportStatus) => void
+  emitTelemetryOnlyTelemetry: (event: DashboardTelemetryEvent) => void
+  emitTelemetryOnlyRuntimeError: (edgeId: string, error?: Error) => void
   getDisposeCount: (edgeId: string) => number
+  getTelemetryOnlyDisposeCount: (edgeId: string) => number
   reset: () => void
 }
 
@@ -278,7 +287,10 @@ export function createDashboardClosedAlarmIncidentChangedEventFixture(
 
 export function createMockDashboardRuntimeClientHarness(): MockDashboardRuntimeClientHarness {
   const activeCallbacksByEdge = new Map<string, MockDashboardRuntimeClientSessionOptions>()
+  const activeTelemetryOnlyCallbacksByEdge =
+    new Map<string, StartDashboardTelemetryOnlySessionOptions>()
   const disposeCountByEdge = new Map<string, number>()
+  const telemetryOnlyDisposeCountByEdge = new Map<string, number>()
   const startSession = vi.fn((options: MockDashboardRuntimeClientSessionOptions) => {
     activeCallbacksByEdge.set(options.edgeId, options)
     options.onTransportStatusChange?.('connecting')
@@ -292,9 +304,26 @@ export function createMockDashboardRuntimeClientHarness(): MockDashboardRuntimeC
       isConnected: () => false,
     }
   }) as MockDashboardRuntimeClientStartSession
+  const startTelemetryOnlySession = vi.fn((options: StartDashboardTelemetryOnlySessionOptions) => {
+    activeTelemetryOnlyCallbacksByEdge.set(options.edgeId, options)
+    options.onTransportStatusChange?.('connecting')
+
+    return {
+      edgeId: options.edgeId,
+      dispose: () => {
+        activeTelemetryOnlyCallbacksByEdge.delete(options.edgeId)
+        telemetryOnlyDisposeCountByEdge.set(
+          options.edgeId,
+          (telemetryOnlyDisposeCountByEdge.get(options.edgeId) ?? 0) + 1,
+        )
+      },
+      isConnected: () => false,
+    }
+  }) as MockDashboardTelemetryOnlyStartSession
 
   return {
     startSession,
+    startTelemetryOnlySession,
     emitTransportStatus: (edgeId, status) => {
       activeCallbacksByEdge.get(edgeId)?.onTransportStatusChange?.(status)
     },
@@ -310,11 +339,24 @@ export function createMockDashboardRuntimeClientHarness(): MockDashboardRuntimeC
     emitRuntimeError: (edgeId, error = new Error('Mock runtime error')) => {
       activeCallbacksByEdge.get(edgeId)?.onRuntimeError?.(error)
     },
+    emitTelemetryOnlyTransportStatus: (edgeId, status) => {
+      activeTelemetryOnlyCallbacksByEdge.get(edgeId)?.onTransportStatusChange?.(status)
+    },
+    emitTelemetryOnlyTelemetry: (event) => {
+      activeTelemetryOnlyCallbacksByEdge.get(event.edgeId)?.onTelemetry?.(event)
+    },
+    emitTelemetryOnlyRuntimeError: (edgeId, error = new Error('Mock telemetry-only runtime error')) => {
+      activeTelemetryOnlyCallbacksByEdge.get(edgeId)?.onRuntimeError?.(error)
+    },
     getDisposeCount: (edgeId) => disposeCountByEdge.get(edgeId) ?? 0,
+    getTelemetryOnlyDisposeCount: (edgeId) => telemetryOnlyDisposeCountByEdge.get(edgeId) ?? 0,
     reset: () => {
       activeCallbacksByEdge.clear()
+      activeTelemetryOnlyCallbacksByEdge.clear()
       disposeCountByEdge.clear()
+      telemetryOnlyDisposeCountByEdge.clear()
       startSession.mockClear()
+      startTelemetryOnlySession.mockClear()
     },
   }
 }

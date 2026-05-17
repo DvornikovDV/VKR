@@ -4,7 +4,11 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { userHubRouteChildren } from '@/app/userHubRoutes'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
-import { dashboardVisualCatalog } from '../../fixtures/dashboardVisualLayout'
+import {
+  dashboardVisualBindingProfile,
+  dashboardVisualCatalog,
+  dashboardVisualDiagram,
+} from '../../fixtures/dashboardVisualLayout'
 import {
   createDashboardApiFixtures,
   createDashboardApiHandlers,
@@ -22,6 +26,7 @@ import type { TelemetryHistoryResponse } from '@/shared/api/telemetryHistory'
 import {
   dashboardRuntimeClientHarness,
   dashboardRuntimeSocketHarness,
+  createDashboardTelemetryReadingFixture,
   createDashboardActiveAcknowledgedAlarmIncidentProjectionFixture,
   createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture,
   createDashboardAlarmIncidentChangedEventFixture,
@@ -35,6 +40,8 @@ import type {
   AlarmIncidentListResponse,
   AlarmIncidentProjection,
 } from '@/shared/api/alarmIncidents'
+import type { DashboardBindingProfile } from '@/features/dashboard/model/types'
+import type { DispatchLiveTelemetryRow } from '@/features/dispatch/model/liveTelemetry'
 
 export const dispatchWorkspaceUserSession: Session = {
   id: 'dispatch-user-1',
@@ -81,6 +88,20 @@ export interface DispatchWorkspaceRestFixturesResult extends DashboardRestFixtur
 
 export const dispatchWorkspaceRuntimeHarness = dashboardRuntimeClientHarness
 export const dispatchWorkspaceRuntimeSocketHarness = dashboardRuntimeSocketHarness
+
+export const dispatchLiveTelemetryBindingProfile = dashboardVisualBindingProfile
+
+export const dispatchLiveTelemetrySecondaryBindingProfile: DashboardBindingProfile = {
+  _id: 'binding-visual-2',
+  diagramId: dashboardVisualDiagram._id,
+  edgeServerId: 'edge-visual-2',
+  widgetBindings: [
+    { widgetId: 'widget-pressure', deviceId: 'pump-2', metric: 'pressure' },
+    { widgetId: 'widget-local-button', deviceId: 'pump_main', metric: 'local_button_pressed' },
+    { widgetId: 'widget-actual-state', deviceId: 'pump_main', metric: 'actual_state' },
+  ],
+  commandBindings: [],
+}
 
 export interface DispatchAlarmIncidentListFixtureRequest {
   edgeId: string
@@ -218,6 +239,63 @@ export {
   createDashboardClosedAlarmIncidentProjectionFixture as createDispatchClosedAlarmIncidentProjectionFixture,
   createDashboardTelemetryEventFixture as createDispatchTelemetryEventFixture,
   createDashboardUnclosedAlarmIncidentChangedEventFixture as createDispatchUnclosedAlarmIncidentChangedEventFixture,
+}
+
+export function createDispatchLiveTelemetryBindingProfileFixture(
+  overrides: Partial<DashboardBindingProfile> = {},
+): DashboardBindingProfile {
+  return {
+    ...dispatchLiveTelemetryBindingProfile,
+    ...overrides,
+    widgetBindings:
+      overrides.widgetBindings ?? dispatchLiveTelemetryBindingProfile.widgetBindings.map((binding) => ({ ...binding })),
+    commandBindings:
+      overrides.commandBindings ?? dispatchLiveTelemetryBindingProfile.commandBindings.map((binding) => ({ ...binding })),
+  }
+}
+
+export function createDispatchLiveTelemetrySecondaryBindingProfileFixture(
+  overrides: Partial<DashboardBindingProfile> = {},
+): DashboardBindingProfile {
+  return {
+    ...dispatchLiveTelemetrySecondaryBindingProfile,
+    ...overrides,
+    widgetBindings:
+      overrides.widgetBindings ??
+      dispatchLiveTelemetrySecondaryBindingProfile.widgetBindings.map((binding) => ({ ...binding })),
+    commandBindings:
+      overrides.commandBindings ??
+      dispatchLiveTelemetrySecondaryBindingProfile.commandBindings.map((binding) => ({ ...binding })),
+  }
+}
+
+export function createDispatchLiveTelemetryMultiEdgeBindingProfilesFixture(): DashboardBindingProfile[] {
+  return [
+    createDispatchLiveTelemetryBindingProfileFixture(),
+    createDispatchLiveTelemetrySecondaryBindingProfileFixture(),
+  ]
+}
+
+export const createDispatchLiveTelemetryReadingFixture = createDashboardTelemetryReadingFixture
+export const createDispatchLiveTelemetryEventFixture = createDashboardTelemetryEventFixture
+
+export function createDispatchLiveTelemetryRowFixture(
+  overrides: Partial<DispatchLiveTelemetryRow> = {},
+): DispatchLiveTelemetryRow {
+  return {
+    id: overrides.id ?? 'dispatch-live-row-1',
+    contextKey: overrides.contextKey ?? 'diagram-visual-1\u001fedge-visual-1\u001fbinding-visual-1',
+    edgeId: overrides.edgeId ?? 'edge-visual-1',
+    deviceId: overrides.deviceId ?? 'boiler-1',
+    metric: overrides.metric ?? 'temperature',
+    value: overrides.value ?? 42.5,
+    receivedAt: overrides.receivedAt ?? 1779000000000,
+    receivedAtIso: overrides.receivedAtIso ?? '2026-05-16T23:20:00.000Z',
+    eventTimestamp: overrides.eventTimestamp ?? 1778999999000,
+    eventTimestampIso: overrides.eventTimestampIso ?? '2026-05-16T23:19:59.000Z',
+    serverTimestamp: overrides.serverTimestamp ?? 1779000000100,
+    serverTimestampIso: overrides.serverTimestampIso ?? '2026-05-16T23:20:00.100Z',
+  }
 }
 
 export function authenticateDispatchWorkspaceUser(
