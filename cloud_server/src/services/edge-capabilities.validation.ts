@@ -110,6 +110,21 @@ function normalizeTelemetryMetric(input: unknown): EdgeCatalogTelemetryMetric {
     return telemetry;
 }
 
+export function dedupeTelemetryCatalogMetrics(
+    telemetry: EdgeCatalogTelemetryMetric[],
+): EdgeCatalogTelemetryMetric[] {
+    const byIdentity = new Map<string, EdgeCatalogTelemetryMetric>();
+
+    for (const entry of telemetry) {
+        const key = JSON.stringify([entry.deviceId, entry.metric]);
+        if (!byIdentity.has(key)) {
+            byIdentity.set(key, entry);
+        }
+    }
+
+    return [...byIdentity.values()];
+}
+
 function normalizeCommandCapability(input: unknown): EdgeCatalogCommandCapability {
     if (!isRecord(input)) {
         throw new AppError('commands entries must be objects', 400);
@@ -171,7 +186,9 @@ export function validateEdgeCapabilitiesCatalog(
 
     return {
         edgeServerId: authenticatedEdgeId,
-        telemetry: readArray(payload['telemetry'], 'telemetry').map(normalizeTelemetryMetric),
+        telemetry: dedupeTelemetryCatalogMetrics(
+            readArray(payload['telemetry'], 'telemetry').map(normalizeTelemetryMetric),
+        ),
         commands: readArray(payload['commands'], 'commands').map(normalizeCommandCapability),
     };
 }

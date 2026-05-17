@@ -69,6 +69,7 @@ function expectNoForbiddenFields(value: unknown): void {
         'connection',
         'credential',
         'secret',
+        'sourceId',
         'url',
         'ip',
     ]) {
@@ -120,10 +121,18 @@ describe('Edge capabilities catalog socket storage', () => {
             edgeServerId: edge.edgeId,
             telemetry: [
                 {
+                    sourceId: 'plc-a',
                     deviceId: 'pump-01',
                     metric: 'pressure',
                     valueType: 'number',
                     label: 'Pump 01 / pressure',
+                },
+                {
+                    sourceId: 'plc-b',
+                    deviceId: 'pump-01',
+                    metric: 'pressure',
+                    valueType: 'number',
+                    label: 'Duplicate pressure must be deduped',
                 },
             ],
             commands: [
@@ -140,6 +149,16 @@ describe('Edge capabilities catalog socket storage', () => {
         });
 
         await waitForStoredCatalog(edge.edgeId);
+        const stored = await readStoredCatalog(edge.edgeId);
+        expect(stored?.telemetry).toEqual([
+            {
+                deviceId: 'pump-01',
+                metric: 'pressure',
+                valueType: 'number',
+                label: 'Pump 01 / pressure',
+            },
+        ]);
+        expectNoForbiddenFields(stored);
 
         const response = await request(app)
             .get(`/api/edge-servers/${edge.edgeId}/catalog`)

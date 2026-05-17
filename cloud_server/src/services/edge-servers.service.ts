@@ -30,7 +30,10 @@ import {
     unblockEdgeAggregate,
     type EdgeLifecycleAggregateState,
 } from './edge-lifecycle.domain';
-import { validateEdgeCapabilitiesCatalog } from './edge-capabilities.validation';
+import {
+    dedupeTelemetryCatalogMetrics,
+    validateEdgeCapabilitiesCatalog,
+} from './edge-capabilities.validation';
 
 export const FREE_EDGE_SERVER_QUOTA = 1;
 
@@ -720,7 +723,7 @@ async function getCatalogForUser(
 
     return {
         edgeServerId: edgeIdStr,
-        telemetry: edgeServer.latestCapabilitiesCatalog.telemetry,
+        telemetry: dedupeTelemetryCatalogMetrics(edgeServer.latestCapabilitiesCatalog.telemetry),
         commands: edgeServer.latestCapabilitiesCatalog.commands,
     };
 }

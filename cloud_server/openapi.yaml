@@ -1164,8 +1164,9 @@ paths:
       description: >
         Returns the latest sanitized capabilities snapshot received from the trusted Edge runtime.
         USER must be trusted for the selected edge server. If no snapshot has been received yet,
-        returns an empty snapshot object for the selected edge. Telemetry catalog identity inside
-        one edge is `deviceId + metric`; `sourceId` is not part of the catalog contract.
+        returns a telemetry-derived catalog from Cloud-known telemetry for the selected edge.
+        Telemetry catalog identity inside one edge is `deviceId + metric`; `sourceId` is not
+        part of the catalog contract.
       security:
         - bearerAuth: []
       parameters:
