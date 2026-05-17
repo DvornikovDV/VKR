@@ -11,7 +11,7 @@ import type { DispatchWorkspaceContextSnapshot } from '@/features/dispatch/model
 
 export type DispatchPlaceholderTabId = Exclude<
   DispatchTabId,
-  typeof DISPATCH_DASHBOARD_TAB | typeof DISPATCH_COMMANDS_TAB
+  typeof DISPATCH_DASHBOARD_TAB | typeof DISPATCH_COMMANDS_TAB | typeof DISPATCH_ALARMS_TAB
 >
 
 interface DispatchPlaceholderTabProps {
@@ -23,7 +23,6 @@ interface DispatchPlaceholderTabProps {
 const PLACEHOLDER_MESSAGES = {
   [DISPATCH_TELEMETRY_TAB]: 'Live telemetry tables are not implemented in this Dispatch slice.',
   [DISPATCH_TRENDS_TAB]: 'Trends charts and historical telemetry tables are not implemented in this Dispatch slice.',
-  [DISPATCH_ALARMS_TAB]: 'Expanded Alarm Journal workspace surfaces are not implemented in this Dispatch slice.',
 } as const satisfies Record<DispatchPlaceholderTabId, string>
 
 function getContextValue(value: string | null | undefined, fallback: string): string {

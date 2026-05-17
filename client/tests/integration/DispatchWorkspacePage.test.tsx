@@ -17,6 +17,7 @@ import {
   createDispatchActiveAcknowledgedAlarmIncidentProjectionFixture,
   createDispatchActiveUnacknowledgedAlarmIncidentProjectionFixture,
   createDispatchAlarmIncidentListResponseFixture,
+  createDispatchClosedAlarmIncidentProjectionFixture,
   createDispatchCommandAuditResponseFixture,
   createDispatchCommandAuditRowFixture,
   createDispatchWorkspaceDeferred,
@@ -351,10 +352,13 @@ describe('DispatchWorkspacePage routing', () => {
     await waitFor(() => {
       expect(canonicalRoute.router.state.location.pathname).toBe('/hub/dispatch/alarms')
     })
-    expect(screen.getByTestId('dispatch-placeholder-context')).toHaveAttribute(
-      'data-tab-id',
-      'alarms',
-    )
+    await waitFor(() => {
+      expect(screen.getByTestId('dispatch-alarm-journal-tab')).toHaveAttribute(
+        'data-edge-id',
+        'edge-visual-1',
+      )
+    })
+    expect(screen.queryByTestId('dispatch-placeholder-context')).not.toBeInTheDocument()
     expect(dispatchWorkspaceRuntimeHarness.startSession).toHaveBeenCalledTimes(1)
     canonicalRoute.renderResult.unmount()
 
@@ -983,6 +987,252 @@ describe('DispatchWorkspacePage routing', () => {
     })
     expect(await screen.findByTestId('dispatch-command-audit-empty')).toBeInTheDocument()
     expect(screen.queryByTestId('dispatch-command-audit-row-command-audit-edge-2-current')).not.toBeInTheDocument()
+    expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
+  })
+
+  it('proves Dispatch Alarms route loads the selected Edge journal over REST without Dashboard runtime session', async () => {
+    const edgeOneStaleList = createDispatchWorkspaceDeferred<ReturnType<typeof createDispatchAlarmIncidentListResponseFixture>>()
+    const activeIncident = createDispatchActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      incidentId: 'dispatch-alarm-active-1',
+      edgeId: 'edge-visual-1',
+      deviceId: 'boiler-1',
+      metric: 'temperature',
+      ruleId: 'high-temperature',
+      latestValue: 92,
+      activatedAt: '2026-05-09T10:00:00.000Z',
+      rule: {
+        ruleId: 'high-temperature',
+        ruleRevision: '1',
+        conditionType: 'high',
+        triggerThreshold: 80,
+        clearThreshold: 75,
+        expectedValue: null,
+        severity: 'danger',
+        label: 'High temperature',
+      },
+    })
+    const closedIncident = createDispatchClosedAlarmIncidentProjectionFixture({
+      incidentId: 'dispatch-alarm-closed-2',
+      edgeId: 'edge-visual-2',
+      deviceId: 'pump-2',
+      metric: 'running',
+      ruleId: 'pump-running',
+      latestValue: false,
+      activatedAt: '2026-05-09T09:00:00.000Z',
+      clearedAt: '2026-05-09T09:10:00.000Z',
+      acknowledgedAt: '2026-05-09T09:12:00.000Z',
+      rule: {
+        ruleId: 'pump-running',
+        ruleRevision: '2',
+        conditionType: 'state',
+        triggerThreshold: null,
+        clearThreshold: null,
+        expectedValue: true,
+        severity: 'warning',
+        label: 'Pump stopped',
+      },
+    })
+    const alarmRequests: string[] = []
+    let edgeTwoRequestCount = 0
+    const fixtures = setupDispatchWorkspaceRestFixtures({
+      dashboard: {
+        ...createDashboardVisualRestFixtures(),
+        trustedEdges: [
+          {
+            _id: 'edge-visual-1',
+            name: 'Visual Edge',
+            lifecycleState: 'Active',
+            availability: {
+              online: true,
+              lastSeenAt: '2026-04-24T08:14:30.000Z',
+            },
+          },
+          {
+            _id: 'edge-visual-2',
+            name: 'Backup Visual Edge',
+            lifecycleState: 'Active',
+            availability: {
+              online: true,
+              lastSeenAt: '2026-04-24T08:15:30.000Z',
+            },
+          },
+        ],
+        bindingProfilesByDiagramId: {
+          [dashboardVisualDiagram._id]: [
+            dashboardVisualBindingProfile,
+            {
+              ...dashboardVisualBindingProfile,
+              _id: 'binding-visual-2',
+              edgeServerId: 'edge-visual-2',
+            },
+          ],
+        },
+      },
+      alarmIncidents: {
+        list: {
+          resolve: (request) => {
+            alarmRequests.push(`${request.edgeId}:${request.state}:${request.page}`)
+
+            if (request.edgeId === 'edge-visual-1' && request.state === 'unclosed') {
+              return edgeOneStaleList.promise
+            }
+
+            if (request.edgeId === 'edge-visual-2' && request.state === 'all') {
+              return createDispatchAlarmIncidentListResponseFixture({
+                incidents: [closedIncident],
+                page: 1,
+                limit: 50,
+                total: 1,
+                hasNextPage: false,
+              })
+            }
+
+            edgeTwoRequestCount += 1
+
+            return createDispatchAlarmIncidentListResponseFixture({
+              incidents: [
+                createDispatchActiveUnacknowledgedAlarmIncidentProjectionFixture({
+                  incidentId: `dispatch-alarm-edge-2-page-${edgeTwoRequestCount}`,
+                  edgeId: 'edge-visual-2',
+                  deviceId: 'boiler-2',
+                  metric: 'pressure',
+                  ruleId: 'backup-pressure',
+                  rule: {
+                    ruleId: 'backup-pressure',
+                    ruleRevision: '1',
+                    conditionType: 'high',
+                    triggerThreshold: 60,
+                    clearThreshold: 55,
+                    expectedValue: null,
+                    severity: 'danger',
+                    label: 'Backup pressure',
+                  },
+                }),
+              ],
+              page: edgeTwoRequestCount,
+              limit: 50,
+              total: 100,
+              hasNextPage: edgeTwoRequestCount < 2,
+            })
+          },
+        },
+      },
+    })
+
+    const route = renderDispatchWorkspaceRoute(
+      `/hub/dispatch/alarms?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`,
+    )
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(fixtures.dispatchAlarmIncidents.listRequests[0]).toEqual({
+        edgeId: 'edge-visual-1',
+        state: 'unclosed',
+        page: '1',
+        limit: '50',
+        sort: 'latest',
+        order: 'desc',
+      })
+    })
+    expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Edge Server' }), 'edge-visual-2')
+    await waitFor(() => {
+      expect(route.router.state.location.search).toContain('edgeId=edge-visual-2')
+    })
+    await waitFor(() => {
+      expect(fixtures.dispatchAlarmIncidents.listRequests[1]).toEqual({
+        edgeId: 'edge-visual-2',
+        state: 'unclosed',
+        page: '1',
+        limit: '50',
+        sort: 'latest',
+        order: 'desc',
+      })
+    })
+    expect(await screen.findByTestId('dispatch-alarm-journal-row-dispatch-alarm-edge-2-page-1')).toBeInTheDocument()
+    edgeOneStaleList.resolve(
+      createDispatchAlarmIncidentListResponseFixture({
+        incidents: [activeIncident],
+      }),
+    )
+    await waitFor(() => {
+      expect(screen.queryByTestId('dispatch-alarm-journal-row-dispatch-alarm-active-1')).not.toBeInTheDocument()
+      expect(screen.getByTestId('dispatch-alarm-journal-row-dispatch-alarm-edge-2-page-1')).toBeInTheDocument()
+    })
+
+    const row = screen.getByTestId('dispatch-alarm-journal-row-dispatch-alarm-edge-2-page-1')
+    expect(within(row).getByText('Backup pressure')).toBeInTheDocument()
+    expect(within(row).getByText('boiler-2 / pressure')).toBeInTheDocument()
+    expect(within(row).getByText(/High condition: latest/)).toBeInTheDocument()
+    expect(within(row).getByText('Danger')).toBeInTheDocument()
+    expect(within(row).getByText('Active unacknowledged')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Next alarm journal page' }))
+    await waitFor(() => {
+      expect(fixtures.dispatchAlarmIncidents.listRequests[2]).toEqual({
+        edgeId: 'edge-visual-2',
+        state: 'unclosed',
+        page: '2',
+        limit: '50',
+        sort: 'latest',
+        order: 'desc',
+      })
+    })
+    expect(await screen.findByTestId('dispatch-alarm-journal-row-dispatch-alarm-edge-2-page-2')).toBeInTheDocument()
+
+    const actionSlot = screen.getByTestId('dispatch-action-slot')
+    const stateSelect = within(actionSlot).getByRole('combobox', { name: 'Alarm incident state' })
+    expect(stateSelect).toHaveValue('unclosed')
+    expect(within(actionSlot).getByTestId('dispatch-alarm-journal-toolbar-summary')).toHaveTextContent(
+      '1 visible | 100 total',
+    )
+    await user.selectOptions(stateSelect, 'all')
+    await waitFor(() => {
+      expect(fixtures.dispatchAlarmIncidents.listRequests[3]).toEqual({
+        edgeId: 'edge-visual-2',
+        state: 'all',
+        page: '1',
+        limit: '50',
+        sort: 'latest',
+        order: 'desc',
+      })
+    })
+    const closedRow = await screen.findByTestId('dispatch-alarm-journal-row-dispatch-alarm-closed-2')
+    expect(within(closedRow).getByText('Pump stopped')).toBeInTheDocument()
+    expect(within(closedRow).getByText('pump-2 / running')).toBeInTheDocument()
+    expect(within(closedRow).getByText('Warning')).toBeInTheDocument()
+    expect(within(closedRow).getByText('Closed')).toBeInTheDocument()
+    expect(screen.getByTestId('dispatch-alarm-journal-closed-at-dispatch-alarm-closed-2')).not.toHaveTextContent('-')
+
+    await user.click(within(actionSlot).getByTestId('dispatch-alarm-journal-refresh'))
+    await waitFor(() => {
+      expect(fixtures.dispatchAlarmIncidents.listRequests).toHaveLength(5)
+      expect(fixtures.dispatchAlarmIncidents.listRequests[4]).toEqual({
+        edgeId: 'edge-visual-2',
+        state: 'all',
+        page: '1',
+        limit: '50',
+        sort: 'latest',
+        order: 'desc',
+      })
+    })
+    expect(alarmRequests).toEqual([
+      'edge-visual-1:unclosed:1',
+      'edge-visual-2:unclosed:1',
+      'edge-visual-2:unclosed:2',
+      'edge-visual-2:all:1',
+      'edge-visual-2:all:1',
+    ])
+    expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
+    route.renderResult.unmount()
+
+    const noEdgeFixtures = setupDispatchWorkspaceRestFixtures({
+      dashboard: createDashboardVisualRestFixtures(),
+    })
+    renderDispatchWorkspaceRoute(`/hub/dispatch/alarms?diagramId=${dashboardVisualDiagram._id}`)
+    expect(await screen.findByTestId('dispatch-alarm-journal-no-edge')).toBeInTheDocument()
+    expect(noEdgeFixtures.dispatchAlarmIncidents.listRequests).toHaveLength(0)
     expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
   })
 })
