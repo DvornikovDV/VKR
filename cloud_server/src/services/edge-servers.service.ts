@@ -9,6 +9,7 @@ import {
     type EdgePersistentCredentialMetadata,
     type IEdgeServer,
 } from '../models/EdgeServer';
+import { Telemetry } from '../models/Telemetry';
 import { User } from '../models/User';
 import { AppError } from '../api/middlewares/error.middleware';
 import type {
@@ -612,6 +613,70 @@ export interface EdgeCapabilitiesCatalogResponse {
     commands: EdgeCatalogCommandCapability[];
 }
 
+interface DerivedTelemetryCatalogRow {
+    deviceId: string;
+    metric: string;
+    latestKind?: string;
+}
+
+function mapRollupKindToCatalogValueType(
+    latestKind: string | undefined,
+): EdgeCatalogTelemetryMetric['valueType'] | undefined {
+    if (latestKind === 'numeric') {
+        return 'number';
+    }
+
+    if (latestKind === 'boolean') {
+        return 'boolean';
+    }
+
+    return undefined;
+}
+
+async function deriveTelemetryCatalog(edgeId: string): Promise<EdgeCatalogTelemetryMetric[]> {
+    const rows = await Telemetry.aggregate<DerivedTelemetryCatalogRow>([
+        {
+            $match: {
+                'metadata.edgeId': edgeId,
+                'metadata.deviceId': { $type: 'string', $regex: /^[A-Za-z0-9._-]+$/ },
+                metric: { $type: 'string', $regex: /^[A-Za-z0-9._:/%-]+$/ },
+            },
+        },
+        { $sort: { timestamp: -1 } },
+        {
+            $group: {
+                _id: {
+                    deviceId: '$metadata.deviceId',
+                    metric: '$metric',
+                },
+                latestKind: { $first: '$rollup.kind' },
+            },
+        },
+        {
+            $project: {
+                _id: 0,
+                deviceId: '$_id.deviceId',
+                metric: '$_id.metric',
+                latestKind: 1,
+            },
+        },
+        { $sort: { deviceId: 1, metric: 1 } },
+    ]).exec();
+
+    return rows.map((row) => {
+        const telemetry: EdgeCatalogTelemetryMetric = {
+            deviceId: row.deviceId,
+            metric: row.metric,
+            label: `${row.deviceId} / ${row.metric}`,
+        };
+        const valueType = mapRollupKindToCatalogValueType(row.latestKind);
+        if (valueType) {
+            telemetry.valueType = valueType;
+        }
+        return telemetry;
+    });
+}
+
 async function getCatalogForUser(
     edgeIdStr: string,
     userIdStr: string,
@@ -648,7 +713,7 @@ async function getCatalogForUser(
     if (!edgeServer.latestCapabilitiesCatalog) {
         return {
             edgeServerId: edgeIdStr,
-            telemetry: [],
+            telemetry: await deriveTelemetryCatalog(edgeIdStr),
             commands: [],
         };
     }

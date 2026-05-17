@@ -159,6 +159,7 @@ export function validateAlarmEventPayload(
 
     if (
         !eventType ||
+        // Alarm events still require sourceId as a diagnostic compatibility field only.
         !sourceId ||
         !deviceId ||
         !metric ||

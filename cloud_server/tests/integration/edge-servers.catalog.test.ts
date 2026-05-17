@@ -164,6 +164,72 @@ describe('T088 - Edge catalog identity and lifecycle access', () => {
         });
     });
 
+    it('derives telemetry catalog by deviceId and metric without exposing or deduplicating by sourceId', async () => {
+        const edgeId = await createEdgeServer('CatalogTelemetryDerivedEdge');
+
+        await request(app)
+            .post(`/api/edge-servers/${edgeId}/bind`)
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ userId: trustedUserId })
+            .expect(200);
+
+        await setEdgeRuntimeState(edgeId, { lifecycleState: 'Active' });
+        await Telemetry.collection.insertMany([
+            {
+                timestamp: new Date('2026-03-29T01:00:00.000Z'),
+                metadata: { edgeId, sourceId: 'plc-a', deviceId: 'pump-1' },
+                metric: 'pressure',
+                rollup: numericRollup(22),
+            },
+            {
+                timestamp: new Date('2026-03-29T01:00:01.000Z'),
+                metadata: { edgeId, sourceId: 'plc-b', deviceId: 'pump-1' },
+                metric: 'pressure',
+                rollup: numericRollup(23),
+            },
+            {
+                timestamp: new Date('2026-03-29T01:00:02.000Z'),
+                metadata: { edgeId, sourceId: 'plc-c', deviceId: 'valve-1' },
+                metric: 'open',
+                rollup: {
+                    kind: 'boolean',
+                    trueCount: 1,
+                    falseCount: 0,
+                    count: 1,
+                    last: true,
+                },
+            },
+        ]);
+
+        const res = await request(app)
+            .get(`/api/edge-servers/${edgeId}/catalog`)
+            .set('Authorization', `Bearer ${trustedUserToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+            status: 'success',
+            data: {
+                edgeServerId: edgeId,
+                telemetry: [
+                    {
+                        deviceId: 'pump-1',
+                        metric: 'pressure',
+                        valueType: 'number',
+                        label: 'pump-1 / pressure',
+                    },
+                    {
+                        deviceId: 'valve-1',
+                        metric: 'open',
+                        valueType: 'boolean',
+                        label: 'valve-1 / open',
+                    },
+                ],
+                commands: [],
+            },
+        });
+        expect(JSON.stringify(res.body.data)).not.toContain('sourceId');
+    });
+
     it('returns 403 for non-trusted user access', async () => {
         const edgeId = await createEdgeServer('CatalogForbiddenEdge');
         await setEdgeRuntimeState(edgeId, { lifecycleState: 'Active' });

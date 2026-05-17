@@ -270,6 +270,7 @@ export function projectAlarmIncident(incident: IAlarmIncident): AlarmIncidentPro
     return {
         incidentId: incident._id.toHexString(),
         edgeId: incident.edgeId.toHexString(),
+        // Alarm diagnostic compatibility only; clients must not use it for runtime lookup.
         sourceId: incident.sourceId,
         deviceId: incident.deviceId,
         metric: incident.metric,
@@ -329,6 +330,7 @@ export async function persistActiveAlarmIncident(
     const now = new Date();
     const reusableUpdate = {
         $set: {
+            // Alarm diagnostic compatibility only; reusable identity excludes sourceId.
             sourceId: payload.sourceId,
             latestValue: payload.value,
             latestTs: payload.ts,
@@ -356,6 +358,7 @@ export async function persistActiveAlarmIncident(
     try {
         return await AlarmIncident.create({
             edgeId: reusableFilter.edgeId,
+            // Alarm diagnostic compatibility only; incident identity is edgeId + rule/device/metric.
             sourceId: payload.sourceId,
             deviceId: payload.deviceId,
             metric: payload.metric,

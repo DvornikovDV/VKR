@@ -261,6 +261,7 @@ export interface AlarmRuleSnapshotDto {
 export interface AlarmEventPayloadDto {
     edgeId: string;
     eventType: AlarmEventType;
+    // Alarm compatibility diagnostic only; telemetry/catalog identity is deviceId + metric.
     sourceId: string;
     deviceId: string;
     metric: string;
@@ -273,6 +274,7 @@ export interface AlarmEventPayloadDto {
 export interface AlarmIncidentProjectionDto {
     incidentId: string;
     edgeId: string;
+    // Alarm compatibility diagnostic only; telemetry/catalog identity is deviceId + metric.
     sourceId: string;
     deviceId: string;
     metric: string;

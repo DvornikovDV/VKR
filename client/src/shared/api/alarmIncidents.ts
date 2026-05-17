@@ -25,7 +25,8 @@ export interface AlarmRuleSnapshot {
 export interface AlarmIncidentProjection {
   incidentId: string
   edgeId: string
-  sourceId: string
+  // Alarm diagnostic compatibility only; runtime telemetry identity is deviceId + metric.
+  sourceId?: string | null
   deviceId: string
   metric: string
   ruleId: string

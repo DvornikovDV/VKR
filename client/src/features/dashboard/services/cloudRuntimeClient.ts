@@ -216,7 +216,7 @@ function parseAlarmIncidentChangedEvent(
   }
 
   const incidentId = toNonEmptyString(incident.incidentId)
-  const sourceId = toNonEmptyString(incident.sourceId)
+  const sourceId = toOptionalString(incident.sourceId) // Alarm diagnostic compatibility only.
   const deviceId = toNonEmptyString(incident.deviceId)
   const metric = toNonEmptyString(incident.metric)
   const ruleId = toNonEmptyString(incident.ruleId)
@@ -249,7 +249,6 @@ function parseAlarmIncidentChangedEvent(
 
   if (
     !incidentId ||
-    !sourceId ||
     !deviceId ||
     !metric ||
     !ruleId ||

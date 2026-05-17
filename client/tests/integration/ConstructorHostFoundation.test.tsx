@@ -109,18 +109,21 @@ describe('Constructor host foundation tasks (T004-T007)', () => {
           data: [
             {
               edgeServerId: String(params.edgeId),
+              sourceId: 'plc-a',
               deviceId: 'pump-1',
               metric: 'temperature',
               label: 'pump-1 / temperature',
             },
             {
               edgeServerId: String(params.edgeId),
+              sourceId: 'plc-b',
               deviceId: 'pump-1',
               metric: 'pressure',
               label: 'pump-1 / pressure',
             },
             {
               edgeServerId: String(params.edgeId),
+              sourceId: 'plc-c',
               deviceId: 'pump-1',
               metric: 'temperature',
               label: 'duplicate row should be deduped',

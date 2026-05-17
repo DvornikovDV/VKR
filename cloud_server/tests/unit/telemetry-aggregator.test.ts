@@ -168,4 +168,46 @@ describe('TelemetryAggregatorService event-time history rollups', () => {
             }),
         );
     });
+
+    it('aggregates public streams by edgeId, deviceId, and metric without persisting sourceId', async () => {
+        const insertSpy = vi.spyOn(Telemetry, 'insertMany').mockResolvedValue([] as never);
+        const ts = 1_713_000_000_000;
+
+        TelemetryAggregatorService.ingest('edge-public-identity', [
+            {
+                sourceId: 'local-source-a',
+                deviceId: 'pump-1',
+                metric: 'pressure',
+                value: 10,
+                ts,
+            } as unknown as Parameters<typeof TelemetryAggregatorService.ingest>[1][number],
+            {
+                sourceId: 'local-source-b',
+                deviceId: 'pump-1',
+                metric: 'pressure',
+                value: 15,
+                ts: ts + 100,
+            } as unknown as Parameters<typeof TelemetryAggregatorService.ingest>[1][number],
+        ], ts + 200);
+
+        await TelemetryAggregatorService.drain({ force: true, nowMs: ts + 2_000 });
+
+        const docs = docsFromCall(insertSpy, 0);
+        expect(docs).toHaveLength(1);
+        expect(docs[0]).toEqual(
+            expect.objectContaining({
+                metadata: {
+                    edgeId: 'edge-public-identity',
+                    deviceId: 'pump-1',
+                },
+                metric: 'pressure',
+            }),
+        );
+        expect(JSON.stringify(docs[0])).not.toContain('sourceId');
+        expect(docs[0]?.rollup.kind).toBe('numeric');
+        if (docs[0]?.rollup.kind === 'numeric') {
+            expect(docs[0].rollup.count).toBe(2);
+            expect(docs[0].rollup.last).toBe(15);
+        }
+    });
 });

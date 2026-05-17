@@ -254,12 +254,14 @@ export function getDashboardAlarmIncidentSecondaryDetails(
     'sourceId' | 'ruleId' | 'latestTs' | 'latestDetectedAt'
   >,
 ): string[] {
-  return [
-    `Source ${incident.sourceId}`,
+  const details = [
     `Rule ${incident.ruleId}`,
     `Latest detected ${formatTimeValue(incident.latestDetectedAt) ?? 'Time unavailable'}`,
     `Latest sample ${formatTimeValue(incident.latestTs) ?? 'Time unavailable'}`,
   ]
+
+  const sourceId = incident.sourceId?.trim()
+  return sourceId ? [`Source ${sourceId}`, ...details] : details
 }
 
 export function getDashboardAlarmIncidentDisplayDetails(

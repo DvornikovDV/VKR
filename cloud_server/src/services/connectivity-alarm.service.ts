@@ -14,6 +14,7 @@ import type {
 
 export const CONNECTIVITY_ALARM_RULE_ID = 'system.edge_connectivity';
 export const CONNECTIVITY_ALARM_RULE_REVISION = 'mvp-1';
+// Alarm diagnostic compatibility only; runtime telemetry identity remains deviceId + metric.
 export const CONNECTIVITY_ALARM_SOURCE_ID = 'system';
 export const CONNECTIVITY_ALARM_DEVICE_ID = 'edge';
 export const CONNECTIVITY_ALARM_METRIC = 'connectivity';

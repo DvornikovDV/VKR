@@ -62,6 +62,39 @@ describe('catalogAdapter', () => {
       expect(metrics).not.toContain('set_bool')
     })
 
+    it('deduplicates hosted telemetry by deviceId and metric while ignoring legacy sourceId', () => {
+      const result = mapCatalogRowsToDeviceMetricCatalog(edgeServerId, {
+        edgeServerId,
+        telemetry: [
+          {
+            sourceId: 'plc-a',
+            deviceId: 'pump-1',
+            metric: 'pressure',
+            label: 'Pressure A',
+            valueType: 'number',
+          },
+          {
+            sourceId: 'plc-b',
+            deviceId: 'pump-1',
+            metric: 'pressure',
+            label: 'Pressure B',
+            valueType: 'number',
+          },
+        ] as unknown as EdgeCapabilitiesCatalogSnapshot['telemetry'],
+        commands: [],
+      })
+
+      expect(result).toEqual([
+        {
+          edgeServerId,
+          deviceId: 'pump-1',
+          deviceLabel: 'pump-1',
+          deviceType: undefined,
+          metrics: [{ key: 'pressure', label: 'Pressure A', valueType: 'number' }],
+        },
+      ])
+    })
+
     it('returns empty array if edgeServerId is empty', () => {
       const result = mapCatalogRowsToDeviceMetricCatalog(' ', mockCatalogSnapshot)
       expect(result).toHaveLength(0)

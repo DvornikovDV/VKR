@@ -1164,7 +1164,8 @@ paths:
       description: >
         Returns the latest sanitized capabilities snapshot received from the trusted Edge runtime.
         USER must be trusted for the selected edge server. If no snapshot has been received yet,
-        returns an empty snapshot object for the selected edge.
+        returns an empty snapshot object for the selected edge. Telemetry catalog identity inside
+        one edge is `deviceId + metric`; `sourceId` is not part of the catalog contract.
       security:
         - bearerAuth: []
       parameters:
@@ -1590,7 +1591,6 @@ components:
       required:
         - incidentId
         - edgeId
-        - sourceId
         - deviceId
         - metric
         - ruleId
@@ -1616,13 +1616,14 @@ components:
           description: MongoDB ObjectId of the owning Edge Server
         sourceId:
           type: string
-          description: Edge-local normalized source used for diagnosis
+          nullable: true
+          description: Legacy Edge-local source diagnostic. Not part of Cloud/Client incident or telemetry identity.
         deviceId:
           type: string
-          description: Normalized device identifier
+          description: Normalized device identifier; with `metric`, forms the canonical stream identity inside one edge
         metric:
           type: string
-          description: Normalized metric identifier
+          description: Normalized metric identifier; with `deviceId`, forms the canonical stream identity inside one edge
         ruleId:
           type: string
           description: Stable Edge alarm rule identifier
@@ -1834,8 +1835,10 @@ components:
       properties:
         deviceId:
           type: string
+          description: Stable device identifier; with `metric`, forms the catalog identity inside one edge
         metric:
           type: string
+          description: Stable metric identifier; with `deviceId`, forms the catalog identity inside one edge
         valueType:
           type: string
           enum: [boolean, number, string]
@@ -1852,6 +1855,7 @@ components:
       properties:
         deviceId:
           type: string
+          description: Stable device identifier for command targeting inside one edge
         commandType:
           type: string
           enum: [set_bool, set_number]
@@ -1864,6 +1868,7 @@ components:
           type: number
         reportedMetric:
           type: string
+          description: Telemetry metric reported for this command; pairs with `deviceId` for runtime lookup
         label:
           type: string
     EdgeCapabilitiesCatalog:

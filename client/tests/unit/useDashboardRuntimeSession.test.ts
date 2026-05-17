@@ -424,6 +424,47 @@ describe('useDashboardRuntimeSession (T015)', () => {
     )
   })
 
+  it('ignores legacy sourceId on dashboard runtime telemetry readings', async () => {
+    const socketHarness = createMockDashboardRuntimeSocketHarness()
+    const runtimeClient = createCloudRuntimeClient(socketHarness.socketFactory)
+
+    const { result } = renderHook(() =>
+      useDashboardRuntimeSession({
+        edgeId: 'edge-1',
+        enabled: true,
+        client: runtimeClient,
+      }),
+    )
+
+    await waitFor(() => {
+      expect(result.current.transportStatus).toBe('connected')
+    })
+
+    act(() => {
+      socketHarness.emitTelemetry({
+        edgeId: 'edge-1',
+        readings: [
+          {
+            sourceId: 'plc-legacy',
+            deviceId: 'pump-1',
+            metric: 'temperature',
+            last: 44.4,
+            ts: 1763895000000,
+          },
+        ],
+        serverTs: 1763895001000,
+      } as unknown as Parameters<typeof socketHarness.emitTelemetry>[0])
+    })
+
+    await waitFor(() => {
+      expect(
+        result.current.latestMetricValueByBindingKey[
+          createDashboardBindingKey('pump-1', 'temperature')
+        ],
+      ).toBe(44.4)
+    })
+  })
+
   it('keeps last values while reconnecting', async () => {
     const socketHarness = createMockDashboardRuntimeSocketHarness()
     const runtimeClient = createCloudRuntimeClient(socketHarness.socketFactory)

@@ -23,6 +23,7 @@ export interface IAlarmRuleSnapshot {
 export interface IAlarmIncident extends Document {
     _id: Types.ObjectId;
     edgeId: Types.ObjectId;
+    // Alarm compatibility diagnostic only; not a telemetry/catalog identity key.
     sourceId: string;
     deviceId: string;
     metric: string;
