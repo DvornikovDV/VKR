@@ -10,11 +10,16 @@ import {
 } from '../fixtures/dashboardVisualLayout'
 import { useAuthStore } from '@/shared/store/useAuthStore'
 import * as telemetryHistoryApi from '@/shared/api/telemetryHistory'
+import { ackAlarmIncident, listAlarmIncidents } from '@/shared/api/alarmIncidents'
 import { listCommandAudit } from '@/shared/api/commands'
 import {
   authenticateDispatchWorkspaceUser,
+  createDispatchActiveAcknowledgedAlarmIncidentProjectionFixture,
+  createDispatchActiveUnacknowledgedAlarmIncidentProjectionFixture,
+  createDispatchAlarmIncidentListResponseFixture,
   createDispatchCommandAuditResponseFixture,
   createDispatchCommandAuditRowFixture,
+  createDispatchWorkspaceDeferred,
   createDispatchTelemetryHistoryResponseFixture,
   createDispatchUnclosedAlarmIncidentChangedEventFixture,
   createDispatchTelemetryEventFixture,
@@ -127,6 +132,80 @@ describe('DispatchWorkspacePage routing', () => {
         status: 'timeout',
       },
     ])
+    expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
+  })
+
+  it('lets the Dispatch harness drive alarm incident list and ACK through shared Cloud helpers', async () => {
+    const listedIncident = createDispatchActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      incidentId: 'dispatch-alarm-list-1',
+      edgeId: 'edge-visual-1',
+    })
+    const acknowledgedIncident = createDispatchActiveAcknowledgedAlarmIncidentProjectionFixture({
+      incidentId: listedIncident.incidentId,
+      edgeId: listedIncident.edgeId,
+      acknowledgedAt: '2026-05-09T10:06:00.000Z',
+      acknowledgedBy: 'dispatch-user-1',
+    })
+    const deferredList = createDispatchWorkspaceDeferred<ReturnType<typeof createDispatchAlarmIncidentListResponseFixture>>()
+    const deferredAck = createDispatchWorkspaceDeferred<typeof acknowledgedIncident>()
+    const fixtures = setupDispatchWorkspaceRestFixtures({
+      alarmIncidents: {
+        list: {
+          resolve: () => deferredList.promise,
+        },
+        ack: {
+          resolve: () => deferredAck.promise,
+        },
+      },
+    })
+
+    const listPromise = listAlarmIncidents('edge-visual-1', {
+      state: 'unclosed',
+      page: 2,
+      limit: 25,
+      sort: 'latest',
+      order: 'desc',
+    })
+    await waitFor(() => {
+      expect(fixtures.dispatchAlarmIncidents.listRequests).toEqual([
+        {
+          edgeId: 'edge-visual-1',
+          state: 'unclosed',
+          page: '2',
+          limit: '25',
+          sort: 'latest',
+          order: 'desc',
+        },
+      ])
+    })
+    deferredList.resolve(
+      createDispatchAlarmIncidentListResponseFixture({
+        incidents: [listedIncident],
+        page: 2,
+        limit: 25,
+        total: 26,
+        hasNextPage: true,
+      }),
+    )
+    await expect(listPromise).resolves.toEqual({
+      incidents: [listedIncident],
+      page: 2,
+      limit: 25,
+      total: 26,
+      hasNextPage: true,
+    })
+
+    const ackPromise = ackAlarmIncident('edge-visual-1', listedIncident.incidentId)
+    await waitFor(() => {
+      expect(fixtures.dispatchAlarmIncidents.ackRequests).toEqual([
+        {
+          edgeId: 'edge-visual-1',
+          incidentId: listedIncident.incidentId,
+        },
+      ])
+    })
+    deferredAck.resolve(acknowledgedIncident)
+    await expect(ackPromise).resolves.toEqual(acknowledgedIncident)
     expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
   })
 

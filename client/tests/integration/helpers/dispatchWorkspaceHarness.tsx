@@ -22,12 +22,19 @@ import type { TelemetryHistoryResponse } from '@/shared/api/telemetryHistory'
 import {
   dashboardRuntimeClientHarness,
   dashboardRuntimeSocketHarness,
+  createDashboardActiveAcknowledgedAlarmIncidentProjectionFixture,
   createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture,
   createDashboardAlarmIncidentChangedEventFixture,
+  createDashboardClearedUnacknowledgedAlarmIncidentProjectionFixture,
   createDashboardClosedAlarmIncidentChangedEventFixture,
+  createDashboardClosedAlarmIncidentProjectionFixture,
   createDashboardTelemetryEventFixture,
   createDashboardUnclosedAlarmIncidentChangedEventFixture,
 } from './mockDashboardRuntimeSocket'
+import type {
+  AlarmIncidentListResponse,
+  AlarmIncidentProjection,
+} from '@/shared/api/alarmIncidents'
 
 export const dispatchWorkspaceUserSession: Session = {
   id: 'dispatch-user-1',
@@ -40,6 +47,16 @@ export const dispatchWorkspaceUserSession: Session = {
 export interface DispatchWorkspaceRestFixtureOptions {
   dashboard?: Partial<DashboardRestFixtures>
   userEdge?: Partial<UserEdgeConsumerFixtures>
+  alarmIncidents?: {
+    list?: {
+      resolve?: (request: DispatchAlarmIncidentListFixtureRequest) => Promise<AlarmIncidentListResponse> | AlarmIncidentListResponse
+      response?: AlarmIncidentListResponse
+    }
+    ack?: {
+      resolve?: (request: DispatchAlarmIncidentAckFixtureRequest) => Promise<AlarmIncidentProjection> | AlarmIncidentProjection
+      response?: AlarmIncidentProjection
+    }
+  }
   commandAudit?: {
     resolve?: (request: DispatchCommandAuditFixtureRequest) => Promise<CommandAuditListResponse> | CommandAuditListResponse
     response?: CommandAuditListResponse
@@ -55,8 +72,29 @@ export interface DispatchWorkspaceRenderResult {
   renderResult: RenderResult
 }
 
+export interface DispatchWorkspaceRestFixturesResult extends DashboardRestFixtures {
+  dispatchAlarmIncidents: {
+    listRequests: DispatchAlarmIncidentListFixtureRequest[]
+    ackRequests: DispatchAlarmIncidentAckFixtureRequest[]
+  }
+}
+
 export const dispatchWorkspaceRuntimeHarness = dashboardRuntimeClientHarness
 export const dispatchWorkspaceRuntimeSocketHarness = dashboardRuntimeSocketHarness
+
+export interface DispatchAlarmIncidentListFixtureRequest {
+  edgeId: string
+  state: string | null
+  page: string | null
+  limit: string | null
+  sort: string | null
+  order: string | null
+}
+
+export interface DispatchAlarmIncidentAckFixtureRequest {
+  edgeId: string
+  incidentId: string
+}
 
 export interface DispatchTelemetryHistoryFixtureRequest {
   edgeId: string | null
@@ -145,10 +183,39 @@ export function createDispatchCommandAuditResponseFixture(
   }
 }
 
+export function createDispatchAlarmIncidentListResponseFixture(
+  overrides: Partial<AlarmIncidentListResponse> = {},
+): AlarmIncidentListResponse {
+  const incidents = overrides.incidents ?? []
+
+  return {
+    incidents,
+    page: 1,
+    limit: 50,
+    total: incidents.length,
+    hasNextPage: false,
+    ...overrides,
+  }
+}
+
+export function createDispatchWorkspaceDeferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
+    resolve = promiseResolve
+    reject = promiseReject
+  })
+
+  return { promise, resolve, reject }
+}
+
 export {
+  createDashboardActiveAcknowledgedAlarmIncidentProjectionFixture as createDispatchActiveAcknowledgedAlarmIncidentProjectionFixture,
   createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture as createDispatchActiveUnacknowledgedAlarmIncidentProjectionFixture,
   createDashboardAlarmIncidentChangedEventFixture as createDispatchAlarmIncidentChangedEventFixture,
+  createDashboardClearedUnacknowledgedAlarmIncidentProjectionFixture as createDispatchClearedUnacknowledgedAlarmIncidentProjectionFixture,
   createDashboardClosedAlarmIncidentChangedEventFixture as createDispatchClosedAlarmIncidentChangedEventFixture,
+  createDashboardClosedAlarmIncidentProjectionFixture as createDispatchClosedAlarmIncidentProjectionFixture,
   createDashboardTelemetryEventFixture as createDispatchTelemetryEventFixture,
   createDashboardUnclosedAlarmIncidentChangedEventFixture as createDispatchUnclosedAlarmIncidentChangedEventFixture,
 }
@@ -164,7 +231,7 @@ export function authenticateDispatchWorkspaceUser(
 
 export function setupDispatchWorkspaceRestFixtures(
   options: DispatchWorkspaceRestFixtureOptions = {},
-): DashboardRestFixtures {
+): DispatchWorkspaceRestFixturesResult {
   const dashboardFixtures = createDashboardApiFixtures(options.dashboard)
   const userEdgeFixtures = createUserEdgeConsumerFixtures({
     ...options.userEdge,
@@ -177,6 +244,10 @@ export function setupDispatchWorkspaceRestFixtures(
     ?? createDispatchTelemetryHistoryResponseFixture()
   const defaultCommandAuditResponse = options.commandAudit?.response
     ?? createDispatchCommandAuditResponseFixture()
+  const defaultAlarmIncidentListResponse = options.alarmIncidents?.list?.response
+    ?? createDispatchAlarmIncidentListResponseFixture()
+  const listRequests: DispatchAlarmIncidentListFixtureRequest[] = []
+  const ackRequests: DispatchAlarmIncidentAckFixtureRequest[] = []
 
   server.use(
     ...createDashboardApiHandlers(dashboardFixtures),
@@ -189,18 +260,44 @@ export function setupDispatchWorkspaceRestFixtures(
         data: catalog ?? { edgeServerId: edgeId, telemetry: [], commands: [] },
       })
     }),
-    http.get('/api/edge-servers/:edgeId/alarm-incidents', () =>
-      HttpResponse.json({
+    http.get('/api/edge-servers/:edgeId/alarm-incidents', async ({ params, request }) => {
+      const url = new URL(request.url)
+      const listRequest: DispatchAlarmIncidentListFixtureRequest = {
+        edgeId: String(params.edgeId),
+        state: url.searchParams.get('state'),
+        page: url.searchParams.get('page'),
+        limit: url.searchParams.get('limit'),
+        sort: url.searchParams.get('sort'),
+        order: url.searchParams.get('order'),
+      }
+      listRequests.push(listRequest)
+      const response = options.alarmIncidents?.list?.resolve
+        ? await options.alarmIncidents.list.resolve(listRequest)
+        : defaultAlarmIncidentListResponse
+
+      return HttpResponse.json({
         status: 'success',
-        data: {
-          incidents: [],
-          page: 1,
-          limit: 50,
-          total: 0,
-          hasNextPage: false,
-        },
-      }),
-    ),
+        data: response,
+      })
+    }),
+    http.post('/api/edge-servers/:edgeId/alarm-incidents/:incidentId/ack', async ({ params }) => {
+      const ackRequest: DispatchAlarmIncidentAckFixtureRequest = {
+        edgeId: String(params.edgeId),
+        incidentId: String(params.incidentId),
+      }
+      ackRequests.push(ackRequest)
+      const response = options.alarmIncidents?.ack?.resolve
+        ? await options.alarmIncidents.ack.resolve(ackRequest)
+        : options.alarmIncidents?.ack?.response ?? createDashboardActiveAcknowledgedAlarmIncidentProjectionFixture({
+          edgeId: ackRequest.edgeId,
+          incidentId: ackRequest.incidentId,
+        })
+
+      return HttpResponse.json({
+        status: 'success',
+        data: { incident: response },
+      })
+    }),
     http.get('/api/edge-servers/:edgeId/command-audit', async ({ params, request }) => {
       const url = new URL(request.url)
       const auditRequest: DispatchCommandAuditFixtureRequest = {
@@ -251,7 +348,13 @@ export function setupDispatchWorkspaceRestFixtures(
     }),
   )
 
-  return dashboardFixtures
+  return {
+    ...dashboardFixtures,
+    dispatchAlarmIncidents: {
+      listRequests,
+      ackRequests,
+    },
+  }
 }
 
 export function renderDispatchWorkspaceRoute(path: string): DispatchWorkspaceRenderResult {
