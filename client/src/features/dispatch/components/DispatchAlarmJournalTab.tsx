@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import {
+  ackAlarmIncident,
   listAlarmIncidents,
+  type AlarmIncidentProjection,
   type AlarmIncidentListResponse,
   type AlarmIncidentListState,
 } from '@/shared/api/alarmIncidents'
@@ -35,6 +37,20 @@ import type {
 interface DispatchAlarmJournalTabProps {
   workspaceContext: DispatchWorkspaceContextSnapshot
   className?: string
+}
+
+interface DispatchAlarmJournalAckState {
+  edgeId: string
+  incidentId: string
+  requestId: number
+  pending: boolean
+  error: string | null
+}
+
+const DISPATCH_ALARM_JOURNAL_ACK_KEY_SEPARATOR = '\u001f'
+
+function createDispatchAlarmJournalAckKey(edgeId: string, incidentId: string): string {
+  return [edgeId, incidentId].join(DISPATCH_ALARM_JOURNAL_ACK_KEY_SEPARATOR)
 }
 
 function toErrorMessage(error: unknown, fallback: string): string {
@@ -75,10 +91,20 @@ export function DispatchAlarmJournalTab({
     error: null,
   })
   const [journalResponse, setJournalResponse] = useState<AlarmIncidentListResponse | null>(null)
+  const [ackStateByKey, setAckStateByKey] = useState<
+    Record<string, DispatchAlarmJournalAckState>
+  >({})
   const requestIdRef = useRef(0)
+  const ackRequestIdRef = useRef(0)
   const activeGuardRef = useRef<DispatchAlarmJournalRequestGuard | null>(null)
   const currentDescriptorKeyRef = useRef<string | null>(null)
+  const activeAckRequestByKeyRef = useRef<Record<string, number>>({})
+  const selectedEdgeIdRef = useRef<string | null>(selectedEdgeId)
   const mountedRef = useRef(true)
+
+  useEffect(() => {
+    selectedEdgeIdRef.current = selectedEdgeId
+  }, [selectedEdgeId])
 
   useEffect(() => {
     mountedRef.current = true
@@ -92,9 +118,12 @@ export function DispatchAlarmJournalTab({
     setPage(DISPATCH_ALARM_JOURNAL_DEFAULT_QUERY.page)
     setJournalResponse(null)
     setJournalLoadState({ status: 'idle', error: null })
+    setAckStateByKey({})
     activeGuardRef.current = null
     currentDescriptorKeyRef.current = null
+    activeAckRequestByKeyRef.current = {}
     requestIdRef.current += 1
+    ackRequestIdRef.current += 1
   }, [selectedEdgeId])
 
   const validationMessage = useMemo(() => {
@@ -215,6 +244,36 @@ export function DispatchAlarmJournalTab({
   const total = journalResponse?.total ?? 0
   const isLoading = journalLoadState.status === 'loading'
   const canUseControls = Boolean(requestDescriptor)
+  const ackPendingIncidentIds = useMemo(() => {
+    const pendingIncidentIds = new Set<string>()
+
+    if (!selectedEdgeId) {
+      return pendingIncidentIds
+    }
+
+    Object.values(ackStateByKey).forEach((ackState) => {
+      if (ackState.edgeId === selectedEdgeId && ackState.pending) {
+        pendingIncidentIds.add(ackState.incidentId)
+      }
+    })
+
+    return pendingIncidentIds
+  }, [ackStateByKey, selectedEdgeId])
+  const ackErrorsByIncidentId = useMemo(() => {
+    const errorsByIncidentId: Record<string, string> = {}
+
+    if (!selectedEdgeId) {
+      return errorsByIncidentId
+    }
+
+    Object.values(ackStateByKey).forEach((ackState) => {
+      if (ackState.edgeId === selectedEdgeId && ackState.error) {
+        errorsByIncidentId[ackState.incidentId] = ackState.error
+      }
+    })
+
+    return errorsByIncidentId
+  }, [ackStateByKey, selectedEdgeId])
 
   const handleStateChange = useCallback((nextState: AlarmIncidentListState) => {
     setStateFilter(nextState)
@@ -245,6 +304,119 @@ export function DispatchAlarmJournalTab({
       }),
     )
   }, [pagination.hasNextPage])
+
+  const handleAcknowledgeIncident = useCallback(async (incident: AlarmIncidentProjection) => {
+    const edgeId = selectedEdgeIdRef.current
+    const incidentId = incident.incidentId
+
+    if (!edgeId || incident.edgeId !== edgeId || incident.isAcknowledged) {
+      return
+    }
+
+    const ackKey = createDispatchAlarmJournalAckKey(edgeId, incidentId)
+    const requestId = ++ackRequestIdRef.current
+    activeAckRequestByKeyRef.current = {
+      ...activeAckRequestByKeyRef.current,
+      [ackKey]: requestId,
+    }
+    setAckStateByKey((previous) => ({
+      ...previous,
+      [ackKey]: {
+        edgeId,
+        incidentId,
+        requestId,
+        pending: true,
+        error: null,
+      },
+    }))
+
+    try {
+      const confirmedIncident = await ackAlarmIncident(edgeId, incidentId)
+      const requestIsCurrent =
+        mountedRef.current
+        && selectedEdgeIdRef.current === edgeId
+        && activeAckRequestByKeyRef.current[ackKey] === requestId
+
+      if (!requestIsCurrent) {
+        return
+      }
+
+      if (confirmedIncident.edgeId !== edgeId || confirmedIncident.incidentId !== incidentId) {
+        setAckStateByKey((previous) => {
+          const currentAckState = previous[ackKey]
+          if (!currentAckState || currentAckState.requestId !== requestId) {
+            return previous
+          }
+
+          return {
+            ...previous,
+            [ackKey]: {
+              ...currentAckState,
+              pending: false,
+              error: 'ACK response did not match the selected incident.',
+            },
+          }
+        })
+        return
+      }
+
+      setJournalResponse((previous) => {
+        if (
+          !previous
+          || selectedEdgeIdRef.current !== edgeId
+          || activeAckRequestByKeyRef.current[ackKey] !== requestId
+        ) {
+          return previous
+        }
+
+        let didUpdate = false
+        const incidents = previous.incidents.map((currentIncident) => {
+          if (currentIncident.edgeId !== edgeId || currentIncident.incidentId !== incidentId) {
+            return currentIncident
+          }
+
+          didUpdate = true
+          return confirmedIncident
+        })
+
+        return didUpdate ? { ...previous, incidents } : previous
+      })
+      setAckStateByKey((previous) => {
+        const currentAckState = previous[ackKey]
+        if (!currentAckState || currentAckState.requestId !== requestId) {
+          return previous
+        }
+
+        const { [ackKey]: _completedAckState, ...nextAckStateByKey } = previous
+        return nextAckStateByKey
+      })
+    } catch (error) {
+      const requestIsCurrent =
+        mountedRef.current
+        && selectedEdgeIdRef.current === edgeId
+        && activeAckRequestByKeyRef.current[ackKey] === requestId
+
+      if (!requestIsCurrent) {
+        return
+      }
+
+      setAckStateByKey((previous) => {
+        const currentAckState = previous[ackKey]
+        if (!currentAckState || currentAckState.requestId !== requestId) {
+          return previous
+        }
+
+        return {
+          ...previous,
+          [ackKey]: {
+            ...currentAckState,
+            pending: false,
+            error: toErrorMessage(error, 'Failed to acknowledge alarm incident.'),
+          },
+        }
+      })
+    }
+  }, [])
 
   const actionSlotContextKey = useMemo(
     () => createDispatchActionSlotContextKey(workspaceContext.selection),
@@ -340,6 +512,10 @@ export function DispatchAlarmJournalTab({
           <div className="min-h-0 flex-1 overflow-auto p-3">
             <DispatchAlarmJournalTable
               incidents={incidents}
+              ackPendingIncidentIds={ackPendingIncidentIds}
+              ackErrorsByIncidentId={ackErrorsByIncidentId}
+              isAckDisabled={!canUseControls}
+              onAcknowledgeIncident={handleAcknowledgeIncident}
               emptyMessage="No alarm incidents were returned for the selected Edge Server."
             />
           </div>

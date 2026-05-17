@@ -1235,4 +1235,208 @@ describe('DispatchWorkspacePage routing', () => {
     expect(noEdgeFixtures.dispatchAlarmIncidents.listRequests).toHaveLength(0)
     expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
   })
+
+  it('proves Dispatch Alarms ACK waits for Cloud confirmation and ignores stale Edge responses', async () => {
+    const confirmedAck = createDispatchWorkspaceDeferred<ReturnType<typeof createDispatchActiveAcknowledgedAlarmIncidentProjectionFixture>>()
+    const staleAck = createDispatchWorkspaceDeferred<ReturnType<typeof createDispatchActiveAcknowledgedAlarmIncidentProjectionFixture>>()
+    const confirmedIncident = createDispatchActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      incidentId: 'dispatch-alarm-confirmed-ack',
+      edgeId: 'edge-visual-1',
+      deviceId: 'boiler-1',
+      metric: 'temperature',
+      ruleId: 'dispatch-confirmed-ack-rule',
+      rule: {
+        ruleId: 'dispatch-confirmed-ack-rule',
+        ruleRevision: '1',
+        conditionType: 'high',
+        triggerThreshold: 80,
+        clearThreshold: 75,
+        expectedValue: null,
+        severity: 'danger',
+        label: 'Confirmed ACK alarm',
+      },
+    })
+    const staleEdgeOneIncident = createDispatchActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      incidentId: 'dispatch-alarm-shared-ack',
+      edgeId: 'edge-visual-1',
+      deviceId: 'pump-1',
+      metric: 'running',
+      ruleId: 'dispatch-stale-ack-rule',
+      rule: {
+        ruleId: 'dispatch-stale-ack-rule',
+        ruleRevision: '1',
+        conditionType: 'state',
+        triggerThreshold: null,
+        clearThreshold: null,
+        expectedValue: true,
+        severity: 'warning',
+        label: 'Stale ACK alarm',
+      },
+    })
+    const edgeTwoIncident = createDispatchActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      incidentId: staleEdgeOneIncident.incidentId,
+      edgeId: 'edge-visual-2',
+      deviceId: 'pump-2',
+      metric: 'running',
+      ruleId: 'dispatch-current-edge-rule',
+      rule: {
+        ruleId: 'dispatch-current-edge-rule',
+        ruleRevision: '1',
+        conditionType: 'state',
+        triggerThreshold: null,
+        clearThreshold: null,
+        expectedValue: true,
+        severity: 'warning',
+        label: 'Current Edge ACK alarm',
+      },
+    })
+    let ackRequestCount = 0
+    const fixtures = setupDispatchWorkspaceRestFixtures({
+      dashboard: {
+        ...createDashboardVisualRestFixtures(),
+        trustedEdges: [
+          {
+            _id: 'edge-visual-1',
+            name: 'Visual Edge',
+            lifecycleState: 'Active',
+            availability: {
+              online: true,
+              lastSeenAt: '2026-04-24T08:14:30.000Z',
+            },
+          },
+          {
+            _id: 'edge-visual-2',
+            name: 'Backup Visual Edge',
+            lifecycleState: 'Active',
+            availability: {
+              online: true,
+              lastSeenAt: '2026-04-24T08:15:30.000Z',
+            },
+          },
+        ],
+        bindingProfilesByDiagramId: {
+          [dashboardVisualDiagram._id]: [
+            dashboardVisualBindingProfile,
+            {
+              ...dashboardVisualBindingProfile,
+              _id: 'binding-visual-2',
+              edgeServerId: 'edge-visual-2',
+            },
+          ],
+        },
+      },
+      alarmIncidents: {
+        list: {
+          resolve: (request) => {
+            if (request.edgeId === 'edge-visual-2') {
+              return createDispatchAlarmIncidentListResponseFixture({
+                incidents: [edgeTwoIncident],
+              })
+            }
+
+            return createDispatchAlarmIncidentListResponseFixture({
+              incidents: [confirmedIncident, staleEdgeOneIncident],
+            })
+          },
+        },
+        ack: {
+          resolve: () => {
+            ackRequestCount += 1
+            return ackRequestCount === 1 ? confirmedAck.promise : staleAck.promise
+          },
+        },
+      },
+    })
+
+    const route = renderDispatchWorkspaceRoute(
+      `/hub/dispatch/alarms?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`,
+    )
+    const user = userEvent.setup()
+
+    const confirmedRow = await screen.findByTestId('dispatch-alarm-journal-row-dispatch-alarm-confirmed-ack')
+    const staleRow = await screen.findByTestId('dispatch-alarm-journal-row-dispatch-alarm-shared-ack')
+    const confirmedAckButton = within(confirmedRow).getByRole('button', {
+      name: 'Acknowledge alarm Confirmed ACK alarm',
+    })
+    const staleAckButton = within(staleRow).getByRole('button', {
+      name: 'Acknowledge alarm Stale ACK alarm',
+    })
+
+    await user.click(confirmedAckButton)
+    await waitFor(() => {
+      expect(fixtures.dispatchAlarmIncidents.ackRequests[0]).toEqual({
+        edgeId: 'edge-visual-1',
+        incidentId: 'dispatch-alarm-confirmed-ack',
+      })
+    })
+    expect(confirmedAckButton).toBeDisabled()
+    expect(within(confirmedRow).getByText('Pending')).toBeInTheDocument()
+    expect(staleAckButton).not.toBeDisabled()
+    expect(within(confirmedRow).getByText('Active unacknowledged')).toBeInTheDocument()
+    expect(within(confirmedRow).queryByText('Active acknowledged')).not.toBeInTheDocument()
+    expect(within(confirmedRow).queryByText('Acknowledged')).not.toBeInTheDocument()
+
+    confirmedAck.resolve(
+      createDispatchActiveAcknowledgedAlarmIncidentProjectionFixture({
+        incidentId: confirmedIncident.incidentId,
+        edgeId: confirmedIncident.edgeId,
+        deviceId: confirmedIncident.deviceId,
+        metric: confirmedIncident.metric,
+        ruleId: confirmedIncident.ruleId,
+        rule: confirmedIncident.rule,
+        acknowledgedAt: '2026-05-09T10:06:00.000Z',
+        acknowledgedBy: 'dispatch-user-1',
+      }),
+    )
+    await waitFor(() => {
+      expect(within(confirmedRow).getByText('Active acknowledged')).toBeInTheDocument()
+      expect(within(confirmedRow).getByText('Acknowledged')).toBeInTheDocument()
+    })
+
+    await user.click(staleAckButton)
+    await waitFor(() => {
+      expect(fixtures.dispatchAlarmIncidents.ackRequests[1]).toEqual({
+        edgeId: 'edge-visual-1',
+        incidentId: 'dispatch-alarm-shared-ack',
+      })
+    })
+    expect(staleAckButton).toBeDisabled()
+    expect(within(staleRow).getByText('Pending')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Edge Server' }), 'edge-visual-2')
+    await waitFor(() => {
+      expect(route.router.state.location.search).toContain('edgeId=edge-visual-2')
+    })
+    const currentEdgeRow = await screen.findByTestId('dispatch-alarm-journal-row-dispatch-alarm-shared-ack')
+    expect(within(currentEdgeRow).getByText('Current Edge ACK alarm')).toBeInTheDocument()
+    expect(within(currentEdgeRow).getByText('Active unacknowledged')).toBeInTheDocument()
+    expect(
+      within(currentEdgeRow).getByRole('button', {
+        name: 'Acknowledge alarm Current Edge ACK alarm',
+      }),
+    ).not.toBeDisabled()
+
+    staleAck.resolve(
+      createDispatchActiveAcknowledgedAlarmIncidentProjectionFixture({
+        incidentId: staleEdgeOneIncident.incidentId,
+        edgeId: staleEdgeOneIncident.edgeId,
+        deviceId: staleEdgeOneIncident.deviceId,
+        metric: staleEdgeOneIncident.metric,
+        ruleId: staleEdgeOneIncident.ruleId,
+        rule: staleEdgeOneIncident.rule,
+        acknowledgedAt: '2026-05-09T10:07:00.000Z',
+        acknowledgedBy: 'dispatch-user-1',
+      }),
+    )
+    await waitFor(() => {
+      expect(screen.getByTestId('dispatch-alarm-journal-row-dispatch-alarm-shared-ack')).toHaveAttribute(
+        'data-edge-id',
+        'edge-visual-2',
+      )
+      expect(within(currentEdgeRow).getByText('Active unacknowledged')).toBeInTheDocument()
+      expect(within(currentEdgeRow).queryByText('Active acknowledged')).not.toBeInTheDocument()
+      expect(within(currentEdgeRow).queryByText('Acknowledged')).not.toBeInTheDocument()
+    })
+    expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
+  })
 })
