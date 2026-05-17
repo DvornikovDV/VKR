@@ -49,12 +49,12 @@ export function DispatchAlarmJournalTable({
       data-testid="dispatch-alarm-journal-table"
       className={
         className
-          ?? 'flex min-h-[20rem] min-w-0 flex-col rounded-md border border-[#1f2a3d] bg-[#0f172a] p-4'
+          ?? 'min-w-0 rounded-md border border-[#1f2a3d] bg-[#0f172a] p-3'
       }
     >
       <h3 className="text-sm font-semibold text-white">Alarm journal</h3>
-      <div className="mt-4 min-h-0 flex-1 overflow-auto">
-        <table className="w-max min-w-full table-auto border-separate border-spacing-0 text-left text-xs text-[#cbd5e1]">
+      <div className="mt-3 min-w-0 overflow-x-auto">
+        <table className="w-full min-w-[82rem] table-auto border-separate border-spacing-0 text-left text-xs text-[#cbd5e1]">
           <thead className="sticky top-0 bg-[#0f172a] text-[#94a3b8]">
             <tr>
               <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">rule</th>
@@ -96,7 +96,7 @@ export function DispatchAlarmJournalTable({
                     data-edge-id={incident.edgeId}
                     data-incident-id={incident.incidentId}
                   >
-                    <td className="max-w-[18rem] border-b border-[#172033] py-2 pr-3 align-top">
+                    <td className="max-w-[16rem] break-words border-b border-[#172033] py-2 pr-3 align-top">
                       <div className="font-medium text-white">{row.ruleTitle}</div>
                       <div className="mt-1 font-mono text-[11px] text-[#64748b]">
                         {incident.ruleId}
@@ -105,7 +105,7 @@ export function DispatchAlarmJournalTable({
                     <td className="whitespace-nowrap border-b border-[#172033] py-2 pr-3 align-top">
                       {row.equipmentIdentity}
                     </td>
-                    <td className="max-w-[24rem] border-b border-[#172033] py-2 pr-3 align-top">
+                    <td className="max-w-[20rem] break-words border-b border-[#172033] py-2 pr-3 align-top">
                       {row.conditionSummary}
                     </td>
                     <td className="whitespace-nowrap border-b border-[#172033] py-2 pr-3 align-top">

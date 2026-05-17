@@ -1,7 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { DispatchAlarmJournalPagination } from '@/features/dispatch/components/DispatchAlarmJournalPagination'
 import { DispatchAlarmJournalTable } from '@/features/dispatch/components/DispatchAlarmJournalTable'
 import { DispatchAlarmJournalToolbar } from '@/features/dispatch/components/DispatchAlarmJournalToolbar'
 import { getDispatchAlarmJournalClosedAt } from '@/features/dispatch/model/alarmJournal'
@@ -80,7 +79,7 @@ describe('Dispatch Alarm Journal presentation components', () => {
     expect(within(closedRow).getByText('Acknowledged')).toBeInTheDocument()
   })
 
-  it('renders toolbar state, refresh, slot layout, and bounded pagination controls', async () => {
+  it('renders toolbar state, refresh, and bounded pagination controls in one compact bar', async () => {
     const onStateChange = vi.fn()
     const onRefresh = vi.fn()
     const onPreviousPage = vi.fn()
@@ -88,46 +87,28 @@ describe('Dispatch Alarm Journal presentation components', () => {
     const user = userEvent.setup()
 
     render(
-      <>
-        <DispatchAlarmJournalToolbar
-          state="unclosed"
-          visibleCount={2}
-          total={12}
-          onStateChange={onStateChange}
-          onRefresh={onRefresh}
-        />
-        <DispatchAlarmJournalToolbar
-          layout="slot"
-          state="all"
-          visibleCount={1}
-          total={4}
-          onStateChange={onStateChange}
-          onRefresh={onRefresh}
-        />
-        <DispatchAlarmJournalPagination
-          pagination={{ page: 2, limit: 50, total: 125, hasNextPage: true }}
-          visibleCount={50}
-          onPreviousPage={onPreviousPage}
-          onNextPage={onNextPage}
-        />
-      </>,
+      <DispatchAlarmJournalToolbar
+        state="unclosed"
+        visibleCount={50}
+        total={125}
+        pagination={{ page: 2, limit: 50, total: 125, hasNextPage: true }}
+        onStateChange={onStateChange}
+        onRefresh={onRefresh}
+        onPreviousPage={onPreviousPage}
+        onNextPage={onNextPage}
+      />,
     )
 
-    const toolbar = screen.getAllByTestId('dispatch-alarm-journal-toolbar')[0]
+    const toolbar = screen.getByTestId('dispatch-alarm-journal-toolbar')
     await user.selectOptions(within(toolbar).getByRole('combobox', { name: 'Alarm incident state' }), 'all')
     expect(onStateChange).toHaveBeenCalledWith('all')
 
     await user.click(within(toolbar).getByRole('button', { name: /Refresh/i }))
     expect(onRefresh).toHaveBeenCalledTimes(1)
-    expect(within(toolbar).getByText('2 visible | 12 total')).toBeInTheDocument()
+    expect(within(toolbar).getByText('Page 2 | 50 incidents visible | 125 total')).toBeInTheDocument()
 
-    expect(
-      screen.getByRole('group', { name: 'Alarm journal controls' }),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Page 2 | 51-100 of 125 incidents')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Previous alarm journal page' }))
-    await user.click(screen.getByRole('button', { name: 'Next alarm journal page' }))
+    await user.click(within(toolbar).getByRole('button', { name: 'Previous alarm journal page' }))
+    await user.click(within(toolbar).getByRole('button', { name: 'Next alarm journal page' }))
     expect(onPreviousPage).toHaveBeenCalledTimes(1)
     expect(onNextPage).toHaveBeenCalledTimes(1)
   })

@@ -7,11 +7,6 @@ import {
   type AlarmIncidentListResponse,
   type AlarmIncidentListState,
 } from '@/shared/api/alarmIncidents'
-import {
-  createDispatchActionSlotContextKey,
-  useRegisterDispatchActionSlot,
-} from '@/features/dispatch/components/DispatchActionSlot'
-import { DispatchAlarmJournalPagination } from '@/features/dispatch/components/DispatchAlarmJournalPagination'
 import { DispatchAlarmJournalTable } from '@/features/dispatch/components/DispatchAlarmJournalTable'
 import { DispatchAlarmJournalToolbar } from '@/features/dispatch/components/DispatchAlarmJournalToolbar'
 import {
@@ -28,11 +23,7 @@ import {
   type DispatchAlarmJournalRequestDescriptor,
   type DispatchAlarmJournalRequestGuard,
 } from '@/features/dispatch/model/alarmJournal'
-import { DISPATCH_ALARMS_TAB } from '@/features/dispatch/model/routes'
-import type {
-  DispatchActionSlotRegistration,
-  DispatchWorkspaceContextSnapshot,
-} from '@/features/dispatch/model/types'
+import type { DispatchWorkspaceContextSnapshot } from '@/features/dispatch/model/types'
 
 interface DispatchAlarmJournalTabProps {
   workspaceContext: DispatchWorkspaceContextSnapshot
@@ -418,53 +409,6 @@ export function DispatchAlarmJournalTab({
     }
   }, [])
 
-  const actionSlotContextKey = useMemo(
-    () => createDispatchActionSlotContextKey(workspaceContext.selection),
-    [workspaceContext.selection],
-  )
-
-  const actionSlotToolbar = useMemo(
-    () => (
-      <DispatchAlarmJournalToolbar
-        state={stateFilter}
-        onStateChange={handleStateChange}
-        onRefresh={handleRefresh}
-        isLoading={isLoading}
-        isDisabled={!canUseControls}
-        visibleCount={visibleCount}
-        total={total}
-        layout="slot"
-      />
-    ),
-    [
-      canUseControls,
-      handleRefresh,
-      handleStateChange,
-      isLoading,
-      stateFilter,
-      total,
-      visibleCount,
-    ],
-  )
-
-  const actionSlotRegistration = useMemo<DispatchActionSlotRegistration>(
-    () => ({
-      tabId: DISPATCH_ALARMS_TAB,
-      contextKey: actionSlotContextKey,
-      controls: [
-        {
-          id: 'alarms.journalControls',
-          label: 'Alarm journal controls',
-          content: actionSlotToolbar,
-          order: 10,
-          disabled: !canUseControls,
-        },
-      ],
-    }),
-    [actionSlotContextKey, actionSlotToolbar, canUseControls],
-  )
-  useRegisterDispatchActionSlot(actionSlotRegistration)
-
   return (
     <section
       aria-label="Dispatch alarm journal"
@@ -480,6 +424,9 @@ export function DispatchAlarmJournalTab({
         isDisabled={!canUseControls}
         visibleCount={visibleCount}
         total={total}
+        pagination={pagination}
+        onPreviousPage={handlePreviousPage}
+        onNextPage={handleNextPage}
       />
 
       {validationMessage ? (
@@ -519,13 +466,6 @@ export function DispatchAlarmJournalTab({
               emptyMessage="No alarm incidents were returned for the selected Edge Server."
             />
           </div>
-          <DispatchAlarmJournalPagination
-            pagination={pagination}
-            visibleCount={visibleCount}
-            isDisabled={!canUseControls || isLoading}
-            onPreviousPage={handlePreviousPage}
-            onNextPage={handleNextPage}
-          />
         </>
       ) : (
         <div className="flex min-h-[12rem] flex-1 items-center justify-center p-4 text-center text-sm text-[#94a3b8]">

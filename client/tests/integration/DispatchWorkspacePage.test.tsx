@@ -1182,10 +1182,24 @@ describe('DispatchWorkspacePage routing', () => {
     expect(await screen.findByTestId('dispatch-alarm-journal-row-dispatch-alarm-edge-2-page-2')).toBeInTheDocument()
 
     const actionSlot = screen.getByTestId('dispatch-action-slot')
-    const stateSelect = within(actionSlot).getByRole('combobox', { name: 'Alarm incident state' })
+    expect(
+      within(actionSlot).queryByRole('combobox', { name: 'Alarm incident state' }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(actionSlot).queryByTestId('dispatch-alarm-journal-refresh'),
+    ).not.toBeInTheDocument()
+
+    const alarmJournalTab = screen.getByTestId('dispatch-alarm-journal-tab')
+    expect(
+      within(alarmJournalTab).getByRole('button', { name: 'Previous alarm journal page' }),
+    ).toBeInTheDocument()
+    expect(
+      within(alarmJournalTab).getByRole('button', { name: 'Next alarm journal page' }),
+    ).toBeInTheDocument()
+    const stateSelect = within(alarmJournalTab).getByRole('combobox', { name: 'Alarm incident state' })
     expect(stateSelect).toHaveValue('unclosed')
-    expect(within(actionSlot).getByTestId('dispatch-alarm-journal-toolbar-summary')).toHaveTextContent(
-      '1 visible | 100 total',
+    expect(within(alarmJournalTab).getByTestId('dispatch-alarm-journal-toolbar-summary')).toHaveTextContent(
+      'Page 2 | 1 incidents visible | 100 total',
     )
     await user.selectOptions(stateSelect, 'all')
     await waitFor(() => {
@@ -1205,7 +1219,7 @@ describe('DispatchWorkspacePage routing', () => {
     expect(within(closedRow).getByText('Closed')).toBeInTheDocument()
     expect(screen.getByTestId('dispatch-alarm-journal-closed-at-dispatch-alarm-closed-2')).not.toHaveTextContent('-')
 
-    await user.click(within(actionSlot).getByTestId('dispatch-alarm-journal-refresh'))
+    await user.click(within(alarmJournalTab).getByTestId('dispatch-alarm-journal-refresh'))
     await waitFor(() => {
       expect(fixtures.dispatchAlarmIncidents.listRequests).toHaveLength(5)
       expect(fixtures.dispatchAlarmIncidents.listRequests[4]).toEqual({
