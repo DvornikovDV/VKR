@@ -1,15 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
-import type { DashboardTransportStatus } from '@/features/dashboard/model/types'
-import {
-  createDispatchActionSlotContextKey,
-  useRegisterDispatchActionSlot,
-} from '@/features/dispatch/components/DispatchActionSlot'
+import type {
+  DashboardEdgeAvailability,
+  DashboardTransportStatus,
+  DashboardTrustedEdgeServer,
+} from '@/features/dashboard/model/types'
 import { DispatchLiveTelemetryTable } from '@/features/dispatch/components/DispatchLiveTelemetryTable'
-import {
-  DispatchLiveTelemetryPauseResumeButton,
-  DispatchLiveTelemetryToolbar,
-} from '@/features/dispatch/components/DispatchLiveTelemetryToolbar'
+import { DispatchLiveTelemetryToolbar } from '@/features/dispatch/components/DispatchLiveTelemetryToolbar'
 import { useDispatchLiveTelemetrySession } from '@/features/dispatch/hooks/useDispatchLiveTelemetrySession'
 import {
   countDispatchLiveTelemetryWaitingRows,
@@ -17,7 +14,6 @@ import {
   selectDispatchLiveTelemetryBindingPairs,
   type DispatchLiveTelemetryRow,
 } from '@/features/dispatch/model/liveTelemetry'
-import { DISPATCH_TELEMETRY_TAB } from '@/features/dispatch/model/routes'
 import type { DispatchWorkspaceContextSnapshot } from '@/features/dispatch/model/types'
 
 interface DispatchLiveTelemetryTabProps {
@@ -60,6 +56,16 @@ function createTelemetryContextKey(
     edgeId,
     bindingProfileId,
   })
+}
+
+function getSelectedEdgeAvailability(
+  selectedEdge: DashboardTrustedEdgeServer | null,
+): DashboardEdgeAvailability {
+  if (!selectedEdge) {
+    return 'unknown'
+  }
+
+  return selectedEdge.availability.online ? 'online' : 'offline'
 }
 
 function getValidationMessage(
@@ -105,6 +111,9 @@ export function DispatchLiveTelemetryTab({
   const selectedEdgeId = getContextValue(workspaceContext.selection.edgeId)
   const selectedBindingProfile = workspaceContext.selection.selectedBindingProfile
   const selectedBindingProfileId = getContextValue(selectedBindingProfile?._id)
+  const selectedEdgeAvailability = getSelectedEdgeAvailability(
+    workspaceContext.selection.selectedEdge,
+  )
   const relevantPairs = useMemo(
     () => selectDispatchLiveTelemetryBindingPairs(selectedBindingProfile),
     [selectedBindingProfile],
@@ -117,14 +126,6 @@ export function DispatchLiveTelemetryTab({
   const telemetryContextKey = useMemo(
     () => createTelemetryContextKey(selectedDiagramId, selectedEdgeId, selectedBindingProfileId),
     [selectedBindingProfileId, selectedDiagramId, selectedEdgeId],
-  )
-  const actionSlotContextKey = useMemo(
-    () =>
-      createDispatchActionSlotContextKey({
-        diagramId: selectedDiagramId,
-        edgeId: selectedEdgeId,
-      }),
-    [selectedDiagramId, selectedEdgeId],
   )
   const session = useDispatchLiveTelemetrySession({
     diagramId: selectedDiagramId,
@@ -199,59 +200,8 @@ export function DispatchLiveTelemetryTab({
   const waitingCount = isPaused
     ? countDispatchLiveTelemetryWaitingRows(activeSessionRows, pausedSnapshotRows)
     : 0
-  const actionSlotRegistration = useMemo(
-    () => ({
-      tabId: DISPATCH_TELEMETRY_TAB,
-      contextKey: actionSlotContextKey,
-      controls: [
-        {
-          id: 'telemetry.status' as const,
-          label: 'Live telemetry status',
-          order: 10,
-          disabled: !streamEnabled,
-          content: (
-            <span
-              data-testid="dispatch-live-telemetry-action-summary"
-              data-transport-status={transportStatus}
-              data-visible-count={visibleRows.length}
-              data-waiting-count={waitingCount}
-              className="inline-flex min-h-7 items-center rounded border border-[#334155] bg-[#0f172a] px-2 text-xs text-[#cbd5e1]"
-            >
-              {visibleRows.length} visible | {waitingCount} waiting | {transportStatus}
-            </span>
-          ),
-        },
-        {
-          id: 'telemetry.pauseResume' as const,
-          label: isPaused ? 'Resume live telemetry' : 'Pause live telemetry',
-          order: 20,
-          disabled: !streamEnabled,
-          content: (
-            <DispatchLiveTelemetryPauseResumeButton
-              isPaused={isPaused}
-              onTogglePaused={handleTogglePaused}
-              disabled={!streamEnabled}
-              compact
-              testId="dispatch-live-telemetry-action-pause-resume"
-            />
-          ),
-        },
-      ],
-    }),
-    [
-      actionSlotContextKey,
-      handleTogglePaused,
-      isPaused,
-      streamEnabled,
-      transportStatus,
-      visibleRows.length,
-      waitingCount,
-    ],
-  )
   const isContextLoading = workspaceContext.status === 'loading'
   const shouldShowLoading = streamEnabled && transportStatus === 'connecting' && visibleRows.length === 0
-
-  useRegisterDispatchActionSlot(actionSlotRegistration)
 
   return (
     <section
@@ -269,6 +219,7 @@ export function DispatchLiveTelemetryTab({
         visibleCount={visibleRows.length}
         waitingCount={waitingCount}
         transportStatus={transportStatus}
+        edgeAvailability={selectedEdgeAvailability}
       />
 
       {validationMessage ? (

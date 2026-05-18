@@ -1,6 +1,9 @@
 import { Pause, Play } from 'lucide-react'
 import { clsx } from 'clsx'
-import type { DashboardTransportStatus } from '@/features/dashboard/model/types'
+import type {
+  DashboardEdgeAvailability,
+  DashboardTransportStatus,
+} from '@/features/dashboard/model/types'
 
 interface DispatchLiveTelemetryPauseResumeButtonProps {
   isPaused: boolean
@@ -14,10 +17,11 @@ interface DispatchLiveTelemetryToolbarProps extends DispatchLiveTelemetryPauseRe
   visibleCount: number
   waitingCount: number
   transportStatus: DashboardTransportStatus
+  edgeAvailability: DashboardEdgeAvailability
   className?: string
 }
 
-function getTransportLabel(status: DashboardTransportStatus): string {
+function getCloudStreamLabel(status: DashboardTransportStatus): string {
   switch (status) {
     case 'connected':
       return 'Connected'
@@ -30,6 +34,18 @@ function getTransportLabel(status: DashboardTransportStatus): string {
     case 'idle':
     default:
       return 'Idle'
+  }
+}
+
+function getEdgeAvailabilityLabel(availability: DashboardEdgeAvailability): string {
+  switch (availability) {
+    case 'online':
+      return 'Online'
+    case 'offline':
+      return 'Offline'
+    case 'unknown':
+    default:
+      return 'Unknown'
   }
 }
 
@@ -69,9 +85,11 @@ export function DispatchLiveTelemetryToolbar({
   visibleCount,
   waitingCount,
   transportStatus,
+  edgeAvailability,
   className,
 }: DispatchLiveTelemetryToolbarProps) {
-  const transportLabel = getTransportLabel(transportStatus)
+  const cloudStreamLabel = getCloudStreamLabel(transportStatus)
+  const edgeAvailabilityLabel = getEdgeAvailabilityLabel(edgeAvailability)
 
   return (
     <div
@@ -90,11 +108,18 @@ export function DispatchLiveTelemetryToolbar({
           {visibleCount} rows visible | {waitingCount} newer waiting
         </p>
         <p
-          data-testid="dispatch-live-telemetry-transport-status"
-          data-transport-status={transportStatus}
+          data-testid="dispatch-live-telemetry-cloud-stream-status"
+          data-cloud-stream-status={transportStatus}
           className="min-w-0 text-xs text-[#94a3b8]"
         >
-          Transport: {transportLabel}
+          Cloud stream: {cloudStreamLabel}
+        </p>
+        <p
+          data-testid="dispatch-live-telemetry-edge-status"
+          data-edge-availability={edgeAvailability}
+          className="min-w-0 text-xs text-[#94a3b8]"
+        >
+          Edge: {edgeAvailabilityLabel}
         </p>
         <p
           data-testid="dispatch-live-telemetry-pause-state"

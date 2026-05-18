@@ -628,6 +628,17 @@ describe('DispatchWorkspacePage routing', () => {
     setupDispatchWorkspaceRestFixtures({
       dashboard: {
         ...createDashboardVisualRestFixtures(),
+        trustedEdges: [
+          {
+            _id: 'edge-visual-1',
+            name: 'Visual Edge',
+            lifecycleState: 'Active',
+            availability: {
+              online: false,
+              lastSeenAt: '2026-04-24T08:14:30.000Z',
+            },
+          },
+        ],
         bindingProfilesByDiagramId: {
           [dashboardVisualDiagram._id]: [
             {
@@ -661,6 +672,11 @@ describe('DispatchWorkspacePage routing', () => {
     expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
     expect(screen.queryByTestId('dashboard-visual-surface')).not.toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('dispatch-action-slot')).queryByRole('button', {
+        name: 'Pause live telemetry',
+      }),
+    ).not.toBeInTheDocument()
 
     act(() => {
       dispatchWorkspaceRuntimeSocketHarness.emitRemovedConnectError(
@@ -730,9 +746,19 @@ describe('DispatchWorkspacePage routing', () => {
     expect(within(rows[2]).getByText('71.5')).toBeInTheDocument()
     expect(screen.queryByText('88.8')).not.toBeInTheDocument()
     expect(screen.queryByText('99')).not.toBeInTheDocument()
-    expect(screen.getByTestId('dispatch-live-telemetry-transport-status')).toHaveAttribute(
-      'data-transport-status',
+    expect(screen.getByTestId('dispatch-live-telemetry-cloud-stream-status')).toHaveAttribute(
+      'data-cloud-stream-status',
       'connected',
+    )
+    expect(screen.getByTestId('dispatch-live-telemetry-cloud-stream-status')).toHaveTextContent(
+      'Cloud stream: Connected',
+    )
+    expect(screen.getByTestId('dispatch-live-telemetry-edge-status')).toHaveAttribute(
+      'data-edge-availability',
+      'offline',
+    )
+    expect(screen.getByTestId('dispatch-live-telemetry-edge-status')).toHaveTextContent(
+      'Edge: Offline',
     )
   })
 
@@ -794,11 +820,15 @@ describe('DispatchWorkspacePage routing', () => {
     expect(within(rows[0]).getByText('40')).toBeInTheDocument()
 
     const actionSlot = screen.getByTestId('dispatch-action-slot')
+    const toolbar = screen.getByTestId('dispatch-live-telemetry-toolbar')
+    expect(
+      within(actionSlot).queryByRole('button', { name: 'Pause live telemetry' }),
+    ).not.toBeInTheDocument()
     await user.click(
-      within(actionSlot).getByRole('button', { name: 'Pause live telemetry' }),
+      within(toolbar).getByRole('button', { name: 'Pause live telemetry' }),
     )
     expect(
-      within(actionSlot).getByRole('button', { name: 'Resume live telemetry' }),
+      within(toolbar).getByRole('button', { name: 'Resume live telemetry' }),
     ).toBeInTheDocument()
 
     act(() => {
@@ -826,8 +856,8 @@ describe('DispatchWorkspacePage routing', () => {
       expect(screen.getByTestId('dispatch-live-telemetry-toolbar-summary')).toHaveTextContent(
         '1 rows visible | 2 newer waiting',
       )
-      expect(screen.getByTestId('dispatch-live-telemetry-action-summary')).toHaveTextContent(
-        '1 visible | 2 waiting | connected',
+      expect(screen.getByTestId('dispatch-live-telemetry-cloud-stream-status')).toHaveTextContent(
+        'Cloud stream: Connected',
       )
     })
     rows = screen.getAllByTestId('dispatch-live-telemetry-row')
@@ -838,7 +868,7 @@ describe('DispatchWorkspacePage routing', () => {
     expect(dispatchWorkspaceRuntimeSocketHarness.spies.disconnect).not.toHaveBeenCalled()
 
     await user.click(
-      within(actionSlot).getByRole('button', { name: 'Resume live telemetry' }),
+      within(toolbar).getByRole('button', { name: 'Resume live telemetry' }),
     )
     await waitFor(() => {
       expect(screen.getAllByTestId('dispatch-live-telemetry-row')).toHaveLength(3)
