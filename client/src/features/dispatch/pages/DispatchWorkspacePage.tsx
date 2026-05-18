@@ -7,10 +7,7 @@ import {
 import { DispatchAlarmJournalTab } from '@/features/dispatch/components/DispatchAlarmJournalTab'
 import { DispatchCommandAuditTab } from '@/features/dispatch/components/DispatchCommandAuditTab'
 import { DispatchContextBar } from '@/features/dispatch/components/DispatchContextBar'
-import {
-  DispatchPlaceholderTab,
-  type DispatchPlaceholderTabId,
-} from '@/features/dispatch/components/DispatchPlaceholderTab'
+import { DispatchLiveTelemetryTab } from '@/features/dispatch/components/DispatchLiveTelemetryTab'
 import { DispatchTabs } from '@/features/dispatch/components/DispatchTabs'
 import { DispatchTrendsTab } from '@/features/dispatch/components/DispatchTrendsTab'
 import {
@@ -68,12 +65,7 @@ function renderDispatchTab(
     case DISPATCH_ALARMS_TAB:
       return <DispatchAlarmJournalTab workspaceContext={workspaceContext} />
     case DISPATCH_TELEMETRY_TAB:
-      return (
-        <DispatchPlaceholderTab
-          tabId={activeTabId as DispatchPlaceholderTabId}
-          workspaceContext={workspaceContext}
-        />
-      )
+      return <DispatchLiveTelemetryTab workspaceContext={workspaceContext} />
     case DISPATCH_COMMANDS_TAB:
       return <DispatchCommandAuditTab workspaceContext={workspaceContext} />
     case DISPATCH_TRENDS_TAB:

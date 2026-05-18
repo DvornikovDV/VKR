@@ -26,6 +26,7 @@ import {
   createDispatchTelemetryEventFixture,
   dispatchWorkspaceTrendsCatalog,
   dispatchWorkspaceRuntimeHarness,
+  dispatchWorkspaceRuntimeSocketHarness,
   renderDispatchWorkspaceRoute,
   setupDispatchWorkspaceRestFixtures,
   type DispatchCommandAuditFixtureRequest,
@@ -36,18 +37,26 @@ vi.mock('@/features/dashboard/services/cloudRuntimeClient', async () => {
   const actual = await vi.importActual<typeof import('@/features/dashboard/services/cloudRuntimeClient')>(
     '@/features/dashboard/services/cloudRuntimeClient',
   )
-  const { dashboardRuntimeClientHarness } = await import('./helpers/mockDashboardRuntimeSocket')
+  const {
+    dashboardRuntimeClientHarness,
+    dashboardRuntimeSocketHarness,
+  } = await import('./helpers/mockDashboardRuntimeSocket')
+  const telemetryOnlyRuntimeClient = actual.createCloudRuntimeClient(
+    dashboardRuntimeSocketHarness.socketFactory,
+  )
 
   return {
     ...actual,
     cloudRuntimeClient: {
       startSession: dashboardRuntimeClientHarness.startSession,
+      startTelemetryOnlySession: telemetryOnlyRuntimeClient.startTelemetryOnlySession,
     },
   }
 })
 
 beforeEach(() => {
   dispatchWorkspaceRuntimeHarness.reset()
+  dispatchWorkspaceRuntimeSocketHarness.reset()
   authenticateDispatchWorkspaceUser()
 })
 
@@ -326,10 +335,15 @@ describe('DispatchWorkspacePage routing', () => {
         name: 'Telemetry',
       }),
     ).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByTestId('dispatch-placeholder-context')).toHaveAttribute(
-      'data-tab-id',
-      'telemetry',
+    expect(screen.getByTestId('dispatch-live-telemetry-tab')).toHaveAttribute(
+      'data-edge-id',
+      'edge-visual-1',
     )
+    await waitFor(() => {
+      expect(dispatchWorkspaceRuntimeSocketHarness.getLastSubscribePayload()).toEqual({
+        edgeId: 'edge-visual-1',
+      })
+    })
     expect(within(screen.getByTestId('dispatch-action-slot')).queryByRole('button', { name: 'Fit to view' })).not.toBeInTheDocument()
     expect(within(screen.getByTestId('dispatch-action-slot')).queryByRole('button', { name: 'Details' })).not.toBeInTheDocument()
     expect(within(screen.getByTestId('dispatch-action-slot')).queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
@@ -607,6 +621,93 @@ describe('DispatchWorkspacePage routing', () => {
       ),
     ).not.toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-alarm-incident-row-dispatch-incident-edge-1')).not.toBeInTheDocument()
+  })
+
+  it('proves Dispatch Live Telemetry route uses the selected binding profile without Dashboard runtime side effects', async () => {
+    setupDispatchWorkspaceRestFixtures({
+      dashboard: {
+        ...createDashboardVisualRestFixtures(),
+        bindingProfilesByDiagramId: {
+          [dashboardVisualDiagram._id]: [
+            {
+              ...dashboardVisualBindingProfile,
+              widgetBindings: [
+                { widgetId: 'widget-temperature', deviceId: 'boiler-1', metric: 'temperature' },
+                { widgetId: 'widget-command-toggle', deviceId: 'pump-1', metric: 'running' },
+              ],
+            },
+          ],
+        },
+      },
+    })
+
+    renderDispatchWorkspaceRoute(
+      `/hub/dispatch/telemetry?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`,
+    )
+
+    const telemetryTab = await screen.findByTestId('dispatch-live-telemetry-tab')
+    expect(telemetryTab).toHaveAttribute('data-edge-id', 'edge-visual-1')
+    expect(screen.queryByTestId('dispatch-placeholder-context')).not.toBeInTheDocument()
+
+    await waitFor(() => {
+      expect(dispatchWorkspaceRuntimeSocketHarness.getLastSubscribePayload()).toEqual({
+        edgeId: 'edge-visual-1',
+      })
+    })
+    expect(dispatchWorkspaceRuntimeSocketHarness.getEmittedEvents()).toEqual([
+      { event: 'subscribe', payload: { edgeId: 'edge-visual-1' } },
+    ])
+    expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('dashboard-visual-surface')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
+
+    act(() => {
+      dispatchWorkspaceRuntimeSocketHarness.emitTelemetry(
+        createDispatchTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            { deviceId: 'boiler-1', metric: 'temperature', last: 71.5, ts: 1779000001000 },
+            { deviceId: 'boiler-1', metric: 'unbound', last: 99, ts: 1779000001000 },
+          ],
+          serverTs: 1779000001100,
+        }),
+      )
+      dispatchWorkspaceRuntimeSocketHarness.emitTelemetry(
+        createDispatchTelemetryEventFixture({
+          edgeId: 'edge-visual-2',
+          readings: [
+            { deviceId: 'boiler-1', metric: 'temperature', last: 88.8, ts: 1779000002000 },
+          ],
+          serverTs: 1779000002100,
+        }),
+      )
+      dispatchWorkspaceRuntimeSocketHarness.emitTelemetry(
+        createDispatchTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            { deviceId: 'pump-1', metric: 'running', last: true, ts: 1779000003000 },
+          ],
+          serverTs: 1779000003100,
+        }),
+      )
+    })
+
+    const rows = await screen.findAllByTestId('dispatch-live-telemetry-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toHaveAttribute('data-edge-id', 'edge-visual-1')
+    expect(rows[0]).toHaveAttribute('data-device-id', 'pump-1')
+    expect(rows[0]).toHaveAttribute('data-metric', 'running')
+    expect(within(rows[0]).getByText('true')).toBeInTheDocument()
+    expect(rows[1]).toHaveAttribute('data-edge-id', 'edge-visual-1')
+    expect(rows[1]).toHaveAttribute('data-device-id', 'boiler-1')
+    expect(rows[1]).toHaveAttribute('data-metric', 'temperature')
+    expect(within(rows[1]).getByText('71.5')).toBeInTheDocument()
+    expect(screen.queryByText('88.8')).not.toBeInTheDocument()
+    expect(screen.queryByText('99')).not.toBeInTheDocument()
+    expect(screen.getByTestId('dispatch-live-telemetry-transport-status')).toHaveAttribute(
+      'data-transport-status',
+      'connected',
+    )
   })
 
   it('proves Dispatch Trends route uses selected context, helper history loading, same-response render, and stale response rejection', async () => {

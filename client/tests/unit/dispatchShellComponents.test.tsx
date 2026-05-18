@@ -11,7 +11,7 @@ import { DispatchPlaceholderTab } from '@/features/dispatch/components/DispatchP
 import { DispatchTabs } from '@/features/dispatch/components/DispatchTabs'
 import {
   DISPATCH_DASHBOARD_TAB,
-  DISPATCH_TELEMETRY_TAB,
+  DISPATCH_TRENDS_TAB,
   type DispatchTabId,
 } from '@/features/dispatch/model/routes'
 import type {
@@ -123,10 +123,10 @@ function DispatchShellProbe() {
       {activeTabId === DISPATCH_DASHBOARD_TAB ? (
         <DashboardSlotRegistration contextKey={actionContextKey} />
       ) : (
-        <DispatchPlaceholderTab tabId={DISPATCH_TELEMETRY_TAB} workspaceContext={workspaceContext} />
+        <DispatchPlaceholderTab tabId={DISPATCH_TRENDS_TAB} workspaceContext={workspaceContext} />
       )}
-      <button type="button" onClick={() => setActiveTabId(DISPATCH_TELEMETRY_TAB)}>
-        Activate telemetry
+      <button type="button" onClick={() => setActiveTabId(DISPATCH_TRENDS_TAB)}>
+        Activate trends
       </button>
     </DispatchActionSlotProvider>
   )
@@ -156,7 +156,7 @@ describe('Dispatch shell component primitives (T007-T010)', () => {
       '/hub/dispatch/telemetry?diagramId=diagram-1&edgeId=edge-1',
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Activate telemetry' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Activate trends' }))
 
     expect(screen.queryByRole('button', { name: 'Fit to view' })).not.toBeInTheDocument()
     expect(screen.getByTestId('dispatch-placeholder-context')).toHaveTextContent('Boiler diagram')
