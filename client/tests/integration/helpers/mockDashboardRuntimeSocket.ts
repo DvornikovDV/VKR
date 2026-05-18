@@ -19,6 +19,7 @@ type SocketEventHandler = (...args: unknown[]) => void
 
 interface MockSocketState {
   listeners: Map<string, Set<SocketEventHandler>>
+  removedListeners: Map<string, SocketEventHandler[]>
   lastSubscribePayload: { edgeId: string } | null
   emittedEvents: Array<{ event: string; payload: unknown }>
 }
@@ -84,6 +85,8 @@ export interface MockDashboardRuntimeSocketHarness {
   emitDisconnect: (reason?: string) => void
   emitConnectError: (error?: unknown) => void
   emitTelemetry: (event: DashboardTelemetryEvent) => void
+  emitRemovedTelemetry: (event: DashboardTelemetryEvent) => void
+  emitRemovedConnectError: (error?: unknown) => void
   emitEdgeStatus: (event: DashboardEdgeStatusEvent) => void
   emitAlarmIncidentChanged: (event: DashboardAlarmIncidentChangedEvent | unknown) => void
   getLastSubscribePayload: () => { edgeId: string } | null
@@ -94,6 +97,7 @@ export interface MockDashboardRuntimeSocketHarness {
 function createState(): MockSocketState {
   return {
     listeners: new Map<string, Set<SocketEventHandler>>(),
+    removedListeners: new Map<string, SocketEventHandler[]>(),
     lastSubscribePayload: null,
     emittedEvents: [],
   }
@@ -104,6 +108,14 @@ function dispatchEvent(state: MockSocketState, eventName: string, ...args: unkno
   if (!handlers) {
     return
   }
+
+  for (const handler of handlers) {
+    handler(...args)
+  }
+}
+
+function dispatchRemovedEvent(state: MockSocketState, eventName: string, ...args: unknown[]) {
+  const handlers = state.removedListeners.get(eventName) ?? []
 
   for (const handler of handlers) {
     handler(...args)
@@ -381,6 +393,10 @@ export function createMockDashboardRuntimeSocketHarness(): MockDashboardRuntimeS
       }
 
       handlers.delete(listener)
+      state.removedListeners.set(event, [
+        ...(state.removedListeners.get(event) ?? []),
+        listener,
+      ])
       if (handlers.size === 0) {
         state.listeners.delete(event)
       }
@@ -432,6 +448,12 @@ export function createMockDashboardRuntimeSocketHarness(): MockDashboardRuntimeS
     emitTelemetry: (event) => {
       dispatchEvent(state, 'telemetry', event)
     },
+    emitRemovedTelemetry: (event) => {
+      dispatchRemovedEvent(state, 'telemetry', event)
+    },
+    emitRemovedConnectError: (error = new Error('Mock removed connect error')) => {
+      dispatchRemovedEvent(state, 'connect_error', error)
+    },
     emitEdgeStatus: (event) => {
       dispatchEvent(state, 'edge_status', event)
     },
@@ -442,6 +464,7 @@ export function createMockDashboardRuntimeSocketHarness(): MockDashboardRuntimeS
     getEmittedEvents: () => [...state.emittedEvents],
     reset: () => {
       state.listeners.clear()
+      state.removedListeners.clear()
       state.lastSubscribePayload = null
       state.emittedEvents = []
       socket.connected = false

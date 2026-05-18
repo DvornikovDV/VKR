@@ -1,8 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useDispatchLiveTelemetrySession } from '@/features/dispatch/hooks/useDispatchLiveTelemetrySession'
 import { createCloudRuntimeClient } from '@/features/dashboard/services/cloudRuntimeClient'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
+import { DISPATCH_LIVE_TELEMETRY_WINDOW_MS } from '@/features/dispatch/model/liveTelemetry'
 import {
   createMockDashboardRuntimeClientHarness,
   createMockDashboardRuntimeSocketHarness,
@@ -29,6 +30,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.useRealTimers()
   act(() => {
     useAuthStore.setState({ session: null, isAuthenticated: false })
   })
@@ -204,5 +206,65 @@ describe('dispatch live telemetry session', () => {
 
     unmount()
     expect(clientHarness.getTelemetryOnlyDisposeCount('edge-visual-2')).toBe(1)
+  })
+
+  it('keeps the hook buffer inside the 60-second received-time window without stopping the session', async () => {
+    vi.useFakeTimers()
+    const clientHarness = createMockDashboardRuntimeClientHarness()
+    const bindingProfile = createDispatchLiveTelemetryBindingProfileFixture()
+    let now = 1779000001000
+
+    const { result, unmount } = renderHook(() =>
+      useDispatchLiveTelemetrySession({
+        diagramId: 'diagram-visual-1',
+        edgeId: 'edge-visual-1',
+        bindingProfile,
+        client: clientHarness,
+        now: () => now,
+      }),
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(result.current.activeEdgeId).toBe('edge-visual-1')
+
+    act(() => {
+      clientHarness.emitTelemetryOnlyTransportStatus('edge-visual-1', 'connected')
+      clientHarness.emitTelemetryOnlyTelemetry(
+        createDispatchLiveTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            { deviceId: 'boiler-1', metric: 'temperature', last: 41.2, ts: 1779000000000 },
+          ],
+        }),
+      )
+    })
+
+    expect(result.current.rows).toHaveLength(1)
+
+    now += DISPATCH_LIVE_TELEMETRY_WINDOW_MS + 1
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    expect(result.current.rows).toEqual([])
+    expect(clientHarness.getTelemetryOnlyDisposeCount('edge-visual-1')).toBe(0)
+
+    act(() => {
+      clientHarness.emitTelemetryOnlyTelemetry(
+        createDispatchLiveTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            { deviceId: 'boiler-1', metric: 'temperature', last: 42.5, ts: 1779000061000 },
+          ],
+        }),
+      )
+    })
+
+    expect(result.current.rows).toHaveLength(1)
+    expect(result.current.rows[0]).toEqual(expect.objectContaining({ value: 42.5 }))
+
+    unmount()
+    expect(clientHarness.getTelemetryOnlyDisposeCount('edge-visual-1')).toBe(1)
   })
 })

@@ -15,18 +15,26 @@ import { userHubRouteChildren } from '@/app/userHubRoutes'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
 
-import { dashboardRuntimeClientHarness } from './helpers/mockDashboardRuntimeSocket'
+import {
+  dashboardRuntimeClientHarness,
+  dashboardRuntimeSocketHarness,
+} from './helpers/mockDashboardRuntimeSocket'
 
 vi.mock('@/features/dashboard/services/cloudRuntimeClient', async () => {
   const actual = await vi.importActual<typeof import('@/features/dashboard/services/cloudRuntimeClient')>(
     '@/features/dashboard/services/cloudRuntimeClient',
   )
-  const { dashboardRuntimeClientHarness: harness } = await import('./helpers/mockDashboardRuntimeSocket')
+  const {
+    dashboardRuntimeClientHarness: harness,
+    dashboardRuntimeSocketHarness: socketHarness,
+  } = await import('./helpers/mockDashboardRuntimeSocket')
+  const telemetryOnlyRuntimeClient = actual.createCloudRuntimeClient(socketHarness.socketFactory)
 
   return {
     ...actual,
     cloudRuntimeClient: {
       startSession: harness.startSession,
+      startTelemetryOnlySession: telemetryOnlyRuntimeClient.startTelemetryOnlySession,
     },
   }
 })
@@ -74,6 +82,7 @@ function renderTelemetryFlow(initialPath: string) {
 
 beforeEach(() => {
   dashboardRuntimeClientHarness.reset()
+  dashboardRuntimeSocketHarness.reset()
   mockedLoadHostedConstructor.mockReset()
   act(() => {
     useAuthStore.setState({ session: null, isAuthenticated: false })
@@ -252,9 +261,11 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
     })
     expect(router.state.location.search).toContain('diagramId=diagram-1')
     expect(router.state.location.search).toContain('edgeId=edge-a')
-    expect(await screen.findByLabelText('Telemetry placeholder')).toBeInTheDocument()
-    expect(screen.getByTestId('dispatch-placeholder-context')).toHaveTextContent('Boiler Hall')
-    expect(screen.getByTestId('dispatch-placeholder-context')).toHaveTextContent('Boiler PLC A')
+    expect(await screen.findByTestId('dispatch-live-telemetry-tab')).toHaveAttribute(
+      'data-edge-id',
+      'edge-a',
+    )
+    expect(screen.queryByTestId('dispatch-placeholder-context')).not.toBeInTheDocument()
   })
 
   it('keeps blocked edge guidance and disables invalid native dashboard handoff across constructor and gallery flows', async () => {

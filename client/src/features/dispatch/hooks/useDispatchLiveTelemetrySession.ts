@@ -12,6 +12,7 @@ import {
   appendDispatchLiveTelemetryRows,
   createDispatchLiveTelemetryContextKey,
   normalizeDispatchLiveTelemetryRows,
+  pruneDispatchLiveTelemetryRows,
   selectDispatchLiveTelemetryBindingPairs,
   type DispatchLiveTelemetryRow,
 } from '@/features/dispatch/model/liveTelemetry'
@@ -153,10 +154,19 @@ export function useDispatchLiveTelemetrySession(
             return
           }
 
-          setState((previous) => ({
-            ...previous,
-            transportStatus,
-          }))
+          setState((previous) => {
+            if (
+              previous.activeContextKey !== contextKey ||
+              previous.activeEdgeId !== normalizedEdgeId
+            ) {
+              return previous
+            }
+
+            return {
+              ...previous,
+              transportStatus,
+            }
+          })
         },
         onTelemetry: (telemetryEvent) => {
           if (
@@ -201,14 +211,52 @@ export function useDispatchLiveTelemetrySession(
             return
           }
 
-          setState((previous) => ({
-            ...previous,
-            runtimeError: toErrorMessage(runtimeError, 'Dispatch live telemetry session failed.'),
-          }))
+          setState((previous) => {
+            if (
+              previous.activeContextKey !== contextKey ||
+              previous.activeEdgeId !== normalizedEdgeId
+            ) {
+              return previous
+            }
+
+            return {
+              ...previous,
+              runtimeError: toErrorMessage(runtimeError, 'Dispatch live telemetry session failed.'),
+            }
+          })
         },
       })
 
       sessionRef.current = session
+
+      const pruneTimer = setInterval(() => {
+        const pruneAt = nowRef.current()
+
+        setState((previous) => {
+          if (
+            previous.activeContextKey !== contextKey ||
+            previous.activeEdgeId !== normalizedEdgeId ||
+            previous.rows.length === 0
+          ) {
+            return previous
+          }
+
+          const prunedRows = pruneDispatchLiveTelemetryRows(previous.rows, pruneAt)
+          if (prunedRows.length === previous.rows.length) {
+            return previous
+          }
+
+          return {
+            ...previous,
+            rows: sortNewestFirst(prunedRows),
+          }
+        })
+      }, 1000)
+
+      return () => {
+        clearInterval(pruneTimer)
+        disposeSession()
+      }
     } catch (error) {
       setState({
         activeContextKey: contextKey,

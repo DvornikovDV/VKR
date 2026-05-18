@@ -1,13 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Loader2 } from 'lucide-react'
+import type { DashboardTransportStatus } from '@/features/dashboard/model/types'
+import {
+  createDispatchActionSlotContextKey,
+  useRegisterDispatchActionSlot,
+} from '@/features/dispatch/components/DispatchActionSlot'
 import { DispatchLiveTelemetryTable } from '@/features/dispatch/components/DispatchLiveTelemetryTable'
-import { DispatchLiveTelemetryToolbar } from '@/features/dispatch/components/DispatchLiveTelemetryToolbar'
+import {
+  DispatchLiveTelemetryPauseResumeButton,
+  DispatchLiveTelemetryToolbar,
+} from '@/features/dispatch/components/DispatchLiveTelemetryToolbar'
 import { useDispatchLiveTelemetrySession } from '@/features/dispatch/hooks/useDispatchLiveTelemetrySession'
 import {
   countDispatchLiveTelemetryWaitingRows,
+  createDispatchLiveTelemetryContextKey,
   selectDispatchLiveTelemetryBindingPairs,
   type DispatchLiveTelemetryRow,
 } from '@/features/dispatch/model/liveTelemetry'
+import { DISPATCH_TELEMETRY_TAB } from '@/features/dispatch/model/routes'
 import type { DispatchWorkspaceContextSnapshot } from '@/features/dispatch/model/types'
 
 interface DispatchLiveTelemetryTabProps {
@@ -15,17 +25,41 @@ interface DispatchLiveTelemetryTabProps {
   className?: string
 }
 
+interface DispatchLiveTelemetryViewState {
+  contextKey: string | null
+  isPaused: boolean
+  visibleRows: DispatchLiveTelemetryRow[]
+  pausedSnapshotRows: DispatchLiveTelemetryRow[]
+}
+
 function getContextValue(value: string | null | undefined): string | null {
   const trimmed = value?.trim()
   return trimmed && trimmed.length > 0 ? trimmed : null
 }
 
-function createLocalContextKey(
+function createViewState(contextKey: string | null): DispatchLiveTelemetryViewState {
+  return {
+    contextKey,
+    isPaused: false,
+    visibleRows: [],
+    pausedSnapshotRows: [],
+  }
+}
+
+function createTelemetryContextKey(
   diagramId: string | null,
   edgeId: string | null,
   bindingProfileId: string | null,
-): string {
-  return `${diagramId ?? 'no-diagram'}:${edgeId ?? 'no-edge'}:${bindingProfileId ?? 'no-profile'}`
+): string | null {
+  if (!diagramId || !edgeId || !bindingProfileId) {
+    return null
+  }
+
+  return createDispatchLiveTelemetryContextKey({
+    diagramId,
+    edgeId,
+    bindingProfileId,
+  })
 }
 
 function getValidationMessage(
@@ -80,9 +114,17 @@ export function DispatchLiveTelemetryTab({
     [relevantPairs.size, workspaceContext],
   )
   const streamEnabled = validationMessage === null
-  const localContextKey = useMemo(
-    () => createLocalContextKey(selectedDiagramId, selectedEdgeId, selectedBindingProfileId),
+  const telemetryContextKey = useMemo(
+    () => createTelemetryContextKey(selectedDiagramId, selectedEdgeId, selectedBindingProfileId),
     [selectedBindingProfileId, selectedDiagramId, selectedEdgeId],
+  )
+  const actionSlotContextKey = useMemo(
+    () =>
+      createDispatchActionSlotContextKey({
+        diagramId: selectedDiagramId,
+        edgeId: selectedEdgeId,
+      }),
+    [selectedDiagramId, selectedEdgeId],
   )
   const session = useDispatchLiveTelemetrySession({
     diagramId: selectedDiagramId,
@@ -90,43 +132,126 @@ export function DispatchLiveTelemetryTab({
     bindingProfile: selectedBindingProfile,
     enabled: streamEnabled,
   })
-  const [isPaused, setIsPaused] = useState(false)
-  const [visibleRows, setVisibleRows] = useState<DispatchLiveTelemetryRow[]>([])
-  const [pausedSnapshotRows, setPausedSnapshotRows] = useState<DispatchLiveTelemetryRow[]>([])
+  const [viewState, setViewState] = useState<DispatchLiveTelemetryViewState>(() =>
+    createViewState(telemetryContextKey),
+  )
+  const isActiveSessionContext =
+    telemetryContextKey !== null && session.activeContextKey === telemetryContextKey
+  const activeSessionRows = useMemo(
+    () =>
+      isActiveSessionContext
+        ? session.rows
+        : [],
+    [isActiveSessionContext, session.rows],
+  )
+  const isViewStateCurrent = viewState.contextKey === telemetryContextKey
+  const isPaused = isViewStateCurrent ? viewState.isPaused : false
+  const visibleRows = isViewStateCurrent ? viewState.visibleRows : []
+  const pausedSnapshotRows = isViewStateCurrent ? viewState.pausedSnapshotRows : []
+  const activeRuntimeError = isActiveSessionContext ? session.runtimeError : null
+  const transportStatus: DashboardTransportStatus = streamEnabled
+    ? isActiveSessionContext
+      ? session.transportStatus
+      : 'connecting'
+    : 'idle'
 
   useEffect(() => {
-    setIsPaused(false)
-    setVisibleRows([])
-    setPausedSnapshotRows([])
-  }, [localContextKey])
+    setViewState(createViewState(telemetryContextKey))
+  }, [telemetryContextKey])
 
   useEffect(() => {
     if (isPaused) {
       return
     }
 
-    setVisibleRows(session.rows)
-    setPausedSnapshotRows(session.rows)
-  }, [isPaused, session.rows])
+    setViewState(() => ({
+      contextKey: telemetryContextKey,
+      isPaused: false,
+      visibleRows: activeSessionRows,
+      pausedSnapshotRows: activeSessionRows,
+    }))
+  }, [activeSessionRows, isPaused, telemetryContextKey])
 
   const handleTogglePaused = useCallback(() => {
-    setIsPaused((current) => {
-      if (current) {
-        setVisibleRows(session.rows)
-        setPausedSnapshotRows(session.rows)
-        return false
+    setViewState((current) => {
+      const activeViewState =
+        current.contextKey === telemetryContextKey
+          ? current
+          : createViewState(telemetryContextKey)
+
+      if (activeViewState.isPaused) {
+        return {
+          contextKey: telemetryContextKey,
+          isPaused: false,
+          visibleRows: activeSessionRows,
+          pausedSnapshotRows: activeSessionRows,
+        }
       }
 
-      setPausedSnapshotRows(visibleRows)
-      return true
+      return {
+        ...activeViewState,
+        isPaused: true,
+        pausedSnapshotRows: activeViewState.visibleRows,
+      }
     })
-  }, [session.rows, visibleRows])
+  }, [activeSessionRows, telemetryContextKey])
 
   const waitingCount = isPaused
-    ? countDispatchLiveTelemetryWaitingRows(session.rows, pausedSnapshotRows)
+    ? countDispatchLiveTelemetryWaitingRows(activeSessionRows, pausedSnapshotRows)
     : 0
+  const actionSlotRegistration = useMemo(
+    () => ({
+      tabId: DISPATCH_TELEMETRY_TAB,
+      contextKey: actionSlotContextKey,
+      controls: [
+        {
+          id: 'telemetry.status' as const,
+          label: 'Live telemetry status',
+          order: 10,
+          disabled: !streamEnabled,
+          content: (
+            <span
+              data-testid="dispatch-live-telemetry-action-summary"
+              data-transport-status={transportStatus}
+              data-visible-count={visibleRows.length}
+              data-waiting-count={waitingCount}
+              className="inline-flex min-h-7 items-center rounded border border-[#334155] bg-[#0f172a] px-2 text-xs text-[#cbd5e1]"
+            >
+              {visibleRows.length} visible | {waitingCount} waiting | {transportStatus}
+            </span>
+          ),
+        },
+        {
+          id: 'telemetry.pauseResume' as const,
+          label: isPaused ? 'Resume live telemetry' : 'Pause live telemetry',
+          order: 20,
+          disabled: !streamEnabled,
+          content: (
+            <DispatchLiveTelemetryPauseResumeButton
+              isPaused={isPaused}
+              onTogglePaused={handleTogglePaused}
+              disabled={!streamEnabled}
+              compact
+              testId="dispatch-live-telemetry-action-pause-resume"
+            />
+          ),
+        },
+      ],
+    }),
+    [
+      actionSlotContextKey,
+      handleTogglePaused,
+      isPaused,
+      streamEnabled,
+      transportStatus,
+      visibleRows.length,
+      waitingCount,
+    ],
+  )
   const isContextLoading = workspaceContext.status === 'loading'
-  const shouldShowLoading = streamEnabled && session.transportStatus === 'connecting' && visibleRows.length === 0
+  const shouldShowLoading = streamEnabled && transportStatus === 'connecting' && visibleRows.length === 0
+
+  useRegisterDispatchActionSlot(actionSlotRegistration)
 
   return (
     <section
@@ -143,7 +268,7 @@ export function DispatchLiveTelemetryTab({
         disabled={!streamEnabled}
         visibleCount={visibleRows.length}
         waitingCount={waitingCount}
-        transportStatus={session.transportStatus}
+        transportStatus={transportStatus}
       />
 
       {validationMessage ? (
@@ -160,14 +285,14 @@ export function DispatchLiveTelemetryTab({
         </div>
       ) : null}
 
-      {session.runtimeError ? (
+      {activeRuntimeError ? (
         <div
           role="alert"
           data-testid="dispatch-live-telemetry-error"
           className="mx-3 mt-3 flex items-center gap-2 rounded-md border border-[var(--color-danger)] bg-[#190f16] p-3 text-sm text-[#fecdd3]"
         >
           <AlertTriangle size={16} aria-hidden="true" />
-          <span>{session.runtimeError}</span>
+          <span>{activeRuntimeError}</span>
         </div>
       ) : null}
 

@@ -7,6 +7,7 @@ interface DispatchLiveTelemetryPauseResumeButtonProps {
   onTogglePaused: () => void
   disabled?: boolean
   compact?: boolean
+  testId?: string
 }
 
 interface DispatchLiveTelemetryToolbarProps extends DispatchLiveTelemetryPauseResumeButtonProps {
@@ -37,6 +38,7 @@ export function DispatchLiveTelemetryPauseResumeButton({
   onTogglePaused,
   disabled = false,
   compact = false,
+  testId = 'dispatch-live-telemetry-pause-resume',
 }: DispatchLiveTelemetryPauseResumeButtonProps) {
   const Icon = isPaused ? Play : Pause
   const label = isPaused ? 'Resume live telemetry' : 'Pause live telemetry'
@@ -46,7 +48,7 @@ export function DispatchLiveTelemetryPauseResumeButton({
     <button
       type="button"
       aria-label={label}
-      data-testid="dispatch-live-telemetry-pause-resume"
+      data-testid={testId}
       disabled={disabled}
       onClick={onTogglePaused}
       className={clsx(

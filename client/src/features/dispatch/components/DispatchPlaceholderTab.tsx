@@ -2,6 +2,7 @@ import {
   DISPATCH_ALARMS_TAB,
   DISPATCH_COMMANDS_TAB,
   DISPATCH_DASHBOARD_TAB,
+  DISPATCH_TELEMETRY_TAB,
   DISPATCH_TRENDS_TAB,
   getDispatchTabRoute,
   type DispatchTabId,
@@ -13,7 +14,7 @@ export type DispatchPlaceholderTabId = Exclude<
   | typeof DISPATCH_DASHBOARD_TAB
   | typeof DISPATCH_COMMANDS_TAB
   | typeof DISPATCH_ALARMS_TAB
-  | 'telemetry'
+  | typeof DISPATCH_TELEMETRY_TAB
 >
 
 interface DispatchPlaceholderTabProps {

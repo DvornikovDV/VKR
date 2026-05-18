@@ -20,6 +20,7 @@ import {
   createDispatchClosedAlarmIncidentProjectionFixture,
   createDispatchCommandAuditResponseFixture,
   createDispatchCommandAuditRowFixture,
+  createDispatchLiveTelemetryMultiEdgeBindingProfilesFixture,
   createDispatchWorkspaceDeferred,
   createDispatchTelemetryHistoryResponseFixture,
   createDispatchUnclosedAlarmIncidentChangedEventFixture,
@@ -662,6 +663,18 @@ describe('DispatchWorkspacePage routing', () => {
     expect(screen.queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
 
     act(() => {
+      dispatchWorkspaceRuntimeSocketHarness.emitRemovedConnectError(
+        new Error('late stale transport error'),
+      )
+      dispatchWorkspaceRuntimeSocketHarness.emitRemovedTelemetry(
+        createDispatchTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            { deviceId: 'boiler-1', metric: 'temperature', last: 98, ts: 1779000003500 },
+          ],
+          serverTs: 1779000003600,
+        }),
+      )
       dispatchWorkspaceRuntimeSocketHarness.emitTelemetry(
         createDispatchTelemetryEventFixture({
           edgeId: 'edge-visual-1',
@@ -685,6 +698,15 @@ describe('DispatchWorkspacePage routing', () => {
         createDispatchTelemetryEventFixture({
           edgeId: 'edge-visual-1',
           readings: [
+            { deviceId: 'boiler-1', metric: 'temperature', last: 72.1, ts: 1779000002500 },
+          ],
+          serverTs: 1779000002600,
+        }),
+      )
+      dispatchWorkspaceRuntimeSocketHarness.emitTelemetry(
+        createDispatchTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
             { deviceId: 'pump-1', metric: 'running', last: true, ts: 1779000003000 },
           ],
           serverTs: 1779000003100,
@@ -693,7 +715,7 @@ describe('DispatchWorkspacePage routing', () => {
     })
 
     const rows = await screen.findAllByTestId('dispatch-live-telemetry-row')
-    expect(rows).toHaveLength(2)
+    expect(rows).toHaveLength(3)
     expect(rows[0]).toHaveAttribute('data-edge-id', 'edge-visual-1')
     expect(rows[0]).toHaveAttribute('data-device-id', 'pump-1')
     expect(rows[0]).toHaveAttribute('data-metric', 'running')
@@ -701,13 +723,199 @@ describe('DispatchWorkspacePage routing', () => {
     expect(rows[1]).toHaveAttribute('data-edge-id', 'edge-visual-1')
     expect(rows[1]).toHaveAttribute('data-device-id', 'boiler-1')
     expect(rows[1]).toHaveAttribute('data-metric', 'temperature')
-    expect(within(rows[1]).getByText('71.5')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('72.1')).toBeInTheDocument()
+    expect(rows[2]).toHaveAttribute('data-edge-id', 'edge-visual-1')
+    expect(rows[2]).toHaveAttribute('data-device-id', 'boiler-1')
+    expect(rows[2]).toHaveAttribute('data-metric', 'temperature')
+    expect(within(rows[2]).getByText('71.5')).toBeInTheDocument()
     expect(screen.queryByText('88.8')).not.toBeInTheDocument()
     expect(screen.queryByText('99')).not.toBeInTheDocument()
     expect(screen.getByTestId('dispatch-live-telemetry-transport-status')).toHaveAttribute(
       'data-transport-status',
       'connected',
     )
+  })
+
+  it('proves Dispatch Live Telemetry pause buffering and selected context cleanup', async () => {
+    setupDispatchWorkspaceRestFixtures({
+      dashboard: {
+        ...createDashboardVisualRestFixtures(),
+        trustedEdges: [
+          {
+            _id: 'edge-visual-1',
+            name: 'Visual Edge',
+            lifecycleState: 'Active',
+            availability: {
+              online: true,
+              lastSeenAt: '2026-04-24T08:14:30.000Z',
+            },
+          },
+          {
+            _id: 'edge-visual-2',
+            name: 'Backup Visual Edge',
+            lifecycleState: 'Active',
+            availability: {
+              online: true,
+              lastSeenAt: '2026-04-24T08:15:30.000Z',
+            },
+          },
+        ],
+        bindingProfilesByDiagramId: {
+          [dashboardVisualDiagram._id]: createDispatchLiveTelemetryMultiEdgeBindingProfilesFixture(),
+        },
+      },
+    })
+
+    const route = renderDispatchWorkspaceRoute(
+      `/hub/dispatch/telemetry?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`,
+    )
+    const user = userEvent.setup()
+
+    await waitFor(() => {
+      expect(dispatchWorkspaceRuntimeSocketHarness.getLastSubscribePayload()).toEqual({
+        edgeId: 'edge-visual-1',
+      })
+    })
+
+    act(() => {
+      dispatchWorkspaceRuntimeSocketHarness.emitTelemetry(
+        createDispatchTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            { deviceId: 'boiler-1', metric: 'temperature', last: 40, ts: 1779000001000 },
+          ],
+          serverTs: 1779000001100,
+        }),
+      )
+    })
+
+    let rows = await screen.findAllByTestId('dispatch-live-telemetry-row')
+    expect(rows).toHaveLength(1)
+    expect(within(rows[0]).getByText('40')).toBeInTheDocument()
+
+    const actionSlot = screen.getByTestId('dispatch-action-slot')
+    await user.click(
+      within(actionSlot).getByRole('button', { name: 'Pause live telemetry' }),
+    )
+    expect(
+      within(actionSlot).getByRole('button', { name: 'Resume live telemetry' }),
+    ).toBeInTheDocument()
+
+    act(() => {
+      dispatchWorkspaceRuntimeSocketHarness.emitTelemetry(
+        createDispatchTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            { deviceId: 'boiler-1', metric: 'temperature', last: 41, ts: 1779000002000 },
+          ],
+          serverTs: 1779000002100,
+        }),
+      )
+      dispatchWorkspaceRuntimeSocketHarness.emitTelemetry(
+        createDispatchTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            { deviceId: 'pump-1', metric: 'running', last: true, ts: 1779000003000 },
+          ],
+          serverTs: 1779000003100,
+        }),
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('dispatch-live-telemetry-toolbar-summary')).toHaveTextContent(
+        '1 rows visible | 2 newer waiting',
+      )
+      expect(screen.getByTestId('dispatch-live-telemetry-action-summary')).toHaveTextContent(
+        '1 visible | 2 waiting | connected',
+      )
+    })
+    rows = screen.getAllByTestId('dispatch-live-telemetry-row')
+    expect(rows).toHaveLength(1)
+    expect(within(rows[0]).getByText('40')).toBeInTheDocument()
+    expect(screen.queryByText('41')).not.toBeInTheDocument()
+    expect(screen.queryByText('true')).not.toBeInTheDocument()
+    expect(dispatchWorkspaceRuntimeSocketHarness.spies.disconnect).not.toHaveBeenCalled()
+
+    await user.click(
+      within(actionSlot).getByRole('button', { name: 'Resume live telemetry' }),
+    )
+    await waitFor(() => {
+      expect(screen.getAllByTestId('dispatch-live-telemetry-row')).toHaveLength(3)
+      expect(screen.getByTestId('dispatch-live-telemetry-toolbar-summary')).toHaveTextContent(
+        '3 rows visible | 0 newer waiting',
+      )
+    })
+    expect(screen.getByText('41')).toBeInTheDocument()
+    expect(screen.getByText('true')).toBeInTheDocument()
+
+    act(() => {
+      dispatchWorkspaceRuntimeSocketHarness.emitConnectError(new Error('stale transport error'))
+    })
+    expect(await screen.findByTestId('dispatch-live-telemetry-error')).toHaveTextContent(
+      'stale transport error',
+    )
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Edge Server' }), 'edge-visual-2')
+    await waitFor(() => {
+      expect(route.router.state.location.search).toContain('edgeId=edge-visual-2')
+      expect(screen.getByTestId('dispatch-live-telemetry-tab')).toHaveAttribute(
+        'data-edge-id',
+        'edge-visual-2',
+      )
+      expect(screen.getByTestId('dispatch-live-telemetry-tab')).toHaveAttribute(
+        'data-binding-profile-id',
+        'binding-visual-2',
+      )
+    })
+    await waitFor(() => {
+      expect(dispatchWorkspaceRuntimeSocketHarness.getLastSubscribePayload()).toEqual({
+        edgeId: 'edge-visual-2',
+      })
+    })
+    expect(screen.queryByTestId('dispatch-live-telemetry-error')).not.toBeInTheDocument()
+    expect(screen.queryAllByTestId('dispatch-live-telemetry-row')).toHaveLength(0)
+    expect(screen.getByTestId('dispatch-live-telemetry-toolbar-summary')).toHaveTextContent(
+      '0 rows visible | 0 newer waiting',
+    )
+    expect(screen.getByTestId('dispatch-live-telemetry-pause-state')).toHaveAttribute(
+      'data-paused',
+      'false',
+    )
+
+    act(() => {
+      dispatchWorkspaceRuntimeSocketHarness.emitTelemetry(
+        createDispatchTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            { deviceId: 'boiler-1', metric: 'temperature', last: 99, ts: 1779000004000 },
+          ],
+          serverTs: 1779000004100,
+        }),
+      )
+      dispatchWorkspaceRuntimeSocketHarness.emitTelemetry(
+        createDispatchTelemetryEventFixture({
+          edgeId: 'edge-visual-2',
+          readings: [
+            { deviceId: 'boiler-1', metric: 'temperature', last: 100, ts: 1779000005000 },
+            { deviceId: 'pump-2', metric: 'pressure', last: 12.3, ts: 1779000006000 },
+          ],
+          serverTs: 1779000006100,
+        }),
+      )
+    })
+
+    rows = await screen.findAllByTestId('dispatch-live-telemetry-row')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toHaveAttribute('data-edge-id', 'edge-visual-2')
+    expect(rows[0]).toHaveAttribute('data-device-id', 'pump-2')
+    expect(rows[0]).toHaveAttribute('data-metric', 'pressure')
+    expect(within(rows[0]).getByText('12.3')).toBeInTheDocument()
+    expect(screen.queryByText('98')).not.toBeInTheDocument()
+    expect(screen.queryByText('99')).not.toBeInTheDocument()
+    expect(screen.queryByText('100')).not.toBeInTheDocument()
+    expect(screen.queryByText('late stale transport error')).not.toBeInTheDocument()
+    expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
   })
 
   it('proves Dispatch Trends route uses selected context, helper history loading, same-response render, and stale response rejection', async () => {
