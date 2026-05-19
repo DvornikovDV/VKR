@@ -311,6 +311,7 @@ export interface DashboardImageAlarmVisualState {
   severity: DashboardAlarmSeverity
   lifecycleMode: DashboardAlarmVisualLifecycleMode
   widgetIds: DashboardWidget['id'][]
+  bindingKeys: string[]
   incidents: DashboardAlarmVisualIncidentRef[]
 }
 

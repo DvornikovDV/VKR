@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { selectDashboardAlarmVisualState } from '@/features/dashboard/model/alarmVisualProjection'
 import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runtimeLayout'
+import { createDashboardBindingKey } from '@/features/dashboard/model/selectors'
 import {
   dashboardVisualAlarmFixtureAnchor,
   dashboardVisualBindingProfile,
@@ -79,6 +80,16 @@ describe('dashboard alarm visual projection', () => {
       widgetIds: [
         dashboardVisualAlarmFixtureAnchor.warningWidgetId,
         dashboardVisualAlarmFixtureAnchor.dangerWidgetId,
+      ],
+      bindingKeys: [
+        createDashboardBindingKey(
+          dashboardVisualAlarmFixtureAnchor.warningDeviceId,
+          dashboardVisualAlarmFixtureAnchor.warningMetric,
+        ),
+        createDashboardBindingKey(
+          dashboardVisualAlarmFixtureAnchor.dangerDeviceId,
+          dashboardVisualAlarmFixtureAnchor.dangerMetric,
+        ),
       ],
     })
   })
@@ -223,6 +234,12 @@ describe('dashboard alarm visual projection', () => {
     })
     expect(projection.imageById[dashboardVisualAlarmFixtureAnchor.sharedImageId]).toMatchObject({
       count: 1,
+      bindingKeys: [
+        createDashboardBindingKey(
+          dashboardVisualAlarmFixtureAnchor.warningDeviceId,
+          dashboardVisualAlarmFixtureAnchor.warningMetric,
+        ),
+      ],
       incidents: [expect.objectContaining({ incidentId: incident.incidentId })],
     })
 

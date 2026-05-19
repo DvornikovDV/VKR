@@ -36,6 +36,7 @@ import type {
   DashboardAlarmVisualState,
   DashboardRuntimeProjection,
 } from '@/features/dashboard/model/types'
+import { createDashboardBindingKey } from '@/features/dashboard/model/selectors'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
 
@@ -654,6 +655,16 @@ describe('DashboardVisualSurface alarm overlay anchors', () => {
           dashboardVisualAlarmFixtureAnchor.warningWidgetId,
           dashboardVisualAlarmFixtureAnchor.dangerWidgetId,
         ],
+        bindingKeys: [
+          createDashboardBindingKey(
+            dashboardVisualAlarmFixtureAnchor.warningDeviceId,
+            dashboardVisualAlarmFixtureAnchor.warningMetric,
+          ),
+          createDashboardBindingKey(
+            dashboardVisualAlarmFixtureAnchor.dangerDeviceId,
+            dashboardVisualAlarmFixtureAnchor.dangerMetric,
+          ),
+        ],
         incidents: [
           {
             incidentId: 'incident-temperature-warning-active',
@@ -760,6 +771,12 @@ describe('DashboardVisualSurface alarm overlay anchors', () => {
           severity: 'warning',
           lifecycleMode: 'active_unacknowledged',
           widgetIds: [dashboardVisualAlarmFixtureAnchor.warningWidgetId],
+          bindingKeys: [
+            createDashboardBindingKey(
+              dashboardVisualAlarmFixtureAnchor.warningDeviceId,
+              dashboardVisualAlarmFixtureAnchor.warningMetric,
+            ),
+          ],
           incidents: widgetAlarmState.incidents,
         },
       },
@@ -770,6 +787,54 @@ describe('DashboardVisualSurface alarm overlay anchors', () => {
         DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetBadgeCount(dashboardVisualAlarmFixtureAnchor.warningWidgetId),
       ),
     ).toHaveTextContent('1')
+    expect(
+      screen.queryByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadge(dashboardVisualAlarmFixtureAnchor.sharedImageId),
+      ),
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps same-widget image alarm aggregates hidden while widget badge shows the full count', () => {
+    const firstIncident =
+      alarmVisualState.widgetById[dashboardVisualAlarmFixtureAnchor.warningWidgetId].incidents[0]
+    const secondIncident = {
+      ...firstIncident,
+      incidentId: 'incident-temperature-warning-second-active',
+    }
+
+    renderSurfaceWithAlarmState({
+      widgetById: {
+        [dashboardVisualAlarmFixtureAnchor.warningWidgetId]: {
+          widgetId: dashboardVisualAlarmFixtureAnchor.warningWidgetId,
+          count: 2,
+          severity: 'warning',
+          lifecycleMode: 'active_unacknowledged',
+          incidents: [firstIncident, secondIncident],
+        },
+      },
+      imageById: {
+        [dashboardVisualAlarmFixtureAnchor.sharedImageId]: {
+          imageId: dashboardVisualAlarmFixtureAnchor.sharedImageId,
+          count: 2,
+          severity: 'warning',
+          lifecycleMode: 'active_unacknowledged',
+          widgetIds: [dashboardVisualAlarmFixtureAnchor.warningWidgetId],
+          bindingKeys: [
+            createDashboardBindingKey(
+              dashboardVisualAlarmFixtureAnchor.warningDeviceId,
+              dashboardVisualAlarmFixtureAnchor.warningMetric,
+            ),
+          ],
+          incidents: [firstIncident, secondIncident],
+        },
+      },
+    })
+
+    expect(
+      screen.getByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetBadgeCount(dashboardVisualAlarmFixtureAnchor.warningWidgetId),
+      ),
+    ).toHaveTextContent('2')
     expect(
       screen.queryByTestId(
         DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadge(dashboardVisualAlarmFixtureAnchor.sharedImageId),

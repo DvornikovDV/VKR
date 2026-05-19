@@ -159,8 +159,11 @@ function resolveAlarmBadgeWidth(countText: string): number {
   return Math.max(DASHBOARD_ALARM_VISUAL_BADGE_MIN_WIDTH, 14 + countText.length * 7)
 }
 
-function shouldRenderImageAlarmBadge(imageAlarmState: { count: number; widgetIds: readonly string[] }): boolean {
-  return imageAlarmState.count > 1 || imageAlarmState.widgetIds.length > 1
+function shouldRenderImageAlarmBadge(imageAlarmState: {
+  widgetIds: readonly string[]
+  bindingKeys: readonly string[]
+}): boolean {
+  return imageAlarmState.widgetIds.length > 1 || imageAlarmState.bindingKeys.length > 1
 }
 
 function hasPulsingAlarmVisualState(alarmVisualState: DashboardAlarmVisualState): boolean {

@@ -174,6 +174,8 @@ function appendImageIncident(
   widgetId: string,
   incidentRef: DashboardAlarmVisualIncidentRef,
 ) {
+  const bindingKey = createDashboardBindingKey(incidentRef.deviceId, incidentRef.metric)
+
   imageState.count += 1
   imageState.severity = selectStrongestSeverity(imageState.severity, incidentRef.severity)
   imageState.lifecycleMode = selectStrongestLifecycleMode(
@@ -182,6 +184,9 @@ function appendImageIncident(
   )
   if (!imageState.widgetIds.includes(widgetId)) {
     imageState.widgetIds.push(widgetId)
+  }
+  if (!imageState.bindingKeys.includes(bindingKey)) {
+    imageState.bindingKeys.push(bindingKey)
   }
   imageState.incidents.push(incidentRef)
 }
@@ -208,6 +213,7 @@ function aggregateImageAlarmState(
           severity: incidentRef.severity,
           lifecycleMode: incidentRef.lifecycleMode,
           widgetIds: [widgetState.widgetId],
+          bindingKeys: [createDashboardBindingKey(incidentRef.deviceId, incidentRef.metric)],
           incidents: [incidentRef],
         }
         continue
