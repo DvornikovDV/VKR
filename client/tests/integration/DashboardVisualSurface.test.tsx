@@ -23,6 +23,7 @@ import {
 } from './helpers/mockDashboardRuntimeSocket'
 import { userHubRouteChildren } from '@/app/userHubRoutes'
 import {
+  DASHBOARD_ALARM_VISUAL_BADGE_RADIUS,
   DASHBOARD_ALARM_VISUAL_COLORS,
   DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET,
   DASHBOARD_ALARM_VISUAL_OUTLINE_PADDING,
@@ -683,12 +684,12 @@ describe('DashboardVisualSurface alarm overlay anchors', () => {
     },
   } satisfies DashboardAlarmVisualState
 
-  function renderSurfaceWithAlarmState() {
+  function renderSurfaceWithAlarmState(nextAlarmVisualState: DashboardAlarmVisualState = alarmVisualState) {
     render(
       <AlarmCapableDashboardVisualSurface
         runtimeLayout={runtimeLayout}
         runtimeProjection={null}
-        alarmVisualState={alarmVisualState}
+        alarmVisualState={nextAlarmVisualState}
         viewport={viewport}
         viewportSize={viewportSize}
         onPanViewport={vi.fn()}
@@ -745,7 +746,38 @@ describe('DashboardVisualSurface alarm overlay anchors', () => {
     expect(statusOutline).toHaveAttribute('data-opacity', '0.88')
   })
 
-  it('renders stable aggregate image top-right badge anchors from supplied visual state', () => {
+  it('keeps single image alarm aggregates hidden while widget badge remains visible', () => {
+    const widgetAlarmState = alarmVisualState.widgetById[dashboardVisualAlarmFixtureAnchor.warningWidgetId]
+
+    renderSurfaceWithAlarmState({
+      widgetById: {
+        [dashboardVisualAlarmFixtureAnchor.warningWidgetId]: widgetAlarmState,
+      },
+      imageById: {
+        [dashboardVisualAlarmFixtureAnchor.sharedImageId]: {
+          imageId: dashboardVisualAlarmFixtureAnchor.sharedImageId,
+          count: 1,
+          severity: 'warning',
+          lifecycleMode: 'active_unacknowledged',
+          widgetIds: [dashboardVisualAlarmFixtureAnchor.warningWidgetId],
+          incidents: widgetAlarmState.incidents,
+        },
+      },
+    })
+
+    expect(
+      screen.getByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetBadgeCount(dashboardVisualAlarmFixtureAnchor.warningWidgetId),
+      ),
+    ).toHaveTextContent('1')
+    expect(
+      screen.queryByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadge(dashboardVisualAlarmFixtureAnchor.sharedImageId),
+      ),
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders stable aggregate image outside top-right badge anchors from supplied visual state', () => {
     vi.useFakeTimers()
     renderSurfaceWithAlarmState()
 
@@ -757,8 +789,8 @@ describe('DashboardVisualSurface alarm overlay anchors', () => {
     )
     expect(screen.getByTestId('dashboard-visual-grid-layer')).toContainElement(imageBadge)
     expect(boilerImage).toBeInTheDocument()
-    expect(imageBadge).toHaveAttribute('data-x', String(40 + 360 - DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET))
-    expect(imageBadge).toHaveAttribute('data-y', String(32 + DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET))
+    expect(imageBadge).toHaveAttribute('data-x', String(40 + 360 + DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET))
+    expect(imageBadge).toHaveAttribute('data-y', String(32 - DASHBOARD_ALARM_VISUAL_BADGE_RADIUS))
     expect(imageBadge).toHaveAttribute('data-opacity', '0.62')
     expect(
       screen.getByTestId(

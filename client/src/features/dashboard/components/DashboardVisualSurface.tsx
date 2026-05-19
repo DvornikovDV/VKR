@@ -159,6 +159,10 @@ function resolveAlarmBadgeWidth(countText: string): number {
   return Math.max(DASHBOARD_ALARM_VISUAL_BADGE_MIN_WIDTH, 14 + countText.length * 7)
 }
 
+function shouldRenderImageAlarmBadge(imageAlarmState: { count: number; widgetIds: readonly string[] }): boolean {
+  return imageAlarmState.count > 1 || imageAlarmState.widgetIds.length > 1
+}
+
 function hasPulsingAlarmVisualState(alarmVisualState: DashboardAlarmVisualState): boolean {
   return [...Object.values(alarmVisualState.widgetById), ...Object.values(alarmVisualState.imageById)]
     .some((state) => state.count > 0 && DASHBOARD_ALARM_VISUAL_LIFECYCLE_STYLES[state.lifecycleMode].pulse)
@@ -710,7 +714,7 @@ export function DashboardVisualSurface({
                 />
                 {(() => {
                   const imageAlarmState = alarmVisualState.imageById[image.imageId]
-                  if (!imageAlarmState || imageAlarmState.count <= 0) {
+                  if (!imageAlarmState || !shouldRenderImageAlarmBadge(imageAlarmState)) {
                     return null
                   }
 
@@ -720,9 +724,9 @@ export function DashboardVisualSurface({
                   const opacity = resolveAlarmVisualOpacity(imageAlarmState.lifecycleMode, alarmPulsePhase)
                   const badgeX =
                     toFiniteNumber(image.x, 0) +
-                    resolveImageWidth(image) -
+                    resolveImageWidth(image) +
                     DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET
-                  const badgeY = toFiniteNumber(image.y, 0) + DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET
+                  const badgeY = toFiniteNumber(image.y, 0) - DASHBOARD_ALARM_VISUAL_BADGE_RADIUS
 
                   return (
                     <Group
@@ -733,7 +737,7 @@ export function DashboardVisualSurface({
                       listening={false}
                     >
                       <Rect
-                        x={-badgeWidth}
+                        x={0}
                         y={0}
                         width={badgeWidth}
                         height={DASHBOARD_ALARM_VISUAL_BADGE_RADIUS * 2}
@@ -745,7 +749,7 @@ export function DashboardVisualSurface({
                       />
                       <Text
                         data-testid={DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadgeCount(image.imageId)}
-                        x={-badgeWidth}
+                        x={0}
                         y={3}
                         width={badgeWidth}
                         text={countText}
