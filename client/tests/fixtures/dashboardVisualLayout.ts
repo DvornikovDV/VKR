@@ -172,6 +172,17 @@ export const dashboardVisualBindingProfile = {
   ],
 } satisfies DashboardBindingProfile
 
+export const dashboardVisualAlarmFixtureAnchor = {
+  edgeId: 'edge-visual-1',
+  sharedImageId: 'image-boiler',
+  warningWidgetId: 'widget-temperature',
+  warningDeviceId: 'boiler-1',
+  warningMetric: 'temperature',
+  dangerWidgetId: 'widget-status',
+  dangerDeviceId: 'boiler-1',
+  dangerMetric: 'status',
+} as const
+
 export function createDashboardVisualRestFixtures(): DashboardRestFixtures {
   return {
     diagramsById: {

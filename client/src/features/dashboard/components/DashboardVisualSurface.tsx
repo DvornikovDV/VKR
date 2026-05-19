@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import type {
   DashboardCanvasPoint,
+  DashboardAlarmSeverity,
+  DashboardAlarmVisualLifecycleMode,
   DashboardCommandLifecycleByWidgetId,
   DashboardCommandType,
   DashboardConnectionPoint,
@@ -57,6 +59,56 @@ const COMMAND_STATE_BADGE_HEIGHT = 22
 const COMMAND_STATE_BADGE_MARGIN = 4
 const WORKSPACE_BACKGROUND = '#eaf4ff'
 const WORKSPACE_GRID_LINE = '#cfe0f2'
+export const DASHBOARD_ALARM_WIDGET_OUTLINE_TEST_ID_PREFIX = 'dashboard-visual-alarm-widget-outline'
+export const DASHBOARD_ALARM_WIDGET_BADGE_TEST_ID_PREFIX = 'dashboard-visual-alarm-widget-badge'
+export const DASHBOARD_ALARM_IMAGE_BADGE_TEST_ID_PREFIX = 'dashboard-visual-alarm-image-badge'
+export const DASHBOARD_ALARM_BADGE_COUNT_TEST_ID_SUFFIX = 'count'
+export const DASHBOARD_ALARM_VISUAL_BADGE_RADIUS = 11
+export const DASHBOARD_ALARM_VISUAL_BADGE_MIN_WIDTH = 22
+export const DASHBOARD_ALARM_VISUAL_OUTLINE_PADDING = 4
+export const DASHBOARD_ALARM_VISUAL_OUTLINE_STROKE_WIDTH = 3
+export const DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET = 8
+export const DASHBOARD_ALARM_VISUAL_TEST_IDS = {
+  widgetOutline: (widgetId: string) => `${DASHBOARD_ALARM_WIDGET_OUTLINE_TEST_ID_PREFIX}-${widgetId}`,
+  widgetBadge: (widgetId: string) => `${DASHBOARD_ALARM_WIDGET_BADGE_TEST_ID_PREFIX}-${widgetId}`,
+  widgetBadgeCount: (widgetId: string) =>
+    `${DASHBOARD_ALARM_WIDGET_BADGE_TEST_ID_PREFIX}-${widgetId}-${DASHBOARD_ALARM_BADGE_COUNT_TEST_ID_SUFFIX}`,
+  imageBadge: (imageId: string) => `${DASHBOARD_ALARM_IMAGE_BADGE_TEST_ID_PREFIX}-${imageId}`,
+  imageBadgeCount: (imageId: string) =>
+    `${DASHBOARD_ALARM_IMAGE_BADGE_TEST_ID_PREFIX}-${imageId}-${DASHBOARD_ALARM_BADGE_COUNT_TEST_ID_SUFFIX}`,
+} as const
+export const DASHBOARD_ALARM_VISUAL_COLORS = {
+  warning: {
+    outline: '#f59e0b',
+    badge: '#f97316',
+    text: '#111827',
+  },
+  danger: {
+    outline: '#dc2626',
+    badge: '#ef4444',
+    text: '#ffffff',
+  },
+} as const satisfies Record<DashboardAlarmSeverity, { outline: string; badge: string; text: string }>
+export const DASHBOARD_ALARM_VISUAL_LIFECYCLE_STYLES = {
+  active_unacknowledged: {
+    dash: undefined,
+    opacity: 1,
+    pulse: true,
+  },
+  active_acknowledged: {
+    dash: undefined,
+    opacity: 0.88,
+    pulse: false,
+  },
+  cleared_unacknowledged: {
+    dash: [8, 5],
+    opacity: 0.72,
+    pulse: false,
+  },
+} as const satisfies Record<
+  DashboardAlarmVisualLifecycleMode,
+  { dash: readonly number[] | undefined; opacity: number; pulse: boolean }
+>
 
 function toFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback

@@ -4,7 +4,10 @@ import type {
   DashboardSocketLike,
   StartDashboardTelemetryOnlySessionOptions,
 } from '@/features/dashboard/services/cloudRuntimeClient'
-import { dashboardVisualBindingProfile } from '../../fixtures/dashboardVisualLayout'
+import {
+  dashboardVisualAlarmFixtureAnchor,
+  dashboardVisualBindingProfile,
+} from '../../fixtures/dashboardVisualLayout'
 import type {
   DashboardAlarmIncidentChangedEvent,
   DashboardAlarmIncidentProjection,
@@ -260,6 +263,61 @@ export function createDashboardClosedAlarmIncidentProjectionFixture(
       ...overrides,
     },
   }).incident
+}
+
+export function createDashboardWarningAlarmIncidentProjectionFixture(
+  overrides: DashboardAlarmIncidentFixtureOverrides['incident'] = {},
+): DashboardAlarmIncidentProjection {
+  return createDashboardAlarmIncidentChangedEventFixture({
+    incident: {
+      ...overrides,
+      rule: {
+        severity: 'warning',
+        ...overrides.rule,
+      },
+    },
+  }).incident
+}
+
+export function createDashboardDangerAlarmIncidentProjectionFixture(
+  overrides: DashboardAlarmIncidentFixtureOverrides['incident'] = {},
+): DashboardAlarmIncidentProjection {
+  return createDashboardAlarmIncidentChangedEventFixture({
+    incident: {
+      latestValue: true,
+      ...overrides,
+      rule: {
+        severity: 'danger',
+        ...overrides.rule,
+      },
+    },
+  }).incident
+}
+
+export function createDashboardVisualWarningAlarmIncidentProjectionFixture(
+  overrides: DashboardAlarmIncidentFixtureOverrides['incident'] = {},
+): DashboardAlarmIncidentProjection {
+  return createDashboardWarningAlarmIncidentProjectionFixture({
+    incidentId: 'incident-visual-warning-temperature',
+    edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
+    sourceId: 'source-visual-warning-temperature',
+    deviceId: dashboardVisualAlarmFixtureAnchor.warningDeviceId,
+    metric: dashboardVisualAlarmFixtureAnchor.warningMetric,
+    ...overrides,
+  })
+}
+
+export function createDashboardVisualDangerAlarmIncidentProjectionFixture(
+  overrides: DashboardAlarmIncidentFixtureOverrides['incident'] = {},
+): DashboardAlarmIncidentProjection {
+  return createDashboardDangerAlarmIncidentProjectionFixture({
+    incidentId: 'incident-visual-danger-status',
+    edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
+    sourceId: 'source-visual-danger-status',
+    deviceId: dashboardVisualAlarmFixtureAnchor.dangerDeviceId,
+    metric: dashboardVisualAlarmFixtureAnchor.dangerMetric,
+    ...overrides,
+  })
 }
 
 export function createDashboardUnclosedAlarmIncidentChangedEventFixture(

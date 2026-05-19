@@ -282,6 +282,58 @@ export interface DashboardAlarmToastNotice {
   incidentId: string
   incident: DashboardAlarmIncidentProjection
 }
+
+export type DashboardAlarmVisualLifecycleMode =
+  | 'active_unacknowledged'
+  | 'active_acknowledged'
+  | 'cleared_unacknowledged'
+
+export interface DashboardAlarmVisualIncidentRef {
+  incidentId: DashboardAlarmIncidentProjection['incidentId']
+  edgeId: DashboardAlarmIncidentProjection['edgeId']
+  deviceId: DashboardAlarmIncidentProjection['deviceId']
+  metric: DashboardAlarmIncidentProjection['metric']
+  severity: DashboardAlarmSeverity
+  lifecycleMode: DashboardAlarmVisualLifecycleMode
+}
+
+export interface DashboardWidgetAlarmVisualState {
+  widgetId: DashboardWidget['id']
+  count: number
+  severity: DashboardAlarmSeverity
+  lifecycleMode: DashboardAlarmVisualLifecycleMode
+  incidents: DashboardAlarmVisualIncidentRef[]
+}
+
+export interface DashboardImageAlarmVisualState {
+  imageId: DashboardSavedImage['imageId']
+  count: number
+  severity: DashboardAlarmSeverity
+  lifecycleMode: DashboardAlarmVisualLifecycleMode
+  widgetIds: DashboardWidget['id'][]
+  incidents: DashboardAlarmVisualIncidentRef[]
+}
+
+export type DashboardWidgetAlarmVisualStateByWidgetId = Record<
+  DashboardWidget['id'],
+  DashboardWidgetAlarmVisualState
+>
+export type DashboardImageAlarmVisualStateByImageId = Record<
+  DashboardSavedImage['imageId'],
+  DashboardImageAlarmVisualState
+>
+
+export interface DashboardAlarmVisualState {
+  widgetById: DashboardWidgetAlarmVisualStateByWidgetId
+  imageById: DashboardImageAlarmVisualStateByImageId
+}
+
+export interface DashboardAlarmVisualProjectionInput {
+  selectedEdgeId: string
+  incidents: DashboardAlarmIncidentList
+  bindingProfile: DashboardBindingProfile | null
+  runtimeLayout: DashboardRuntimeLayout
+}
 export type DashboardAlarmJournalLoadStatus = 'idle' | 'loading' | 'loaded' | 'error'
 export interface DashboardAlarmJournalLoadState {
   status: DashboardAlarmJournalLoadStatus
