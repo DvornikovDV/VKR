@@ -295,6 +295,7 @@ export function DashboardDispatchSubtab({
         isActiveContext={isRuntimeEnabled}
         recoveryState={recoveryState}
         savedDiagram={savedDiagram}
+        selectedBindingProfile={selectedBindingProfile}
         runtimeProjection={runtimeProjection}
         commandLifecycleByWidgetId={commandLifecycle.lifecycleByWidgetId}
         onCommandCommit={handleCommandCommit}

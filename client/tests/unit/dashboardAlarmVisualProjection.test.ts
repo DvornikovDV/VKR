@@ -7,11 +7,12 @@ import {
   dashboardVisualLayout,
 } from '../fixtures/dashboardVisualLayout'
 import {
-  createDashboardActiveAcknowledgedAlarmIncidentProjectionFixture,
   createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture,
   createDashboardClearedUnacknowledgedAlarmIncidentProjectionFixture,
   createDashboardClosedAlarmIncidentProjectionFixture,
   createDashboardDangerAlarmIncidentProjectionFixture,
+  createDashboardVisualDangerAlarmIncidentProjectionFixture,
+  createDashboardVisualWarningAlarmIncidentProjectionFixture,
 } from '../integration/helpers/mockDashboardRuntimeSocket'
 import type {
   DashboardBindingProfile,
@@ -22,18 +23,16 @@ describe('dashboard alarm visual projection', () => {
   it('maps saved binding incidents to widget state and renderable image aggregation', () => {
     const runtimeLayout = normalizeDashboardRuntimeLayout(dashboardVisualLayout)
     const incidents = [
-      createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      createDashboardVisualWarningAlarmIncidentProjectionFixture({
         incidentId: 'incident-temperature-warning-active',
-        edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
-        deviceId: dashboardVisualAlarmFixtureAnchor.warningDeviceId,
-        metric: dashboardVisualAlarmFixtureAnchor.warningMetric,
-        rule: { severity: 'warning' },
       }),
-      createDashboardActiveAcknowledgedAlarmIncidentProjectionFixture({
+      createDashboardVisualDangerAlarmIncidentProjectionFixture({
         incidentId: 'incident-status-danger-acknowledged',
-        edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
-        deviceId: dashboardVisualAlarmFixtureAnchor.dangerDeviceId,
-        metric: dashboardVisualAlarmFixtureAnchor.dangerMetric,
+        lifecycleState: 'active_acknowledged',
+        isActive: true,
+        isAcknowledged: true,
+        acknowledgedAt: '2026-05-09T10:05:00.000Z',
+        acknowledgedBy: 'operator-1',
         rule: { severity: 'danger' },
       }),
       createDashboardClearedUnacknowledgedAlarmIncidentProjectionFixture({

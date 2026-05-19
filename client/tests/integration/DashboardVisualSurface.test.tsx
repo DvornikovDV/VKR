@@ -14,6 +14,10 @@ import {
 import { createDashboardApiHandlers } from '../mocks/handlers'
 import { server } from '../mocks/server'
 import {
+  createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture,
+  createDashboardClosedAlarmIncidentProjectionFixture,
+  createDashboardVisualDangerAlarmIncidentProjectionFixture,
+  createDashboardVisualWarningAlarmIncidentProjectionFixture,
   createDashboardTelemetryEventFixture,
   dashboardRuntimeSocketHarness as runtimeHarness,
 } from './helpers/mockDashboardRuntimeSocket'
@@ -161,6 +165,188 @@ describe('Dashboard visual runtime surface (T040)', () => {
 
     expect(screen.getByText('Visual rendering issues: 2 recoverable')).toBeInTheDocument()
     expect(screen.queryByText('Saved diagram snapshot')).not.toBeInTheDocument()
+  })
+
+  it('projects REST-loaded selected-edge incidents into widget and image alarm overlay anchors through DashboardRuntimeSurface', async () => {
+    server.use(
+      http.get('/api/edge-servers/edge-visual-1/alarm-incidents', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            incidents: [
+              createDashboardVisualWarningAlarmIncidentProjectionFixture(),
+              createDashboardVisualDangerAlarmIncidentProjectionFixture(),
+              createDashboardVisualDangerAlarmIncidentProjectionFixture({
+                incidentId: 'incident-visual-off-edge-status',
+                edgeId: 'edge-other-1',
+              }),
+            ],
+            page: 1,
+            limit: 50,
+            total: 3,
+            hasNextPage: false,
+          },
+        }),
+      ),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    await waitFor(() => {
+      expect(runtimeHarness.getLastSubscribePayload()).toEqual({ edgeId: 'edge-visual-1' })
+    })
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+
+    const warningWidget = screen.getByTestId(
+      `dashboard-visual-widget-${dashboardVisualAlarmFixtureAnchor.warningWidgetId}`,
+    )
+    const warningOutline = await screen.findByTestId(
+      DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetOutline(dashboardVisualAlarmFixtureAnchor.warningWidgetId),
+    )
+    expect(warningWidget).toContainElement(warningOutline)
+    expect(
+      screen.getByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetBadgeCount(dashboardVisualAlarmFixtureAnchor.warningWidgetId),
+      ),
+    ).toHaveTextContent('1')
+
+    const dangerWidget = screen.getByTestId(
+      `dashboard-visual-widget-${dashboardVisualAlarmFixtureAnchor.dangerWidgetId}`,
+    )
+    const dangerOutline = await screen.findByTestId(
+      DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetOutline(dashboardVisualAlarmFixtureAnchor.dangerWidgetId),
+    )
+    expect(dangerWidget).toContainElement(dangerOutline)
+    expect(dangerOutline).toHaveAttribute('data-stroke', DASHBOARD_ALARM_VISUAL_COLORS.danger.outline)
+    expect(
+      screen.getByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetBadgeCount(dashboardVisualAlarmFixtureAnchor.dangerWidgetId),
+      ),
+    ).toHaveTextContent('1')
+
+    const imageBadge = screen.getByTestId(
+      DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadge(dashboardVisualAlarmFixtureAnchor.sharedImageId),
+    )
+    expect(screen.getByTestId('dashboard-visual-grid-layer')).toContainElement(imageBadge)
+    expect(
+      screen.getByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadgeCount(dashboardVisualAlarmFixtureAnchor.sharedImageId),
+      ),
+    ).toHaveTextContent('2')
+  })
+
+  it('keeps closed and unmatched REST-loaded incidents out of diagram overlays while journal ACK stays wired separately', async () => {
+    const closedMappedIncident = createDashboardClosedAlarmIncidentProjectionFixture({
+      incidentId: 'incident-visual-closed-temperature',
+      edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
+      deviceId: dashboardVisualAlarmFixtureAnchor.warningDeviceId,
+      metric: dashboardVisualAlarmFixtureAnchor.warningMetric,
+      rule: {
+        severity: 'warning',
+        label: 'Closed visual temperature',
+      },
+    })
+    const unmatchedIncident = createDashboardActiveUnacknowledgedAlarmIncidentProjectionFixture({
+      incidentId: 'incident-visual-unmatched-pressure',
+      edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
+      deviceId: dashboardVisualAlarmFixtureAnchor.warningDeviceId,
+      metric: 'pressure',
+      ruleId: 'rule-visual-unmatched-pressure',
+      rule: {
+        ruleId: 'rule-visual-unmatched-pressure',
+        severity: 'danger',
+        label: 'Unmatched visual pressure',
+      },
+    })
+    const ackRequests: Array<{ edgeId: string; incidentId: string }> = []
+
+    server.use(
+      http.get('/api/edge-servers/edge-visual-1/alarm-incidents', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            incidents: [closedMappedIncident, unmatchedIncident],
+            page: 1,
+            limit: 50,
+            total: 2,
+            hasNextPage: false,
+          },
+        }),
+      ),
+      http.post('/api/edge-servers/:edgeId/alarm-incidents/:incidentId/ack', ({ params }) => {
+        ackRequests.push({
+          edgeId: String(params.edgeId),
+          incidentId: String(params.incidentId),
+        })
+
+        return HttpResponse.json({
+          status: 'success',
+          data: {
+            incident: {
+              ...unmatchedIncident,
+              lifecycleState: 'active_acknowledged',
+              isAcknowledged: true,
+              acknowledgedAt: '2026-05-09T10:12:00.000Z',
+              acknowledgedBy: userSession.id,
+              updatedAt: '2026-05-09T10:12:00.000Z',
+            },
+          },
+        })
+      }),
+    )
+
+    mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
+
+    await waitFor(() => {
+      expect(runtimeHarness.getLastSubscribePayload()).toEqual({ edgeId: 'edge-visual-1' })
+    })
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+
+    expect(
+      screen.queryByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetOutline(dashboardVisualAlarmFixtureAnchor.warningWidgetId),
+      ),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetBadge(dashboardVisualAlarmFixtureAnchor.warningWidgetId),
+      ),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetOutline(dashboardVisualAlarmFixtureAnchor.dangerWidgetId),
+      ),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadge(dashboardVisualAlarmFixtureAnchor.sharedImageId),
+      ),
+    ).not.toBeInTheDocument()
+
+    const unmatchedRow = await screen.findByTestId(
+      'dashboard-alarm-incident-row-incident-visual-unmatched-pressure',
+    )
+    const ackButton = within(unmatchedRow).getByRole('button', {
+      name: 'Acknowledge incident Unmatched visual pressure',
+    })
+
+    await userEvent.setup().click(ackButton)
+
+    await waitFor(() => {
+      expect(ackRequests).toEqual([
+        {
+          edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
+          incidentId: unmatchedIncident.incidentId,
+        },
+      ])
+    })
+    expect(
+      screen.queryByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadge(dashboardVisualAlarmFixtureAnchor.sharedImageId),
+      ),
+    ).not.toBeInTheDocument()
   })
 
   it('keeps the saved visual workspace mounted when fit-to-view is used', async () => {

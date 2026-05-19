@@ -5,6 +5,7 @@ import { DashboardAlarmToastNotice } from '@/features/dashboard/components/Dashb
 import { DashboardDiagnosticsPanel } from '@/features/dashboard/components/DashboardDiagnosticsPanel'
 import { DashboardVisualSurface } from '@/features/dashboard/components/DashboardVisualSurface'
 import { isDashboardAlarmIncidentUnclosed } from '@/features/dashboard/model/alarmIncidents'
+import { selectDashboardAlarmVisualState } from '@/features/dashboard/model/alarmVisualProjection'
 import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runtimeLayout'
 import {
   createDashboardInitialViewport,
@@ -23,6 +24,7 @@ import type {
   DashboardAlarmJournalInitialLoadBlockedMarker,
   DashboardAlarmJournalLoadState,
   DashboardAlarmToastNotice as DashboardAlarmToastNoticeModel,
+  DashboardBindingProfile,
   DashboardMetricValueByBindingKey,
   DashboardRecoveryState,
   DashboardRuntimeLayout,
@@ -38,6 +40,7 @@ interface DashboardRuntimeSurfaceProps {
   isActiveContext: boolean
   recoveryState: DashboardRecoveryState
   savedDiagram: DashboardDiagramDocument | null
+  selectedBindingProfile: DashboardBindingProfile | null
   runtimeProjection: DashboardRuntimeProjection | null
   commandLifecycleByWidgetId?: DashboardCommandLifecycleByWidgetId
   onCommandCommit?: (command: DashboardRuntimeCommandCommit) => void
@@ -166,6 +169,7 @@ export function DashboardRuntimeSurface({
   isActiveContext,
   recoveryState,
   savedDiagram,
+  selectedBindingProfile,
   runtimeProjection,
   commandLifecycleByWidgetId = {},
   onCommandCommit,
@@ -205,6 +209,18 @@ export function DashboardRuntimeSurface({
         ? alarmIncidents.filter((incident) => incident.edgeId === selectedEdgeId)
         : [],
     [alarmIncidents, isActiveContext, selectedEdgeId],
+  )
+  const alarmVisualState = useMemo(
+    () =>
+      isActiveContext && selectedEdgeId && runtimeLayout
+        ? selectDashboardAlarmVisualState({
+            selectedEdgeId,
+            incidents: activeEdgeAlarmIncidents,
+            bindingProfile: selectedBindingProfile,
+            runtimeLayout,
+          })
+        : undefined,
+    [activeEdgeAlarmIncidents, isActiveContext, runtimeLayout, selectedBindingProfile, selectedEdgeId],
   )
   const toastSessionEdgeId = isActiveContext ? selectedEdgeId : null
   const toastKnownIncidentIdsRef = useRef<Set<string>>(new Set())
@@ -352,6 +368,7 @@ export function DashboardRuntimeSurface({
                 <DashboardVisualSurface
                   runtimeLayout={runtimeLayout!}
                   runtimeProjection={runtimeProjection}
+                  alarmVisualState={alarmVisualState}
                   commandLifecycleByWidgetId={commandLifecycleByWidgetId}
                   onCommandCommit={onCommandCommit}
                   viewport={viewport}
