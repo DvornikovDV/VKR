@@ -1,10 +1,12 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
+import type { ComponentProps, ComponentType } from 'react'
 import {
   dashboardVisualCatalog,
+  dashboardVisualAlarmFixtureAnchor,
   createDashboardVisualRestFixtures,
   dashboardVisualDiagram,
   dashboardVisualLayout,
@@ -16,10 +18,19 @@ import {
   dashboardRuntimeSocketHarness as runtimeHarness,
 } from './helpers/mockDashboardRuntimeSocket'
 import { userHubRouteChildren } from '@/app/userHubRoutes'
-import { DashboardVisualSurface } from '@/features/dashboard/components/DashboardVisualSurface'
+import {
+  DASHBOARD_ALARM_VISUAL_COLORS,
+  DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET,
+  DASHBOARD_ALARM_VISUAL_OUTLINE_PADDING,
+  DASHBOARD_ALARM_VISUAL_TEST_IDS,
+  DashboardVisualSurface,
+} from '@/features/dashboard/components/DashboardVisualSurface'
 import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runtimeLayout'
 import { createDashboardInitialViewport } from '@/features/dashboard/model/viewport'
-import type { DashboardRuntimeProjection } from '@/features/dashboard/model/types'
+import type {
+  DashboardAlarmVisualState,
+  DashboardRuntimeProjection,
+} from '@/features/dashboard/model/types'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
 
@@ -90,6 +101,10 @@ beforeEach(() => {
     useAuthStore.setState({ session: null, isAuthenticated: false })
     useAuthStore.getState().setSession(userSession)
   })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('Dashboard visual runtime surface (T040)', () => {
@@ -386,6 +401,190 @@ describe('Dashboard visual runtime surface (T040)', () => {
     fireEvent.click(ledWidget)
 
     expect(runtimeHarness.getEmittedEvents()).toEqual(emittedEventsBeforeInteraction)
+  })
+})
+
+describe('DashboardVisualSurface alarm overlay anchors', () => {
+  const runtimeLayout = normalizeDashboardRuntimeLayout(dashboardVisualLayout)
+  const viewportSize = { width: 960, height: 540 }
+  const viewport = createDashboardInitialViewport(runtimeLayout.diagramBounds, viewportSize)
+  type DashboardVisualSurfacePropsWithAlarm = ComponentProps<typeof DashboardVisualSurface> & {
+    alarmVisualState?: DashboardAlarmVisualState
+  }
+  const AlarmCapableDashboardVisualSurface =
+    DashboardVisualSurface as ComponentType<DashboardVisualSurfacePropsWithAlarm>
+
+  const alarmVisualState = {
+    widgetById: {
+      [dashboardVisualAlarmFixtureAnchor.warningWidgetId]: {
+        widgetId: dashboardVisualAlarmFixtureAnchor.warningWidgetId,
+        count: 1,
+        severity: 'warning',
+        lifecycleMode: 'active_unacknowledged',
+        incidents: [
+          {
+            incidentId: 'incident-temperature-warning-active',
+            edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
+            deviceId: dashboardVisualAlarmFixtureAnchor.warningDeviceId,
+            metric: dashboardVisualAlarmFixtureAnchor.warningMetric,
+            severity: 'warning',
+            lifecycleMode: 'active_unacknowledged',
+          },
+        ],
+      },
+      [dashboardVisualAlarmFixtureAnchor.dangerWidgetId]: {
+        widgetId: dashboardVisualAlarmFixtureAnchor.dangerWidgetId,
+        count: 2,
+        severity: 'danger',
+        lifecycleMode: 'active_acknowledged',
+        incidents: [
+          {
+            incidentId: 'incident-status-danger-acknowledged',
+            edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
+            deviceId: dashboardVisualAlarmFixtureAnchor.dangerDeviceId,
+            metric: dashboardVisualAlarmFixtureAnchor.dangerMetric,
+            severity: 'danger',
+            lifecycleMode: 'active_acknowledged',
+          },
+          {
+            incidentId: 'incident-status-warning-cleared',
+            edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
+            deviceId: dashboardVisualAlarmFixtureAnchor.dangerDeviceId,
+            metric: dashboardVisualAlarmFixtureAnchor.dangerMetric,
+            severity: 'warning',
+            lifecycleMode: 'cleared_unacknowledged',
+          },
+        ],
+      },
+    },
+    imageById: {
+      [dashboardVisualAlarmFixtureAnchor.sharedImageId]: {
+        imageId: dashboardVisualAlarmFixtureAnchor.sharedImageId,
+        count: 3,
+        severity: 'danger',
+        lifecycleMode: 'active_unacknowledged',
+        widgetIds: [
+          dashboardVisualAlarmFixtureAnchor.warningWidgetId,
+          dashboardVisualAlarmFixtureAnchor.dangerWidgetId,
+        ],
+        incidents: [
+          {
+            incidentId: 'incident-temperature-warning-active',
+            edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
+            deviceId: dashboardVisualAlarmFixtureAnchor.warningDeviceId,
+            metric: dashboardVisualAlarmFixtureAnchor.warningMetric,
+            severity: 'warning',
+            lifecycleMode: 'active_unacknowledged',
+          },
+          {
+            incidentId: 'incident-status-danger-acknowledged',
+            edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
+            deviceId: dashboardVisualAlarmFixtureAnchor.dangerDeviceId,
+            metric: dashboardVisualAlarmFixtureAnchor.dangerMetric,
+            severity: 'danger',
+            lifecycleMode: 'active_acknowledged',
+          },
+          {
+            incidentId: 'incident-status-warning-cleared',
+            edgeId: dashboardVisualAlarmFixtureAnchor.edgeId,
+            deviceId: dashboardVisualAlarmFixtureAnchor.dangerDeviceId,
+            metric: dashboardVisualAlarmFixtureAnchor.dangerMetric,
+            severity: 'warning',
+            lifecycleMode: 'cleared_unacknowledged',
+          },
+        ],
+      },
+    },
+  } satisfies DashboardAlarmVisualState
+
+  function renderSurfaceWithAlarmState() {
+    render(
+      <AlarmCapableDashboardVisualSurface
+        runtimeLayout={runtimeLayout}
+        runtimeProjection={null}
+        alarmVisualState={alarmVisualState}
+        viewport={viewport}
+        viewportSize={viewportSize}
+        onPanViewport={vi.fn()}
+      />,
+    )
+  }
+
+  it('renders stable widget alarm outline and compact badge anchors from supplied visual state', () => {
+    vi.useFakeTimers()
+    renderSurfaceWithAlarmState()
+
+    const workspace = screen.getByTestId('dashboard-visual-workspace')
+    expect(workspace).toHaveAttribute('data-scale-x', '1')
+    expect(workspace).toHaveAttribute('data-scale-y', '1')
+
+    const temperatureWidget = screen.getByTestId(
+      `dashboard-visual-widget-${dashboardVisualAlarmFixtureAnchor.warningWidgetId}`,
+    )
+    const temperatureOutline = screen.getByTestId(
+      DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetOutline(dashboardVisualAlarmFixtureAnchor.warningWidgetId),
+    )
+    expect(temperatureWidget).toContainElement(temperatureOutline)
+    expect(temperatureOutline).toHaveAttribute('data-x', String(96 - DASHBOARD_ALARM_VISUAL_OUTLINE_PADDING))
+    expect(temperatureOutline).toHaveAttribute('data-y', String(92 - DASHBOARD_ALARM_VISUAL_OUTLINE_PADDING))
+    expect(temperatureOutline).toHaveAttribute('data-width', String(112 + DASHBOARD_ALARM_VISUAL_OUTLINE_PADDING * 2))
+    expect(temperatureOutline).toHaveAttribute('data-height', String(52 + DASHBOARD_ALARM_VISUAL_OUTLINE_PADDING * 2))
+    expect(temperatureOutline).toHaveAttribute('data-stroke', DASHBOARD_ALARM_VISUAL_COLORS.warning.outline)
+    expect(temperatureOutline).toHaveAttribute('data-opacity', '0.62')
+
+    const temperatureBadge = screen.getByTestId(
+      DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetBadge(dashboardVisualAlarmFixtureAnchor.warningWidgetId),
+    )
+    expect(temperatureWidget).toContainElement(temperatureBadge)
+    expect(temperatureBadge).toHaveAttribute('data-x', '197')
+    expect(temperatureBadge).toHaveAttribute('data-y', '81')
+    expect(temperatureBadge).toHaveAttribute('data-opacity', '0.62')
+    expect(
+      screen.getByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetBadgeCount(dashboardVisualAlarmFixtureAnchor.warningWidgetId),
+      ),
+    ).toHaveTextContent('1')
+
+    const statusOutline = screen.getByTestId(
+      DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetOutline(dashboardVisualAlarmFixtureAnchor.dangerWidgetId),
+    )
+    expect(statusOutline).toHaveAttribute('data-opacity', '0.88')
+
+    act(() => {
+      vi.advanceTimersByTime(700)
+    })
+
+    expect(temperatureOutline).toHaveAttribute('data-opacity', '1')
+    expect(temperatureBadge).toHaveAttribute('data-opacity', '1')
+    expect(statusOutline).toHaveAttribute('data-opacity', '0.88')
+  })
+
+  it('renders stable aggregate image top-right badge anchors from supplied visual state', () => {
+    vi.useFakeTimers()
+    renderSurfaceWithAlarmState()
+
+    const boilerImage = screen.getByTestId(
+      `dashboard-visual-image-${dashboardVisualAlarmFixtureAnchor.sharedImageId}`,
+    )
+    const imageBadge = screen.getByTestId(
+      DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadge(dashboardVisualAlarmFixtureAnchor.sharedImageId),
+    )
+    expect(screen.getByTestId('dashboard-visual-grid-layer')).toContainElement(imageBadge)
+    expect(boilerImage).toBeInTheDocument()
+    expect(imageBadge).toHaveAttribute('data-x', String(40 + 360 - DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET))
+    expect(imageBadge).toHaveAttribute('data-y', String(32 + DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET))
+    expect(imageBadge).toHaveAttribute('data-opacity', '0.62')
+    expect(
+      screen.getByTestId(
+        DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadgeCount(dashboardVisualAlarmFixtureAnchor.sharedImageId),
+      ),
+    ).toHaveTextContent('3')
+
+    act(() => {
+      vi.advanceTimersByTime(700)
+    })
+
+    expect(imageBadge).toHaveAttribute('data-opacity', '1')
   })
 })
 

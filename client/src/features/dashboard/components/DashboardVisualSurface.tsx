@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Circle, Group, Image as KonvaImage, Layer, Line, Rect, Stage, Text } from 'react-konva'
 import type {
+  DashboardAlarmVisualState,
   DashboardCanvasPoint,
   DashboardAlarmSeverity,
   DashboardAlarmVisualLifecycleMode,
@@ -22,6 +23,7 @@ import type {
 interface DashboardVisualSurfaceProps {
   runtimeLayout: DashboardRuntimeLayout
   runtimeProjection: DashboardRuntimeProjection | null
+  alarmVisualState?: DashboardAlarmVisualState
   commandLifecycleByWidgetId?: DashboardCommandLifecycleByWidgetId
   onCommandCommit?: (command: DashboardVisualCommandCommit) => void
   viewport: DashboardViewportState
@@ -109,6 +111,12 @@ export const DASHBOARD_ALARM_VISUAL_LIFECYCLE_STYLES = {
   DashboardAlarmVisualLifecycleMode,
   { dash: readonly number[] | undefined; opacity: number; pulse: boolean }
 >
+const EMPTY_DASHBOARD_ALARM_VISUAL_STATE: DashboardAlarmVisualState = {
+  widgetById: {},
+  imageById: {},
+}
+const DASHBOARD_ALARM_VISUAL_PULSE_INTERVAL_MS = 700
+const DASHBOARD_ALARM_VISUAL_PULSE_DIM_OPACITY = 0.62
 
 function toFiniteNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
@@ -140,6 +148,33 @@ function selectWidgetCaption(widget: DashboardWidget): string {
   }
 
   return widget.id
+}
+
+function formatAlarmBadgeCount(count: number): string {
+  const safeCount = Math.max(0, Math.trunc(toFiniteNumber(count, 0)))
+  return safeCount > 99 ? '99+' : String(safeCount)
+}
+
+function resolveAlarmBadgeWidth(countText: string): number {
+  return Math.max(DASHBOARD_ALARM_VISUAL_BADGE_MIN_WIDTH, 14 + countText.length * 7)
+}
+
+function hasPulsingAlarmVisualState(alarmVisualState: DashboardAlarmVisualState): boolean {
+  return [...Object.values(alarmVisualState.widgetById), ...Object.values(alarmVisualState.imageById)]
+    .some((state) => state.count > 0 && DASHBOARD_ALARM_VISUAL_LIFECYCLE_STYLES[state.lifecycleMode].pulse)
+}
+
+function resolveAlarmVisualOpacity(
+  lifecycleMode: DashboardAlarmVisualLifecycleMode,
+  pulsePhase: boolean,
+): number {
+  const lifecycleStyle = DASHBOARD_ALARM_VISUAL_LIFECYCLE_STYLES[lifecycleMode]
+
+  if (!lifecycleStyle.pulse) {
+    return lifecycleStyle.opacity
+  }
+
+  return pulsePhase ? lifecycleStyle.opacity : DASHBOARD_ALARM_VISUAL_PULSE_DIM_OPACITY
 }
 
 function isConnectionPointOffset(value: unknown): value is number {
@@ -318,6 +353,7 @@ function useImageElementsById(images: DashboardSavedImage[]): Map<string, HTMLIm
 export function DashboardVisualSurface({
   runtimeLayout,
   runtimeProjection,
+  alarmVisualState = EMPTY_DASHBOARD_ALARM_VISUAL_STATE,
   commandLifecycleByWidgetId = {},
   onCommandCommit,
   viewport,
@@ -327,6 +363,24 @@ export function DashboardVisualSurface({
 }: DashboardVisualSurfaceProps) {
   const imageElementsById = useImageElementsById(runtimeLayout.runtimeRenderableImages)
   const renderIssueSummary = formatRenderIssueSummary(runtimeLayout)
+  const shouldPulseAlarmVisuals = hasPulsingAlarmVisualState(alarmVisualState)
+  const [alarmPulsePhase, setAlarmPulsePhase] = useState(false)
+
+  useEffect(() => {
+    if (!shouldPulseAlarmVisuals || typeof window === 'undefined') {
+      setAlarmPulsePhase(false)
+      return undefined
+    }
+
+    const intervalId = window.setInterval(() => {
+      setAlarmPulsePhase((current) => !current)
+    }, DASHBOARD_ALARM_VISUAL_PULSE_INTERVAL_MS)
+
+    return () => {
+      window.clearInterval(intervalId)
+    }
+  }, [shouldPulseAlarmVisuals])
+
   const gridBounds = useMemo(
     () => {
       const workspacePadding = resolveWorkspacePadding(viewport, viewportSize)
@@ -654,6 +708,55 @@ export function DashboardVisualSurface({
                   opacity={0.95}
                   listening={false}
                 />
+                {(() => {
+                  const imageAlarmState = alarmVisualState.imageById[image.imageId]
+                  if (!imageAlarmState || imageAlarmState.count <= 0) {
+                    return null
+                  }
+
+                  const countText = formatAlarmBadgeCount(imageAlarmState.count)
+                  const badgeWidth = resolveAlarmBadgeWidth(countText)
+                  const colors = DASHBOARD_ALARM_VISUAL_COLORS[imageAlarmState.severity]
+                  const opacity = resolveAlarmVisualOpacity(imageAlarmState.lifecycleMode, alarmPulsePhase)
+                  const badgeX =
+                    toFiniteNumber(image.x, 0) +
+                    resolveImageWidth(image) -
+                    DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET
+                  const badgeY = toFiniteNumber(image.y, 0) + DASHBOARD_ALARM_VISUAL_IMAGE_BADGE_OFFSET
+
+                  return (
+                    <Group
+                      data-testid={DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadge(image.imageId)}
+                      x={badgeX}
+                      y={badgeY}
+                      opacity={opacity}
+                      listening={false}
+                    >
+                      <Rect
+                        x={-badgeWidth}
+                        y={0}
+                        width={badgeWidth}
+                        height={DASHBOARD_ALARM_VISUAL_BADGE_RADIUS * 2}
+                        cornerRadius={DASHBOARD_ALARM_VISUAL_BADGE_RADIUS}
+                        fill={colors.badge}
+                        stroke={colors.outline}
+                        strokeWidth={1}
+                        listening={false}
+                      />
+                      <Text
+                        data-testid={DASHBOARD_ALARM_VISUAL_TEST_IDS.imageBadgeCount(image.imageId)}
+                        x={-badgeWidth}
+                        y={3}
+                        width={badgeWidth}
+                        text={countText}
+                        align="center"
+                        fontSize={12}
+                        fill={colors.text}
+                        listening={false}
+                      />
+                    </Group>
+                  )
+                })()}
               </Group>
             ))}
 
@@ -730,6 +833,22 @@ export function DashboardVisualSurface({
               const sliderTrackWidth = Math.max(0, width - 24)
               const sliderTrackX = x + 12
               const sliderTrackY = y + Math.max(18, height / 2)
+              const widgetAlarmState = alarmVisualState.widgetById[widget.id]
+              const widgetAlarmColors = widgetAlarmState
+                ? DASHBOARD_ALARM_VISUAL_COLORS[widgetAlarmState.severity]
+                : null
+              const widgetAlarmLifecycleStyle = widgetAlarmState
+                ? DASHBOARD_ALARM_VISUAL_LIFECYCLE_STYLES[widgetAlarmState.lifecycleMode]
+                : null
+              const widgetAlarmOpacity = widgetAlarmState
+                ? resolveAlarmVisualOpacity(widgetAlarmState.lifecycleMode, alarmPulsePhase)
+                : 1
+              const widgetAlarmCountText = widgetAlarmState
+                ? formatAlarmBadgeCount(widgetAlarmState.count)
+                : null
+              const widgetAlarmBadgeWidth = widgetAlarmCountText
+                ? resolveAlarmBadgeWidth(widgetAlarmCountText)
+                : DASHBOARD_ALARM_VISUAL_BADGE_MIN_WIDTH
 
               return (
                 <Group key={widget.id} data-testid={`dashboard-visual-widget-${widget.id}`} listening={false}>
@@ -911,6 +1030,53 @@ export function DashboardVisualSurface({
                           listening={false}
                         />
                       )}
+                    </>
+                  )}
+                  {widgetAlarmState && widgetAlarmState.count > 0 && widgetAlarmColors && widgetAlarmLifecycleStyle && (
+                    <>
+                      <Rect
+                        data-testid={DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetOutline(widget.id)}
+                        x={x - DASHBOARD_ALARM_VISUAL_OUTLINE_PADDING}
+                        y={y - DASHBOARD_ALARM_VISUAL_OUTLINE_PADDING}
+                        width={width + DASHBOARD_ALARM_VISUAL_OUTLINE_PADDING * 2}
+                        height={height + DASHBOARD_ALARM_VISUAL_OUTLINE_PADDING * 2}
+                        cornerRadius={6}
+                        stroke={widgetAlarmColors.outline}
+                        strokeWidth={DASHBOARD_ALARM_VISUAL_OUTLINE_STROKE_WIDTH}
+                        dash={widgetAlarmLifecycleStyle.dash ? [...widgetAlarmLifecycleStyle.dash] : undefined}
+                        opacity={widgetAlarmOpacity}
+                        listening={false}
+                      />
+                      <Group
+                        data-testid={DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetBadge(widget.id)}
+                        x={x + width - DASHBOARD_ALARM_VISUAL_BADGE_RADIUS}
+                        y={y - DASHBOARD_ALARM_VISUAL_BADGE_RADIUS}
+                        opacity={widgetAlarmOpacity}
+                        listening={false}
+                      >
+                        <Rect
+                          x={-widgetAlarmBadgeWidth / 2}
+                          y={0}
+                          width={widgetAlarmBadgeWidth}
+                          height={DASHBOARD_ALARM_VISUAL_BADGE_RADIUS * 2}
+                          cornerRadius={DASHBOARD_ALARM_VISUAL_BADGE_RADIUS}
+                          fill={widgetAlarmColors.badge}
+                          stroke={widgetAlarmColors.outline}
+                          strokeWidth={1}
+                          listening={false}
+                        />
+                        <Text
+                          data-testid={DASHBOARD_ALARM_VISUAL_TEST_IDS.widgetBadgeCount(widget.id)}
+                          x={-widgetAlarmBadgeWidth / 2}
+                          y={3}
+                          width={widgetAlarmBadgeWidth}
+                          text={widgetAlarmCountText ?? '0'}
+                          align="center"
+                          fontSize={12}
+                          fill={widgetAlarmColors.text}
+                          listening={false}
+                        />
+                      </Group>
                     </>
                   )}
                 </Group>
