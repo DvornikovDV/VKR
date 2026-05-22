@@ -147,7 +147,7 @@ describe('useDashboardRuntimeSession (T015)', () => {
       expect(result.current.alarmJournalLoadState.status).toBe('error')
     })
 
-    expect(result.current.alarmJournalLoadState.error).toBe('Alarm incident list unavailable')
+    expect(result.current.alarmJournalLoadState.error).toBe('Ошибка сервера. Попробуйте позже.')
     expect(result.current.alarmIncidents).toEqual([])
   })
 

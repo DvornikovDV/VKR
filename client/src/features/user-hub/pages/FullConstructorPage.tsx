@@ -42,15 +42,12 @@ import { SaveConflictModal } from '@/shared/components/SaveConflictModal'
 import type { EditorRouteDiagram } from '@/shared/api/diagrams'
 import { getDiagramById, updateDiagram } from '@/shared/api/diagrams'
 import { getAssignedEdgeServers, getEdgeServerCatalog } from '@/shared/api/edgeServers'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 type PagePhase = 'loading' | 'ready' | 'error'
 
 function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 export function FullConstructorPage() {
@@ -127,7 +124,7 @@ export function FullConstructorPage() {
   const loadDiagram = useCallback(async () => {
     if (!id) {
       setPhase('error')
-      setError('Missing diagram id in route.')
+      setError('В маршруте отсутствует id мнемосхемы.')
       setLayoutRecoveryNotice(null)
       setCanOpenWithEmptyBindings(false)
       return
@@ -187,7 +184,7 @@ export function FullConstructorPage() {
 
       if (layoutRecoveryError) {
         setLayoutRecoveryNotice(
-          `Layout payload was invalid and has been recovered with an empty layout: ${layoutRecoveryError.message}`,
+          `Payload layout был некорректным и восстановлен пустым layout: ${layoutRecoveryError.message}`,
         )
       }
 
@@ -195,7 +192,7 @@ export function FullConstructorPage() {
         setPhase('error')
         setLayoutRecoveryNotice(null)
         setCanOpenWithEmptyBindings(true)
-        setError(`Invalid bindings payload: ${bindingsRecovery.recoveryError.message}`)
+        setError(`Некорректный payload привязок: ${bindingsRecovery.recoveryError.message}`)
         return
       }
 
@@ -214,19 +211,17 @@ export function FullConstructorPage() {
       setCanOpenWithEmptyBindings(false)
 
       if (isLayoutPayloadError(loadError)) {
-        setError(`Invalid diagram layout payload: ${loadError.message}`)
+        setError(`Некорректный payload layout мнемосхемы: ${loadError.message}`)
         return
       }
 
       if (isBindingsPayloadError(loadError)) {
-        setError(`Invalid bindings payload: ${loadError.message}`)
+        setError(`Некорректный payload привязок: ${loadError.message}`)
         return
       }
 
       setError(
-        loadError instanceof Error
-          ? loadError.message
-          : 'Failed to load diagram for full constructor mode.',
+        toErrorMessage(loadError, 'Не удалось загрузить мнемосхему для полного режима конструктора.'),
       )
     }
   }, [id, loadCatalogForMachine, requestedEdgeServerId])
@@ -271,7 +266,7 @@ export function FullConstructorPage() {
       setDirtyState((previous) => ({ ...previous, bindingsDirty: false }))
     } catch (syncError) {
       setBindingsSaveError(
-        toErrorMessage(syncError, 'Failed to apply bindings for selected machine context.'),
+          toErrorMessage(syncError, 'Не удалось применить привязки для выбранного объекта.'),
       )
     } finally {
       isSyncingBindingsBaselineRef.current = false
@@ -315,7 +310,7 @@ export function FullConstructorPage() {
           })
         } catch (catalogError) {
           setBindingsSaveError(
-            toErrorMessage(catalogError, 'Failed to load machine catalog for selected context.'),
+            toErrorMessage(catalogError, 'Не удалось загрузить каталог выбранного объекта.'),
           )
         }
       })()
@@ -331,7 +326,7 @@ export function FullConstructorPage() {
 
       const runtime = runtimeRef.current
       if (!runtime) {
-        setBindingsSaveError('Hosted constructor runtime is not ready yet.')
+        setBindingsSaveError('Runtime конструктора еще не готов.')
         return false
       }
 
@@ -350,7 +345,7 @@ export function FullConstructorPage() {
         const [normalizedSavedSet] = importBindingSetsPayload([savedBindingSet])
 
         if (!normalizedSavedSet) {
-          throw new Error('Saved binding set payload is empty.')
+          throw new Error('Payload сохраненного набора привязок пуст.')
         }
 
         if (options?.replaceAllExisting) {
@@ -365,11 +360,11 @@ export function FullConstructorPage() {
         return true
       } catch (saveError) {
         if (isBindingsPayloadError(saveError)) {
-          setBindingsSaveError(`Invalid bindings payload: ${saveError.message}`)
+          setBindingsSaveError(`Некорректный payload привязок: ${saveError.message}`)
           return false
         }
 
-        setBindingsSaveError(toErrorMessage(saveError, 'Failed to save binding set.'))
+        setBindingsSaveError(toErrorMessage(saveError, 'Не удалось сохранить набор привязок.'))
         return false
       } finally {
         isSavingBindingsRef.current = false
@@ -471,7 +466,7 @@ export function FullConstructorPage() {
 
     const runtime = runtimeRef.current
     if (!runtime) {
-      setBindingsInvalidatedModalError('Hosted constructor runtime is not ready yet.')
+      setBindingsInvalidatedModalError('Runtime конструктора еще не готов.')
       return
     }
 
@@ -519,20 +514,20 @@ export function FullConstructorPage() {
       } catch (destructiveSaveError) {
         if (isLayoutPayloadError(destructiveSaveError)) {
           setBindingsInvalidatedModalError(
-            `Invalid diagram layout payload: ${destructiveSaveError.message}`,
+            `Некорректный payload layout мнемосхемы: ${destructiveSaveError.message}`,
           )
           return
         }
 
         if (isBindingsPayloadError(destructiveSaveError)) {
           setBindingsInvalidatedModalError(
-            `Invalid bindings payload: ${destructiveSaveError.message}`,
+            `Некорректный payload привязок: ${destructiveSaveError.message}`,
           )
           return
         }
 
         setBindingsInvalidatedModalError(
-          toErrorMessage(destructiveSaveError, 'Failed to complete destructive save flow.'),
+          toErrorMessage(destructiveSaveError, 'Не удалось завершить сохранение с удалением привязок.'),
         )
       } finally {
         shouldSaveBindingsAfterDestructiveSaveRef.current = false
@@ -567,14 +562,14 @@ export function FullConstructorPage() {
 
       {phase === 'loading' && (
         <div className="mx-4 my-4 flex min-h-[18rem] flex-1 items-center justify-center border border-dashed border-[var(--color-surface-border)] text-sm text-[#94a3b8]">
-          Loading diagram...
+          Загрузка мнемосхемы...
         </div>
       )}
 
       {phase === 'error' && (
         <div className="mx-4 my-4 flex min-h-[18rem] flex-1 flex-col items-center justify-center gap-3 border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-6 text-center">
           <p className="text-sm font-medium text-[var(--color-danger)]">
-            Unable to open hosted constructor page.
+            Не удалось открыть страницу конструктора.
           </p>
           {error && <p className="text-xs text-[var(--color-danger)]/90">{error}</p>}
           {canOpenWithEmptyBindings && diagram && (
@@ -589,7 +584,7 @@ export function FullConstructorPage() {
                 setPhase('ready')
               }}
             >
-              Open with empty bindings
+              Открыть с пустыми привязками
             </button>
           )}
           <button
@@ -599,7 +594,7 @@ export function FullConstructorPage() {
               void loadDiagram()
             }}
           >
-            Retry loading
+            Повторить загрузку
           </button>
         </div>
       )}

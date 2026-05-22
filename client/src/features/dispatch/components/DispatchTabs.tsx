@@ -33,10 +33,10 @@ export function DispatchTabs({
   const tabSearch = normalizeSearch(search ?? location.search)
 
   return (
-    <nav aria-label="Dispatch tabs" className={className}>
+    <nav aria-label="Вкладки диспетчеризации" className={className}>
       <div
         role="tablist"
-        aria-label="Dispatch tabs"
+        aria-label="Вкладки диспетчеризации"
         className="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-[#1f2a3d] bg-[#08111f] px-3 pt-2"
       >
         {DISPATCH_TAB_ROUTES.map((route) => {

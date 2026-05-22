@@ -130,11 +130,11 @@ function setupDashboardApiFixtures(overrides: Partial<DashboardRestFixtures> = {
 }
 
 async function openDiagnosticsPanel(user = userEvent.setup()) {
-  await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
+  await user.click(screen.getByRole('button', { name: 'Открыть диагностику' }))
   return screen.findByTestId('dashboard-diagnostics-panel')
 }
 
-async function openDiagnosticsTab(name: 'Status' | 'Telemetry' | 'Bindings' | 'Render issues') {
+async function openDiagnosticsTab(name: 'Статус' | 'Телеметрия' | 'Привязки' | 'Проблемы отрисовки') {
   const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
   await userEvent.setup().click(within(diagnosticsPanel).getByRole('tab', { name }))
   return diagnosticsPanel
@@ -168,8 +168,8 @@ describe('DashboardPage (US1)', () => {
 
     const router = mount(legacyDashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
-    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
-    expect(screen.getByLabelText('Edge Server')).toHaveValue('edge-1')
+    expect(await screen.findByLabelText('Мнемосхема')).toHaveValue('diagram-1')
+    expect(screen.getByLabelText('Объект')).toHaveValue('edge-1')
     expect(router.state.location.pathname).toBe(DISPATCH_DEFAULT_PATH)
     expect(router.state.location.search).toBe('?diagramId=diagram-1&edgeId=edge-1')
   })
@@ -250,9 +250,9 @@ describe('DashboardPage (US1)', () => {
 
     const journalPanel = screen.getByTestId('dashboard-alarm-journal-panel')
     await waitFor(() => {
-      expect(within(journalPanel).getByText(/no unclosed alarm incidents/i)).toBeInTheDocument()
+      expect(within(journalPanel).getByText(/незакрытых аварий нет/i)).toBeInTheDocument()
     })
-    expect(within(journalPanel).queryByText(/no incidents/i)).not.toBeInTheDocument()
+    expect(within(journalPanel).queryByText('Аварий нет.')).not.toBeInTheDocument()
     expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
 
     act(() => {
@@ -303,14 +303,14 @@ describe('DashboardPage (US1)', () => {
     const row = await screen.findByTestId('dashboard-alarm-incident-row-incident-pressure-1')
     const otherRow = await screen.findByTestId('dashboard-alarm-incident-row-incident-temperature-2')
     expect(within(row).getByText('danger')).toBeInTheDocument()
-    expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
+    expect(within(row).getByText('Активная, не подтверждена')).toBeInTheDocument()
     expect(
       within(row).getByText(expectedAlarmTimestamp('2026-05-09T09:25:30.000Z')),
     ).toBeInTheDocument()
     expect(within(row).queryByText('2026-05-09T09:25:30.000Z')).not.toBeInTheDocument()
     expect(within(row).getByText('Compressor pressure high')).toBeInTheDocument()
     const ackButton = within(row).getByRole('button', {
-      name: 'Acknowledge incident Compressor pressure high',
+      name: 'Подтвердить аварию Compressor pressure high',
     })
     expect(ackButton).toBeInTheDocument()
     expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
@@ -327,24 +327,24 @@ describe('DashboardPage (US1)', () => {
       incidentId: 'incident-pressure-1',
       body: '',
     })
-    expect(within(row).getByRole('button', { name: 'Acknowledge incident Compressor pressure high' })).toBeDisabled()
+    expect(within(row).getByRole('button', { name: 'Подтвердить аварию Compressor pressure high' })).toBeDisabled()
     expect(
-      within(otherRow).getByRole('button', { name: 'Acknowledge incident Compressor temperature high' }),
+      within(otherRow).getByRole('button', { name: 'Подтвердить аварию Compressor temperature high' }),
     ).not.toBeDisabled()
-    expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
-    expect(within(row).queryByText('Active Acknowledged')).not.toBeInTheDocument()
+    expect(within(row).getByText('Активная, не подтверждена')).toBeInTheDocument()
+    expect(within(row).queryByText('Активная, подтверждена')).not.toBeInTheDocument()
 
     await act(async () => {
       confirmAck()
     })
 
     await waitFor(() => {
-      expect(within(row).getByText('Active Acknowledged')).toBeInTheDocument()
+      expect(within(row).getByText('Активная, подтверждена')).toBeInTheDocument()
     })
-    expect(within(row).queryByRole('button', { name: 'Acknowledge incident Compressor pressure high' })).not.toBeInTheDocument()
-    expect(within(otherRow).getByText('Active Unacknowledged')).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: 'Подтвердить аварию Compressor pressure high' })).not.toBeInTheDocument()
+    expect(within(otherRow).getByText('Активная, не подтверждена')).toBeInTheDocument()
     expect(
-      within(otherRow).getByRole('button', { name: 'Acknowledge incident Compressor temperature high' }),
+      within(otherRow).getByRole('button', { name: 'Подтвердить аварию Compressor temperature high' }),
     ).toBeInTheDocument()
   })
 
@@ -437,10 +437,10 @@ describe('DashboardPage (US1)', () => {
     expect(within(row).getByText('Compressor pressure high')).toBeInTheDocument()
     expect(within(row).getByText('compressor-7 / pressure')).toBeInTheDocument()
     expect(
-      within(row).getByText('High condition: latest 42.5; trigger 40; clear 35'),
+      within(row).getByText('Верхний порог: текущее 42.5; срабатывание 40; сброс 35'),
     ).toBeInTheDocument()
     expect(within(row).getByText('danger')).toBeInTheDocument()
-    expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
+    expect(within(row).getByText('Активная, не подтверждена')).toBeInTheDocument()
     expect(
       within(row).getByText(expectedAlarmTimestamp('2026-05-09T09:25:00.000Z')),
     ).toBeInTheDocument()
@@ -470,7 +470,7 @@ describe('DashboardPage (US1)', () => {
     await waitFor(() => {
       expect(screen.getAllByTestId(`dashboard-alarm-incident-row-${incidentId}`)).toHaveLength(1)
       expect(
-        within(row).getByText('High condition: latest 45; trigger 40; clear 35'),
+        within(row).getByText('Верхний порог: текущее 45; срабатывание 40; сброс 35'),
       ).toBeInTheDocument()
       expect(
         within(row).getByText(expectedAlarmTimestamp('2026-05-09T09:26:00.000Z')),
@@ -479,19 +479,19 @@ describe('DashboardPage (US1)', () => {
 
     await userEvent.setup().click(
       within(row).getByRole('button', {
-        name: 'Acknowledge incident Compressor pressure high',
+        name: 'Подтвердить аварию Compressor pressure high',
       }),
     )
 
     await waitFor(() => {
       expect(ackRequests).toEqual([{ edgeId, incidentId }])
       expect(screen.getAllByTestId(`dashboard-alarm-incident-row-${incidentId}`)).toHaveLength(1)
-      expect(within(row).getByText('Active Acknowledged')).toBeInTheDocument()
+      expect(within(row).getByText('Активная, подтверждена')).toBeInTheDocument()
       expect(
-        within(row).getByText('High condition: latest 45; trigger 40; clear 35'),
+        within(row).getByText('Верхний порог: текущее 45; срабатывание 40; сброс 35'),
       ).toBeInTheDocument()
       expect(
-        within(row).queryByText('High condition: latest 42.5; trigger 40; clear 35'),
+        within(row).queryByText('Верхний порог: текущее 42.5; срабатывание 40; сброс 35'),
       ).not.toBeInTheDocument()
       expect(
         within(row).getAllByText(expectedAlarmTimestamp('2026-05-09T09:27:00.000Z')).length,
@@ -499,7 +499,7 @@ describe('DashboardPage (US1)', () => {
     })
     expect(
       within(row).queryByRole('button', {
-        name: 'Acknowledge incident Compressor pressure high',
+        name: 'Подтвердить аварию Compressor pressure high',
       }),
     ).not.toBeInTheDocument()
   })
@@ -528,10 +528,10 @@ describe('DashboardPage (US1)', () => {
 
     const journalPanel = screen.getByTestId('dashboard-alarm-journal-panel')
     const alert = await within(journalPanel).findByRole('alert')
-    expect(alert).toHaveTextContent('Alarm incident list is unavailable.')
-    expect(alert).toHaveTextContent('Incident list unavailable')
-    expect(within(journalPanel).queryByText(/no unclosed alarm incidents/i)).not.toBeInTheDocument()
-    expect(within(journalPanel).queryByText(/no incidents/i)).not.toBeInTheDocument()
+    expect(alert).toHaveTextContent('Список аварий недоступен.')
+    expect(alert).toHaveTextContent('Ошибка сервера. Попробуйте позже.')
+    expect(within(journalPanel).queryByText(/незакрытых аварий нет/i)).not.toBeInTheDocument()
+    expect(within(journalPanel).queryByText('Аварий нет.')).not.toBeInTheDocument()
     expect(within(journalPanel).queryByTestId(/dashboard-alarm-incident-row-/)).not.toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
   })
@@ -603,7 +603,7 @@ describe('DashboardPage (US1)', () => {
 
     await user.click(
       screen.getByRole('button', {
-        name: 'Dismiss alarm incident notice incident-pressure-toast',
+        name: 'Закрыть уведомление об аварии incident-pressure-toast',
       }),
     )
 
@@ -613,7 +613,7 @@ describe('DashboardPage (US1)', () => {
     expect(screen.getByTestId('dashboard-alarm-red-light-count')).toHaveTextContent('1')
     expect(
       screen.getByTestId('dashboard-alarm-incident-row-incident-pressure-toast'),
-    ).toHaveTextContent('Active Unacknowledged')
+    ).toHaveTextContent('Активная, не подтверждена')
 
     act(() => {
       runtimeHarness.emitAlarmIncidentChanged(
@@ -635,7 +635,7 @@ describe('DashboardPage (US1)', () => {
     })
     expect(
       screen.getByTestId('dashboard-alarm-incident-row-incident-pressure-toast'),
-    ).toHaveTextContent('Closed')
+    ).toHaveTextContent('Закрыта')
   })
 
   it('does not activate red-light or toast for a closed-first runtime incident projection', async () => {
@@ -729,7 +729,7 @@ describe('DashboardPage (US1)', () => {
       'dashboard-alarm-incident-row-incident-pressure-failure',
     )
     const ackButton = within(row).getByRole('button', {
-      name: 'Acknowledge incident Compressor pressure high',
+      name: 'Подтвердить аварию Compressor pressure high',
     })
 
     await userEvent.setup().click(ackButton)
@@ -740,19 +740,18 @@ describe('DashboardPage (US1)', () => {
       ])
       expect(
         within(row).getByRole('button', {
-          name: 'Acknowledge incident Compressor pressure high',
+          name: 'Подтвердить аварию Compressor pressure high',
         }),
       ).not.toBeDisabled()
     })
 
     expect(row).toBeInTheDocument()
-    expect(within(row).getByText('Active Unacknowledged')).toBeInTheDocument()
-    expect(within(row).queryByText('Active Acknowledged')).not.toBeInTheDocument()
-    expect(within(row).queryByText('Closed')).not.toBeInTheDocument()
-    expect(within(row).getByRole('alert')).toHaveTextContent('ACK unavailable')
+    expect(within(row).getByText('Активная, не подтверждена')).toBeInTheDocument()
+    expect(within(row).queryByText('Активная, подтверждена')).not.toBeInTheDocument()
+    expect(within(row).getByRole('alert')).toHaveTextContent('Ошибка сервера. Попробуйте позже.')
     expect(
       within(row).getByRole('button', {
-        name: 'Acknowledge incident Compressor pressure high',
+        name: 'Подтвердить аварию Compressor pressure high',
       }),
     ).toBeInTheDocument()
   })
@@ -761,7 +760,7 @@ describe('DashboardPage (US1)', () => {
     setupDashboardApiFixtures()
     const router = mount(dashboardPath('?edgeId=edge-1'))
 
-    expect(await screen.findByText('Invalid selection')).toBeInTheDocument()
+    expect(await screen.findByText('Некорректный выбор')).toBeInTheDocument()
     expect(router.state.location.pathname).toBe(DISPATCH_DEFAULT_PATH)
   })
 
@@ -774,33 +773,33 @@ describe('DashboardPage (US1)', () => {
     mount(dashboardPath())
 
     expect(await screen.findByTestId('admin-home')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Diagram')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Edge Server')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Мнемосхема')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Объект')).not.toBeInTheDocument()
   })
 
   it('synchronizes URL query when user changes diagram and edge selection', async () => {
     setupDashboardApiFixtures()
     const router = mount(dashboardPath())
 
-    await screen.findByLabelText('Diagram')
+    await screen.findByLabelText('Мнемосхема')
     await waitFor(() => {
-      expect(screen.getByLabelText('Diagram')).not.toBeDisabled()
+      expect(screen.getByLabelText('Мнемосхема')).not.toBeDisabled()
       expect(screen.getByRole('option', { name: 'Pump' })).toBeInTheDocument()
     })
 
     const user = userEvent.setup()
-    await user.selectOptions(screen.getByLabelText('Diagram'), 'diagram-2')
+    await user.selectOptions(screen.getByLabelText('Мнемосхема'), 'diagram-2')
     await waitFor(() => {
       expect(router.state.location.search).toContain('diagramId=diagram-2')
       expect(router.state.location.search).not.toContain('edgeId=')
     }, { timeout: 1000 })
-    expect(screen.getByText('Select Diagram and Edge Server to start monitoring')).toBeInTheDocument()
+    expect(screen.getByText('Выберите мнемосхему и объект, чтобы начать мониторинг')).toBeInTheDocument()
 
     await waitFor(() => {
       expect(screen.getByRole('option', { name: 'Edge B' })).toBeInTheDocument()
-      expect(screen.getByLabelText('Edge Server')).not.toBeDisabled()
+      expect(screen.getByLabelText('Объект')).not.toBeDisabled()
     })
-    await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-2')
+    await user.selectOptions(screen.getByLabelText('Объект'), 'edge-2')
     await waitFor(() => {
       expect(router.state.location.search).toContain('diagramId=diagram-2')
       expect(router.state.location.search).toContain('edgeId=edge-2')
@@ -873,7 +872,7 @@ describe('DashboardPage (US2)', () => {
     )
 
     await userEvent.setup().click(
-      await screen.findByRole('button', { name: 'Command toggle widget-command-toggle' }),
+      await screen.findByRole('button', { name: 'Команда-переключатель widget-command-toggle' }),
     )
 
     await waitFor(() => {
@@ -1061,7 +1060,7 @@ describe('DashboardPage (US2)', () => {
     })
 
     await userEvent.setup().click(
-      await screen.findByRole('button', { name: 'Command toggle widget-command-toggle' }),
+      await screen.findByRole('button', { name: 'Команда-переключатель widget-command-toggle' }),
     )
 
     const commandState = await screen.findByTestId('dashboard-command-state-widget-command-toggle')
@@ -1136,7 +1135,7 @@ describe('DashboardPage (US2)', () => {
     })
 
     const sliderCommand = await screen.findByRole('slider', {
-      name: 'Command slider widget-command-slider',
+      name: 'Команда-слайдер widget-command-slider',
     })
     expect(sliderCommand).toHaveValue('68')
     expect(sliderCommand).toHaveAttribute('min', '40')
@@ -1208,7 +1207,7 @@ describe('DashboardPage (US2)', () => {
     setupDashboardApiFixtures()
     mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
-    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
+    expect(await screen.findByLabelText('Мнемосхема')).toHaveValue('diagram-1')
     await waitFor(() => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
         expect.objectContaining({ edgeId: 'edge-1' }),
@@ -1221,15 +1220,15 @@ describe('DashboardPage (US2)', () => {
     })
 
     const diagnosticsPanel = await openDiagnosticsPanel()
-    expect(within(diagnosticsPanel).getByText('Transport: Connected')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('Edge: Edge online')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Транспорт: Подключено')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Объект: Объект в сети')).toBeInTheDocument()
   })
 
   it('shows reconnect messaging and preserves last runtime values in place', async () => {
     setupDashboardApiFixtures()
     mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
-    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
+    expect(await screen.findByLabelText('Мнемосхема')).toHaveValue('diagram-1')
     await waitFor(() => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
         expect.objectContaining({ edgeId: 'edge-1' }),
@@ -1255,7 +1254,7 @@ describe('DashboardPage (US2)', () => {
 
     const user = userEvent.setup()
     await openDiagnosticsPanel(user)
-    let diagnosticsPanel = await openDiagnosticsTab('Telemetry')
+    let diagnosticsPanel = await openDiagnosticsTab('Телеметрия')
     expect(within(diagnosticsPanel).getByText('pump-1::temperature')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('48.7')).toBeInTheDocument()
 
@@ -1263,13 +1262,13 @@ describe('DashboardPage (US2)', () => {
       runtimeHarness.emitTransportStatus('edge-1', 'reconnecting')
     })
 
-    diagnosticsPanel = await openDiagnosticsTab('Status')
+    diagnosticsPanel = await openDiagnosticsTab('Статус')
     await waitFor(() => {
       expect(
-        within(diagnosticsPanel).getByText('Transport reconnecting. Last rendered values are preserved.'),
+        within(diagnosticsPanel).getByText('Транспорт переподключается. Последние отрисованные значения сохранены.'),
       ).toBeInTheDocument()
     }, { timeout: 3000 })
-    diagnosticsPanel = await openDiagnosticsTab('Telemetry')
+    diagnosticsPanel = await openDiagnosticsTab('Телеметрия')
     expect(within(diagnosticsPanel).getByText('48.7')).toBeInTheDocument()
   })
 
@@ -1277,7 +1276,7 @@ describe('DashboardPage (US2)', () => {
     setupDashboardApiFixtures()
     mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
-    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
+    expect(await screen.findByLabelText('Мнемосхема')).toHaveValue('diagram-1')
     await waitFor(() => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
         expect.objectContaining({ edgeId: 'edge-1' }),
@@ -1290,10 +1289,10 @@ describe('DashboardPage (US2)', () => {
     })
 
     const diagnosticsPanel = await openDiagnosticsPanel()
-    expect(within(diagnosticsPanel).getByText('Transport: Connected')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('Edge: Edge offline')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Транспорт: Подключено')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Объект: Объект не в сети')).toBeInTheDocument()
     expect(
-      within(diagnosticsPanel).queryByText('Transport reconnecting. Last rendered values are preserved.'),
+      within(diagnosticsPanel).queryByText('Транспорт переподключается. Последние отрисованные значения сохранены.'),
     ).not.toBeInTheDocument()
 
     act(() => {
@@ -1301,10 +1300,10 @@ describe('DashboardPage (US2)', () => {
     })
 
     await waitFor(() => {
-      expect(within(diagnosticsPanel).getByText('Transport: Reconnecting')).toBeInTheDocument()
-      expect(within(diagnosticsPanel).getByText('Edge: Edge offline')).toBeInTheDocument()
+      expect(within(diagnosticsPanel).getByText('Транспорт: Переподключение')).toBeInTheDocument()
+      expect(within(diagnosticsPanel).getByText('Объект: Объект не в сети')).toBeInTheDocument()
       expect(
-        within(diagnosticsPanel).getByText('Transport reconnecting. Last rendered values are preserved.'),
+        within(diagnosticsPanel).getByText('Транспорт переподключается. Последние отрисованные значения сохранены.'),
       ).toBeInTheDocument()
     }, { timeout: 3000 })
   })
@@ -1313,7 +1312,7 @@ describe('DashboardPage (US2)', () => {
     setupDashboardApiFixtures()
     const router = mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
-    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
+    expect(await screen.findByLabelText('Мнемосхема')).toHaveValue('diagram-1')
     await waitFor(() => {
       expect(runtimeHarness.startSession).toHaveBeenCalledWith(
         expect.objectContaining({ edgeId: 'edge-1' }),
@@ -1321,12 +1320,12 @@ describe('DashboardPage (US2)', () => {
     })
 
     const user = userEvent.setup()
-    await user.selectOptions(screen.getByLabelText('Diagram'), 'diagram-2')
+    await user.selectOptions(screen.getByLabelText('Мнемосхема'), 'diagram-2')
     await waitFor(() => {
       expect(screen.getByRole('option', { name: 'Edge B' })).toBeInTheDocument()
-      expect(screen.getByLabelText('Edge Server')).not.toBeDisabled()
+      expect(screen.getByLabelText('Объект')).not.toBeDisabled()
     })
-    await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-2')
+    await user.selectOptions(screen.getByLabelText('Объект'), 'edge-2')
 
     await waitFor(() => {
       expect(router.state.location.search).toContain('diagramId=diagram-2')
@@ -1355,7 +1354,7 @@ describe('DashboardPage (US3)', () => {
         ),
         expectedState: 'timeout',
         expectedFailure: 'cloud_rpc_timeout',
-        expectedError: 'Cloud RPC timeout',
+        expectedError: 'Таймаут RPC в облаке',
       },
       {
         response: HttpResponse.json(
@@ -1368,7 +1367,7 @@ describe('DashboardPage (US3)', () => {
         ),
         expectedState: 'timeout',
         expectedFailure: 'edge_command_timeout',
-        expectedError: 'Edge command timeout',
+        expectedError: 'Таймаут команды объекта',
       },
       {
         response: HttpResponse.json(
@@ -1381,7 +1380,7 @@ describe('DashboardPage (US3)', () => {
         ),
         expectedState: 'error',
         expectedFailure: 'edge_command_failed',
-        expectedError: 'Edge command failed',
+        expectedError: 'Команда объекта завершилась ошибкой',
       },
       {
         response: HttpResponse.json(
@@ -1394,7 +1393,7 @@ describe('DashboardPage (US3)', () => {
         ),
         expectedState: 'unavailable',
         expectedFailure: 'edge_unavailable',
-        expectedError: 'Edge unavailable',
+        expectedError: 'Объект недоступен',
       },
       {
         response: HttpResponse.json(
@@ -1406,13 +1405,13 @@ describe('DashboardPage (US3)', () => {
         ),
         expectedState: 'error',
         expectedFailure: 'unknown_error',
-        expectedError: 'Command failed',
+        expectedError: 'Команда не выполнена',
       },
       {
         response: HttpResponse.error(),
         expectedState: 'error',
         expectedFailure: 'network_error',
-        expectedError: 'Network error',
+        expectedError: 'Сетевая ошибка',
       },
     ]
     let activeResponse: Response | null = null
@@ -1467,12 +1466,12 @@ describe('DashboardPage (US3)', () => {
       'false',
     )
     expect(
-      await screen.findByRole('button', { name: 'Command toggle widget-command-toggle' }),
+      await screen.findByRole('button', { name: 'Команда-переключатель widget-command-toggle' }),
     ).toHaveAttribute('aria-pressed', 'false')
 
     const user = userEvent.setup()
     await openDiagnosticsPanel(user)
-    let diagnosticsPanel = await openDiagnosticsTab('Bindings')
+    let diagnosticsPanel = await openDiagnosticsTab('Привязки')
     const toggleDiagnostics = within(diagnosticsPanel).getByTestId(
       'dashboard-runtime-widget-widget-command-toggle',
     )
@@ -1483,7 +1482,7 @@ describe('DashboardPage (US3)', () => {
     for (const [failureIndex, failureCase] of failureCases.entries()) {
       activeResponse = failureCase.response
       await user.click(
-        await screen.findByRole('button', { name: 'Command toggle widget-command-toggle' }),
+        await screen.findByRole('button', { name: 'Команда-переключатель widget-command-toggle' }),
       )
 
       await waitFor(() => {
@@ -1496,15 +1495,15 @@ describe('DashboardPage (US3)', () => {
         'false',
       )
       expect(
-        screen.getByRole('button', { name: 'Command toggle widget-command-toggle' }),
+        screen.getByRole('button', { name: 'Команда-переключатель widget-command-toggle' }),
       ).toHaveAttribute('aria-pressed', 'false')
 
-      diagnosticsPanel = await openDiagnosticsTab('Bindings')
+      diagnosticsPanel = await openDiagnosticsTab('Привязки')
       expect(
         within(diagnosticsPanel).getByTestId(
           'dashboard-diagnostics-command-lifecycle-widget-command-toggle',
         ),
-      ).toHaveTextContent('Command lifecycle: pending')
+      ).toHaveTextContent('Жизненный цикл команды: pending')
 
       await act(async () => {
         releaseCommand()
@@ -1519,56 +1518,56 @@ describe('DashboardPage (US3)', () => {
         'false',
       )
       expect(
-        screen.getByRole('button', { name: 'Command toggle widget-command-toggle' }),
+        screen.getByRole('button', { name: 'Команда-переключатель widget-command-toggle' }),
       ).toHaveAttribute('aria-pressed', 'false')
 
-      diagnosticsPanel = await openDiagnosticsTab('Bindings')
+      diagnosticsPanel = await openDiagnosticsTab('Привязки')
       expect(
         within(diagnosticsPanel).getByTestId(
           'dashboard-diagnostics-command-lifecycle-widget-command-toggle',
         ),
-      ).toHaveTextContent(`Command lifecycle: ${failureCase.expectedState}`)
+      ).toHaveTextContent(`Жизненный цикл команды: ${failureCase.expectedState}`)
       expect(
         within(diagnosticsPanel).getByTestId(
           'dashboard-diagnostics-command-failure-widget-command-toggle',
         ),
-      ).toHaveTextContent(`Failure: ${failureCase.expectedFailure}`)
+      ).toHaveTextContent(`Ошибка выполнения: ${failureCase.expectedFailure}`)
       expect(
         within(diagnosticsPanel).getByTestId(
           'dashboard-diagnostics-command-last-error-widget-command-toggle',
         ),
-      ).toHaveTextContent(`Last error: ${failureCase.expectedError}`)
+      ).toHaveTextContent(`Последняя ошибка: ${failureCase.expectedError}`)
 
       act(() => {
         runtimeHarness.emitTransportStatus('edge-visual-1', 'reconnecting')
       })
 
-      diagnosticsPanel = await openDiagnosticsTab('Status')
+      diagnosticsPanel = await openDiagnosticsTab('Статус')
       await waitFor(() => {
-        expect(within(diagnosticsPanel).getByText('Transport: Reconnecting')).toBeInTheDocument()
+        expect(within(diagnosticsPanel).getByText('Транспорт: Переподключение')).toBeInTheDocument()
       })
       expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
         'false',
       )
       expect(
-        screen.getByRole('button', { name: 'Command toggle widget-command-toggle' }),
+        screen.getByRole('button', { name: 'Команда-переключатель widget-command-toggle' }),
       ).toHaveAttribute('aria-pressed', 'false')
-      expect(screen.queryByText('Failed to load dashboard context')).not.toBeInTheDocument()
+      expect(screen.queryByText('Не удалось загрузить контекст диспетчеризации')).not.toBeInTheDocument()
 
       act(() => {
         runtimeHarness.emitTransportStatus('edge-visual-1', 'connected')
       })
-      diagnosticsPanel = await openDiagnosticsTab('Bindings')
+      diagnosticsPanel = await openDiagnosticsTab('Привязки')
       expect(
         within(diagnosticsPanel).getByTestId(
           'dashboard-diagnostics-command-lifecycle-widget-command-toggle',
         ),
-      ).toHaveTextContent(`Command lifecycle: ${failureCase.expectedState}`)
+      ).toHaveTextContent(`Жизненный цикл команды: ${failureCase.expectedState}`)
       expect(
         within(diagnosticsPanel).getByTestId(
           'dashboard-diagnostics-command-failure-widget-command-toggle',
         ),
-      ).toHaveTextContent(`Failure: ${failureCase.expectedFailure}`)
+      ).toHaveTextContent(`Ошибка выполнения: ${failureCase.expectedFailure}`)
 
       activeResponse = null
     }
@@ -1755,13 +1754,13 @@ describe('DashboardPage (US3)', () => {
     )
 
     const missingCommandToggle = screen.getByRole('button', {
-      name: 'Command toggle widget-toggle-missing-command',
+      name: 'Команда-переключатель widget-toggle-missing-command',
     })
     const reportedMismatchToggle = screen.getByRole('button', {
-      name: 'Command toggle widget-toggle-reported-mismatch',
+      name: 'Команда-переключатель widget-toggle-reported-mismatch',
     })
     const staleCatalogSlider = screen.getByRole('slider', {
-      name: 'Command slider widget-slider-stale-catalog',
+      name: 'Команда-слайдер widget-slider-stale-catalog',
     })
 
     expect(missingCommandToggle).toBeDisabled()
@@ -1796,14 +1795,14 @@ describe('DashboardPage (US3)', () => {
     setupDashboardApiFixtures()
     mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-2'))
 
-    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
+    expect(await screen.findByLabelText('Мнемосхема')).toHaveValue('diagram-1')
     expect(
-      await screen.findByText('No saved binding profile for this Diagram + Edge pair'),
+      await screen.findByText('Для этой пары мнемосхемы и объекта нет сохраненного профиля привязок'),
     ).toBeInTheDocument()
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Open Details for more info' }))
+    await userEvent.setup().click(screen.getAllByRole('button', { name: 'Открыть диагностику' })[0])
     const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
     expect(
-      within(diagnosticsPanel).getByText('No saved binding profile for the selected Diagram + Edge pair.'),
+      within(diagnosticsPanel).getByText('Для выбранной пары мнемосхемы и объекта нет сохраненного профиля привязок.'),
     ).toBeInTheDocument()
   })
 
@@ -1827,8 +1826,8 @@ describe('DashboardPage (US3)', () => {
 
     mount(dashboardPath('?diagramId=diagram-1&edgeId=edge-1'))
 
-    expect(await screen.findByLabelText('Diagram')).toHaveValue('diagram-1')
-    expect(await screen.findByText('Saved binding profile references stale widget ids')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Мнемосхема')).toHaveValue('diagram-1')
+    expect(await screen.findByText('Сохраненный профиль привязок ссылается на устаревшие widget id')).toBeInTheDocument()
   })
 
   it('uses saved diagram snapshot for runtime rendering and applies bound values for supported widgets', async () => {
@@ -1915,15 +1914,15 @@ describe('DashboardPage (US3)', () => {
 
     const user = userEvent.setup()
     await openDiagnosticsPanel(user)
-    const diagnosticsPanel = await openDiagnosticsTab('Bindings')
+    const diagnosticsPanel = await openDiagnosticsTab('Привязки')
     expect(within(diagnosticsPanel).getByText('widget-temperature')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('widget-status')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('widget-alarm')).toBeInTheDocument()
     expect(screen.queryByText('widget-draft-only')).not.toBeInTheDocument()
 
-    expect(within(diagnosticsPanel).getByText('Value: 48.5')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('Value: 15')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('Value: false')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Значение: 48.5')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Значение: 15')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Значение: false')).toBeInTheDocument()
   })
 })
 
@@ -1968,23 +1967,23 @@ describe('DashboardPage (US4)', () => {
     })
 
     const user = userEvent.setup()
-    await user.selectOptions(screen.getByLabelText('Diagram'), 'diagram-2')
+    await user.selectOptions(screen.getByLabelText('Мнемосхема'), 'diagram-2')
     await waitFor(() => {
       expect(screen.getByRole('option', { name: 'Edge B' })).toBeInTheDocument()
-      expect(screen.getByLabelText('Edge Server')).not.toBeDisabled()
+      expect(screen.getByLabelText('Объект')).not.toBeDisabled()
     })
-    await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-2')
+    await user.selectOptions(screen.getByLabelText('Объект'), 'edge-2')
 
     await waitFor(() => {
       expect(catalogRequests).toContain('edge-2')
     })
 
-    await user.selectOptions(screen.getByLabelText('Diagram'), 'diagram-1')
+    await user.selectOptions(screen.getByLabelText('Мнемосхема'), 'diagram-1')
     await waitFor(() => {
       expect(screen.getByRole('option', { name: 'Edge A' })).toBeInTheDocument()
-      expect(screen.getByLabelText('Edge Server')).not.toBeDisabled()
+      expect(screen.getByLabelText('Объект')).not.toBeDisabled()
     })
-    await user.selectOptions(screen.getByLabelText('Edge Server'), 'edge-1')
+    await user.selectOptions(screen.getByLabelText('Объект'), 'edge-1')
 
     await waitFor(() => {
       expect(catalogRequests.filter((edgeId) => edgeId === 'edge-1')).toHaveLength(2)
@@ -2087,21 +2086,21 @@ describe('DashboardPage (US4)', () => {
 
     const user = userEvent.setup()
     await openDiagnosticsPanel(user)
-    const diagnosticsPanel = await openDiagnosticsTab('Bindings')
+    const diagnosticsPanel = await openDiagnosticsTab('Привязки')
     expect(within(diagnosticsPanel).getByText('widget-command-toggle')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('widget-command-slider')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('widget-temperature')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('Value: 49')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('Value: false')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('Value: 68')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Значение: 49')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Значение: false')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Значение: 68')).toBeInTheDocument()
     expect(
-      within(diagnosticsPanel).getAllByText('Command: unavailable (missing-catalog-command)')[0],
+      within(diagnosticsPanel).getAllByText('Команда: недоступна (missing-catalog-command)')[0],
     ).toBeInTheDocument()
 
     const nonOperativeWidget = within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-command-toggle')
     expect(nonOperativeWidget).not.toHaveAttribute('aria-disabled', 'true')
     const unavailableToggle = screen.getByRole('button', {
-      name: 'Command toggle widget-command-toggle',
+      name: 'Команда-переключатель widget-command-toggle',
     })
     expect(unavailableToggle).toBeDisabled()
     expect(unavailableToggle).toHaveAttribute('data-command-executable', 'false')
@@ -2119,7 +2118,7 @@ describe('DashboardPage visual diagnostics (T051)', () => {
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-diagnostics-panel')).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
+    await user.click(screen.getByRole('button', { name: 'Открыть диагностику' }))
 
     const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
     const scrollRegion = within(diagnosticsPanel).getByTestId('dashboard-diagnostics-scroll-region')
@@ -2127,10 +2126,10 @@ describe('DashboardPage visual diagnostics (T051)', () => {
     expect(diagnosticsPanel).toBeInTheDocument()
     expect(scrollRegion).toHaveClass('max-h-80')
     expect(scrollRegion).toHaveClass('overflow-y-auto')
-    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Status' })).toHaveAttribute('aria-selected', 'true')
-    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Telemetry' })).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Bindings' })).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Render issues' })).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Статус' })).toHaveAttribute('aria-selected', 'true')
+    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Телеметрия' })).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Привязки' })).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByRole('tab', { name: 'Проблемы отрисовки' })).toBeInTheDocument()
     expect(screen.getByTestId('dashboard-visual-surface')).toBeInTheDocument()
   })
 
@@ -2142,10 +2141,10 @@ describe('DashboardPage visual diagnostics (T051)', () => {
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
 
     const actionSlot = await screen.findByTestId('dispatch-action-slot')
-    fireEvent.click(within(actionSlot).getByRole('button', { name: 'Details' }))
+    fireEvent.click(within(actionSlot).getByRole('button', { name: 'Диагностика' }))
 
     expect(await screen.findByTestId('dashboard-diagnostics-panel')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Close diagnostics' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Закрыть диагностику' })).toHaveAttribute(
       'aria-expanded',
       'true',
     )
@@ -2202,11 +2201,11 @@ describe('DashboardPage visual render issue recovery (T052)', () => {
 
     mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
 
-    expect(await screen.findByText('Saved diagram visual layout cannot be rendered')).toBeInTheDocument()
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Open Details for more info' }))
-    const diagnosticsPanel = await openDiagnosticsTab('Render issues')
+    expect(await screen.findByText('Сохраненную визуальную схему невозможно отрисовать')).toBeInTheDocument()
+    await userEvent.setup().click(screen.getAllByRole('button', { name: 'Открыть диагностику' })[0])
+    const diagnosticsPanel = await openDiagnosticsTab('Проблемы отрисовки')
     expect(within(diagnosticsPanel).getByText('blocking: damaged-image-data')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('Element: image-broken')).toBeInTheDocument()
+    expect(within(diagnosticsPanel).getByText('Элемент: image-broken')).toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-visual-surface')).not.toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-runtime-widget-widget-temperature')).not.toBeInTheDocument()
   })
@@ -2217,9 +2216,9 @@ describe('DashboardPage visual render issue recovery (T052)', () => {
     mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
-    expect(screen.getByText('Visual rendering issues: 2 recoverable')).toBeInTheDocument()
+    expect(screen.getByText('Проблемы визуальной отрисовки: 2 восстановимых')).toBeInTheDocument()
     const diagnosticsPanel = await openDiagnosticsPanel()
-    await userEvent.setup().click(within(diagnosticsPanel).getByRole('tab', { name: 'Render issues' }))
+    await userEvent.setup().click(within(diagnosticsPanel).getByRole('tab', { name: 'Проблемы отрисовки' }))
     expect(within(diagnosticsPanel).getByText('recoverable: missing-connection-point')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('recoverable: missing-widget-image')).toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-runtime-widget-widget-temperature')).not.toBeInTheDocument()

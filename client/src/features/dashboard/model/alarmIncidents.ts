@@ -6,10 +6,10 @@ import type {
 } from '@/features/dashboard/model/types'
 
 const lifecycleLabels: Record<DashboardAlarmIncidentLifecycleState, string> = {
-  active_unacknowledged: 'Active Unacknowledged',
-  active_acknowledged: 'Active Acknowledged',
-  cleared_unacknowledged: 'Cleared Unacknowledged',
-  closed: 'Closed',
+  active_unacknowledged: 'Активная, не подтверждена',
+  active_acknowledged: 'Активная, подтверждена',
+  cleared_unacknowledged: 'Сброшена, не подтверждена',
+  closed: 'Закрыта',
 }
 
 interface DashboardAlarmIncidentLifecycleTimestamps {
@@ -80,7 +80,7 @@ function formatTimeValue(value: string | number | null | undefined): string | nu
 
 function formatAlarmValue(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) {
-    return 'not configured'
+    return 'не настроено'
   }
 
   if (typeof value === 'boolean') {
@@ -141,7 +141,7 @@ export function getDashboardAlarmIncidentRuleTitle(
   }
 
   const ruleId = incident.ruleId.trim()
-  return ruleId.length > 0 ? ruleId : 'Untitled alarm rule'
+  return ruleId.length > 0 ? ruleId : 'Безымянное правило аварии'
 }
 
 export function isDashboardAlarmIncidentUnclosed(
@@ -175,14 +175,14 @@ export function getDashboardAlarmIncidentEquipmentIdentityLabel(
   }
 
   if (deviceId.length > 0) {
-    return `${deviceId} / unknown metric`
+    return `${deviceId} / неизвестная метрика`
   }
 
   if (metric.length > 0) {
-    return `unknown device / ${metric}`
+    return `неизвестное устройство / ${metric}`
   }
 
-  return 'unknown device / unknown metric'
+  return 'неизвестное устройство / неизвестная метрика'
 }
 
 export function getDashboardAlarmIncidentConditionSummary(
@@ -195,15 +195,15 @@ export function getDashboardAlarmIncidentConditionSummary(
 
   switch (incident.rule.conditionType) {
     case 'high':
-      return `High condition: latest ${latestValue}; trigger ${triggerThreshold}; clear ${clearThreshold}`
+      return `Верхний порог: текущее ${latestValue}; срабатывание ${triggerThreshold}; сброс ${clearThreshold}`
     case 'low':
-      return `Low condition: latest ${latestValue}; trigger ${triggerThreshold}; clear ${clearThreshold}`
+      return `Нижний порог: текущее ${latestValue}; срабатывание ${triggerThreshold}; сброс ${clearThreshold}`
     case 'state':
-      return `State condition: latest ${latestValue}; expected ${expectedValue}`
+      return `Состояние: текущее ${latestValue}; ожидается ${expectedValue}`
     case 'connectivity':
-      return `Connectivity condition: latest ${latestValue}; expected ${expectedValue}`
+      return `Связь: текущее ${latestValue}; ожидается ${expectedValue}`
     default:
-      return `Condition: latest ${latestValue}`
+      return `Условие: текущее ${latestValue}`
   }
 }
 
@@ -241,7 +241,7 @@ export function getDashboardAlarmIncidentLifecycleTimestamps(
   >,
 ): DashboardAlarmIncidentLifecycleTimestamps {
   return {
-    activatedAt: formatTimeValue(incident.activatedAt) ?? 'Time unavailable',
+    activatedAt: formatTimeValue(incident.activatedAt) ?? 'Время недоступно',
     clearedAt: formatTimeValue(incident.clearedAt),
     acknowledgedAt: formatTimeValue(incident.acknowledgedAt),
     closedAt: getComputedClosedAt(incident),
@@ -255,13 +255,13 @@ export function getDashboardAlarmIncidentSecondaryDetails(
   >,
 ): string[] {
   const details = [
-    `Rule ${incident.ruleId}`,
-    `Latest detected ${formatTimeValue(incident.latestDetectedAt) ?? 'Time unavailable'}`,
-    `Latest sample ${formatTimeValue(incident.latestTs) ?? 'Time unavailable'}`,
+    `Правило ${incident.ruleId}`,
+    `Последнее обнаружение ${formatTimeValue(incident.latestDetectedAt) ?? 'Время недоступно'}`,
+    `Последний сэмпл ${formatTimeValue(incident.latestTs) ?? 'Время недоступно'}`,
   ]
 
   const sourceId = incident.sourceId?.trim()
-  return sourceId ? [`Source ${sourceId}`, ...details] : details
+  return sourceId ? [`Источник ${sourceId}`, ...details] : details
 }
 
 export function getDashboardAlarmIncidentDisplayDetails(

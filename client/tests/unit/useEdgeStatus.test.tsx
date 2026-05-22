@@ -148,7 +148,7 @@ describe('useEdgeStatus normalization (T034)', () => {
       expect(result.current.loading).toBe(false)
     })
 
-    expect(result.current.error).toContain('Failed to refresh edge status')
+    expect(result.current.error).toContain('Не удалось обновить статус объектов')
     expect(result.current.getSnapshot('edge-unknown')).toEqual({
       online: null,
       lastSeenAt: null,

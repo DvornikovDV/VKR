@@ -4,6 +4,8 @@
 import { createPortal } from 'react-dom'
 import { useState } from 'react'
 import { useReAuthStore } from '@/shared/api/tokenRefresh'
+import { createApiError } from '@/shared/api/client'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 import { useAuthStore } from '@/shared/store/useAuthStore'
 import type { Session } from '@/shared/store/useAuthStore'
 
@@ -15,13 +17,6 @@ interface LoginResponse {
         tier: 'FREE' | 'PRO'
     }
     token: string
-}
-
-const BANNED_ACCOUNT_MESSAGE = 'Your account has been suspended. Please contact support.'
-
-function isBannedAccountError(message: string): boolean {
-    const normalizedMessage = message.toLowerCase()
-    return normalizedMessage.includes('suspend') || normalizedMessage.includes('bann')
 }
 
 export function ReAuthOverlay() {
@@ -49,9 +44,10 @@ export function ReAuthOverlay() {
 
             if (!res.ok) {
                 setError(
-                    isBannedAccountError(data.message ?? '')
-                        ? BANNED_ACCOUNT_MESSAGE
-                        : 'Invalid credentials. Please try again.',
+                    getErrorDisplayMessage(
+                        createApiError(res.status, data.message ?? `HTTP ${res.status}`, data),
+                        'Не удалось выполнить вход.',
+                    ),
                 )
                 return
             }
@@ -66,7 +62,7 @@ export function ReAuthOverlay() {
             setSession(session)
             clearReAuth()
         } catch {
-            setError('Connection error. Please try again.')
+            setError('Ошибка соединения. Проверьте сеть.')
         } finally {
             setLoading(false)
         }

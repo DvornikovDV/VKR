@@ -28,6 +28,7 @@ import {
   type DashboardRuntimeSession,
 } from '@/features/dashboard/services/cloudRuntimeClient'
 import { ackAlarmIncident, listAlarmIncidents } from '@/shared/api/alarmIncidents'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 export interface UseDashboardRuntimeSessionOptions {
   edgeId: string | null
@@ -128,11 +129,7 @@ function normalizeEdgeId(value: string | null): string | null {
 }
 
 function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {
@@ -392,7 +389,7 @@ export function useDashboardRuntimeSession(
           ),
           alarmAckErrorByIncidentId: {
             ...previous.alarmAckErrorByIncidentId,
-            [normalizedIncidentId]: toErrorMessage(error, 'Alarm incident acknowledgement failed.'),
+            [normalizedIncidentId]: toErrorMessage(error, 'Не удалось подтвердить аварию.'),
           },
         }
       })
@@ -528,7 +525,7 @@ export function useDashboardRuntimeSession(
 
           setState((previous) => ({
             ...previous,
-            runtimeError: toErrorMessage(runtimeError, 'Dashboard runtime session failed.'),
+            runtimeError: toErrorMessage(runtimeError, 'Runtime-сессия диспетчеризации завершилась ошибкой.'),
           }))
         },
       })
@@ -583,7 +580,7 @@ export function useDashboardRuntimeSession(
               ...previous,
               alarmJournalLoadState: {
                 status: 'error',
-                error: toErrorMessage(error, 'Alarm incident list is unavailable.'),
+                error: toErrorMessage(error, 'Журнал аварий недоступен.'),
               },
             }
           })
@@ -601,7 +598,7 @@ export function useDashboardRuntimeSession(
         alarmAckPendingByIncidentId: {},
         alarmAckErrorByIncidentId: {},
         lastServerTimestamp: null,
-        runtimeError: toErrorMessage(error, 'Dashboard runtime session failed to start.'),
+        runtimeError: toErrorMessage(error, 'Не удалось запустить runtime-сессию диспетчеризации.'),
         acknowledgeAlarmIncident,
       })
     }

@@ -303,11 +303,11 @@ describe('Hosted constructor save flow coverage (T016)', () => {
 
     render(<SaveAsFlowHarness currentLayout={representativeLayout} />)
 
-    await user.click(screen.getByRole('button', { name: 'Create copy' }))
-    expect(screen.getByText('Enter a diagram name before creating a copy.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Создать копию' }))
+    expect(screen.getByText('Введите имя мнемосхемы перед созданием копии.')).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText('Diagram name'), '   Boiler Hall Copy   ')
-    await user.click(screen.getByRole('button', { name: 'Create copy' }))
+    await user.type(screen.getByLabelText('Имя мнемосхемы'), '   Boiler Hall Copy   ')
+    await user.click(screen.getByRole('button', { name: 'Создать копию' }))
 
     expect(await screen.findByTestId('save-as-result')).toHaveTextContent(
       'diagram-copy-1:Boiler Hall Copy',
@@ -391,21 +391,21 @@ describe('Hosted constructor save flow coverage (T016)', () => {
     expect(screen.getByTestId('version-state')).toHaveTextContent('4')
 
     await user.click(screen.getByRole('button', { name: 'Attempt in-place save' }))
-    expect(await screen.findByText('Save conflict detected')).toBeInTheDocument()
+    expect(await screen.findByText('Обнаружен конфликт сохранения')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Continue editing' }))
+    await user.click(screen.getByRole('button', { name: 'Продолжить редактирование' }))
     await waitFor(() => {
-      expect(screen.queryByText('Save conflict detected')).not.toBeInTheDocument()
+      expect(screen.queryByText('Обнаружен конфликт сохранения')).not.toBeInTheDocument()
     })
     expect(screen.getByTestId('layout-state')).toHaveTextContent('widget-dirty')
     expect(screen.getByTestId('action-log')).toHaveTextContent('continue')
 
     await user.click(screen.getByRole('button', { name: 'Attempt in-place save' }))
-    expect(await screen.findByText('Save conflict detected')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Save As copy' }))
+    expect(await screen.findByText('Обнаружен конфликт сохранения')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Сохранить как копию' }))
 
     await waitFor(() => {
-      expect(screen.queryByText('Save conflict detected')).not.toBeInTheDocument()
+      expect(screen.queryByText('Обнаружен конфликт сохранения')).not.toBeInTheDocument()
     })
     expect(saveAsPayloads).toHaveLength(1)
     expect(saveAsPayloads[0].name).toBe('Recovered conflict copy')
@@ -414,11 +414,11 @@ describe('Hosted constructor save flow coverage (T016)', () => {
     expect(screen.getByTestId('action-log')).toHaveTextContent('continue,save-as')
 
     await user.click(screen.getByRole('button', { name: 'Attempt in-place save' }))
-    expect(await screen.findByText('Save conflict detected')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Reload latest' }))
+    expect(await screen.findByText('Обнаружен конфликт сохранения')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Загрузить последнюю' }))
 
     await waitFor(() => {
-      expect(screen.queryByText('Save conflict detected')).not.toBeInTheDocument()
+      expect(screen.queryByText('Обнаружен конфликт сохранения')).not.toBeInTheDocument()
     })
     expect(screen.getByTestId('layout-state')).toHaveTextContent('widget-latest')
     expect(screen.getByTestId('version-state')).toHaveTextContent('5')

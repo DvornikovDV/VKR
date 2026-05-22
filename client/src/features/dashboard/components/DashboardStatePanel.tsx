@@ -35,11 +35,11 @@ function formatRenderIssueSummary(renderIssues: DashboardRenderIssue[]): string 
   const blockingCount = renderIssues.filter((issue) => issue.severity === 'blocking').length
   const recoverableCount = renderIssues.length - blockingCount
   const summaryParts = [
-    formatIssueCount(blockingCount, 'blocking'),
-    formatIssueCount(recoverableCount, 'recoverable'),
+    formatIssueCount(blockingCount, 'блокирующих'),
+    formatIssueCount(recoverableCount, 'восстановимых'),
   ].filter((part): part is string => Boolean(part))
 
-  return `Visual render issues: ${summaryParts.join(', ')}`
+  return `Проблемы визуальной отрисовки: ${summaryParts.join(', ')}`
 }
 
 function getMessage(
@@ -50,48 +50,48 @@ function getMessage(
   switch (state) {
     case 'empty':
       if (selectedDiagramName) {
-        return 'Select an edge server to start monitoring.'
+        return 'Выберите объект, чтобы начать мониторинг.'
       }
-      return 'Select a diagram to start monitoring.'
+      return 'Выберите мнемосхему, чтобы начать мониторинг.'
     case 'loading':
-      return 'Loading dashboard context...'
+      return 'Загрузка контекста диспетчеризации...'
     case 'generic-error':
-      return errorMessage?.trim() || 'Failed to load dashboard context.'
+      return errorMessage?.trim() || 'Не удалось загрузить контекст диспетчеризации.'
     case 'invalid-selection':
-      return 'Invalid dashboard selection.'
+      return 'Некорректный выбор для диспетчеризации.'
     case 'missing-binding-profile':
-      return 'No saved binding profile for the selected Diagram + Edge pair.'
+      return 'Для выбранной пары мнемосхемы и объекта нет сохраненного профиля привязок.'
     case 'invalid-binding-profile':
-      return 'Saved binding profile references stale widget ids.'
+      return 'Сохраненный профиль привязок ссылается на устаревшие widget id.'
     case 'visual-rendering-error':
-      return 'Saved diagram visual layout cannot be rendered.'
+      return 'Сохраненную визуальную схему невозможно отрисовать.'
     case 'partial-visual-rendering':
-      return 'Saved diagram rendered with recoverable visual issues.'
+      return 'Схема отрисована с восстановимыми визуальными проблемами.'
     case 'ready':
-      return 'Monitoring context resolved.'
+      return 'Контекст мониторинга определен.'
     default:
-      return 'Dashboard state is unavailable.'
+      return 'Состояние диспетчеризации недоступно.'
   }
 }
 
 function getHint(state: DashboardRecoveryState): string | null {
   switch (state) {
     case 'empty':
-      return 'Dashboard starts monitoring after Diagram and Edge Server are both selected.'
+      return 'Мониторинг начнется после выбора мнемосхемы и объекта.'
     case 'loading':
-      return 'Resolving saved diagram and binding profile from cloud contracts.'
+      return 'Загружаются сохраненная мнемосхема и профиль привязок из облачных контрактов.'
     case 'invalid-selection':
-      return 'Choose a valid Diagram and Edge pair from the selectors above.'
+      return 'Выберите корректную пару мнемосхемы и объекта в селекторах выше.'
     case 'missing-binding-profile':
-      return 'Create or save bindings in Constructor, then return to Dashboard monitoring.'
+      return 'Создайте или сохраните привязки в конструкторе, затем вернитесь к диспетчеризации.'
     case 'invalid-binding-profile':
-      return 'Saved binding profile needs a refresh because widget ids no longer match.'
+      return 'Профиль привязок нужно обновить: widget id больше не совпадают.'
     case 'visual-rendering-error':
-      return 'Open the saved diagram in Constructor and restore its visual layout before monitoring.'
+      return 'Откройте мнемосхему в конструкторе и восстановите визуальную схему перед мониторингом.'
     case 'partial-visual-rendering':
-      return 'Renderable visual elements stay visible while damaged saved elements are reported below.'
+      return 'Доступные визуальные элементы остаются видимыми, поврежденные элементы перечислены ниже.'
     case 'ready':
-      return 'Live telemetry updates are applied from the selected Edge subscription.'
+      return 'Живая телеметрия применяется из подписки выбранного объекта.'
     default:
       return null
   }
@@ -122,7 +122,7 @@ export function DashboardStatePanel({
       aria-busy={isLoading}
       className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4 shadow-[inset_0_1px_0_rgba(148,163,184,0.06)]"
     >
-      <h1 className="text-xl font-semibold text-white">Dashboard Monitoring</h1>
+      <h1 className="text-xl font-semibold text-white">Мониторинг диспетчеризации</h1>
       <p
         className={`mt-1 text-sm transition-colors duration-200 ${isError ? 'text-[var(--color-danger)]' : 'text-[#94a3b8]'}`}
       >
@@ -131,13 +131,13 @@ export function DashboardStatePanel({
       {hint && <p className="mt-1 text-xs text-[#7f90a7]">{hint}</p>}
 
       <div className="mt-3 text-xs text-[#94a3b8]">
-        <p>Diagram: {selectedDiagramName ?? 'Not selected'}</p>
-        <p>Edge Server: {selectedEdgeName ?? 'Not selected'}</p>
+        <p>Мнемосхема: {selectedDiagramName ?? 'Не выбрана'}</p>
+        <p>Объект: {selectedEdgeName ?? 'Не выбран'}</p>
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[#cbd5e1]">
-        <p>Transport: {transportLabel}</p>
-        <p>Edge: {edgeAvailabilityLabel}</p>
+        <p>Транспорт: {transportLabel}</p>
+        <p>Объект: {edgeAvailabilityLabel}</p>
       </div>
 
       {renderIssueSummary && (
@@ -166,7 +166,7 @@ export function DashboardStatePanel({
 
       {isReconnecting && (
         <p className="mt-2 text-xs text-[var(--color-warning)]">
-          Transport reconnecting. Last rendered values are preserved.
+          Транспорт переподключается. Последние отрисованные значения сохранены.
         </p>
       )}
     </section>

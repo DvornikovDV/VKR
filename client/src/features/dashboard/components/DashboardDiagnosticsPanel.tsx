@@ -43,14 +43,14 @@ function formatRuntimeValue(value: DashboardRuntimeValue): string {
 function formatCatalogStatus(status: DashboardCatalogLoadStatus): string {
   switch (status) {
     case 'loading':
-      return 'Loading'
+      return 'Загрузка'
     case 'loaded':
-      return 'Loaded'
+      return 'Загружен'
     case 'error':
-      return 'Error'
+      return 'Ошибка'
     case 'idle':
     default:
-      return 'Idle'
+      return 'Ожидание'
   }
 }
 
@@ -62,48 +62,48 @@ function getMessage(
   switch (state) {
     case 'empty':
       if (selectedDiagramName) {
-        return 'Select an edge server to start monitoring.'
+        return 'Выберите объект, чтобы начать мониторинг.'
       }
-      return 'Select a diagram to start monitoring.'
+      return 'Выберите мнемосхему, чтобы начать мониторинг.'
     case 'loading':
-      return 'Loading dashboard context...'
+      return 'Загрузка контекста диспетчеризации...'
     case 'generic-error':
-      return errorMessage?.trim() || 'Failed to load dashboard context.'
+      return errorMessage?.trim() || 'Не удалось загрузить контекст диспетчеризации.'
     case 'invalid-selection':
-      return 'Invalid dashboard selection.'
+      return 'Некорректный выбор для диспетчеризации.'
     case 'missing-binding-profile':
-      return 'No saved binding profile for the selected Diagram + Edge pair.'
+      return 'Для выбранной пары мнемосхемы и объекта нет сохраненного профиля привязок.'
     case 'invalid-binding-profile':
-      return 'Saved binding profile references stale widget ids.'
+      return 'Сохраненный профиль привязок ссылается на устаревшие widget id.'
     case 'visual-rendering-error':
-      return 'Saved diagram visual layout cannot be rendered.'
+      return 'Сохраненную визуальную схему невозможно отрисовать.'
     case 'partial-visual-rendering':
-      return 'Saved diagram rendered with recoverable visual issues.'
+      return 'Схема отрисована с восстановимыми визуальными проблемами.'
     case 'ready':
-      return 'Monitoring context resolved.'
+      return 'Контекст мониторинга определен.'
     default:
-      return 'Dashboard state is unavailable.'
+      return 'Состояние диспетчеризации недоступно.'
   }
 }
 
 function getHint(state: DashboardRecoveryState): string | null {
   switch (state) {
     case 'empty':
-      return 'Dashboard starts monitoring after Diagram and Edge Server are both selected.'
+      return 'Мониторинг начнется после выбора мнемосхемы и объекта.'
     case 'loading':
-      return 'Resolving saved diagram and binding profile from cloud contracts.'
+      return 'Загружаются сохраненная мнемосхема и профиль привязок из облачных контрактов.'
     case 'invalid-selection':
-      return 'Choose a valid Diagram and Edge pair from the selectors above.'
+      return 'Выберите корректную пару мнемосхемы и объекта в селекторах выше.'
     case 'missing-binding-profile':
-      return 'Create or save bindings in Constructor, then return to Dashboard monitoring.'
+      return 'Создайте или сохраните привязки в конструкторе, затем вернитесь к диспетчеризации.'
     case 'invalid-binding-profile':
-      return 'Saved binding profile needs a refresh because widget ids no longer match.'
+      return 'Профиль привязок нужно обновить: widget id больше не совпадают.'
     case 'visual-rendering-error':
-      return 'Open the saved diagram in Constructor and restore its visual layout before monitoring.'
+      return 'Откройте мнемосхему в конструкторе и восстановите визуальную схему перед мониторингом.'
     case 'partial-visual-rendering':
-      return 'Renderable visual elements stay visible while damaged saved elements are reported below.'
+      return 'Доступные визуальные элементы остаются видимыми, поврежденные элементы перечислены ниже.'
     case 'ready':
-      return 'Live telemetry updates are applied from the selected Edge subscription.'
+      return 'Живая телеметрия применяется из подписки выбранного объекта.'
     default:
       return null
   }
@@ -165,18 +165,18 @@ export function DashboardDiagnosticsPanel({
     <aside
       data-testid="dashboard-diagnostics-panel"
       className="rounded-t-lg border border-[#334155] bg-[#07111f]/95 text-[#e2e8f0] shadow-2xl backdrop-blur"
-      aria-label="Dashboard diagnostics"
+      aria-label="Диагностика диспетчеризации"
     >
       {/* Tab bar */}
       <div
         className="flex gap-1 border-b border-[#1f2a3d] px-3 pt-2"
         role="tablist"
-        aria-label="Diagnostics tabs"
+        aria-label="Вкладки диагностики"
       >
-        <TabButton label="Status" active={activeTab === 'status'} onClick={() => setActiveTab('status')} />
-        <TabButton label="Telemetry" active={activeTab === 'telemetry'} onClick={() => setActiveTab('telemetry')} />
-        <TabButton label="Bindings" active={activeTab === 'bindings'} onClick={() => setActiveTab('bindings')} />
-        <TabButton label="Render issues" active={activeTab === 'render-issues'} onClick={() => setActiveTab('render-issues')} />
+        <TabButton label="Статус" active={activeTab === 'status'} onClick={() => setActiveTab('status')} />
+        <TabButton label="Телеметрия" active={activeTab === 'telemetry'} onClick={() => setActiveTab('telemetry')} />
+        <TabButton label="Привязки" active={activeTab === 'bindings'} onClick={() => setActiveTab('bindings')} />
+        <TabButton label="Проблемы отрисовки" active={activeTab === 'render-issues'} onClick={() => setActiveTab('render-issues')} />
       </div>
 
       <div
@@ -186,7 +186,7 @@ export function DashboardDiagnosticsPanel({
         {activeTab === 'status' && (
           <section aria-labelledby="dashboard-diagnostics-status">
             <h3 id="dashboard-diagnostics-status" className="text-sm font-semibold text-white">
-              Status
+              Статус
             </h3>
             <p
               className={`mt-2 text-sm ${isError ? 'text-[var(--color-danger)]' : 'text-[#94a3b8]'}`}
@@ -197,22 +197,22 @@ export function DashboardDiagnosticsPanel({
               <p className="mt-1 text-xs text-[#7f90a7]">{statusHint}</p>
             )}
             <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-[#cbd5e1]">
-              <p>Transport: {transportLabel}</p>
-              <p>Edge: {edgeAvailabilityLabel}</p>
-              <p>Catalog: {formatCatalogStatus(catalogStatus)}</p>
+              <p>Транспорт: {transportLabel}</p>
+              <p>Объект: {edgeAvailabilityLabel}</p>
+              <p>Каталог: {formatCatalogStatus(catalogStatus)}</p>
             </div>
             {catalogError ? (
               <p className="mt-2 text-xs text-[var(--color-warning)]">
-                Catalog error: {catalogError}
+                Ошибка каталога: {catalogError}
               </p>
             ) : null}
             {isReconnecting && (
               <p className="mt-2 text-xs text-[var(--color-warning)]">
-                Transport reconnecting. Last rendered values are preserved.
+                Транспорт переподключается. Последние отрисованные значения сохранены.
               </p>
             )}
             <p className="mt-3 text-xs text-[#64748b]">
-              Last server timestamp: {lastServerTimestamp !== null ? String(lastServerTimestamp) : 'n/a'}
+              Последняя серверная метка времени: {lastServerTimestamp !== null ? String(lastServerTimestamp) : 'нет данных'}
             </p>
           </section>
         )}
@@ -220,10 +220,10 @@ export function DashboardDiagnosticsPanel({
         {activeTab === 'telemetry' && (
           <section aria-labelledby="dashboard-diagnostics-telemetry">
             <h3 id="dashboard-diagnostics-telemetry" className="text-sm font-semibold text-white">
-              Telemetry
+              Телеметрия
             </h3>
             {telemetryEntries.length === 0 ? (
-              <p className="mt-3 text-sm text-[#94a3b8]">No live telemetry values received yet.</p>
+              <p className="mt-3 text-sm text-[#94a3b8]">Живые значения телеметрии еще не получены.</p>
             ) : (
               <ul className="mt-3 space-y-2">
                 {telemetryEntries.map(([bindingKey, value]) => (
@@ -243,12 +243,12 @@ export function DashboardDiagnosticsPanel({
         {activeTab === 'bindings' && (
           <section aria-labelledby="dashboard-diagnostics-bindings">
             <h3 id="dashboard-diagnostics-bindings" className="text-sm font-semibold text-white">
-              Bindings
+              Привязки
             </h3>
             {widgets.length === 0 ? (
-              <p className="mt-3 text-sm text-[#94a3b8]">Saved diagram has no runtime widgets.</p>
+              <p className="mt-3 text-sm text-[#94a3b8]">В сохраненной мнемосхеме нет runtime-виджетов.</p>
             ) : (
-              <ul className="mt-3 space-y-2" aria-label="Runtime widget diagnostics">
+              <ul className="mt-3 space-y-2" aria-label="Диагностика runtime-виджетов">
                 {widgets.map((widget) => {
                   const commandProjection = runtimeProjection?.commandAvailabilityByWidgetId[widget.widgetId]
                   const commandLifecycle = commandLifecycleByWidgetId[widget.widgetId]
@@ -265,33 +265,33 @@ export function DashboardDiagnosticsPanel({
                       <p className="text-xs text-[#94a3b8]">{widget.widgetType}</p>
                       {!widget.isSupported ? (
                         <p className="mt-1 text-xs text-[#94a3b8]">
-                          Visible only. Unsupported in monitoring MVP.
+                          Только отображение. Не поддерживается в MVP мониторинга.
                         </p>
                       ) : !widget.isBound ? (
-                        <p className="mt-1 text-xs text-[#94a3b8]">Value: unbound</p>
+                        <p className="mt-1 text-xs text-[#94a3b8]">Значение: не привязано</p>
                       ) : (
                         <p className="mt-1 text-xs text-[#94a3b8]">
-                          Value: {formatRuntimeValue(widget.value)}
+                          Значение: {formatRuntimeValue(widget.value)}
                         </p>
                       )}
                       {commandProjection ? (
                         <p className="mt-1 text-xs text-[#94a3b8]">
-                          Command: {commandProjection.isExecutable ? 'available' : `unavailable (${commandProjection.reason})`}
+                          Команда: {commandProjection.isExecutable ? 'доступна' : `недоступна (${commandProjection.reason})`}
                         </p>
                       ) : null}
                       {commandLifecycle ? (
                         <div className="mt-1 space-y-1 text-xs text-[#94a3b8]">
                           <p data-testid={`dashboard-diagnostics-command-lifecycle-${widget.widgetId}`}>
-                            Command lifecycle: {commandLifecycle.status}
+                            Жизненный цикл команды: {commandLifecycle.status}
                           </p>
                           {commandLifecycle.failureKind ? (
                             <p data-testid={`dashboard-diagnostics-command-failure-${widget.widgetId}`}>
-                              Failure: {commandLifecycle.failureKind}
+                              Ошибка выполнения: {commandLifecycle.failureKind}
                             </p>
                           ) : null}
                           {commandLifecycle.error ? (
                             <p data-testid={`dashboard-diagnostics-command-last-error-${widget.widgetId}`}>
-                              Last error: {commandLifecycle.error}
+                              Последняя ошибка: {commandLifecycle.error}
                             </p>
                           ) : null}
                         </div>
@@ -307,10 +307,10 @@ export function DashboardDiagnosticsPanel({
         {activeTab === 'render-issues' && (
           <section aria-labelledby="dashboard-diagnostics-render-issues">
             <h3 id="dashboard-diagnostics-render-issues" className="text-sm font-semibold text-white">
-              Render issues
+              Проблемы отрисовки
             </h3>
             {renderIssues.length === 0 ? (
-              <p className="mt-3 text-sm text-[#94a3b8]">No visual render issues reported.</p>
+              <p className="mt-3 text-sm text-[#94a3b8]">Проблемы визуальной отрисовки не обнаружены.</p>
             ) : (
               <ul className="mt-3 space-y-2">
                 {renderIssues.map((issue, index) => (
@@ -323,7 +323,7 @@ export function DashboardDiagnosticsPanel({
                     </p>
                     <p className="mt-1 text-xs text-[#94a3b8]">{issue.message}</p>
                     {issue.elementId ? (
-                      <p className="mt-1 text-xs text-[#64748b]">Element: {issue.elementId}</p>
+                      <p className="mt-1 text-xs text-[#64748b]">Элемент: {issue.elementId}</p>
                     ) : null}
                   </li>
                 ))}

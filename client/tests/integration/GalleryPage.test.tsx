@@ -92,7 +92,7 @@ describe('GalleryPage', () => {
 
     expect(await screen.findByText('Boiler Hall')).toBeInTheDocument()
     expect(await screen.findByText('Pump Station')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Create Diagram' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Создать мнемосхему' })).toBeEnabled()
   })
 
   it('blocks create CTA when FREE tier already has 3 diagrams', async () => {
@@ -121,8 +121,8 @@ describe('GalleryPage', () => {
     renderPage()
 
     expect(await screen.findByText('D1')).toBeInTheDocument()
-    expect(screen.getByText('FREE tier limit reached: maximum 3 diagrams.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Create Diagram' })).toBeDisabled()
+    expect(screen.getByText('Достигнут лимит тарифа Free: максимум 3 мнемосхемы.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Создать мнемосхему' })).toBeDisabled()
   })
 
   it('disables native dashboard handoff for blocked telemetry profiles but preserves offline active handoff', async () => {
@@ -183,25 +183,25 @@ describe('GalleryPage', () => {
     const router = renderPage()
 
     expect(await screen.findByText('Boiler Hall')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Telemetry Profiles' }))
+    await user.click(screen.getByRole('button', { name: 'Профили телеметрии' }))
 
     const blockedProfile = screen.getByText('Blocked Edge').closest('li')
     expect(blockedProfile).not.toBeNull()
     const blockedCard = within(blockedProfile as HTMLElement)
-    expect(blockedCard.getByText('Blocked')).toBeInTheDocument()
-    expect(blockedCard.getByText('Offline')).toBeInTheDocument()
+    expect(blockedCard.getByText('Заблокирован')).toBeInTheDocument()
+    expect(blockedCard.getByText('Не в сети')).toBeInTheDocument()
     expect(
-      blockedCard.getByText('Native Dashboard handoff is unavailable while this edge is blocked.'),
+      blockedCard.getByText('Переход в диспетчеризацию недоступен, пока объект заблокирован.'),
     ).toBeInTheDocument()
-    expect(blockedCard.getByRole('button', { name: /Open Dashboard/i })).toBeDisabled()
+    expect(blockedCard.getByRole('button', { name: /Открыть диспетчеризацию/i })).toBeDisabled()
 
     const offlineProfile = screen.getByText('Offline Edge').closest('li')
     expect(offlineProfile).not.toBeNull()
     const offlineCard = within(offlineProfile as HTMLElement)
-    expect(offlineCard.getByText('Active')).toBeInTheDocument()
-    expect(offlineCard.getByText('Offline')).toBeInTheDocument()
+    expect(offlineCard.getByText('Активен')).toBeInTheDocument()
+    expect(offlineCard.getByText('Не в сети')).toBeInTheDocument()
 
-    await user.click(offlineCard.getByRole('button', { name: /Open Dashboard/i }))
+    await user.click(offlineCard.getByRole('button', { name: /Открыть диспетчеризацию/i }))
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/hub/dispatch/dashboard')
@@ -254,19 +254,19 @@ describe('GalleryPage', () => {
     const router = renderPage()
 
     expect(await screen.findByText('Boiler Hall')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Telemetry Profiles' }))
+    await user.click(screen.getByRole('button', { name: 'Профили телеметрии' }))
 
     const unresolvedProfile = screen.getByText('edge-active').closest('li')
     expect(unresolvedProfile).not.toBeNull()
     const unresolvedCard = within(unresolvedProfile as HTMLElement)
-    expect(unresolvedCard.getByText('Unknown')).toBeInTheDocument()
+    expect(unresolvedCard.getByText('Неизвестно')).toBeInTheDocument()
     expect(
       unresolvedCard.getByText(
-        'Edge lifecycle status is temporarily unavailable. Native Dashboard handoff remains available.',
+        'Статус объекта временно недоступен. Переход в диспетчеризацию остается доступным.',
       ),
     ).toBeInTheDocument()
 
-    await user.click(unresolvedCard.getByRole('button', { name: /Open Dashboard/i }))
+    await user.click(unresolvedCard.getByRole('button', { name: /Открыть диспетчеризацию/i }))
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/hub/dispatch/dashboard')

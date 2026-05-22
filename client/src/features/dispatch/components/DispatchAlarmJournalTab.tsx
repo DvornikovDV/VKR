@@ -24,6 +24,7 @@ import {
   type DispatchAlarmJournalRequestGuard,
 } from '@/features/dispatch/model/alarmJournal'
 import type { DispatchWorkspaceContextSnapshot } from '@/features/dispatch/model/types'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 interface DispatchAlarmJournalTabProps {
   workspaceContext: DispatchWorkspaceContextSnapshot
@@ -45,11 +46,7 @@ function createDispatchAlarmJournalAckKey(edgeId: string, incidentId: string): s
 }
 
 function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 function createDefaultPaginationState(page: number): DispatchAlarmJournalPaginationState {
@@ -207,7 +204,7 @@ export function DispatchAlarmJournalTab({
       setJournalResponse(null)
       setJournalLoadState({
         status: 'error',
-        error: toErrorMessage(error, 'Failed to load alarm incidents.'),
+        error: toErrorMessage(error, 'Не удалось загрузить журнал аварий.'),
       })
     }
   }, [])
@@ -402,7 +399,7 @@ export function DispatchAlarmJournalTab({
           [ackKey]: {
             ...currentAckState,
             pending: false,
-            error: toErrorMessage(error, 'Failed to acknowledge alarm incident.'),
+            error: toErrorMessage(error, 'Не удалось подтвердить аварию.'),
           },
         }
       })

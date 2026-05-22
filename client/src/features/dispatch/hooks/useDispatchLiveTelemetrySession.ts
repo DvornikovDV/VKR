@@ -16,6 +16,7 @@ import {
   selectDispatchLiveTelemetryBindingPairs,
   type DispatchLiveTelemetryRow,
 } from '@/features/dispatch/model/liveTelemetry'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 export interface UseDispatchLiveTelemetrySessionOptions {
   diagramId: string | null
@@ -46,11 +47,7 @@ function normalizeOptionalId(value: string | null | undefined): string | null {
 }
 
 function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 function sortNewestFirst(rows: DispatchLiveTelemetryRow[]): DispatchLiveTelemetryRow[] {

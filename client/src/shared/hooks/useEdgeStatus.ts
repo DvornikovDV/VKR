@@ -4,6 +4,7 @@ import {
   loadCanonicalEdgeStatusRestSnapshots,
   type EdgeStatusScope,
 } from '@/shared/hooks/edgeStatusRest'
+import { getMappedApiErrorMessage } from '@/shared/api/errorMessages'
 
 interface UseEdgeStatusOptions {
   edgeIds?: string[]
@@ -51,14 +52,15 @@ export function useEdgeStatus(options: UseEdgeStatusOptions = {}): UseEdgeStatus
     try {
       const snapshots = await fetchRestSnapshots()
       setRestEdgeSnapshotById(snapshots)
-    } catch {
+    } catch (refreshError) {
       const modeLabel =
         scope === 'admin'
-          ? 'admin availability snapshots'
+          ? 'админских снимков доступности'
           : scope === 'trusted'
-            ? 'assigned edge list'
+            ? 'списка назначенных объектов'
             : 'REST fallback'
-      setError(`Failed to refresh edge status from ${modeLabel}.`)
+      const mappedMessage = getMappedApiErrorMessage(refreshError)
+      setError(mappedMessage ?? `Не удалось обновить статус объектов из ${modeLabel}.`)
     } finally {
       setLoading(false)
     }

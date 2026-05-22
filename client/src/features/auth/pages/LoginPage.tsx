@@ -7,6 +7,7 @@ import { Activity, Eye, EyeOff } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAuthStore } from '@/shared/store/useAuthStore'
 import { useLogin } from '@/features/auth/hooks/useLogin'
+import { ruUiText } from '@/shared/i18n'
 
 // ── Location state type ────────────────────────────────────────────────────
 interface LocationState {
@@ -62,7 +63,7 @@ function LoginForm() {
                         <Activity size={22} className="text-white" />
                     </div>
                     <h1 className="text-lg font-bold text-white">VKR SCADA</h1>
-                    <p className="text-sm text-[#64748b]">Sign in to your account</p>
+                    <p className="text-sm text-[#64748b]">Войдите в аккаунт</p>
                 </div>
 
                 {/* Card */}
@@ -75,7 +76,7 @@ function LoginForm() {
                                 htmlFor="login-email"
                                 className="mb-1.5 block text-xs font-medium text-[#94a3b8]"
                             >
-                                Email address
+                                Email
                             </label>
                             <input
                                 id="login-email"
@@ -103,7 +104,7 @@ function LoginForm() {
                                 htmlFor="login-password"
                                 className="mb-1.5 block text-xs font-medium text-[#94a3b8]"
                             >
-                                Password
+                                Пароль
                             </label>
                             <div className="relative">
                                 <input
@@ -125,7 +126,7 @@ function LoginForm() {
                                 />
                                 <button
                                     type="button"
-                                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                    aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
                                     onClick={() => setShowPassword((s) => !s)}
                                     className="absolute right-3 top-1/2 -translate-y-1/2 text-[#475569] hover:text-[#94a3b8] transition-colors"
                                 >
@@ -163,19 +164,19 @@ function LoginForm() {
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                                     </svg>
-                                    Signing in…
+                                    Вход...
                                 </span>
                             ) : (
-                                'Sign in'
+                                ruUiText.actions.signIn
                             )}
                         </button>
                     </form>
                 </div>
 
                 <p className="mt-5 text-center text-xs text-[#475569]">
-                    Don't have an account?{' '}
+                    Нет аккаунта?{' '}
                     <Link to="/register" className="text-[var(--color-brand-500)] hover:text-[var(--color-brand-400)] font-medium transition-colors">
-                        Sign up
+                        Зарегистрироваться
                     </Link>
                 </p>
             </div>

@@ -108,7 +108,7 @@ describe('Reduced constructor page integration coverage (T028)', () => {
 
     renderAdminRoutes('/admin/editor/diagram-1')
 
-    expect(await screen.findByText('Hosted Constructor')).toBeInTheDocument()
+    expect(await screen.findByText('Конструктор')).toBeInTheDocument()
 
     await waitFor(() => {
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
@@ -276,19 +276,19 @@ describe('Reduced constructor page integration coverage (T028)', () => {
 
     renderAdminRoutes('/admin/editor/diagram-3')
 
-    expect(await screen.findByText('Unable to open hosted constructor page.')).toBeInTheDocument()
-    expect(screen.getByText(/Invalid diagram layout payload/i)).toBeInTheDocument()
+    expect(await screen.findByText('Не удалось открыть страницу конструктора.')).toBeInTheDocument()
+    expect(screen.getByText(/Некорректный payload layout мнемосхемы/i)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Open with empty layout' }))
+    await user.click(screen.getByRole('button', { name: 'Открыть с пустым layout' }))
 
     await waitFor(() => {
       expect(createHostedConstructorMock).toHaveBeenCalledTimes(1)
     })
 
-    expect(await screen.findByText('Unable to open hosted constructor page.')).toBeInTheDocument()
-    expect(screen.getByText(/Hosted runtime bootstrap failed/i)).toBeInTheDocument()
+    expect(await screen.findByText('Не удалось открыть страницу конструктора.')).toBeInTheDocument()
+    expect(screen.getByText(/Не удалось запустить hosted runtime/i)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Retry loading' }))
+    await user.click(screen.getByRole('button', { name: 'Повторить загрузку' }))
 
     await waitFor(() => {
       expect(createHostedConstructorMock).toHaveBeenCalledTimes(2)
@@ -297,4 +297,3 @@ describe('Reduced constructor page integration coverage (T028)', () => {
     expect(await screen.findByTestId('constructor-host-runtime')).toBeInTheDocument()
   })
 })
-

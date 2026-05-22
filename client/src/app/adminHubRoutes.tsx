@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react'
 import { type RouteObject } from 'react-router-dom'
 import { renderLazyRoute } from '@/app/lazyRoute'
 import { AdminHubLayout } from '@/features/admin-hub/AdminHubLayout'
+import { ruUiText } from '@/shared/i18n'
 
 const DiagramGalleryPage = lazy(async () => {
   const module = await import('@/features/admin-hub/pages/DiagramGalleryPage')
@@ -41,9 +42,9 @@ const adminHubPlaceholderElement = (
     }}
   >
     <span style={{ fontSize: '2rem' }}>*</span>
-    <h2 style={{ margin: 0, fontSize: '1rem', color: '#e2e8f0' }}>Admin Hub - Page (Phase 5-8)</h2>
+    <h2 style={{ margin: 0, fontSize: '1rem', color: '#e2e8f0' }}>{ruUiText.navigation.adminHub}</h2>
     <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748b' }}>
-      Wired in Phase 5-8 - coming soon
+      Раздел подключается на следующем этапе.
     </p>
   </div>
 )
@@ -54,19 +55,19 @@ export const adminHubRouteChildren: RouteObject[] = [
     children: [
       {
         index: true,
-        element: renderLazyRoute(OverviewPage, 'Loading overview...'),
+        element: renderLazyRoute(OverviewPage, 'Загрузка обзора...'),
       },
       {
         path: 'edge',
-        element: renderLazyRoute(EdgeFleetPage, 'Loading edge fleet...'),
+        element: renderLazyRoute(EdgeFleetPage, 'Загрузка объектов...'),
       },
       {
         path: 'users',
-        element: renderLazyRoute(UserManagementPage, 'Loading user management...'),
+        element: renderLazyRoute(UserManagementPage, 'Загрузка пользователей...'),
       },
       {
         path: 'diagrams',
-        element: renderLazyRoute(DiagramGalleryPage, 'Loading diagram gallery...'),
+        element: renderLazyRoute(DiagramGalleryPage, 'Загрузка мнемосхем...'),
       },
       {
         path: 'editor/:id',
@@ -74,7 +75,7 @@ export const adminHubRouteChildren: RouteObject[] = [
           <Suspense
             fallback={
               <div className="flex min-h-[18rem] flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--color-surface-border)] text-sm text-[#94a3b8]">
-                Loading hosted constructor page...
+                Загрузка конструктора...
               </div>
             }
           >

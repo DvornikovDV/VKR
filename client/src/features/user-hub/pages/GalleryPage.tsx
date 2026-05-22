@@ -23,6 +23,7 @@ import {
   DISPATCH_DASHBOARD_TAB,
   getDispatchTabPath,
 } from '@/features/dispatch/model/routes'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 interface DiagramCardState extends DiagramCardModel {
   updatedAt: string
@@ -45,11 +46,7 @@ function toCardModel(diagram: Diagram, profiles: TelemetryProfileEntry[]): Diagr
 }
 
 function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 export function GalleryPage() {
@@ -120,7 +117,7 @@ export function GalleryPage() {
 
       setCards(cardsWithProfiles)
     } catch {
-      setError('Failed to load diagram gallery. Please refresh the page.')
+      setError('Не удалось загрузить галерею мнемосхем. Обновите страницу.')
     } finally {
       setIsLoading(false)
     }
@@ -140,13 +137,13 @@ export function GalleryPage() {
 
     try {
       const created = await createDiagram({
-        name: `New Diagram ${cards.length + 1}`,
+        name: `Новая мнемосхема ${cards.length + 1}`,
         layout: {},
       })
 
       setCards((prev) => [toCardModel(created, []), ...prev])
     } catch {
-      setCreateError('Failed to create a diagram. Please try again.')
+      setCreateError('Не удалось создать мнемосхему. Попробуйте еще раз.')
     } finally {
       setIsCreating(false)
     }
@@ -157,7 +154,7 @@ export function GalleryPage() {
     profile: TelemetryProfileEntry,
   ) {
     const confirmed = window.confirm(
-      `Delete telemetry profile for "${profile.monitoredObjectName}"?`,
+      `Удалить профиль телеметрии для "${profile.monitoredObjectName}"?`,
     )
 
     if (!confirmed) {
@@ -179,19 +176,19 @@ export function GalleryPage() {
         ),
       )
     } catch {
-      setError('Failed to delete telemetry profile.')
+      setError('Не удалось удалить профиль телеметрии.')
     }
   }
 
   async function handleRenameDiagram(diagramId: string, nextName: string) {
     const trimmedName = nextName.trim()
     if (trimmedName.length === 0) {
-      throw new Error('Diagram name cannot be empty.')
+      throw new Error('Название мнемосхемы не может быть пустым.')
     }
 
     const card = cards.find((item) => item.id === diagramId)
     if (!card) {
-      throw new Error('Diagram card was not found.')
+      throw new Error('Карточка мнемосхемы не найдена.')
     }
 
     let version = card.version
@@ -206,7 +203,7 @@ export function GalleryPage() {
         __v: version,
       })
     } catch (renameError) {
-      throw new Error(toErrorMessage(renameError, 'Failed to rename diagram.'))
+      throw new Error(toErrorMessage(renameError, 'Не удалось переименовать мнемосхему.'))
     }
 
     const refreshed = await getDiagramById(diagramId)
@@ -230,9 +227,9 @@ export function GalleryPage() {
     <section className="mx-auto w-full max-w-6xl px-4 py-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-white">Diagram Gallery</h1>
+          <h1 className="text-xl font-semibold text-white">Мнемосхемы</h1>
           <p className="text-sm text-[#94a3b8]">
-            Manage diagrams and Telemetry Profiles.
+            Управляйте мнемосхемами и профилями телеметрии.
           </p>
         </div>
 
@@ -242,13 +239,13 @@ export function GalleryPage() {
           disabled={isCreateDisabled}
           className="rounded-md bg-[var(--color-brand-600)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--color-brand-500)] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isCreating ? 'Creating...' : 'Create Diagram'}
+          {isCreating ? 'Создание...' : 'Создать мнемосхему'}
         </button>
       </div>
 
       {!canCreate() && (
         <div className="mb-4 rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-sm text-[var(--color-warning)]">
-          FREE tier limit reached: maximum 3 diagrams.
+          Достигнут лимит тарифа Free: максимум 3 мнемосхемы.
         </div>
       )}
 
@@ -265,10 +262,10 @@ export function GalleryPage() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-[#94a3b8]">Loading diagrams...</p>
+        <p className="text-sm text-[#94a3b8]">Загрузка мнемосхем...</p>
       ) : cards.length === 0 ? (
         <p className="rounded-md border border-dashed border-[var(--color-surface-border)] p-6 text-sm text-[#94a3b8]">
-          No diagrams yet. Create your first diagram to get started.
+          Мнемосхем пока нет. Создайте первую мнемосхему, чтобы начать работу.
         </p>
       ) : (
         <div className="grid items-start gap-4 md:grid-cols-2">

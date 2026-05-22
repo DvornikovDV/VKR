@@ -4,6 +4,7 @@ import { renderLazyRoute } from '@/app/lazyRoute'
 import { UserHubLayout } from '@/features/user-hub/UserHubLayout'
 import { userHubEquipmentRoute } from '@/features/user-hub/routes/userHubEquipmentRoute'
 import { DISPATCH_DEFAULT_PATH } from '@/features/dispatch/model/routes'
+import { ruUiText } from '@/shared/i18n'
 
 const GalleryPage = lazy(async () => {
   const module = await import('@/features/user-hub/pages/GalleryPage')
@@ -52,9 +53,9 @@ const userHubPlaceholderElement = (
     }}
   >
     <span style={{ fontSize: '2rem' }}>*</span>
-    <h2 style={{ margin: 0, fontSize: '1rem', color: '#e2e8f0' }}>User Hub - Page (Phase 4-8)</h2>
+    <h2 style={{ margin: 0, fontSize: '1rem', color: '#e2e8f0' }}>{ruUiText.navigation.userHub}</h2>
     <p style={{ margin: 0, fontSize: '0.8125rem', color: '#64748b' }}>
-      Wired in Phase 4-8 - coming soon
+      Раздел подключается в следующем этапе.
     </p>
   </div>
 )
@@ -65,7 +66,7 @@ export const userHubRouteChildren: RouteObject[] = [
     children: [
       {
         index: true,
-        element: renderLazyRoute(GalleryPage, 'Loading gallery...'),
+        element: renderLazyRoute(GalleryPage, 'Загрузка мнемосхем...'),
       },
       {
         path: 'editor/:id',
@@ -73,7 +74,7 @@ export const userHubRouteChildren: RouteObject[] = [
           <Suspense
             fallback={
               <div className="flex min-h-[18rem] flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--color-surface-border)] text-sm text-[#94a3b8]">
-                Loading hosted constructor page...
+                Загрузка конструктора...
               </div>
             }
           >
@@ -83,7 +84,7 @@ export const userHubRouteChildren: RouteObject[] = [
       },
       {
         path: 'dispatch/*',
-        element: renderLazyRoute(DispatchWorkspacePage, 'Loading dispatch workspace...'),
+        element: renderLazyRoute(DispatchWorkspacePage, 'Загрузка диспетчеризации...'),
       },
       {
         path: 'dashboard',
@@ -92,7 +93,7 @@ export const userHubRouteChildren: RouteObject[] = [
       userHubEquipmentRoute,
       {
         path: 'profile',
-        element: renderLazyRoute(ProfilePage, 'Loading profile...'),
+        element: renderLazyRoute(ProfilePage, 'Загрузка профиля...'),
       },
       {
         path: '*',

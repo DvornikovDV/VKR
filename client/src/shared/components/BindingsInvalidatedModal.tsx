@@ -52,11 +52,11 @@ export function BindingsInvalidatedModal({
         className="w-full max-w-lg rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-5"
       >
         <h2 id={titleId} className="text-base font-semibold text-white">
-          Layout save will delete existing bindings.
+          Сохранение layout удалит существующие привязки.
         </h2>
         <p id={descriptionId} className="mt-1 text-sm text-[#94a3b8]">
-          This diagram already has persisted binding sets. You can create a non-destructive copy or
-          continue with in-place save that clears all existing binding sets for this diagram.
+          У этой мнемосхемы уже есть сохраненные наборы привязок. Можно создать копию без удаления
+          или продолжить сохранение на месте, очистив все существующие привязки этой мнемосхемы.
         </p>
 
         {error && (
@@ -72,7 +72,7 @@ export function BindingsInvalidatedModal({
             onClick={onSaveAsCopy}
             className="rounded-md bg-[var(--color-brand-600)] px-3 py-2 text-sm text-white hover:bg-[var(--color-brand-500)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Save As copy
+            Сохранить как копию
           </button>
           <button
             type="button"
@@ -80,7 +80,7 @@ export function BindingsInvalidatedModal({
             onClick={onContinueDestructiveSave}
             className="rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-sm text-[var(--color-danger)] hover:bg-[var(--color-danger)]/20 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSubmitting ? 'Saving...' : 'Continue destructive save'}
+            {isSubmitting ? 'Сохранение...' : 'Продолжить с удалением'}
           </button>
           <button
             type="button"
@@ -88,11 +88,10 @@ export function BindingsInvalidatedModal({
             onClick={onCancel}
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white hover:bg-[var(--color-surface-200)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Continue editing
+            Продолжить редактирование
           </button>
         </div>
       </div>
     </div>
   )
 }
-

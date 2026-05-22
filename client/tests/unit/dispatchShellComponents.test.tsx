@@ -140,18 +140,18 @@ describe('Dispatch shell component primitives (T007-T010)', () => {
       </MemoryRouter>,
     )
 
-    expect(screen.getAllByLabelText('Diagram')).toHaveLength(1)
-    expect(screen.getAllByLabelText('Edge Server')).toHaveLength(1)
+    expect(screen.getAllByLabelText('Мнемосхема')).toHaveLength(1)
+    expect(screen.getAllByLabelText('Объект')).toHaveLength(1)
     expect(screen.getByTestId('dispatch-selected-context')).toHaveTextContent('Boiler diagram')
     expect(screen.getByTestId('dispatch-selected-context')).toHaveTextContent('Boiler edge')
     expect(screen.getByRole('button', { name: 'Fit to view' })).toBeInTheDocument()
 
-    const tabs = screen.getByRole('tablist', { name: 'Dispatch tabs' })
-    expect(within(tabs).getByRole('tab', { name: 'Dashboard' })).toHaveAttribute(
+    const tabs = screen.getByRole('tablist', { name: 'Вкладки диспетчеризации' })
+    expect(within(tabs).getByRole('tab', { name: 'Мнемосхема' })).toHaveAttribute(
       'href',
       '/hub/dispatch/dashboard?diagramId=diagram-1&edgeId=edge-1',
     )
-    expect(within(tabs).getByRole('tab', { name: 'Telemetry' })).toHaveAttribute(
+    expect(within(tabs).getByRole('tab', { name: 'Телеметрия' })).toHaveAttribute(
       'href',
       '/hub/dispatch/telemetry?diagramId=diagram-1&edgeId=edge-1',
     )

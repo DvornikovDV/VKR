@@ -34,7 +34,7 @@ describe('useLogin', () => {
       await result.current.login({ email: 'banned@example.com', password: 'Password123!' })
     })
 
-    expect(result.current.error).toBe('Your account has been suspended. Please contact support.')
+    expect(result.current.error).toBe('Аккаунт заблокирован. Обратитесь в поддержку.')
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
   })
 })

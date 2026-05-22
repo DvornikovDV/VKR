@@ -139,7 +139,7 @@ describe('Constructor host foundation tasks (T004-T007)', () => {
     expect(machines).toEqual([
       {
         edgeServerId: 'edge-a',
-        label: 'Alpha (Active, Online)',
+        label: 'Alpha (Активен, В сети)',
         edgeName: 'Alpha',
         lifecycleState: 'Active',
         availabilityLabel: 'Online',
@@ -148,7 +148,7 @@ describe('Constructor host foundation tasks (T004-T007)', () => {
       },
       {
         edgeServerId: 'edge-blocked',
-        label: 'Blocked (Blocked, Offline)',
+        label: 'Blocked (Заблокирован, Не в сети)',
         edgeName: 'Blocked',
         lifecycleState: 'Blocked',
         availabilityLabel: 'Offline',
@@ -157,7 +157,7 @@ describe('Constructor host foundation tasks (T004-T007)', () => {
       },
       {
         edgeServerId: 'edge-b',
-        label: 'Bravo (Active, Offline)',
+        label: 'Bravo (Активен, Не в сети)',
         edgeName: 'Bravo',
         lifecycleState: 'Active',
         availabilityLabel: 'Offline',

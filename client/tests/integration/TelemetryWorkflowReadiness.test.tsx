@@ -203,13 +203,13 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
     )
 
     const router = renderTelemetryFlow('/hub/editor/diagram-1?edgeId=edge-a')
-    expect(screen.getByRole('link', { name: 'Dispatch' })).toHaveAttribute('href', '/hub/dispatch')
+    expect(screen.getByRole('link', { name: 'Диспетчеризация' })).toHaveAttribute('href', '/hub/dispatch')
 
     await waitFor(() => {
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
     })
     expect(
-      screen.getByText(/selected edge has no telemetry-derived catalog entries yet/i),
+      screen.getByText(/нет каталога телеметрии/i),
     ).toBeInTheDocument()
 
     catalogReady = true
@@ -220,7 +220,7 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
 
     await waitFor(() => {
       expect(
-        screen.queryByText(/selected edge has no telemetry-derived catalog entries yet/i),
+        screen.queryByText(/нет каталога телеметрии/i),
       ).not.toBeInTheDocument()
     })
 
@@ -237,10 +237,10 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
     })
 
     expect(await screen.findByText('Boiler Hall')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Telemetry Profiles' }))
+    await user.click(screen.getByRole('button', { name: 'Профили телеметрии' }))
 
     expect(screen.getByText('Boiler PLC A')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Open Dashboard/i }))
+    await user.click(screen.getByRole('button', { name: /Открыть диспетчеризацию/i }))
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/hub/dispatch/dashboard')
@@ -248,13 +248,13 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
     expect(router.state.location.search).toContain('diagramId=diagram-1')
     expect(router.state.location.search).toContain('edgeId=edge-a')
 
-    const dispatchTabs = await screen.findByRole('tablist', { name: 'Dispatch tabs' })
-    expect(within(dispatchTabs).getByRole('tab', { name: 'Dashboard' })).toHaveAttribute(
+    const dispatchTabs = await screen.findByRole('tablist', { name: 'Вкладки диспетчеризации' })
+    expect(within(dispatchTabs).getByRole('tab', { name: 'Мнемосхема' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
 
-    await user.click(within(dispatchTabs).getByRole('tab', { name: 'Telemetry' }))
+    await user.click(within(dispatchTabs).getByRole('tab', { name: 'Телеметрия' }))
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/hub/dispatch/telemetry')
@@ -333,9 +333,9 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
     await waitFor(() => {
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
     })
-    expect(screen.getByText(/selected edge is currently blocked/i)).toBeInTheDocument()
+    expect(screen.getByText(/сейчас заблокирован/i)).toBeInTheDocument()
     expect(
-      screen.queryByText(/selected edge has no telemetry-derived catalog entries yet/i),
+      screen.queryByText(/нет каталога телеметрии/i),
     ).not.toBeInTheDocument()
 
     await act(async () => {
@@ -343,14 +343,14 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
     })
 
     expect(await screen.findByText('Boiler Hall')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Telemetry Profiles' }))
+    await user.click(screen.getByRole('button', { name: 'Профили телеметрии' }))
 
-    const openDashboardButton = screen.getByRole('button', { name: /Open Dashboard/i })
+    const openDashboardButton = screen.getByRole('button', { name: /Открыть диспетчеризацию/i })
     expect(screen.getByText('Blocked Edge')).toBeInTheDocument()
-    expect(screen.getByText('Blocked')).toBeInTheDocument()
-    expect(screen.getByText('Offline')).toBeInTheDocument()
+    expect(screen.getByText('Заблокирован')).toBeInTheDocument()
+    expect(screen.getByText('Не в сети')).toBeInTheDocument()
     expect(
-      screen.getByText('Native Dashboard handoff is unavailable while this edge is blocked.'),
+      screen.getByText('Переход в диспетчеризацию недоступен, пока объект заблокирован.'),
     ).toBeInTheDocument()
     expect(openDashboardButton).toBeDisabled()
     expect(router.state.location.pathname).toBe('/hub')

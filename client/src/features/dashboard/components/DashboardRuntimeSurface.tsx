@@ -102,25 +102,25 @@ function createFallbackRuntimeLayout(): DashboardRuntimeLayout {
 function getRecoveryLabel(state: DashboardRecoveryState): string {
   switch (state) {
     case 'empty':
-      return 'Select Diagram and Edge Server to start monitoring'
+      return 'Выберите мнемосхему и объект, чтобы начать мониторинг'
     case 'loading':
-      return 'Loading...'
+      return 'Загрузка...'
     case 'generic-error':
-      return 'Failed to load dashboard context'
+      return 'Не удалось загрузить контекст диспетчеризации'
     case 'invalid-selection':
-      return 'Invalid selection'
+      return 'Некорректный выбор'
     case 'missing-binding-profile':
-      return 'No saved binding profile for this Diagram + Edge pair'
+      return 'Для этой пары мнемосхемы и объекта нет сохраненного профиля привязок'
     case 'invalid-binding-profile':
-      return 'Saved binding profile references stale widget ids'
+      return 'Сохраненный профиль привязок ссылается на устаревшие widget id'
     case 'visual-rendering-error':
-      return 'Saved diagram visual layout cannot be rendered'
+      return 'Сохраненную визуальную схему невозможно отрисовать'
     case 'partial-visual-rendering':
-      return 'Saved diagram rendered with recoverable visual issues'
+      return 'Схема отрисована с восстановимыми визуальными проблемами'
     case 'ready':
-      return 'Ready'
+      return 'Готово'
     default:
-      return 'Dashboard state is unavailable'
+      return 'Состояние диспетчеризации недоступно'
   }
 }
 
@@ -158,7 +158,7 @@ function RecoveryPlaceholder({
           onClick={onOpenDetails}
           className="text-xs text-[#38bdf8] underline underline-offset-2 hover:text-[#7dd3fc] transition-colors"
         >
-          Open Details for more info
+          Открыть диагностику
         </button>
       )}
     </div>
@@ -399,13 +399,13 @@ export function DashboardRuntimeSurface({
         <div className="absolute inset-x-3 bottom-3 z-10 flex justify-center">
           <button
             type="button"
-            aria-label={diagnosticsOpen ? 'Close diagnostics' : 'Open diagnostics'}
+            aria-label={diagnosticsOpen ? 'Закрыть диагностику' : 'Открыть диагностику'}
             aria-expanded={diagnosticsOpen}
             onClick={onToggleDiagnostics}
             className="inline-flex items-center gap-2 rounded-full border border-[#334155] bg-[#020617] px-4 py-2 text-xs font-medium text-[#e2e8f0] shadow-lg transition-colors hover:bg-[#0f172a] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#38bdf8]"
           >
             {diagnosticsOpen ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronUp aria-hidden="true" size={14} />}
-            Diagnostics
+            Диагностика
           </button>
         </div>
 
@@ -429,7 +429,7 @@ export function DashboardRuntimeSurface({
 
         {transportStatus === 'reconnecting' && (
           <p className="absolute bottom-14 left-3 z-10 text-xs text-[var(--color-warning)]">
-            Transport reconnecting. Displaying last received values.
+            Транспорт переподключается. Показаны последние полученные значения.
           </p>
         )}
       </div>

@@ -76,7 +76,7 @@ describe('MyEquipmentPage route wiring (T034)', () => {
 
     mount('/hub/edge')
 
-    expect(await screen.findByRole('heading', { name: 'My Equipment' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Объекты' })).toBeInTheDocument()
     expect(screen.queryByText('User Hub - Page (Phase 4-8)')).not.toBeInTheDocument()
   })
 })
@@ -112,10 +112,10 @@ describe('MyEquipmentPage assigned-edge readiness view (T033/T047)', () => {
     expect(await screen.findByText('Pump Edge B')).toBeInTheDocument()
     expect(screen.getByText('Valve Edge C')).toBeInTheDocument()
     expect(screen.getByText('Blocked Edge D')).toBeInTheDocument()
-    expect(screen.getAllByText('Active').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getAllByText('Blocked').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('Online').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('Offline').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('Активен').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getAllByText('Заблокирован').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('В сети').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Не в сети').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText('2026-03-29 10:15 UTC')).toBeInTheDocument()
     expect(screen.getByText('2026-03-28 22:05 UTC')).toBeInTheDocument()
     expect(screen.getByText('2026-03-28 21:45 UTC')).toBeInTheDocument()

@@ -5,6 +5,8 @@ import {
   type UserProfileSummary,
 } from '@/shared/api/profile'
 import { useAuthStore } from '@/shared/store/useAuthStore'
+import { ruUiText } from '@/shared/i18n'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 interface PasswordFormState {
   currentPassword: string
@@ -19,21 +21,17 @@ const initialPasswordForm: PasswordFormState = {
 }
 
 function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 function formatQuota(used: number, limit: number | null): string {
-  return limit === null ? `${used} / Unlimited` : `${used} / ${limit}`
+  return limit === null ? `${used} / Безлимит` : `${used} / ${limit}`
 }
 
 function describeTier(tier: UserProfileSummary['tier']): string {
   return tier === 'PRO'
-    ? 'Unlimited diagrams and equipment assignments are enabled for your account.'
-    : 'FREE tier keeps you within the starter limits for diagrams and assigned equipment.'
+    ? 'Для аккаунта доступны безлимитные мнемосхемы и назначения объектов.'
+    : 'Тариф Free ограничивает количество мнемосхем и назначенных объектов.'
 }
 
 export function ProfilePage() {
@@ -53,7 +51,7 @@ export function ProfilePage() {
       if (!session) {
         if (active) {
           setProfile(null)
-          setLoadError('Active session is required to load the profile page.')
+          setLoadError('Для загрузки профиля нужна активная сессия.')
           setIsLoading(false)
         }
         return
@@ -71,7 +69,7 @@ export function ProfilePage() {
       } catch (error) {
         if (active) {
           setProfile(null)
-          setLoadError(toErrorMessage(error, 'Failed to load profile details.'))
+          setLoadError(toErrorMessage(error, 'Не удалось загрузить профиль.'))
         }
       } finally {
         if (active) {
@@ -94,17 +92,17 @@ export function ProfilePage() {
     setPasswordSuccess(null)
 
     if (passwordForm.currentPassword.trim().length === 0) {
-      setPasswordError('Current password is required.')
+      setPasswordError('Введите текущий пароль.')
       return
     }
 
     if (passwordForm.newPassword.length < 8) {
-      setPasswordError('New password must be at least 8 characters.')
+      setPasswordError('Новый пароль должен содержать не менее 8 символов.')
       return
     }
 
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setPasswordError('New passwords do not match.')
+      setPasswordError('Новые пароли не совпадают.')
       return
     }
 
@@ -116,9 +114,9 @@ export function ProfilePage() {
         newPassword: passwordForm.newPassword,
       })
       setPasswordForm(initialPasswordForm)
-      setPasswordSuccess('Password updated successfully.')
+      setPasswordSuccess('Пароль успешно обновлен.')
     } catch (error) {
-      setPasswordError(toErrorMessage(error, 'Failed to update password.'))
+      setPasswordError(toErrorMessage(error, 'Не удалось обновить пароль.'))
     } finally {
       setIsSubmittingPassword(false)
     }
@@ -128,15 +126,15 @@ export function ProfilePage() {
     <section className="mx-auto w-full max-w-6xl px-4 py-6">
       <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-white">Profile</h1>
+          <h1 className="text-xl font-semibold text-white">Профиль</h1>
           <p className="text-sm text-[#94a3b8]">
-            Review your subscription limits and manage account password access.
+            Просматривайте лимиты тарифа и управляйте паролем аккаунта.
           </p>
         </div>
 
         {session && (
           <div className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] px-4 py-3 text-right">
-            <p className="text-xs uppercase tracking-[0.2em] text-[#94a3b8]">Signed in as</p>
+            <p className="text-xs uppercase tracking-[0.2em] text-[#94a3b8]">Вход выполнен как</p>
             <p className="text-sm font-medium text-white">{session.email}</p>
           </div>
         )}
@@ -160,11 +158,13 @@ export function ProfilePage() {
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="text-xs uppercase tracking-[0.2em] text-[#94a3b8]">Subscription tier</p>
-                    <p className="mt-2 text-3xl font-semibold text-white">{profile.tier}</p>
+                    <p className="text-xs uppercase tracking-[0.2em] text-[#94a3b8]">Тариф</p>
+                    <p className="mt-2 text-3xl font-semibold text-white">
+                      {profile.tier === 'FREE' ? ruUiText.terms.freeTier : profile.tier}
+                    </p>
                   </div>
                   <div className="rounded-full border border-[var(--color-brand-500)]/40 bg-[var(--color-brand-500)]/10 px-3 py-1 text-xs font-medium text-[var(--color-brand-400)]">
-                    {profile.role}
+                    {profile.role === 'ADMIN' ? ruUiText.terms.admin : ruUiText.terms.user}
                   </div>
                 </div>
 
@@ -172,11 +172,11 @@ export function ProfilePage() {
 
                 {profile.tier === 'FREE' ? (
                   <div className="mt-5 rounded-xl border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-4 py-3 text-sm text-[var(--color-warning)]">
-                    Upgrade to PRO to unlock unlimited diagrams and additional equipment slots.
+                    Перейдите на PRO, чтобы снять лимит мнемосхем и назначенных объектов.
                   </div>
                 ) : (
                   <div className="mt-5 rounded-xl border border-[var(--color-online)]/30 bg-[var(--color-online)]/10 px-4 py-3 text-sm text-[var(--color-online)]">
-                    PRO access is active. Your diagram and equipment limits are unlimited.
+                    Доступ PRO активен. Лимиты мнемосхем и объектов не ограничены.
                   </div>
                 )}
               </section>
@@ -186,12 +186,12 @@ export function ProfilePage() {
                   aria-label="profile-diagram-usage"
                   className="rounded-2xl border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-5"
                 >
-                  <p className="text-xs uppercase tracking-[0.2em] text-[#94a3b8]">Diagram usage</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-[#94a3b8]">Мнемосхемы</p>
                   <p className="mt-3 text-3xl font-semibold text-white">
                     {formatQuota(profile.diagramsUsed, profile.diagramsLimit)}
                   </p>
                   <p className="mt-2 text-sm text-[#94a3b8]">
-                    Saved diagrams currently owned by your account.
+                    Сохраненные мнемосхемы вашего аккаунта.
                   </p>
                 </article>
 
@@ -199,21 +199,21 @@ export function ProfilePage() {
                   aria-label="profile-equipment-usage"
                   className="rounded-2xl border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-5"
                 >
-                  <p className="text-xs uppercase tracking-[0.2em] text-[#94a3b8]">Equipment quota</p>
+                  <p className="text-xs uppercase tracking-[0.2em] text-[#94a3b8]">Объекты</p>
                   <p className="mt-3 text-3xl font-semibold text-white">
                     {formatQuota(profile.equipmentUsed, profile.equipmentLimit)}
                   </p>
                   <p className="mt-2 text-sm text-[#94a3b8]">
-                    Active edge assignments available for telemetry workflows.
+                    Назначенные объекты, доступные для профилей телеметрии.
                   </p>
                 </article>
               </section>
             </>
           ) : (
             <section className="rounded-2xl border border-dashed border-[var(--color-surface-border)] bg-[var(--color-surface-100)]/60 p-5">
-              <h2 className="text-base font-semibold text-white">Profile summary unavailable</h2>
+              <h2 className="text-base font-semibold text-white">Сводка профиля недоступна</h2>
               <p className="mt-2 text-sm text-[#94a3b8]">
-                Subscription and quota details will appear here once the profile endpoints respond.
+                Информация о тарифе и лимитах появится после восстановления ответа API.
               </p>
             </section>
           )}
@@ -221,15 +221,15 @@ export function ProfilePage() {
 
         <section className="rounded-2xl border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-5">
           <div className="mb-4">
-            <h2 className="text-lg font-semibold text-white">Change password</h2>
+            <h2 className="text-lg font-semibold text-white">Смена пароля</h2>
             <p className="mt-1 text-sm text-[#94a3b8]">
-              Use your current password to confirm the account update.
+              Укажите текущий пароль, чтобы подтвердить изменение аккаунта.
             </p>
           </div>
 
           <form className="space-y-4" onSubmit={(event) => void handlePasswordSubmit(event)}>
             <label className="block space-y-2 text-sm text-[#cbd5e1]">
-              <span>Current password</span>
+              <span>Текущий пароль</span>
               <input
                 type="password"
                 value={passwordForm.currentPassword}
@@ -242,7 +242,7 @@ export function ProfilePage() {
             </label>
 
             <label className="block space-y-2 text-sm text-[#cbd5e1]">
-              <span>New password</span>
+              <span>Новый пароль</span>
               <input
                 type="password"
                 value={passwordForm.newPassword}
@@ -255,7 +255,7 @@ export function ProfilePage() {
             </label>
 
             <label className="block space-y-2 text-sm text-[#cbd5e1]">
-              <span>Confirm new password</span>
+              <span>Повторите новый пароль</span>
               <input
                 type="password"
                 value={passwordForm.confirmPassword}
@@ -284,7 +284,7 @@ export function ProfilePage() {
               disabled={isSubmittingPassword}
               className="w-full rounded-lg bg-[var(--color-brand-600)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[var(--color-brand-500)] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmittingPassword ? 'Updating password...' : 'Update password'}
+              {isSubmittingPassword ? 'Обновление пароля...' : 'Обновить пароль'}
             </button>
           </form>
         </section>

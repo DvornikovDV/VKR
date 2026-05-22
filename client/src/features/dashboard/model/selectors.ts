@@ -169,7 +169,7 @@ function formatVisualWidgetValue(
   unitLabel: string | null,
 ): string {
   if (value === null) {
-    return 'Pending'
+    return 'Ожидание'
   }
 
   const renderedValue =
@@ -600,29 +600,29 @@ export function selectDashboardRuntimeProjection(
 export function selectTransportStatusLabel(status: DashboardTransportStatus): string {
   switch (status) {
     case 'idle':
-      return 'Idle'
+      return 'Ожидание'
     case 'connecting':
-      return 'Connecting'
+      return 'Подключение'
     case 'connected':
-      return 'Connected'
+      return 'Подключено'
     case 'reconnecting':
-      return 'Reconnecting'
+      return 'Переподключение'
     case 'failed':
-      return 'Connection failed'
+      return 'Ошибка подключения'
     default:
-      return 'Unknown'
+      return 'Неизвестно'
   }
 }
 
 export function selectEdgeAvailabilityLabel(status: DashboardEdgeAvailability): string {
   switch (status) {
     case 'unknown':
-      return 'Edge status unknown'
+      return 'Статус объекта неизвестен'
     case 'online':
-      return 'Edge online'
+      return 'Объект в сети'
     case 'offline':
-      return 'Edge offline'
+      return 'Объект не в сети'
     default:
-      return 'Edge status unknown'
+      return 'Статус объекта неизвестен'
   }
 }

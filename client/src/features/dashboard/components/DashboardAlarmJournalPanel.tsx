@@ -38,9 +38,9 @@ function AlarmJournalEmptyState({
       <div className="flex min-h-0 flex-1 flex-col justify-center gap-2 px-3 py-4 text-xs text-[#94a3b8]">
         <div className="flex items-center gap-2 font-medium text-[#e2e8f0]">
           <Loader2 size={14} aria-hidden="true" className="animate-spin text-[#38bdf8]" />
-          <span>Loading alarm incidents...</span>
+          <span>Загрузка аварий...</span>
         </div>
-        <p>Restoring known unclosed incidents for the selected Edge Server.</p>
+        <p>Восстанавливаем известные незакрытые аварии для выбранного объекта.</p>
       </div>
     )
   }
@@ -52,12 +52,12 @@ function AlarmJournalEmptyState({
           role="alert"
           className="rounded border border-[rgba(239,68,68,0.35)] bg-[rgba(239,68,68,0.08)] px-2 py-2 text-[var(--color-danger)]"
         >
-          <p className="font-medium">Alarm incident list is unavailable.</p>
+          <p className="font-medium">Список аварий недоступен.</p>
           <p className="mt-1 text-[#fecaca]">
-            {loadState.error ?? 'Realtime incidents received during this session will appear here.'}
+            {loadState.error ?? 'Аварии, полученные в реальном времени в этой сессии, появятся здесь.'}
           </p>
         </div>
-        <p>Realtime incidents received during this session will appear here.</p>
+        <p>Аварии, полученные в реальном времени в этой сессии, появятся здесь.</p>
       </div>
     )
   }
@@ -65,8 +65,8 @@ function AlarmJournalEmptyState({
   if (loadState.status === 'loaded') {
     return (
       <div className="flex min-h-0 flex-1 flex-col justify-center gap-2 px-3 py-4 text-xs text-[#94a3b8]">
-        <p className="font-medium text-[#e2e8f0]">No unclosed alarm incidents.</p>
-        <p>The operational journal is loaded for the selected Edge Server.</p>
+        <p className="font-medium text-[#e2e8f0]">Незакрытых аварий нет.</p>
+        <p>Оперативный журнал загружен для выбранного объекта.</p>
       </div>
     )
   }
@@ -75,14 +75,14 @@ function AlarmJournalEmptyState({
     <div className="flex min-h-0 flex-1 flex-col justify-center gap-2 px-3 py-4 text-xs text-[#94a3b8]">
       {initialLoadBlocked ? (
         <>
-          <p className="font-medium text-[#e2e8f0]">Initial alarm incident load is unavailable.</p>
+          <p className="font-medium text-[#e2e8f0]">Начальная загрузка аварий недоступна.</p>
           <p>
-            Blocked until the Cloud incident list endpoint exists. Realtime incidents received
-            during this session will appear here.
+            Заблокировано до появления cloud endpoint списка аварий. Аварии, полученные
+            в реальном времени в этой сессии, появятся здесь.
           </p>
         </>
       ) : (
-        <p>Alarm incident journal is waiting for an active runtime session.</p>
+        <p>Журнал аварий ожидает активную runtime-сессию.</p>
       )}
     </div>
   )
@@ -99,13 +99,13 @@ export function DashboardAlarmJournalPanel({
   return (
     <aside
       data-testid="dashboard-alarm-journal-panel"
-      aria-label="Alarm incident journal"
+      aria-label="Журнал аварий"
       className="flex h-full min-h-0 flex-col border-[#1f2a3d] bg-[#08111f]"
     >
       <div className="flex flex-shrink-0 items-center gap-2 border-b border-[#1f2a3d] px-3 py-2">
         <Bell size={14} aria-hidden="true" className="text-[#38bdf8]" />
         <h2 className="text-xs font-semibold uppercase tracking-normal text-[#e2e8f0]">
-          Alarm Journal
+          Журнал аварий
         </h2>
       </div>
 
@@ -118,7 +118,7 @@ export function DashboardAlarmJournalPanel({
               role="alert"
               className="mb-2 rounded border border-[rgba(239,68,68,0.35)] bg-[rgba(239,68,68,0.08)] px-2 py-1.5 text-xs text-[var(--color-danger)]"
             >
-              Alarm incident list is unavailable. Showing incidents already known in this session.
+              Список аварий недоступен. Показаны аварии, уже известные в этой сессии.
             </div>
           ) : null}
           <ul className="space-y-2">
@@ -154,8 +154,8 @@ export function DashboardAlarmJournalPanel({
                         {displayDetails.conditionSummary}
                       </p>
                       <p className="mt-1 text-[#64748b]">
-                        Latest row time:{' '}
-                        <span>{displayDetails.latestRowTime ?? 'Time unavailable'}</span>
+                        Время последней записи:{' '}
+                        <span>{displayDetails.latestRowTime ?? 'Время недоступно'}</span>
                       </p>
                     </div>
                   </div>
@@ -172,7 +172,7 @@ export function DashboardAlarmJournalPanel({
                     {!incident.isAcknowledged ? (
                       <button
                         type="button"
-                        aria-label={`Acknowledge incident ${displayDetails.ruleTitle}`}
+                        aria-label={`Подтвердить аварию ${displayDetails.ruleTitle}`}
                         disabled={isAckPending}
                         onClick={() => {
                           void onAcknowledgeAlarmIncident(incident.incidentId)
@@ -180,34 +180,34 @@ export function DashboardAlarmJournalPanel({
                         className="inline-flex h-7 items-center gap-1.5 rounded border border-[#334155] bg-[#111827] px-2 font-medium text-[#e2e8f0] transition-colors hover:bg-[#1e293b] disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {isAckPending ? <Loader2 size={13} aria-hidden="true" className="animate-spin" /> : null}
-                        ACK
+                        Подтвердить
                       </button>
                     ) : null}
                   </div>
 
                   <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-[#94a3b8]">
                     <div>
-                      <dt className="text-[#64748b]">Activated</dt>
+                      <dt className="text-[#64748b]">Активирована</dt>
                       <dd className="break-words text-[#cbd5e1]">
                         {displayDetails.lifecycleTimestamps.activatedAt}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-[#64748b]">Cleared</dt>
+                      <dt className="text-[#64748b]">Сброшена</dt>
                       <dd className="break-words text-[#cbd5e1]">
-                        {displayDetails.lifecycleTimestamps.clearedAt ?? 'Not cleared'}
+                        {displayDetails.lifecycleTimestamps.clearedAt ?? 'Не сброшена'}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-[#64748b]">Acknowledged</dt>
+                      <dt className="text-[#64748b]">Подтверждена</dt>
                       <dd className="break-words text-[#cbd5e1]">
-                        {displayDetails.lifecycleTimestamps.acknowledgedAt ?? 'Not acknowledged'}
+                        {displayDetails.lifecycleTimestamps.acknowledgedAt ?? 'Не подтверждена'}
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-[#64748b]">Closed at</dt>
+                      <dt className="text-[#64748b]">Закрыта</dt>
                       <dd className="break-words text-[#cbd5e1]">
-                        {displayDetails.lifecycleTimestamps.closedAt ?? 'Not closed'}
+                        {displayDetails.lifecycleTimestamps.closedAt ?? 'Не закрыта'}
                       </dd>
                     </div>
                   </dl>

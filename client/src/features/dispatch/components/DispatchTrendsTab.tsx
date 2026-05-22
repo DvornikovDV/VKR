@@ -23,6 +23,7 @@ import {
   type DispatchTrendsRequestGuard,
 } from '@/features/dispatch/model/trends'
 import type { DispatchWorkspaceContextSnapshot } from '@/features/dispatch/model/types'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 interface DispatchTrendsTabProps {
   workspaceContext: DispatchWorkspaceContextSnapshot
@@ -32,11 +33,7 @@ interface DispatchTrendsTabProps {
 type CatalogLoadState = 'idle' | 'loading' | 'ready' | 'error'
 
 function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 function parseTime(value: string): number | null {
@@ -216,7 +213,7 @@ export function DispatchTrendsTab({
         }
 
         setCatalog(null)
-        setCatalogError(toErrorMessage(error, 'Failed to load selected Edge catalog.'))
+        setCatalogError(toErrorMessage(error, 'Не удалось загрузить каталог выбранного объекта.'))
         setCatalogStatus('error')
       }
     }
@@ -315,7 +312,7 @@ export function DispatchTrendsTab({
         return
       }
 
-      setHistoryError(toErrorMessage(error, 'Failed to load telemetry history.'))
+      setHistoryError(toErrorMessage(error, 'Не удалось загрузить историю телеметрии.'))
       setHistoryState('error')
     }
   }

@@ -150,9 +150,9 @@ describe('alarm incident contract anchors', () => {
       'incident-new',
     ])
     expect(getDashboardAlarmIncidentLifecycleLabel(replacementEvent.incident)).toBe(
-      'Active Acknowledged',
+      'Активная, подтверждена',
     )
-    expect(getDashboardAlarmIncidentLifecycleLabel(newerEvent.incident)).toBe('Closed')
+    expect(getDashboardAlarmIncidentLifecycleLabel(newerEvent.incident)).toBe('Закрыта')
     expect(getDashboardAlarmIncidentIdentityLabel(olderEvent.incident)).toBe(
       'pump-1.temperature (rule-1)',
     )
@@ -161,7 +161,7 @@ describe('alarm incident contract anchors', () => {
       'pump-1 / temperature',
     )
     expect(getDashboardAlarmIncidentConditionSummary(olderEvent.incident)).toBe(
-      'High condition: latest 42.5; trigger 40; clear 35',
+      'Верхний порог: текущее 42.5; срабатывание 40; сброс 35',
     )
     expect(getDashboardAlarmIncidentRowTimeMs(newerEvent.incident)).toBe(
       Date.parse('2026-05-09T10:11:00.000Z'),
@@ -179,8 +179,8 @@ describe('alarm incident contract anchors', () => {
       expect.objectContaining({
         ruleTitle: 'High temperature',
         equipmentIdentity: 'pump-1 / temperature',
-        conditionSummary: 'High condition: latest 42.5; trigger 40; clear 35',
-        lifecycleLabel: 'Closed',
+        conditionSummary: 'Верхний порог: текущее 42.5; срабатывание 40; сброс 35',
+        lifecycleLabel: 'Закрыта',
         latestRowTime: formatExpectedLocalAlarmTimestamp('2026-05-09T10:11:00.000Z'),
       }),
     )

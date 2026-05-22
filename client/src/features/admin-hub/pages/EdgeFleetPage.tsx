@@ -16,6 +16,11 @@ import { getUsers, type UserRow } from '@/shared/api/users'
 import { useEdgeStatus } from '@/shared/hooks/useEdgeStatus'
 import { copyInstallerJsonToClipboard } from '@/features/admin-hub/model/edgeCredentialClipboard'
 import { serializeEdgeCredentialInstallerPayload } from '@/features/admin-hub/model/edgeCredentialInstallerPayload'
+import {
+  getEdgeAvailabilityDisplayLabel,
+  getEdgeLifecycleDisplayLabel,
+} from '@/shared/edgePresentation'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 interface RegisterFormState {
   name: string
@@ -30,11 +35,7 @@ const INITIAL_REGISTER_FORM: RegisterFormState = {
 }
 
 function normalizeError(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 function toUserRef(value: string | EdgeServerUserRef | null | undefined):
@@ -66,12 +67,12 @@ function getAssignedUsers(edgeServer: CanonicalAdminEdgeServer): Array<{ _id: st
 
 function formatUtcTimestamp(value: string | null | undefined): string {
   if (!value) {
-    return 'N/A'
+    return 'Нет данных'
   }
 
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) {
-    return 'N/A'
+    return 'Нет данных'
   }
 
   return date.toISOString().replace('T', ' ').replace('.000Z', ' UTC')
@@ -86,11 +87,11 @@ function lifecycleBadgeClass(lifecycleState: EdgeLifecycleState): string {
 function credentialActionPendingLabel(action: CredentialAction): string {
   switch (action) {
     case 'rotate':
-      return 'Rotating...'
+      return 'Ротация...'
     case 'block':
-      return 'Blocking...'
+      return 'Блокировка...'
     case 'unblock':
-      return 'Unblocking...'
+      return 'Разблокировка...'
   }
 }
 
@@ -143,7 +144,7 @@ export function EdgeFleetPage() {
       setEdgeServers(edgeResult)
       setUsers(userResult)
     } catch (loadError) {
-      setError(normalizeError(loadError, 'Failed to load edge fleet data.'))
+      setError(normalizeError(loadError, 'Не удалось загрузить данные объектов.'))
     }
   }, [])
 
@@ -218,7 +219,7 @@ export function EdgeFleetPage() {
       setRegisterForm(INITIAL_REGISTER_FORM)
       setRegisterOpen(false)
     } catch (registerError) {
-      setError(normalizeError(registerError, 'Failed to register edge server.'))
+      setError(normalizeError(registerError, 'Не удалось зарегистрировать объект.'))
     } finally {
       setIsRegistering(false)
     }
@@ -252,10 +253,10 @@ export function EdgeFleetPage() {
     } catch (actionError) {
       const fallback =
         action === 'rotate'
-          ? 'Failed to rotate edge credential.'
+          ? 'Не удалось ротировать ключ объекта.'
           : action === 'block'
-            ? 'Failed to block edge server.'
-            : 'Failed to unblock edge server.'
+            ? 'Не удалось заблокировать объект.'
+            : 'Не удалось разблокировать объект.'
       setError(normalizeError(actionError, fallback))
     } finally {
       setCredentialActionEdgeId(null)
@@ -286,7 +287,7 @@ export function EdgeFleetPage() {
       setAssignEdgeId('')
       setAssignUserId('')
     } catch (assignError) {
-      setError(normalizeError(assignError, 'Failed to assign user to edge server.'))
+      setError(normalizeError(assignError, 'Не удалось назначить пользователя объекту.'))
     } finally {
       setIsAssigning(false)
     }
@@ -320,7 +321,7 @@ export function EdgeFleetPage() {
       setRevokeEdgeId('')
       setRevokeUserId('')
     } catch (revokeError) {
-      setError(normalizeError(revokeError, 'Failed to revoke user access.'))
+      setError(normalizeError(revokeError, 'Не удалось отозвать доступ пользователя.'))
     } finally {
       setIsRevoking(false)
     }
@@ -349,9 +350,9 @@ export function EdgeFleetPage() {
     <section className="mx-auto w-full max-w-7xl px-4 py-6">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-white">Edge Fleet</h1>
+          <h1 className="text-xl font-semibold text-white">Объекты</h1>
           <p className="text-sm text-[#94a3b8]">
-            Register edges, rotate credentials, block or unblock access, and control user assignments.
+            Регистрируйте объекты, ротируйте ключи, блокируйте доступ и управляйте назначениями пользователей.
           </p>
         </div>
 
@@ -362,14 +363,14 @@ export function EdgeFleetPage() {
             disabled={isRefreshing || isLoading}
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white hover:bg-[var(--color-surface-200)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+            {isRefreshing ? 'Обновление...' : 'Обновить'}
           </button>
           <button
             type="button"
             onClick={() => setRegisterOpen(true)}
             className="rounded-md bg-[var(--color-brand-600)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--color-brand-500)]"
           >
-            Register Edge Server
+            Зарегистрировать объект
           </button>
         </div>
       </header>
@@ -384,9 +385,9 @@ export function EdgeFleetPage() {
         <section className="mb-4 rounded-lg border border-[var(--color-brand-600)]/40 bg-[var(--color-brand-600)]/10 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-white">One-time persistent credential</h2>
+              <h2 className="text-sm font-semibold text-white">Одноразовый постоянный ключ</h2>
               <p className="mt-1 text-xs text-[#cbd5e1]">
-                Save this secret now. It is shown only after register, rotate, or unblock.
+                Сохраните секрет сейчас. Он показывается только после регистрации, ротации или разблокировки.
               </p>
             </div>
             <button
@@ -394,46 +395,46 @@ export function EdgeFleetPage() {
               onClick={hideLatestDisclosure}
               className="rounded-md border border-[var(--color-surface-border)] px-2 py-1 text-xs text-white hover:bg-[var(--color-surface-200)]"
             >
-              Hide secret
+              Скрыть секрет
             </button>
           </div>
 
           <dl className="mt-3 grid gap-2 text-xs text-[#e2e8f0] sm:grid-cols-2">
             <div>
-              <dt className="text-[#94a3b8]">Edge ID</dt>
+              <dt className="text-[#94a3b8]">ID объекта</dt>
               <dd className="font-mono">{latestDisclosure.persistentCredential.edgeId}</dd>
             </div>
             <div>
-              <dt className="text-[#94a3b8]">Version</dt>
+              <dt className="text-[#94a3b8]">Версия</dt>
               <dd>v{latestDisclosure.persistentCredential.version}</dd>
             </div>
             <div>
-              <dt className="text-[#94a3b8]">Issued at</dt>
+              <dt className="text-[#94a3b8]">Выпущен</dt>
               <dd>{formatUtcTimestamp(latestDisclosure.persistentCredential.issuedAt)}</dd>
             </div>
             <div>
-              <dt className="text-[#94a3b8]">Lifecycle</dt>
-              <dd>{latestDisclosure.edge.lifecycleState}</dd>
+              <dt className="text-[#94a3b8]">Состояние</dt>
+              <dd>{getEdgeLifecycleDisplayLabel(latestDisclosure.edge.lifecycleState)}</dd>
             </div>
             <div className="sm:col-span-2">
-              <dt className="text-[#94a3b8]">Credential secret</dt>
+              <dt className="text-[#94a3b8]">Секрет ключа</dt>
               <dd className="mt-1 rounded-md bg-black/30 px-2 py-2 font-mono">
                 {latestDisclosure.persistentCredential.credentialSecret}
               </dd>
             </div>
             <div className="sm:col-span-2">
-              <dt className="text-[#94a3b8]">Instructions</dt>
+              <dt className="text-[#94a3b8]">Инструкции</dt>
               <dd>{latestDisclosure.persistentCredential.instructions}</dd>
             </div>
           </dl>
 
           <div className="mt-3 space-y-2 text-xs text-[#e2e8f0]">
             <label className="block text-[#94a3b8]" htmlFor="edge-installer-json">
-              Installer JSON
+              JSON установщика
             </label>
             <textarea
               id="edge-installer-json"
-              aria-label="Installer JSON"
+              aria-label="JSON установщика"
               readOnly
               value={installerJson}
               rows={12}
@@ -445,14 +446,14 @@ export function EdgeFleetPage() {
                 onClick={handleCopyInstallerJson}
                 className="rounded-md border border-[var(--color-brand-600)]/50 px-2 py-1.5 text-xs text-[var(--color-brand-300)] hover:bg-[var(--color-brand-600)]/10"
               >
-                Copy installer JSON
+                Скопировать JSON установщика
               </button>
               {installerJsonCopyStatus === 'copied' && (
-                <span className="text-xs text-[var(--color-online)]">Installer JSON copied.</span>
+                <span className="text-xs text-[var(--color-online)]">JSON установщика скопирован.</span>
               )}
               {installerJsonCopyStatus === 'failed' && (
                 <span className="text-xs text-[var(--color-danger)]">
-                  Copy failed. Select and copy the installer JSON manually.
+                  Не удалось скопировать. Выделите и скопируйте JSON установщика вручную.
                 </span>
               )}
             </div>
@@ -464,26 +465,26 @@ export function EdgeFleetPage() {
         <table className="min-w-full text-left text-sm text-[#e2e8f0]">
           <thead className="bg-[var(--color-surface-200)] text-xs uppercase tracking-wide text-[#94a3b8]">
             <tr>
-              <th className="px-3 py-3">Name</th>
-              <th className="px-3 py-3">Lifecycle</th>
-              <th className="px-3 py-3">Availability</th>
-              <th className="px-3 py-3">Persistent Credential</th>
-              <th className="px-3 py-3">Assigned Users</th>
-              <th className="px-3 py-3">Registered By</th>
-              <th className="px-3 py-3">Actions</th>
+              <th className="px-3 py-3">Название</th>
+              <th className="px-3 py-3">Состояние</th>
+              <th className="px-3 py-3">Доступность</th>
+              <th className="px-3 py-3">Постоянный ключ</th>
+              <th className="px-3 py-3">Назначенные пользователи</th>
+              <th className="px-3 py-3">Зарегистрировал</th>
+              <th className="px-3 py-3">Действия</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
                 <td className="px-3 py-6 text-[#94a3b8]" colSpan={7}>
-                  Loading edge fleet...
+                  Загрузка объектов...
                 </td>
               </tr>
             ) : edgeServers.length === 0 ? (
               <tr>
                 <td className="px-3 py-6 text-[#94a3b8]" colSpan={7}>
-                  No edge servers registered yet.
+                  Объекты пока не зарегистрированы.
                 </td>
               </tr>
             ) : (
@@ -493,7 +494,7 @@ export function EdgeFleetPage() {
                 const createdByEmail =
                   typeof edge.createdBy === 'object' && edge.createdBy && 'email' in edge.createdBy
                     ? edge.createdBy.email
-                    : 'Unknown'
+                    : 'Неизвестно'
                 const isCredentialActionInProgress = credentialActionEdgeId === edge._id
                 const canRotateCredential = edge.lifecycleState === 'Active'
                 const canBlockEdge = edge.lifecycleState === 'Active'
@@ -503,7 +504,9 @@ export function EdgeFleetPage() {
                   <tr key={edge._id} className="border-t border-[var(--color-surface-border)]">
                     <td className="px-3 py-3 text-white">{edge.name}</td>
                     <td className="px-3 py-3">
-                      <span className={lifecycleBadgeClass(edge.lifecycleState)}>{edge.lifecycleState}</span>
+                      <span className={lifecycleBadgeClass(edge.lifecycleState)}>
+                        {getEdgeLifecycleDisplayLabel(edge.lifecycleState)}
+                      </span>
                     </td>
                     <td className="px-3 py-3">
                       <div className="space-y-1">
@@ -514,10 +517,10 @@ export function EdgeFleetPage() {
                               : 'rounded-full bg-[var(--color-offline)]/10 px-2 py-1 text-xs text-[var(--color-offline)]'
                           }
                         >
-                          {online ? 'Online' : 'Offline'}
+                          {getEdgeAvailabilityDisplayLabel(online ? 'Online' : 'Offline')}
                         </span>
                         <p className="text-xs text-[#94a3b8]">
-                          Last seen: {formatUtcTimestamp(getEdgeLastSeenAt(edge))}
+                          Последний сигнал: {formatUtcTimestamp(getEdgeLastSeenAt(edge))}
                         </p>
                       </div>
                     </td>
@@ -525,12 +528,12 @@ export function EdgeFleetPage() {
                       {typeof edge.persistentCredentialVersion === 'number' ? (
                         <span>v{edge.persistentCredentialVersion}</span>
                       ) : (
-                        <span className="text-[#94a3b8]">Not issued</span>
+                        <span className="text-[#94a3b8]">Не выпущен</span>
                       )}
                     </td>
                     <td className="px-3 py-3 text-[#cbd5e1]">
                       {assignedUsers.length === 0
-                        ? 'Not assigned'
+                        ? 'Не назначены'
                         : assignedUsers.map((user) => user.email).join(', ')}
                     </td>
                     <td className="px-3 py-3 text-[#94a3b8]">{createdByEmail}</td>
@@ -545,7 +548,7 @@ export function EdgeFleetPage() {
                           >
                             {isCredentialActionInProgress && credentialAction === 'rotate'
                               ? credentialActionPendingLabel('rotate')
-                              : 'Rotate credential'}
+                              : 'Ротировать ключ'}
                           </button>
                         ) : null}
                         {canBlockEdge ? (
@@ -557,7 +560,7 @@ export function EdgeFleetPage() {
                           >
                             {isCredentialActionInProgress && credentialAction === 'block'
                               ? credentialActionPendingLabel('block')
-                              : 'Block edge'}
+                              : 'Заблокировать объект'}
                           </button>
                         ) : null}
                         {canUnblockEdge ? (
@@ -569,7 +572,7 @@ export function EdgeFleetPage() {
                           >
                             {isCredentialActionInProgress && credentialAction === 'unblock'
                               ? credentialActionPendingLabel('unblock')
-                              : 'Unblock edge'}
+                              : 'Разблокировать объект'}
                           </button>
                         ) : null}
                         <button
@@ -578,7 +581,7 @@ export function EdgeFleetPage() {
                           disabled={Boolean(credentialActionEdgeId)}
                           className="rounded-md border border-[var(--color-surface-border)] px-2 py-1.5 text-xs text-white hover:bg-[var(--color-surface-200)]"
                         >
-                          Assign to User
+                          Назначить пользователю
                         </button>
                         <button
                           type="button"
@@ -586,7 +589,7 @@ export function EdgeFleetPage() {
                           onClick={() => openRevokeModal(edge)}
                           className="rounded-md border border-[var(--color-danger)]/40 px-2 py-1.5 text-xs text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          Remove user access
+                          Удалить доступ пользователя
                         </button>
                       </div>
                     </td>
@@ -601,14 +604,14 @@ export function EdgeFleetPage() {
       {registerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-            <h2 className="text-base font-semibold text-white">Register Edge Server</h2>
+            <h2 className="text-base font-semibold text-white">Зарегистрировать объект</h2>
             <p className="mt-1 text-sm text-[#94a3b8]">
-              Create a new edge and receive a one-time persistent credential.
+              Создайте новый объект и получите одноразовый постоянный ключ.
             </p>
 
             <form className="mt-4 space-y-3" onSubmit={(event) => void handleRegisterSubmit(event)}>
               <label className="block text-sm text-[#cbd5e1]">
-                Name
+                Название
                 <input
                   type="text"
                   value={registerForm.name}
@@ -629,14 +632,14 @@ export function EdgeFleetPage() {
                   }}
                   className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white hover:bg-[var(--color-surface-200)]"
                 >
-                  Cancel
+                  Отмена
                 </button>
                 <button
                   type="submit"
                   disabled={isRegistering}
                   className="rounded-md bg-[var(--color-brand-600)] px-3 py-2 text-sm text-white hover:bg-[var(--color-brand-500)] disabled:opacity-60"
                 >
-                  {isRegistering ? 'Registering...' : 'Register'}
+                  {isRegistering ? 'Регистрация...' : 'Зарегистрировать'}
                 </button>
               </div>
             </form>
@@ -647,19 +650,19 @@ export function EdgeFleetPage() {
       {assignOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-            <h2 className="text-base font-semibold text-white">Assign Edge Server</h2>
-            <p className="mt-1 text-sm text-[#94a3b8]">Grant user access to this edge server.</p>
+            <h2 className="text-base font-semibold text-white">Назначить объект</h2>
+            <p className="mt-1 text-sm text-[#94a3b8]">Предоставьте пользователю доступ к этому объекту.</p>
 
             <form className="mt-4 space-y-3" onSubmit={(event) => void handleAssignSubmit(event)}>
               <label className="block text-sm text-[#cbd5e1]">
-                User
+                Пользователь
                 <select
                   value={assignUserId}
                   required
                   onChange={(event) => setAssignUserId(event.target.value)}
                   className="mt-1 w-full rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white"
                 >
-                  <option value="">Select user</option>
+                  <option value="">Выберите пользователя</option>
                   {assignableUsers.map((user) => (
                     <option key={user._id} value={user._id}>
                       {user.email}
@@ -678,14 +681,14 @@ export function EdgeFleetPage() {
                   }}
                   className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white hover:bg-[var(--color-surface-200)]"
                 >
-                  Cancel
+                  Отмена
                 </button>
                 <button
                   type="submit"
                   disabled={isAssigning || !assignUserId}
                   className="rounded-md bg-[var(--color-brand-600)] px-3 py-2 text-sm text-white hover:bg-[var(--color-brand-500)] disabled:opacity-60"
                 >
-                  {isAssigning ? 'Assigning...' : 'Assign'}
+                  {isAssigning ? 'Назначение...' : 'Назначить'}
                 </button>
               </div>
             </form>
@@ -696,14 +699,14 @@ export function EdgeFleetPage() {
       {revokeOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-            <h2 className="text-base font-semibold text-white">Remove User Access</h2>
+            <h2 className="text-base font-semibold text-white">Удалить доступ пользователя</h2>
             <p className="mt-1 text-sm text-[#94a3b8]">
-              Remove a user from this edge server and revoke their access.
+              Удалите пользователя из этого объекта и отзовите его доступ.
             </p>
 
             <form className="mt-4 space-y-3" onSubmit={(event) => void handleRevokeSubmit(event)}>
               <label className="block text-sm text-[#cbd5e1]">
-                Assigned user
+                Назначенный пользователь
                 <select
                   value={revokeUserId}
                   required
@@ -732,14 +735,14 @@ export function EdgeFleetPage() {
                   }}
                   className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white hover:bg-[var(--color-surface-200)]"
                 >
-                  Cancel
+                  Отмена
                 </button>
                 <button
                   type="submit"
                   disabled={isRevoking || !revokeUserId}
                   className="rounded-md border border-[var(--color-danger)]/40 px-3 py-2 text-sm text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:opacity-60"
                 >
-                  {isRevoking ? 'Revoking...' : 'Revoke'}
+                  {isRevoking ? 'Отзыв...' : 'Отозвать'}
                 </button>
               </div>
             </form>

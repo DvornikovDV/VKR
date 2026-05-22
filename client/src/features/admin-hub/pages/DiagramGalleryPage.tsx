@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { isApiError } from '@/shared/api/client'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 import {
   assignDiagramToUser,
   getDiagrams,
@@ -15,11 +16,7 @@ interface AssignableUser extends UserRow {
 }
 
 function normalizeError(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 function getDiagramCount(user: AssignableUser): number | null {
@@ -71,7 +68,7 @@ export function DiagramGalleryPage() {
       setDiagrams(diagramResult)
       setUsers(userResult as AssignableUser[])
     } catch (loadError) {
-      setError(normalizeError(loadError, 'Failed to load admin diagram gallery.'))
+      setError(normalizeError(loadError, 'Не удалось загрузить галерею мнемосхем администратора.'))
     }
   }, [])
 
@@ -108,13 +105,13 @@ export function DiagramGalleryPage() {
 
     const targetUser = assignableUsers.find((user) => user._id === selectedUserId)
     if (!targetUser) {
-      setError('Select a valid target user.')
+      setError('Выберите корректного пользователя.')
       return
     }
 
     if (!canAcceptDiagram(targetUser)) {
       setError(
-        'Assignment blocked: target user has no free diagram slots in FREE tier.',
+        'Назначение заблокировано: у пользователя нет свободных слотов мнемосхем на тарифе FREE.',
       )
       return
     }
@@ -131,10 +128,10 @@ export function DiagramGalleryPage() {
     } catch (assignError) {
       if (isApiError(assignError) && assignError.status === 403) {
         setError(
-          'Assignment blocked by server policy. Target user may not have free slots or diagram is not assignable.',
+          'Назначение заблокировано политикой сервера. У пользователя может не быть свободных слотов или мнемосхема недоступна для передачи.',
         )
       } else {
-        setError(normalizeError(assignError, 'Failed to assign diagram to user.'))
+        setError(normalizeError(assignError, 'Не удалось назначить мнемосхему пользователю.'))
       }
     } finally {
       setIsAssigning(false)
@@ -144,9 +141,9 @@ export function DiagramGalleryPage() {
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-6">
       <header className="mb-6">
-        <h1 className="text-xl font-semibold text-white">Admin Diagram Gallery</h1>
+        <h1 className="text-xl font-semibold text-white">Мнемосхемы администратора</h1>
         <p className="text-sm text-[#94a3b8]">
-          Manage your own diagrams and transfer ownership to users.
+          Управляйте своими мнемосхемами и передавайте владение пользователям.
         </p>
       </header>
 
@@ -157,10 +154,10 @@ export function DiagramGalleryPage() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-[#94a3b8]">Loading diagrams...</p>
+        <p className="text-sm text-[#94a3b8]">Загрузка мнемосхем...</p>
       ) : diagrams.length === 0 ? (
         <p className="rounded-md border border-dashed border-[var(--color-surface-border)] p-6 text-sm text-[#94a3b8]">
-          You do not own any diagrams yet.
+          У вас пока нет мнемосхем.
         </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
@@ -180,14 +177,14 @@ export function DiagramGalleryPage() {
                     to={`/admin/editor/${diagram._id}`}
                     className="rounded-md border border-[var(--color-surface-border)] px-2.5 py-1.5 text-xs text-white hover:bg-[var(--color-surface-200)]"
                   >
-                    Edit
+                    Редактировать
                   </Link>
                   <button
                     type="button"
                     onClick={() => openAssignModal(diagram._id)}
                     className="rounded-md bg-[var(--color-brand-600)] px-2.5 py-1.5 text-xs text-white hover:bg-[var(--color-brand-500)]"
                   >
-                    Assign to User
+                    Назначить пользователю
                   </button>
                 </div>
               </div>
@@ -199,29 +196,29 @@ export function DiagramGalleryPage() {
       {assignOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-            <h2 className="text-base font-semibold text-white">Assign Diagram</h2>
+            <h2 className="text-base font-semibold text-white">Назначить мнемосхему</h2>
             <p className="mt-1 text-sm text-[#94a3b8]">
-              Transfer ownership to a target user.
+              Передайте владение выбранному пользователю.
             </p>
 
             <form className="mt-4 space-y-3" onSubmit={(event) => void handleAssignSubmit(event)}>
               <label className="block text-sm text-[#cbd5e1]">
-                Target user
+                Пользователь
                 <select
                   value={selectedUserId}
                   required
                   onChange={(event) => setSelectedUserId(event.target.value)}
                   className="mt-1 w-full rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white"
                 >
-                  <option value="">Select user</option>
+                  <option value="">Выберите пользователя</option>
                   {assignableUsers.map((user) => {
                     const diagramCount = getDiagramCount(user)
                     const slotInfo =
                       user.subscriptionTier === 'PRO'
-                        ? 'slots: unlimited'
+                        ? 'слоты: безлимит'
                         : diagramCount === null
-                          ? 'slots: unknown'
-                          : `slots: ${diagramCount}/${FREE_DIAGRAM_LIMIT}`
+                          ? 'слоты: неизвестно'
+                          : `слоты: ${diagramCount}/${FREE_DIAGRAM_LIMIT}`
 
                     return (
                       <option key={user._id} value={user._id}>
@@ -234,7 +231,7 @@ export function DiagramGalleryPage() {
 
               {selectedUser && !canAcceptDiagram(selectedUser) && (
                 <p className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">
-                  Assignment is blocked for this user: FREE tier limit reached.
+                  Назначение заблокировано для этого пользователя: достигнут лимит тарифа FREE.
                 </p>
               )}
 
@@ -248,14 +245,14 @@ export function DiagramGalleryPage() {
                   }}
                   className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white hover:bg-[var(--color-surface-200)]"
                 >
-                  Cancel
+                  Отмена
                 </button>
                 <button
                   type="submit"
                   disabled={isAssigning || !selectedUser || !canAcceptDiagram(selectedUser)}
                   className="rounded-md bg-[var(--color-brand-600)] px-3 py-2 text-sm text-white hover:bg-[var(--color-brand-500)] disabled:opacity-60"
                 >
-                  {isAssigning ? 'Assigning...' : 'Assign'}
+                  {isAssigning ? 'Назначение...' : 'Назначить'}
                 </button>
               </div>
             </form>

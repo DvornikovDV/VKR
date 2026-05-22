@@ -5,7 +5,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '@/shared/api/client'
-import { isApiError } from '@/shared/api/client'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 import { useAuthStore } from '@/shared/store/useAuthStore'
 import type { Session } from '@/shared/store/useAuthStore'
 
@@ -67,19 +67,7 @@ export function useRegister(): UseRegisterReturn {
             // New users are always USER role — redirect to user hub
             navigate('/hub', { replace: true })
         } catch (err) {
-            if (isApiError(err)) {
-                if (err.status === 409) {
-                    setError('An account with this email already exists.')
-                } else if (err.status === 400) {
-                    setError(err.message || 'Invalid registration data.')
-                } else if (err.status >= 500) {
-                    setError('Server error. Please try again later.')
-                } else {
-                    setError(err.message)
-                }
-            } else {
-                setError('Connection error. Please check your network.')
-            }
+            setError(getErrorDisplayMessage(err, 'Не удалось зарегистрировать аккаунт.'))
         } finally {
             setLoading(false)
         }

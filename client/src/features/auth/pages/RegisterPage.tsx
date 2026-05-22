@@ -7,6 +7,7 @@ import { Activity, Eye, EyeOff } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAuthStore } from '@/shared/store/useAuthStore'
 import { useRegister } from '@/features/auth/hooks/useRegister'
+import { ruUiText } from '@/shared/i18n'
 
 // ── Location state type ────────────────────────────────────────────────────
 interface LocationState {
@@ -45,12 +46,12 @@ function RegisterForm() {
         setValidationError(null)
 
         if (password.length < 8) {
-            setValidationError('Password must be at least 8 characters.')
+            setValidationError('Пароль должен содержать не менее 8 символов.')
             return
         }
 
         if (password !== confirmPassword) {
-            setValidationError('Passwords do not match.')
+            setValidationError('Пароли не совпадают.')
             return
         }
 
@@ -82,8 +83,8 @@ function RegisterForm() {
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[var(--color-brand-600)]">
                         <Activity size={22} className="text-white" />
                     </div>
-                    <h1 className="text-lg font-bold text-white">Create an account</h1>
-                    <p className="text-sm text-[#64748b]">Sign up for VKR SCADA Platform</p>
+                    <h1 className="text-lg font-bold text-white">Создание аккаунта</h1>
+                    <p className="text-sm text-[#64748b]">Регистрация в VKR SCADA Platform</p>
                 </div>
 
                 {/* Card */}
@@ -96,7 +97,7 @@ function RegisterForm() {
                                 htmlFor="register-email"
                                 className="mb-1.5 block text-xs font-medium text-[#94a3b8]"
                             >
-                                Email address
+                                Email
                             </label>
                             <input
                                 id="register-email"
@@ -124,7 +125,7 @@ function RegisterForm() {
                                 htmlFor="register-password"
                                 className="mb-1.5 block text-xs font-medium text-[#94a3b8]"
                             >
-                                Password (min. 8 characters)
+                                Пароль (минимум 8 символов)
                             </label>
                             <div className="relative">
                                 <input
@@ -146,7 +147,7 @@ function RegisterForm() {
                                 />
                                 <button
                                     type="button"
-                                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                                    aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
                                     onClick={() => setShowPassword((s) => !s)}
                                     className="absolute right-3 top-1/2 -translate-y-1/2 text-[#475569] hover:text-[#94a3b8] transition-colors"
                                 >
@@ -161,7 +162,7 @@ function RegisterForm() {
                                 htmlFor="register-confirm-password"
                                 className="mb-1.5 block text-xs font-medium text-[#94a3b8]"
                             >
-                                Confirm Password
+                                Повторите пароль
                             </label>
                             <input
                                 id="register-confirm-password"
@@ -212,19 +213,19 @@ function RegisterForm() {
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                                     </svg>
-                                    Creating account…
+                                    Создание аккаунта...
                                 </span>
                             ) : (
-                                'Sign up'
+                                ruUiText.actions.register
                             )}
                         </button>
                     </form>
                 </div>
 
                 <p className="mt-5 text-center text-xs text-[#475569]">
-                    Already have an account?{' '}
+                    Уже есть аккаунт?{' '}
                     <Link to="/login" className="text-[var(--color-brand-500)] hover:text-[var(--color-brand-400)] font-medium transition-colors">
-                        Sign in
+                        {ruUiText.actions.signIn}
                     </Link>
                 </p>
             </div>

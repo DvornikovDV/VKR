@@ -270,11 +270,11 @@ function formatRenderIssueSummary(runtimeLayout: DashboardRuntimeLayout): string
   const blockingCount = runtimeLayout.renderIssues.filter((issue) => issue.severity === 'blocking').length
   const recoverableCount = runtimeLayout.renderIssues.length - blockingCount
   const parts = [
-    blockingCount > 0 ? `${blockingCount} blocking` : null,
-    recoverableCount > 0 ? `${recoverableCount} recoverable` : null,
+    blockingCount > 0 ? `${blockingCount} блокирующих` : null,
+    recoverableCount > 0 ? `${recoverableCount} восстановимых` : null,
   ].filter(Boolean)
 
-  return `Visual rendering issues: ${parts.join(', ')}`
+  return `Проблемы визуальной отрисовки: ${parts.join(', ')}`
 }
 
 function resolveLedRadius(widget: DashboardWidget, width: number, height: number): number {
@@ -818,7 +818,7 @@ export function DashboardVisualSurface({
               const fontSize = Math.max(10, toFiniteNumber(widget.fontSize, 13))
               const widgetProjection = widgetProjectionById.get(widget.id)
               const actualValue = widgetProjection?.value ?? null
-              const actualText = widgetProjection ? widgetProjection.visualValue : 'Pending'
+              const actualText = widgetProjection ? widgetProjection.visualValue : 'Ожидание'
               const isLabelWidget = widget.type === 'label'
               const isVisualValueWidget = widget.type === 'number-display' || widget.type === 'text-display'
               const isToggleWidget = widget.type === 'toggle'
@@ -1031,7 +1031,7 @@ export function DashboardVisualSurface({
                           x={x + 8}
                           y={readOnlyTextY}
                           width={Math.max(0, width - 16)}
-                          text="Read only"
+                          text="Только чтение"
                           fontSize={12}
                           fill="#94a3b8"
                           listening={false}
@@ -1104,7 +1104,7 @@ export function DashboardVisualSurface({
           <button
             key={anchor.widgetId}
             type="button"
-            aria-label={`Command toggle ${anchor.widgetId}`}
+            aria-label={`Команда-переключатель ${anchor.widgetId}`}
             aria-pressed={anchor.pressed}
             data-testid={`dashboard-command-toggle-${anchor.widgetId}`}
             data-command-availability={anchor.availabilityReason}
@@ -1148,7 +1148,7 @@ export function DashboardVisualSurface({
             <input
               key={anchor.widgetId}
               type="range"
-              aria-label={`Command slider ${anchor.widgetId}`}
+              aria-label={`Команда-слайдер ${anchor.widgetId}`}
               data-testid={`dashboard-command-slider-${anchor.widgetId}`}
               data-command-availability={anchor.availabilityReason}
               data-command-executable={anchor.canCommit ? 'true' : 'false'}

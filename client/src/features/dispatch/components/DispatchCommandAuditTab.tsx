@@ -17,6 +17,7 @@ import {
   type DispatchCommandAuditStatusFilter,
 } from '@/features/dispatch/model/commandAudit'
 import type { DispatchWorkspaceContextSnapshot } from '@/features/dispatch/model/types'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 interface DispatchCommandAuditTabProps {
   workspaceContext: DispatchWorkspaceContextSnapshot
@@ -26,11 +27,7 @@ interface DispatchCommandAuditTabProps {
 type AuditLoadState = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
 
 function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 function toQueryStatus(statusFilter: DispatchCommandAuditStatusFilter): CommandAuditStatus | undefined {
@@ -148,7 +145,7 @@ export function DispatchCommandAuditTab({
       }
 
       setAuditResponse(null)
-      setAuditError(toErrorMessage(error, 'Failed to load command audit.'))
+      setAuditError(toErrorMessage(error, 'Не удалось загрузить аудит команд.'))
       setAuditState('error')
     }
   }, [])

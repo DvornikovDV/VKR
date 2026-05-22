@@ -47,18 +47,18 @@ interface DashboardSubtabCommandCommit {
 function formatCommandOutcomeError(outcome: Exclude<NormalizedCommandOutcome, 'confirmed'>): string {
   switch (outcome) {
     case 'cloud_rpc_timeout':
-      return 'Cloud RPC timeout'
+      return 'Таймаут RPC в облаке'
     case 'edge_command_timeout':
-      return 'Edge command timeout'
+      return 'Таймаут команды объекта'
     case 'edge_command_failed':
-      return 'Edge command failed'
+      return 'Команда объекта завершилась ошибкой'
     case 'edge_unavailable':
-      return 'Edge unavailable'
+      return 'Объект недоступен'
     case 'network_error':
-      return 'Network error'
+      return 'Сетевая ошибка'
     case 'unknown_error':
     default:
-      return 'Command failed'
+      return 'Команда не выполнена'
   }
 }
 
@@ -162,7 +162,7 @@ export function DashboardDispatchSubtab({
   const handleCommandCommit = useCallback(
     async (command: DashboardSubtabCommandCommit) => {
       if (!selectedEdgeId) {
-        commandLifecycle.markError(command.widgetId, 'Edge server is not selected')
+        commandLifecycle.markError(command.widgetId, 'Объект не выбран')
         return
       }
 
@@ -173,7 +173,7 @@ export function DashboardDispatchSubtab({
         !commandProjection.commandBinding ||
         !commandProjection.reportedWidgetBinding
       ) {
-        commandLifecycle.markError(command.widgetId, 'Command is unavailable')
+        commandLifecycle.markError(command.widgetId, 'Команда недоступна')
         return
       }
 
@@ -234,7 +234,7 @@ export function DashboardDispatchSubtab({
           ? [
               {
                 id: 'dashboard.redLight' as const,
-                label: 'Known unclosed alarm incidents',
+                label: 'Известные незакрытые аварии',
                 order: 10,
                 content: <DashboardAlarmRedLightIndicator count={activeEdgeAlarmIncidentCount} />,
               },
@@ -244,13 +244,13 @@ export function DashboardDispatchSubtab({
           ? [
               {
                 id: 'dashboard.fitToView' as const,
-                label: 'Fit to view',
+                label: 'Подогнать по экрану',
                 order: 20,
                 content: (
                   <button
                     type="button"
-                    aria-label="Fit to view"
-                    title="Fit to view"
+                    aria-label="Подогнать по экрану"
+                    title="Подогнать по экрану"
                     onClick={fitToViewAction}
                     className="inline-flex h-7 w-7 items-center justify-center rounded border border-[#334155] bg-[#0f172a] text-[#e2e8f0] transition-colors hover:bg-[#1e293b]"
                   >
@@ -262,7 +262,7 @@ export function DashboardDispatchSubtab({
           : []),
         {
           id: 'dashboard.details' as const,
-          label: 'Details',
+          label: 'Диагностика',
           order: 30,
           content: (
             <button
@@ -272,7 +272,7 @@ export function DashboardDispatchSubtab({
               className="inline-flex h-7 items-center gap-1.5 rounded border border-[#334155] bg-[#0f172a] px-2 text-xs font-medium text-white transition-colors hover:bg-[#1e293b]"
             >
               <Info aria-hidden="true" size={13} />
-              Details
+              Диагностика
             </button>
           ),
         },

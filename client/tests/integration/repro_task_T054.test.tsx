@@ -106,23 +106,23 @@ describe('repro_task_T054', () => {
     const user = userEvent.setup()
     renderAdminEdgeRoute()
 
-    expect(await screen.findByRole('heading', { name: 'Edge Fleet' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Объекты' })).toBeInTheDocument()
 
     const edgeRow = await screen.findByText('Active Edge')
     const row = edgeRow.closest('tr')
     expect(row).not.toBeNull()
 
     await user.click(
-      within(row as HTMLTableRowElement).getByRole('button', { name: 'Block edge' }),
+      within(row as HTMLTableRowElement).getByRole('button', { name: 'Заблокировать объект' }),
     )
 
     await waitFor(() => {
       const updatedRow = screen.getByText('Active Edge').closest('tr')
       expect(updatedRow).not.toBeNull()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Blocked')).toBeInTheDocument()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Offline')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Заблокирован')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Не в сети')).toBeInTheDocument()
       expect(
-        within(updatedRow as HTMLTableRowElement).getByText('Last seen: 2026-04-17 10:55:00 UTC'),
+        within(updatedRow as HTMLTableRowElement).getByText('Последний сигнал: 2026-04-17 10:55:00 UTC'),
       ).toBeInTheDocument()
     })
   })

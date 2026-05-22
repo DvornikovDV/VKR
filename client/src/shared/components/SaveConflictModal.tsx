@@ -55,11 +55,11 @@ export function SaveConflictModal({
         className="w-full max-w-lg rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-5"
       >
         <h2 id={titleId} className="text-base font-semibold text-white">
-          Save conflict detected
+          Обнаружен конфликт сохранения
         </h2>
         <p id={descriptionId} className="mt-1 text-sm text-[#94a3b8]">
-          A newer diagram version already exists. Your current in-memory edits are still preserved
-          in this session. Choose how you want to recover.
+          Уже существует более новая версия мнемосхемы. Текущие изменения в памяти сохранены
+          в этой сессии. Выберите способ восстановления.
         </p>
 
         {error && (
@@ -75,7 +75,7 @@ export function SaveConflictModal({
             onClick={onReloadLatest}
             className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-sm text-[var(--color-warning)] hover:bg-[var(--color-warning)]/20 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isReloadingLatest ? 'Reloading...' : 'Reload latest'}
+            {isReloadingLatest ? 'Загрузка...' : 'Загрузить последнюю'}
           </button>
           <button
             type="button"
@@ -83,7 +83,7 @@ export function SaveConflictModal({
             onClick={onContinueEditing}
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white hover:bg-[var(--color-surface-200)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Continue editing
+            Продолжить редактирование
           </button>
           <button
             type="button"
@@ -91,11 +91,10 @@ export function SaveConflictModal({
             onClick={onSaveAs}
             className="rounded-md bg-[var(--color-brand-600)] px-3 py-2 text-sm text-white hover:bg-[var(--color-brand-500)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSavingAs ? 'Saving copy...' : 'Save As copy'}
+            {isSavingAs ? 'Сохранение копии...' : 'Сохранить как копию'}
           </button>
         </div>
       </div>
     </div>
   )
 }
-

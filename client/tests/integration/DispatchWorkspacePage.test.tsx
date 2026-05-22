@@ -230,17 +230,17 @@ describe('DispatchWorkspacePage routing', () => {
     await waitFor(() => {
       expect(defaultRoute.router.state.location.pathname).toBe('/hub/dispatch/dashboard')
     })
-    expect(screen.getByRole('link', { name: 'Dispatch' })).toHaveAttribute('href', '/hub/dispatch')
+    expect(screen.getByRole('link', { name: 'Диспетчеризация' })).toHaveAttribute('href', '/hub/dispatch')
 
-    const tablist = await screen.findByRole('tablist', { name: 'Dispatch tabs' })
-    expect(within(tablist).getByRole('tab', { name: 'Dashboard' })).toHaveAttribute(
+    const tablist = await screen.findByRole('tablist', { name: 'Вкладки диспетчеризации' })
+    expect(within(tablist).getByRole('tab', { name: 'Мнемосхема' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
-    expect(within(tablist).getByRole('tab', { name: 'Telemetry' })).toBeInTheDocument()
-    expect(within(tablist).getByRole('tab', { name: 'Commands' })).toBeInTheDocument()
-    expect(within(tablist).getByRole('tab', { name: 'Trends' })).toBeInTheDocument()
-    expect(within(tablist).getByRole('tab', { name: 'Alarms' })).toBeInTheDocument()
+    expect(within(tablist).getByRole('tab', { name: 'Телеметрия' })).toBeInTheDocument()
+    expect(within(tablist).getByRole('tab', { name: 'Команды' })).toBeInTheDocument()
+    expect(within(tablist).getByRole('tab', { name: 'Тренды' })).toBeInTheDocument()
+    expect(within(tablist).getByRole('tab', { name: 'Аварии' })).toBeInTheDocument()
     expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
     defaultRoute.renderResult.unmount()
 
@@ -255,15 +255,15 @@ describe('DispatchWorkspacePage routing', () => {
     const canonicalSearchParams = new URLSearchParams(canonicalRoute.router.state.location.search)
     expect(canonicalSearchParams.get('diagramId')).toBe(dashboardVisualDiagram._id)
     expect(canonicalSearchParams.get('edgeId')).toBe('edge-visual-1')
-    const dispatchContext = screen.getByRole('region', { name: 'Dispatch context' })
-    const diagramSelectors = screen.getAllByRole('combobox', { name: 'Diagram' })
-    const edgeSelectors = screen.getAllByRole('combobox', { name: 'Edge Server' })
+    const dispatchContext = screen.getByRole('region', { name: 'Контекст диспетчеризации' })
+    const diagramSelectors = screen.getAllByRole('combobox', { name: 'Мнемосхема' })
+    const edgeSelectors = screen.getAllByRole('combobox', { name: 'Объект' })
     expect(diagramSelectors).toHaveLength(1)
     expect(edgeSelectors).toHaveLength(1)
-    expect(within(dispatchContext).getByRole('combobox', { name: 'Diagram' })).toHaveValue(
+    expect(within(dispatchContext).getByRole('combobox', { name: 'Мнемосхема' })).toHaveValue(
       dashboardVisualDiagram._id,
     )
-    expect(within(dispatchContext).getByRole('combobox', { name: 'Edge Server' })).toHaveValue(
+    expect(within(dispatchContext).getByRole('combobox', { name: 'Объект' })).toHaveValue(
       'edge-visual-1',
     )
     expect(screen.getByTestId('dispatch-selected-context')).toHaveTextContent(
@@ -272,8 +272,8 @@ describe('DispatchWorkspacePage routing', () => {
 
     const visualSurface = await screen.findByTestId('dashboard-visual-surface')
     expect(visualSurface).toBeInTheDocument()
-    expect(within(visualSurface).queryByRole('combobox', { name: 'Diagram' })).not.toBeInTheDocument()
-    expect(within(visualSurface).queryByRole('combobox', { name: 'Edge Server' })).not.toBeInTheDocument()
+    expect(within(visualSurface).queryByRole('combobox', { name: 'Мнемосхема' })).not.toBeInTheDocument()
+    expect(within(visualSurface).queryByRole('combobox', { name: 'Объект' })).not.toBeInTheDocument()
     expect(screen.getByTestId('dashboard-visual-stage')).toBeInTheDocument()
     expect(screen.getByTestId('dashboard-visual-image-image-boiler')).toBeInTheDocument()
     expect(screen.getByTestId('dashboard-visual-widget-widget-temperature')).toBeInTheDocument()
@@ -289,22 +289,22 @@ describe('DispatchWorkspacePage routing', () => {
     const user = userEvent.setup()
     await waitFor(() => {
       expect(
-        within(screen.getByTestId('dispatch-action-slot')).getByRole('button', { name: 'Fit to view' }),
+        within(screen.getByTestId('dispatch-action-slot')).getByRole('button', { name: 'Подогнать по экрану' }),
       ).toBeInTheDocument()
     })
-    expect(within(screen.getByTestId('dispatch-action-slot')).getByRole('button', { name: 'Details' })).toHaveAttribute(
+    expect(within(screen.getByTestId('dispatch-action-slot')).getByRole('button', { name: 'Диагностика' })).toHaveAttribute(
       'aria-expanded',
       'false',
     )
-    expect(within(visualSurface).queryByRole('button', { name: 'Fit to view' })).not.toBeInTheDocument()
-    expect(within(visualSurface).queryByRole('button', { name: 'Details' })).not.toBeInTheDocument()
+    expect(within(visualSurface).queryByRole('button', { name: 'Подогнать по экрану' })).not.toBeInTheDocument()
+    expect(within(visualSurface).queryByRole('button', { name: 'Диагностика' })).not.toBeInTheDocument()
 
-    await user.click(within(screen.getByTestId('dispatch-action-slot')).getByRole('button', { name: 'Fit to view' }))
+    await user.click(within(screen.getByTestId('dispatch-action-slot')).getByRole('button', { name: 'Подогнать по экрану' }))
     expect(screen.getByTestId('dashboard-visual-stage')).toBeInTheDocument()
 
-    await user.click(within(screen.getByTestId('dispatch-action-slot')).getByRole('button', { name: 'Details' }))
+    await user.click(within(screen.getByTestId('dispatch-action-slot')).getByRole('button', { name: 'Диагностика' }))
     expect(await screen.findByTestId('dashboard-diagnostics-panel')).toBeInTheDocument()
-    expect(within(screen.getByTestId('dispatch-action-slot')).getByRole('button', { name: 'Details' })).toHaveAttribute(
+    expect(within(screen.getByTestId('dispatch-action-slot')).getByRole('button', { name: 'Диагностика' })).toHaveAttribute(
       'aria-expanded',
       'true',
     )
@@ -324,7 +324,7 @@ describe('DispatchWorkspacePage routing', () => {
       ).toHaveTextContent('1')
     })
 
-    await user.click(within(screen.getByRole('tablist', { name: 'Dispatch tabs' })).getByRole('tab', { name: 'Telemetry' }))
+    await user.click(within(screen.getByRole('tablist', { name: 'Вкладки диспетчеризации' })).getByRole('tab', { name: 'Телеметрия' }))
     await waitFor(() => {
       expect(canonicalRoute.router.state.location.pathname).toBe('/hub/dispatch/telemetry')
     })
@@ -332,8 +332,8 @@ describe('DispatchWorkspacePage routing', () => {
     expect(telemetrySearchParams.get('diagramId')).toBe(dashboardVisualDiagram._id)
     expect(telemetrySearchParams.get('edgeId')).toBe('edge-visual-1')
     expect(
-      within(screen.getByRole('tablist', { name: 'Dispatch tabs' })).getByRole('tab', {
-        name: 'Telemetry',
+      within(screen.getByRole('tablist', { name: 'Вкладки диспетчеризации' })).getByRole('tab', {
+        name: 'Телеметрия',
       }),
     ).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByTestId('dispatch-live-telemetry-tab')).toHaveAttribute(
@@ -345,12 +345,12 @@ describe('DispatchWorkspacePage routing', () => {
         edgeId: 'edge-visual-1',
       })
     })
-    expect(within(screen.getByTestId('dispatch-action-slot')).queryByRole('button', { name: 'Fit to view' })).not.toBeInTheDocument()
-    expect(within(screen.getByTestId('dispatch-action-slot')).queryByRole('button', { name: 'Details' })).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('dispatch-action-slot')).queryByRole('button', { name: 'Подогнать по экрану' })).not.toBeInTheDocument()
+    expect(within(screen.getByTestId('dispatch-action-slot')).queryByRole('button', { name: 'Диагностика' })).not.toBeInTheDocument()
     expect(within(screen.getByTestId('dispatch-action-slot')).queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
     expect(dispatchWorkspaceRuntimeHarness.startSession).toHaveBeenCalledTimes(1)
 
-    await user.click(within(screen.getByRole('tablist', { name: 'Dispatch tabs' })).getByRole('tab', { name: 'Commands' }))
+    await user.click(within(screen.getByRole('tablist', { name: 'Вкладки диспетчеризации' })).getByRole('tab', { name: 'Команды' }))
     await waitFor(() => {
       expect(canonicalRoute.router.state.location.pathname).toBe('/hub/dispatch/commands')
     })
@@ -363,7 +363,7 @@ describe('DispatchWorkspacePage routing', () => {
     expect(screen.queryByTestId('dispatch-placeholder-context')).not.toBeInTheDocument()
     expect(dispatchWorkspaceRuntimeHarness.startSession).toHaveBeenCalledTimes(1)
 
-    await user.click(within(screen.getByRole('tablist', { name: 'Dispatch tabs' })).getByRole('tab', { name: 'Alarms' }))
+    await user.click(within(screen.getByRole('tablist', { name: 'Вкладки диспетчеризации' })).getByRole('tab', { name: 'Аварии' }))
     await waitFor(() => {
       expect(canonicalRoute.router.state.location.pathname).toBe('/hub/dispatch/alarms')
     })
@@ -389,7 +389,7 @@ describe('DispatchWorkspacePage routing', () => {
     expect(legacySearchParams.get('diagramId')).toBe(dashboardVisualDiagram._id)
     expect(legacySearchParams.get('edgeId')).toBe('edge-visual-1')
 
-    expect(await screen.findByRole('tab', { name: 'Dashboard' })).toHaveAttribute(
+    expect(await screen.findByRole('tab', { name: 'Мнемосхема' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
@@ -489,7 +489,7 @@ describe('DispatchWorkspacePage routing', () => {
     await waitFor(() => {
       expect(
         within(screen.getByTestId('dispatch-action-slot')).getByRole('button', {
-          name: 'Fit to view',
+          name: 'Подогнать по экрану',
         }),
       ).toBeInTheDocument()
     })
@@ -503,7 +503,7 @@ describe('DispatchWorkspacePage routing', () => {
         }),
       )
     })
-    await user.click(await screen.findByRole('button', { name: 'Command toggle widget-command-toggle' }))
+    await user.click(await screen.findByRole('button', { name: 'Команда-переключатель widget-command-toggle' }))
     await waitFor(() => {
       expect(commandRequests).toEqual([
         {
@@ -541,7 +541,7 @@ describe('DispatchWorkspacePage routing', () => {
     })
     expect(screen.getByTestId('dashboard-alarm-incident-row-dispatch-incident-edge-1')).toBeInTheDocument()
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Edge Server' }), 'edge-visual-2')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Объект' }), 'edge-visual-2')
 
     await waitFor(() => {
       expect(route.router.state.location.search).toContain('edgeId=edge-visual-2')
@@ -572,8 +572,8 @@ describe('DispatchWorkspacePage routing', () => {
     expect(dispatchWorkspaceRuntimeHarness.startSession).toHaveBeenCalledTimes(2)
 
     await user.click(
-      within(screen.getByRole('tablist', { name: 'Dispatch tabs' })).getByRole('tab', {
-        name: 'Telemetry',
+      within(screen.getByRole('tablist', { name: 'Вкладки диспетчеризации' })).getByRole('tab', {
+        name: 'Телеметрия',
       }),
     )
 
@@ -584,11 +584,11 @@ describe('DispatchWorkspacePage routing', () => {
     expect(dispatchWorkspaceRuntimeHarness.startSession).toHaveBeenCalledTimes(2)
     expect(
       within(screen.getByTestId('dispatch-action-slot')).queryByRole('button', {
-        name: 'Fit to view',
+        name: 'Подогнать по экрану',
       }),
     ).not.toBeInTheDocument()
     expect(
-      within(screen.getByTestId('dispatch-action-slot')).queryByRole('button', { name: 'Details' }),
+      within(screen.getByTestId('dispatch-action-slot')).queryByRole('button', { name: 'Диагностика' }),
     ).not.toBeInTheDocument()
     expect(
       within(screen.getByTestId('dispatch-action-slot')).queryByTestId(
@@ -597,8 +597,8 @@ describe('DispatchWorkspacePage routing', () => {
     ).not.toBeInTheDocument()
 
     await user.click(
-      within(screen.getByRole('tablist', { name: 'Dispatch tabs' })).getByRole('tab', {
-        name: 'Dashboard',
+      within(screen.getByRole('tablist', { name: 'Вкладки диспетчеризации' })).getByRole('tab', {
+        name: 'Мнемосхема',
       }),
     )
 
@@ -612,7 +612,7 @@ describe('DispatchWorkspacePage routing', () => {
       )
       expect(
         within(screen.getByTestId('dispatch-action-slot')).getByRole('button', {
-          name: 'Fit to view',
+          name: 'Подогнать по экрану',
         }),
       ).toBeInTheDocument()
     })
@@ -674,7 +674,7 @@ describe('DispatchWorkspacePage routing', () => {
     expect(screen.queryByTestId('dashboard-alarm-red-light-indicator')).not.toBeInTheDocument()
     expect(
       within(screen.getByTestId('dispatch-action-slot')).queryByRole('button', {
-        name: 'Pause live telemetry',
+        name: 'Поставить live-телеметрию на паузу',
       }),
     ).not.toBeInTheDocument()
 
@@ -751,14 +751,14 @@ describe('DispatchWorkspacePage routing', () => {
       'connected',
     )
     expect(screen.getByTestId('dispatch-live-telemetry-cloud-stream-status')).toHaveTextContent(
-      'Cloud stream: Connected',
+      'Облачный поток: Подключено',
     )
     expect(screen.getByTestId('dispatch-live-telemetry-edge-status')).toHaveAttribute(
       'data-edge-availability',
       'offline',
     )
     expect(screen.getByTestId('dispatch-live-telemetry-edge-status')).toHaveTextContent(
-      'Edge: Offline',
+      'Объект: Не в сети',
     )
   })
 
@@ -822,13 +822,13 @@ describe('DispatchWorkspacePage routing', () => {
     const actionSlot = screen.getByTestId('dispatch-action-slot')
     const toolbar = screen.getByTestId('dispatch-live-telemetry-toolbar')
     expect(
-      within(actionSlot).queryByRole('button', { name: 'Pause live telemetry' }),
+      within(actionSlot).queryByRole('button', { name: 'Поставить live-телеметрию на паузу' }),
     ).not.toBeInTheDocument()
     await user.click(
-      within(toolbar).getByRole('button', { name: 'Pause live telemetry' }),
+      within(toolbar).getByRole('button', { name: 'Поставить live-телеметрию на паузу' }),
     )
     expect(
-      within(toolbar).getByRole('button', { name: 'Resume live telemetry' }),
+      within(toolbar).getByRole('button', { name: 'Продолжить live-телеметрию' }),
     ).toBeInTheDocument()
 
     act(() => {
@@ -854,10 +854,10 @@ describe('DispatchWorkspacePage routing', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('dispatch-live-telemetry-toolbar-summary')).toHaveTextContent(
-        '1 rows visible | 2 newer waiting',
+        'Видимых строк: 1 | новых в ожидании: 2',
       )
       expect(screen.getByTestId('dispatch-live-telemetry-cloud-stream-status')).toHaveTextContent(
-        'Cloud stream: Connected',
+        'Облачный поток: Подключено',
       )
     })
     rows = screen.getAllByTestId('dispatch-live-telemetry-row')
@@ -868,12 +868,12 @@ describe('DispatchWorkspacePage routing', () => {
     expect(dispatchWorkspaceRuntimeSocketHarness.spies.disconnect).not.toHaveBeenCalled()
 
     await user.click(
-      within(toolbar).getByRole('button', { name: 'Resume live telemetry' }),
+      within(toolbar).getByRole('button', { name: 'Продолжить live-телеметрию' }),
     )
     await waitFor(() => {
       expect(screen.getAllByTestId('dispatch-live-telemetry-row')).toHaveLength(3)
       expect(screen.getByTestId('dispatch-live-telemetry-toolbar-summary')).toHaveTextContent(
-        '3 rows visible | 0 newer waiting',
+        'Видимых строк: 3 | новых в ожидании: 0',
       )
     })
     expect(screen.getByText('41')).toBeInTheDocument()
@@ -886,7 +886,7 @@ describe('DispatchWorkspacePage routing', () => {
       'stale transport error',
     )
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Edge Server' }), 'edge-visual-2')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Объект' }), 'edge-visual-2')
     await waitFor(() => {
       expect(route.router.state.location.search).toContain('edgeId=edge-visual-2')
       expect(screen.getByTestId('dispatch-live-telemetry-tab')).toHaveAttribute(
@@ -906,7 +906,7 @@ describe('DispatchWorkspacePage routing', () => {
     expect(screen.queryByTestId('dispatch-live-telemetry-error')).not.toBeInTheDocument()
     expect(screen.queryAllByTestId('dispatch-live-telemetry-row')).toHaveLength(0)
     expect(screen.getByTestId('dispatch-live-telemetry-toolbar-summary')).toHaveTextContent(
-      '0 rows visible | 0 newer waiting',
+      'Видимых строк: 0 | новых в ожидании: 0',
     )
     expect(screen.getByTestId('dispatch-live-telemetry-pause-state')).toHaveAttribute(
       'data-paused',
@@ -1039,10 +1039,10 @@ describe('DispatchWorkspacePage routing', () => {
       )
     })
     expect(screen.queryByTestId('dispatch-placeholder-context')).not.toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Diagram' })).toHaveValue(
+    expect(screen.getByRole('combobox', { name: 'Мнемосхема' })).toHaveValue(
       dashboardVisualDiagram._id,
     )
-    expect(screen.getByRole('combobox', { name: 'Edge Server' })).toHaveValue('edge-visual-1')
+    expect(screen.getByRole('combobox', { name: 'Объект' })).toHaveValue('edge-visual-1')
     expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
 
     const metricSelect = await findComboboxByOptionValue('boiler-1:temperature')
@@ -1066,7 +1066,7 @@ describe('DispatchWorkspacePage routing', () => {
     })
     expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Edge Server' }), 'edge-visual-2')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Объект' }), 'edge-visual-2')
     await waitFor(() => {
       expect(route.router.state.location.search).toContain('edgeId=edge-visual-2')
     })
@@ -1256,7 +1256,7 @@ describe('DispatchWorkspacePage routing', () => {
       })
     })
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Edge Server' }), 'edge-visual-2')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Объект' }), 'edge-visual-2')
     await waitFor(() => {
       expect(route.router.state.location.search).toContain('edgeId=edge-visual-2')
     })
@@ -1475,7 +1475,7 @@ describe('DispatchWorkspacePage routing', () => {
     })
     expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Edge Server' }), 'edge-visual-2')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Объект' }), 'edge-visual-2')
     await waitFor(() => {
       expect(route.router.state.location.search).toContain('edgeId=edge-visual-2')
     })
@@ -1756,7 +1756,7 @@ describe('DispatchWorkspacePage routing', () => {
     expect(staleAckButton).toBeDisabled()
     expect(within(staleRow).getByText('Pending')).toBeInTheDocument()
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Edge Server' }), 'edge-visual-2')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Объект' }), 'edge-visual-2')
     await waitFor(() => {
       expect(route.router.state.location.search).toContain('edgeId=edge-visual-2')
     })

@@ -74,7 +74,7 @@ describe('useHostedLayoutSaveFlow', () => {
       await result.current.saveAsDialog.onSubmit('Diagram copy')
     })
 
-    expect(result.current.saveAsDialog.error).toBe('Hosted constructor runtime is not ready yet.')
+    expect(result.current.saveAsDialog.error).toBe('Runtime конструктора еще не готов.')
 
     act(() => {
       result.current.saveAsDialog.onCancel()
@@ -113,7 +113,7 @@ describe('useHostedLayoutSaveFlow', () => {
     await act(async () => {
       await result.current.saveConflictModal.onReloadLatest()
     })
-    expect(result.current.saveConflictModal.error).toBe('Failed to reload latest diagram version.')
+    expect(result.current.saveConflictModal.error).toBe('Не удалось загрузить последнюю версию мнемосхемы.')
 
     act(() => {
       result.current.saveConflictModal.onContinueEditing()
@@ -210,7 +210,7 @@ describe('useHostedLayoutSaveFlow', () => {
     await act(async () => {
       await result.current.saveAsDialog.onSubmit('Broken copy')
     })
-    expect(result.current.saveAsDialog.error).toBe('Failed to create diagram copy.')
+    expect(result.current.saveAsDialog.error).toBe('Не удалось создать копию мнемосхемы.')
     expect(result.current.saveAsDialog.open).toBe(true)
 
     await act(async () => {

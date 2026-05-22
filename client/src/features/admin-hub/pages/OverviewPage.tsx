@@ -64,7 +64,7 @@ export function OverviewPage() {
         })
       } catch {
         if (mounted) {
-          setError('Failed to load overview statistics.')
+          setError('Не удалось загрузить сводку администрирования.')
         }
       } finally {
         if (mounted) {
@@ -83,9 +83,9 @@ export function OverviewPage() {
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-6">
       <header className="mb-6">
-        <h1 className="text-xl font-semibold text-white">Admin Overview</h1>
+        <h1 className="text-xl font-semibold text-white">Обзор администрирования</h1>
         <p className="text-sm text-[#94a3b8]">
-          Platform stats and quick action shortcuts for daily operations.
+          Сводные показатели платформы и быстрые переходы к ежедневным операциям.
         </p>
       </header>
 
@@ -95,66 +95,66 @@ export function OverviewPage() {
         </p>
       )}
 
-      <section aria-label="Platform stats" className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <section aria-label="Сводка платформы" className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <article className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">Users total</p>
+          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">Пользователи</p>
           <p className="mt-2 text-2xl font-semibold text-white">{isLoading ? '-' : stats.usersTotal}</p>
         </article>
 
         <article className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">Edge fleet</p>
+          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">Объекты</p>
           <p className="mt-2 text-2xl font-semibold text-white">{isLoading ? '-' : stats.edgeServersTotal}</p>
         </article>
 
         <article className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">My diagrams</p>
+          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">Мои мнемосхемы</p>
           <p className="mt-2 text-2xl font-semibold text-white">{isLoading ? '-' : stats.diagramsOwned}</p>
         </article>
 
         <article className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">FREE tier users</p>
+          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">Пользователи FREE</p>
           <p className="mt-2 text-2xl font-semibold text-white">{isLoading ? '-' : stats.usersFreeTier}</p>
         </article>
 
         <article className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">PRO tier users</p>
+          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">Пользователи PRO</p>
           <p className="mt-2 text-2xl font-semibold text-white">{isLoading ? '-' : stats.usersProTier}</p>
         </article>
 
         <article className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">Banned users</p>
+          <p className="text-xs uppercase tracking-wide text-[#94a3b8]">Заблокированные пользователи</p>
           <p className="mt-2 text-2xl font-semibold text-white">{isLoading ? '-' : stats.usersBanned}</p>
         </article>
       </section>
 
-      <section aria-label="Quick actions" className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-        <h2 className="text-base font-semibold text-white">Quick actions</h2>
-        <p className="mt-1 text-sm text-[#94a3b8]">Navigate directly to frequent admin workflows.</p>
+      <section aria-label="Быстрые действия" className="rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
+        <h2 className="text-base font-semibold text-white">Быстрые действия</h2>
+        <p className="mt-1 text-sm text-[#94a3b8]">Переходите напрямую к частым административным операциям.</p>
 
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           <Link
             to="/admin/edge"
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white transition-colors hover:bg-[var(--color-surface-200)]"
           >
-            Manage edge fleet
+            Управлять объектами
           </Link>
           <Link
             to="/admin/users"
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white transition-colors hover:bg-[var(--color-surface-200)]"
           >
-            Review users
+            Проверить пользователей
           </Link>
           <Link
             to="/admin/diagrams"
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white transition-colors hover:bg-[var(--color-surface-200)]"
           >
-            Open diagram gallery
+            Открыть галерею мнемосхем
           </Link>
           <Link
             to="/admin/edge"
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white transition-colors hover:bg-[var(--color-surface-200)]"
           >
-            Register edge server
+            Зарегистрировать объект
           </Link>
         </div>
       </section>

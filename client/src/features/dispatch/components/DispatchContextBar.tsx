@@ -37,11 +37,11 @@ function getSelectedContextLabel(context: DispatchWorkspaceContextSnapshot): str
   const { diagramId, edgeId, selectedDiagram, selectedEdge } = context.selection
 
   if (!diagramId && !edgeId) {
-    return 'No context selected'
+    return 'Контекст не выбран'
   }
 
-  const diagramLabel = selectedDiagram?.name ?? (diagramId ? 'Unknown diagram' : 'No diagram selected')
-  const edgeLabel = selectedEdge?.name ?? (edgeId ? 'Unknown Edge Server' : 'No Edge Server selected')
+  const diagramLabel = selectedDiagram?.name ?? (diagramId ? 'Неизвестная мнемосхема' : 'Мнемосхема не выбрана')
+  const edgeLabel = selectedEdge?.name ?? (edgeId ? 'Неизвестный объект' : 'Объект не выбран')
 
   return `${diagramLabel} / ${edgeLabel}`
 }
@@ -53,15 +53,15 @@ function getStatusLabel(context: DispatchWorkspaceContextSnapshot): string {
 
   switch (context.status) {
     case 'idle':
-      return 'Context idle'
+      return 'Контекст ожидает'
     case 'loading':
-      return 'Loading context'
+      return 'Загрузка контекста'
     case 'ready':
-      return 'Context ready'
+      return 'Контекст готов'
     case 'error':
-      return 'Context error'
+      return 'Ошибка контекста'
     default:
-      return 'Context unavailable'
+      return 'Контекст недоступен'
   }
 }
 
@@ -93,7 +93,7 @@ export function DispatchContextBar({
 
   return (
     <section
-      aria-label="Dispatch context"
+      aria-label="Контекст диспетчеризации"
       className={clsx(
         'flex flex-shrink-0 flex-col gap-2 border-b border-[#1f2a3d] bg-[#0a1220] px-3 py-2',
         className,
@@ -101,17 +101,17 @@ export function DispatchContextBar({
     >
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <label className="flex min-w-0 items-center gap-1.5 text-xs text-[#cbd5e1]">
-          <span className="shrink-0">Diagram</span>
+          <span className="shrink-0">Мнемосхема</span>
           <select
-            aria-label="Diagram"
+            aria-label="Мнемосхема"
             value={toSelectValue(selection.diagramId)}
             disabled={controlsDisabled}
             onChange={(event) => handleDiagramChange(fromSelectValue(event.target.value))}
             className="max-w-56 rounded border border-[#334155] bg-[#0f1929] px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <option value="">Select diagram</option>
+            <option value="">Выберите мнемосхему</option>
             {selection.diagramId && !hasSelectedDiagramOption ? (
-              <option value={selection.diagramId}>Loading selected diagram...</option>
+              <option value={selection.diagramId}>Загрузка выбранной мнемосхемы...</option>
             ) : null}
             {diagramOptions.map((option) => (
               <option key={option.id} value={option.id}>
@@ -122,17 +122,17 @@ export function DispatchContextBar({
         </label>
 
         <label className="flex min-w-0 items-center gap-1.5 text-xs text-[#cbd5e1]">
-          <span className="shrink-0">Edge Server</span>
+          <span className="shrink-0">Объект</span>
           <select
-            aria-label="Edge Server"
+            aria-label="Объект"
             value={toSelectValue(selection.edgeId)}
             disabled={edgeDisabled}
             onChange={(event) => handleEdgeChange(fromSelectValue(event.target.value))}
             className="max-w-56 rounded border border-[#334155] bg-[#0f1929] px-2 py-1 text-xs text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <option value="">Select edge server</option>
+            <option value="">Выберите объект</option>
             {selection.edgeId && !hasSelectedEdgeOption ? (
-              <option value={selection.edgeId}>Loading selected edge server...</option>
+              <option value={selection.edgeId}>Загрузка выбранного объекта...</option>
             ) : null}
             {edgeOptions.map((option) => (
               <option key={option.id} value={option.id}>

@@ -24,28 +24,28 @@ interface DispatchLiveTelemetryToolbarProps extends DispatchLiveTelemetryPauseRe
 function getCloudStreamLabel(status: DashboardTransportStatus): string {
   switch (status) {
     case 'connected':
-      return 'Connected'
+      return 'Подключено'
     case 'connecting':
-      return 'Connecting'
+      return 'Подключение'
     case 'reconnecting':
-      return 'Reconnecting'
+      return 'Переподключение'
     case 'failed':
-      return 'Error'
+      return 'Ошибка'
     case 'idle':
     default:
-      return 'Idle'
+      return 'Ожидание'
   }
 }
 
 function getEdgeAvailabilityLabel(availability: DashboardEdgeAvailability): string {
   switch (availability) {
     case 'online':
-      return 'Online'
+      return 'В сети'
     case 'offline':
-      return 'Offline'
+      return 'Не в сети'
     case 'unknown':
     default:
-      return 'Unknown'
+      return 'Неизвестно'
   }
 }
 
@@ -57,8 +57,8 @@ export function DispatchLiveTelemetryPauseResumeButton({
   testId = 'dispatch-live-telemetry-pause-resume',
 }: DispatchLiveTelemetryPauseResumeButtonProps) {
   const Icon = isPaused ? Play : Pause
-  const label = isPaused ? 'Resume live telemetry' : 'Pause live telemetry'
-  const text = isPaused ? 'Resume' : 'Pause'
+  const label = isPaused ? 'Продолжить live-телеметрию' : 'Поставить live-телеметрию на паузу'
+  const text = isPaused ? 'Продолжить' : 'Пауза'
 
   return (
     <button
@@ -93,7 +93,7 @@ export function DispatchLiveTelemetryToolbar({
 
   return (
     <div
-      aria-label="Live telemetry controls"
+      aria-label="Управление live-телеметрией"
       data-testid="dispatch-live-telemetry-toolbar"
       className={clsx(
         'grid flex-shrink-0 gap-2 border-b border-[#1f2a3d] bg-[#0a1220] p-3 text-sm text-[#cbd5e1] md:grid-cols-[1fr_auto] md:items-center',
@@ -105,28 +105,28 @@ export function DispatchLiveTelemetryToolbar({
           data-testid="dispatch-live-telemetry-toolbar-summary"
           className="min-w-0 text-xs text-[#94a3b8]"
         >
-          {visibleCount} rows visible | {waitingCount} newer waiting
+          Видимых строк: {visibleCount} | новых в ожидании: {waitingCount}
         </p>
         <p
           data-testid="dispatch-live-telemetry-cloud-stream-status"
           data-cloud-stream-status={transportStatus}
           className="min-w-0 text-xs text-[#94a3b8]"
         >
-          Cloud stream: {cloudStreamLabel}
+          Облачный поток: {cloudStreamLabel}
         </p>
         <p
           data-testid="dispatch-live-telemetry-edge-status"
           data-edge-availability={edgeAvailability}
           className="min-w-0 text-xs text-[#94a3b8]"
         >
-          Edge: {edgeAvailabilityLabel}
+          Объект: {edgeAvailabilityLabel}
         </p>
         <p
           data-testid="dispatch-live-telemetry-pause-state"
           data-paused={isPaused}
           className="min-w-0 text-xs text-[#94a3b8]"
         >
-          Mode: {isPaused ? 'Paused' : 'Running'}
+          Режим: {isPaused ? 'Пауза' : 'Работает'}
         </p>
       </div>
 

@@ -15,8 +15,13 @@ import { SaveAsDialog } from '@/shared/components/SaveAsDialog'
 import { SaveConflictModal } from '@/shared/components/SaveConflictModal'
 import type { EditorRouteDiagram } from '@/shared/api/diagrams'
 import { getDiagramById } from '@/shared/api/diagrams'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 type PagePhase = 'loading' | 'ready' | 'error'
+
+function toErrorMessage(error: unknown, fallback: string): string {
+  return getErrorDisplayMessage(error, fallback)
+}
 
 export function ReducedConstructorPage() {
   const { id } = useParams<{ id: string }>()
@@ -38,7 +43,7 @@ export function ReducedConstructorPage() {
   const loadDiagram = useCallback(async () => {
     if (!id) {
       setPhase('error')
-      setError('Missing diagram id in route.')
+      setError('В маршруте отсутствует id мнемосхемы.')
       return
     }
 
@@ -65,7 +70,7 @@ export function ReducedConstructorPage() {
         })
         setPhase('error')
         setCanOpenWithEmptyLayout(true)
-        setError(`Invalid diagram layout payload: ${layoutError.message}`)
+        setError(`Некорректный payload layout мнемосхемы: ${layoutError.message}`)
         return
       }
 
@@ -82,14 +87,12 @@ export function ReducedConstructorPage() {
       setCanOpenWithEmptyLayout(false)
 
       if (isLayoutPayloadError(loadError)) {
-        setError(`Invalid diagram layout payload: ${loadError.message}`)
+        setError(`Некорректный payload layout мнемосхемы: ${loadError.message}`)
         return
       }
 
       setError(
-        loadError instanceof Error
-          ? loadError.message
-          : 'Failed to load diagram for reduced constructor mode.',
+        toErrorMessage(loadError, 'Не удалось загрузить мнемосхему для сокращенного режима конструктора.'),
       )
     }
   }, [id])
@@ -113,20 +116,20 @@ export function ReducedConstructorPage() {
   return (
     <section className="mx-auto flex h-full min-h-[calc(100svh-3.5rem)] w-full max-w-[120rem] flex-col px-4 py-4">
       <header className="mb-3">
-        <h1 className="text-lg font-semibold text-white">Hosted Constructor</h1>
-        <p className="text-sm text-[#94a3b8]">Reduced mode editor for ADMIN routes.</p>
+        <h1 className="text-lg font-semibold text-white">Конструктор</h1>
+        <p className="text-sm text-[#94a3b8]">Сокращенный режим редактора для админских маршрутов.</p>
       </header>
 
       {phase === 'loading' && (
         <div className="flex min-h-[18rem] flex-1 items-center justify-center rounded-lg border border-dashed border-[var(--color-surface-border)] text-sm text-[#94a3b8]">
-          Loading diagram...
+          Загрузка мнемосхемы...
         </div>
       )}
 
       {phase === 'error' && (
         <div className="flex min-h-[18rem] flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-6 text-center">
           <p className="text-sm font-medium text-[var(--color-danger)]">
-            Unable to open hosted constructor page.
+            Не удалось открыть страницу конструктора.
           </p>
           {error && <p className="text-xs text-[var(--color-danger)]/90">{error}</p>}
           {canOpenWithEmptyLayout && diagram && (
@@ -139,7 +142,7 @@ export function ReducedConstructorPage() {
                 setPhase('ready')
               }}
             >
-              Open with empty layout
+              Открыть с пустым layout
             </button>
           )}
           <button
@@ -149,7 +152,7 @@ export function ReducedConstructorPage() {
               void loadDiagram()
             }}
           >
-            Retry loading
+            Повторить загрузку
           </button>
         </div>
       )}
@@ -167,7 +170,7 @@ export function ReducedConstructorPage() {
             onDirtyStateChange={setDirtyState}
             onFatalError={(runtimeError) => {
               setCanOpenWithEmptyLayout(false)
-              setError(`Hosted runtime bootstrap failed: ${runtimeError.message}`)
+              setError(`Не удалось запустить hosted runtime: ${runtimeError.message}`)
               setPhase('error')
             }}
           />

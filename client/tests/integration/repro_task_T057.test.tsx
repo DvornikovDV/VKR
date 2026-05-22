@@ -135,9 +135,7 @@ describe('repro_task_T057', () => {
       ]),
     )
 
-    expect(
-      screen.getByText(/selected edge is currently blocked/i),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/сейчас заблокирован/i)).toBeInTheDocument()
   })
 
   it('marks blocked telemetry profiles as unavailable for dashboard handoff in /hub gallery', async () => {
@@ -205,16 +203,16 @@ describe('repro_task_T057', () => {
     const router = renderUserHub('/hub')
     expect(await screen.findByText('Boiler Hall')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Telemetry Profiles' }))
+    await user.click(screen.getByRole('button', { name: 'Профили телеметрии' }))
 
     const blockedProfile = screen.getByText('Blocked Edge').closest('li')
     expect(blockedProfile).not.toBeNull()
 
     const profile = within(blockedProfile as HTMLElement)
-    expect(profile.getByText('Blocked')).toBeInTheDocument()
-    expect(profile.getByRole('button', { name: /Open Dashboard/i })).toBeDisabled()
+    expect(profile.getByText('Заблокирован')).toBeInTheDocument()
+    expect(profile.getByRole('button', { name: /Открыть диспетчеризацию/i })).toBeDisabled()
 
-    await user.click(profile.getByRole('button', { name: /Edit Bindings/i }))
+    await user.click(profile.getByRole('button', { name: /Редактировать привязки/i }))
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/hub/editor/diagram-1')
@@ -266,13 +264,13 @@ describe('repro_task_T057', () => {
     const router = renderUserHub('/hub')
     expect(await screen.findByText('Boiler Hall')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Telemetry Profiles' }))
+    await user.click(screen.getByRole('button', { name: 'Профили телеметрии' }))
 
     const unresolvedProfile = screen.getByText('edge-active').closest('li')
     expect(unresolvedProfile).not.toBeNull()
 
     const profile = within(unresolvedProfile as HTMLElement)
-    const openDashboardButton = profile.getByRole('button', { name: /Open Dashboard/i })
+    const openDashboardButton = profile.getByRole('button', { name: /Открыть диспетчеризацию/i })
     expect(openDashboardButton).toBeEnabled()
 
     await user.click(openDashboardButton)

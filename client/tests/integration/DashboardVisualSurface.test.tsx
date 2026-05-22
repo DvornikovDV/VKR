@@ -165,7 +165,7 @@ describe('Dashboard visual runtime surface (T040)', () => {
     expect(temperatureShell).toHaveAttribute('data-stroke', '#38bdf8')
     expect(screen.getByTestId('dashboard-visual-widget-widget-command-toggle')).toBeInTheDocument()
 
-    expect(screen.getByText('Visual rendering issues: 2 recoverable')).toBeInTheDocument()
+    expect(screen.getByText('Проблемы визуальной отрисовки: 2 восстановимых')).toBeInTheDocument()
     expect(screen.queryByText('Saved diagram snapshot')).not.toBeInTheDocument()
   })
 
@@ -331,7 +331,7 @@ describe('Dashboard visual runtime surface (T040)', () => {
       'dashboard-alarm-incident-row-incident-visual-unmatched-pressure',
     )
     const ackButton = within(unmatchedRow).getByRole('button', {
-      name: 'Acknowledge incident Unmatched visual pressure',
+      name: 'Подтвердить аварию Unmatched visual pressure',
     })
 
     await userEvent.setup().click(ackButton)
@@ -365,13 +365,13 @@ describe('Dashboard visual runtime surface (T040)', () => {
     await waitFor(() => {
       expect(
         within(screen.getByTestId('dispatch-action-slot')).getByRole('button', {
-          name: 'Fit to view',
+          name: 'Подогнать по экрану',
         }),
       ).toBeInTheDocument()
     })
     await user.click(
       within(screen.getByTestId('dispatch-action-slot')).getByRole('button', {
-        name: 'Fit to view',
+        name: 'Подогнать по экрану',
       }),
     )
     expect(screen.getByTestId('dashboard-visual-workspace')).toContainElement(
@@ -410,7 +410,7 @@ describe('Dashboard visual runtime surface (T040)', () => {
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
-    expect(screen.getByText('Visual rendering issues: 3 recoverable')).toBeInTheDocument()
+    expect(screen.getByText('Проблемы визуальной отрисовки: 3 восстановимых')).toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-visual-widget-widget-incomplete-geometry')).not.toBeInTheDocument()
   })
 
@@ -443,7 +443,7 @@ describe('Dashboard visual runtime surface (T040)', () => {
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
-    expect(screen.getByText('Visual rendering issues: 3 recoverable')).toBeInTheDocument()
+    expect(screen.getByText('Проблемы визуальной отрисовки: 3 восстановимых')).toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-visual-image-image-incomplete-geometry')).not.toBeInTheDocument()
   })
 
@@ -482,7 +482,7 @@ describe('Dashboard visual runtime surface (T040)', () => {
     mount(`/hub/dashboard?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`)
 
     expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
-    expect(screen.getByText('Visual rendering issues: 3 recoverable')).toBeInTheDocument()
+    expect(screen.getByText('Проблемы визуальной отрисовки: 3 восстановимых')).toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-visual-point-pin-incomplete-geometry')).not.toBeInTheDocument()
     expect(screen.queryByTestId('dashboard-visual-connection-connection-incomplete-point-derived-0')).not.toBeInTheDocument()
   })
@@ -529,11 +529,11 @@ describe('Dashboard visual runtime surface (T040)', () => {
     expect(within(statusWidget).getByText('Stable output')).toBeInTheDocument()
 
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Open diagnostics' }))
+    await user.click(screen.getByRole('button', { name: 'Открыть диагностику' }))
     const diagnosticsPanel = await screen.findByTestId('dashboard-diagnostics-panel')
-    await user.click(within(diagnosticsPanel).getByRole('tab', { name: 'Bindings' }))
-    expect(within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-temperature')).toHaveTextContent('Value: 72.4')
-    expect(within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-status')).toHaveTextContent('Value: Stable output')
+    await user.click(within(diagnosticsPanel).getByRole('tab', { name: 'Привязки' }))
+    expect(within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-temperature')).toHaveTextContent('Значение: 72.4')
+    expect(within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-status')).toHaveTextContent('Значение: Stable output')
 
     act(() => {
       runtimeHarness.emitDisconnect()
@@ -541,7 +541,7 @@ describe('Dashboard visual runtime surface (T040)', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText('Transport reconnecting. Displaying last received values.'),
+        screen.getByText('Транспорт переподключается. Показаны последние полученные значения.'),
       ).toBeInTheDocument()
     })
     expect(within(temperatureWidget).getByText('72.4 C')).toBeInTheDocument()
@@ -576,7 +576,7 @@ describe('Dashboard visual runtime surface (T040)', () => {
     expect(commandShell).toHaveAttribute('data-height', '40')
     expect(commandShell).toHaveAttribute('data-listening', 'false')
     expect(screen.queryByRole('button', { name: 'Start Pump' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Command toggle widget-command-toggle' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Команда-переключатель widget-command-toggle' })).toBeDisabled()
 
     const emittedEventsBeforeInteraction = runtimeHarness.getEmittedEvents()
     expect(emittedEventsBeforeInteraction).toHaveLength(1)
@@ -947,7 +947,7 @@ describe('DashboardVisualSurface command suppression', () => {
       />,
     )
 
-    const slider = screen.getByRole('slider', { name: 'Command slider widget-slider-draft' })
+    const slider = screen.getByRole('slider', { name: 'Команда-слайдер widget-slider-draft' })
     expect(slider).toHaveValue('50')
 
     fireEvent.change(slider, { target: { value: '70' } })
@@ -964,7 +964,7 @@ describe('DashboardVisualSurface command suppression', () => {
       />,
     )
 
-    const unavailableSlider = screen.getByRole('slider', { name: 'Command slider widget-slider-draft' })
+    const unavailableSlider = screen.getByRole('slider', { name: 'Команда-слайдер widget-slider-draft' })
     expect(unavailableSlider).toBeDisabled()
     expect(unavailableSlider).toHaveValue('50')
 
@@ -979,7 +979,7 @@ describe('DashboardVisualSurface command suppression', () => {
       />,
     )
 
-    const reenabledSlider = screen.getByRole('slider', { name: 'Command slider widget-slider-draft' })
+    const reenabledSlider = screen.getByRole('slider', { name: 'Команда-слайдер widget-slider-draft' })
     await waitFor(() => {
       expect(reenabledSlider).toHaveValue('50')
     })

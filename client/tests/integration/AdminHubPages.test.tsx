@@ -149,10 +149,10 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
     )
 
     renderAdminRoute('/admin/users')
-    expect(await screen.findByRole('heading', { name: 'User Management' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Пользователи' })).toBeInTheDocument()
 
     renderAdminRoute('/admin/diagrams')
-    expect(await screen.findByRole('heading', { name: 'Admin Diagram Gallery' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Мнемосхемы администратора' })).toBeInTheDocument()
   })
 
   it('shows one-time persistent credential disclosure for register, rotate, and unblock without keeping old secret visible', async () => {
@@ -296,23 +296,25 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
     stubClipboard(writeText)
     renderAdminRoute('/admin/edge')
 
-    expect(await screen.findByRole('heading', { name: 'Edge Fleet' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Объекты' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Register Edge Server' }))
-    await user.type(screen.getByLabelText('Name'), 'New Edge')
-    await user.click(screen.getByRole('button', { name: 'Register' }))
+    await user.click(screen.getByRole('button', { name: 'Зарегистрировать объект' }))
+    await user.type(screen.getByLabelText('Название'), 'New Edge')
+    await user.click(screen.getByRole('button', { name: 'Зарегистрировать' }))
 
-    expect(await screen.findByRole('heading', { name: 'One-time persistent credential' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Одноразовый постоянный ключ' })).toBeInTheDocument()
     expect(screen.getByText(registrationSecret)).toBeInTheDocument()
-    const registrationInstallerJson = screen.getByRole('textbox', { name: 'Installer JSON' })
+    const registrationInstallerJson = screen.getByRole('textbox', { name: 'JSON установщика' })
     expect((registrationInstallerJson as HTMLTextAreaElement).value).toContain(
       `"credentialSecret": "${registrationSecret}"`,
     )
     expect((registrationInstallerJson as HTMLTextAreaElement).value).toContain('"edgeId": "edge-new"')
     expect((registrationInstallerJson as HTMLTextAreaElement).value).toContain('"version": 1')
 
-    await user.click(await screen.findByRole('button', { name: 'Copy installer JSON' }))
-    expect(await screen.findByText('Copy failed. Select and copy the installer JSON manually.')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Скопировать JSON установщика' }))
+    expect(
+      await screen.findByText('Не удалось скопировать. Выделите и скопируйте JSON установщика вручную.'),
+    ).toBeInTheDocument()
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith(
         expect.stringContaining(`"credentialSecret": "${registrationSecret}"`),
@@ -324,7 +326,7 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
     const newRow = await screen.findByText('New Edge')
     expect(within(newRow.closest('tr') as HTMLTableRowElement).getByText('v1')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Hide secret' }))
+    await user.click(screen.getByRole('button', { name: 'Скрыть секрет' }))
     await waitFor(() => {
       expect(screen.queryByText(registrationSecret)).not.toBeInTheDocument()
       expect(screen.queryByDisplayValue((value) => value.includes(registrationSecret))).not.toBeInTheDocument()
@@ -332,18 +334,18 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
 
     await user.click(
       within(screen.getByText('New Edge').closest('tr') as HTMLTableRowElement).getByRole('button', {
-        name: 'Rotate credential',
+        name: 'Ротировать ключ',
       }),
     )
     expect(await screen.findByText(rotateSecret)).toBeInTheDocument()
-    const rotateInstallerJson = screen.getByRole('textbox', { name: 'Installer JSON' })
+    const rotateInstallerJson = screen.getByRole('textbox', { name: 'JSON установщика' })
     expect((rotateInstallerJson as HTMLTextAreaElement).value).toContain(
       `"credentialSecret": "${rotateSecret}"`,
     )
     expect(screen.queryByText(registrationSecret)).not.toBeInTheDocument()
     expect(screen.queryByDisplayValue((value) => value.includes(registrationSecret))).not.toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Refresh' }))
+    await user.click(screen.getByRole('button', { name: 'Обновить' }))
     await waitFor(() => {
       expect(screen.queryByText(rotateSecret)).not.toBeInTheDocument()
       expect(screen.queryByDisplayValue((value) => value.includes(rotateSecret))).not.toBeInTheDocument()
@@ -351,7 +353,7 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
 
     await user.click(
       within(screen.getByText('New Edge').closest('tr') as HTMLTableRowElement).getByRole('button', {
-        name: 'Rotate credential',
+        name: 'Ротировать ключ',
       }),
     )
     expect(await screen.findByText(rotateSecret)).toBeInTheDocument()
@@ -359,11 +361,11 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
 
     await user.click(
       within(screen.getByText('Blocked Edge').closest('tr') as HTMLTableRowElement).getByRole('button', {
-        name: 'Unblock edge',
+        name: 'Разблокировать объект',
       }),
     )
     expect(await screen.findByText(unblockSecret)).toBeInTheDocument()
-    expect((screen.getByRole('textbox', { name: 'Installer JSON' }) as HTMLTextAreaElement).value).toContain(
+    expect((screen.getByRole('textbox', { name: 'JSON установщика' }) as HTMLTextAreaElement).value).toContain(
       `"credentialSecret": "${unblockSecret}"`,
     )
     expect(screen.queryByText(rotateSecret)).not.toBeInTheDocument()
@@ -472,40 +474,40 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
     const user = userEvent.setup()
     renderAdminRoute('/admin/edge')
 
-    expect(await screen.findByRole('heading', { name: 'Edge Fleet' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Объекты' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Reset onboarding' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Revoke trust' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Re-enable onboarding' })).not.toBeInTheDocument()
 
     const activeRow = screen.getByText('Active Edge').closest('tr')
     expect(activeRow).not.toBeNull()
-    expect(within(activeRow as HTMLTableRowElement).getByText('Active')).toBeInTheDocument()
-    expect(within(activeRow as HTMLTableRowElement).getByText('Online')).toBeInTheDocument()
+    expect(within(activeRow as HTMLTableRowElement).getByText('Активен')).toBeInTheDocument()
+    expect(within(activeRow as HTMLTableRowElement).getByText('В сети')).toBeInTheDocument()
 
     await user.click(
-      within(activeRow as HTMLTableRowElement).getByRole('button', { name: 'Block edge' }),
+      within(activeRow as HTMLTableRowElement).getByRole('button', { name: 'Заблокировать объект' }),
     )
 
     await waitFor(() => {
       const updatedRow = screen.getByText('Active Edge').closest('tr')
       expect(updatedRow).not.toBeNull()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Blocked')).toBeInTheDocument()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Offline')).toBeInTheDocument()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Last seen: 2026-03-29 10:55:00 UTC')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Заблокирован')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Не в сети')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Последний сигнал: 2026-03-29 10:55:00 UTC')).toBeInTheDocument()
     })
 
     const blockedRow = screen.getByText('Blocked Edge').closest('tr')
     expect(blockedRow).not.toBeNull()
     await user.click(
-      within(blockedRow as HTMLTableRowElement).getByRole('button', { name: 'Unblock edge' }),
+      within(blockedRow as HTMLTableRowElement).getByRole('button', { name: 'Разблокировать объект' }),
     )
 
     await waitFor(() => {
       const updatedRow = screen.getByText('Blocked Edge').closest('tr')
       expect(updatedRow).not.toBeNull()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Active')).toBeInTheDocument()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Online')).toBeInTheDocument()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Last seen: 2026-03-29 10:12:00 UTC')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Активен')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('В сети')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Последний сигнал: 2026-03-29 10:12:00 UTC')).toBeInTheDocument()
     })
   })
 
@@ -572,18 +574,18 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
     const user = userEvent.setup()
     renderAdminRoute('/admin/edge')
 
-    expect(await screen.findByRole('heading', { name: 'Edge Fleet' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Объекты' })).toBeInTheDocument()
 
     const row = await screen.findByText('Existing Edge')
     const edgeRow = row.closest('tr')
     expect(edgeRow).not.toBeNull()
-    expect(within(edgeRow as HTMLTableRowElement).getByText('Online')).toBeInTheDocument()
+    expect(within(edgeRow as HTMLTableRowElement).getByText('В сети')).toBeInTheDocument()
 
     await user.click(
-      within(edgeRow as HTMLTableRowElement).getByRole('button', { name: 'Assign to User' }),
+      within(edgeRow as HTMLTableRowElement).getByRole('button', { name: 'Назначить пользователю' }),
     )
-    await user.selectOptions(screen.getByLabelText('User'), 'u1')
-    await user.click(screen.getByRole('button', { name: 'Assign' }))
+    await user.selectOptions(screen.getByLabelText('Пользователь'), 'u1')
+    await user.click(screen.getByRole('button', { name: 'Назначить' }))
 
     await waitFor(() => {
       const updatedRow = screen.getByText('Existing Edge').closest('tr')
@@ -594,15 +596,15 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
     await user.click(
       within(screen.getByText('Existing Edge').closest('tr') as HTMLTableRowElement).getByRole(
         'button',
-        { name: 'Remove user access' },
+        { name: 'Удалить доступ пользователя' },
       ),
     )
-    await user.click(screen.getByRole('button', { name: 'Revoke' }))
+    await user.click(screen.getByRole('button', { name: 'Отозвать' }))
 
     await waitFor(() => {
       const updatedRow = screen.getByText('Existing Edge').closest('tr')
       expect(updatedRow).not.toBeNull()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Not assigned')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Не назначены')).toBeInTheDocument()
     })
   })
 
@@ -665,18 +667,18 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
 
     expect(await screen.findByText('Diagram A')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Assign to User' }))
-    await user.selectOptions(screen.getByLabelText('Target user'), 'u-full')
+    await user.click(screen.getByRole('button', { name: 'Назначить пользователю' }))
+    await user.selectOptions(screen.getByLabelText('Пользователь'), 'u-full')
 
     expect(
-      screen.getByText('Assignment is blocked for this user: FREE tier limit reached.'),
+      screen.getByText('Назначение заблокировано для этого пользователя: достигнут лимит тарифа FREE.'),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Assign' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Назначить' })).toBeDisabled()
 
-    await user.selectOptions(screen.getByLabelText('Target user'), 'u-free')
-    expect(screen.getByRole('button', { name: 'Assign' })).toBeEnabled()
+    await user.selectOptions(screen.getByLabelText('Пользователь'), 'u-free')
+    expect(screen.getByRole('button', { name: 'Назначить' })).toBeEnabled()
 
-    await user.click(screen.getByRole('button', { name: 'Assign' }))
+    await user.click(screen.getByRole('button', { name: 'Назначить' }))
 
     await waitFor(() => {
       expect(screen.queryByText('Diagram A')).not.toBeInTheDocument()

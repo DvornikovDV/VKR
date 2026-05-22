@@ -108,17 +108,17 @@ describe('FullConstructorPage recovery and retry flows', () => {
 
     renderFullPage('/hub/editor/diagram-invalid-bindings')
 
-    expect(await screen.findByText('Unable to open hosted constructor page.')).toBeInTheDocument()
-    expect(screen.getByText(/Invalid bindings payload/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Open with empty bindings' })).toBeInTheDocument()
+    expect(await screen.findByText('Не удалось открыть страницу конструктора.')).toBeInTheDocument()
+    expect(screen.getByText(/Некорректный payload привязок/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Открыть с пустыми привязками' })).toBeInTheDocument()
     expect(harness.createHostedConstructorMock).not.toHaveBeenCalled()
 
-    await user.click(screen.getByRole('button', { name: 'Open with empty bindings' }))
+    await user.click(screen.getByRole('button', { name: 'Открыть с пустыми привязками' }))
 
     await waitFor(() => {
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
     })
-    expect(screen.queryByText('Unable to open hosted constructor page.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Не удалось открыть страницу конструктора.')).not.toBeInTheDocument()
   })
 
   it('retries diagram loading successfully after transient API failure', async () => {
@@ -180,17 +180,17 @@ describe('FullConstructorPage recovery and retry flows', () => {
 
     renderFullPage('/hub/editor/diagram-retry')
 
-    expect(await screen.findByText('Unable to open hosted constructor page.')).toBeInTheDocument()
-    expect(screen.getByText('Temporary upstream failure')).toBeInTheDocument()
+    expect(await screen.findByText('Не удалось открыть страницу конструктора.')).toBeInTheDocument()
+    expect(screen.getByText('Ошибка сервера. Попробуйте позже.')).toBeInTheDocument()
     expect(harness.createHostedConstructorMock).not.toHaveBeenCalled()
 
-    await user.click(screen.getByRole('button', { name: 'Retry loading' }))
+    await user.click(screen.getByRole('button', { name: 'Повторить загрузку' }))
 
     await waitFor(() => {
       expect(diagramRequestCount).toBeGreaterThanOrEqual(2)
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
     })
-    expect(screen.queryByText('Unable to open hosted constructor page.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Не удалось открыть страницу конструктора.')).not.toBeInTheDocument()
   })
 
   it('saves layout first and then persists bindings when save-bindings is triggered on dirty layout', async () => {
@@ -297,8 +297,8 @@ describe('FullConstructorPage recovery and retry flows', () => {
       harness.emitSaveBindingsIntent()
     })
 
-    expect(await screen.findByText('Save layout before bindings?')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Save layout and bindings' }))
+    expect(await screen.findByText('Сначала сохранить layout?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Сохранить layout и привязки' }))
 
     await waitFor(() => {
       expect(callOrder).toEqual(['put', 'post-bindings'])
@@ -432,11 +432,11 @@ describe('FullConstructorPage recovery and retry flows', () => {
       harness.emitSaveBindingsIntent()
     })
 
-    expect(await screen.findByText('Save layout before bindings?')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Save layout and bindings' }))
+    expect(await screen.findByText('Сначала сохранить layout?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Сохранить layout и привязки' }))
 
-    expect(await screen.findByText('Layout save will delete existing bindings.')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Continue destructive save' }))
+    expect(await screen.findByText('Сохранение layout удалит существующие привязки.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Продолжить с удалением' }))
 
     await waitFor(() => {
       expect(callOrder).toEqual(['put', 'delete-all', 'post-bindings'])

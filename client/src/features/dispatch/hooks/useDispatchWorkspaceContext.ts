@@ -31,13 +31,10 @@ import type {
   DispatchWorkspaceContextSnapshot,
   DispatchRouteState,
 } from '@/features/dispatch/model/types'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 function removeRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {
@@ -122,7 +119,7 @@ export function useDispatchWorkspaceContext({
           return
         }
 
-        setBootstrapError(toErrorMessage(error, 'Failed to load dispatch context data.'))
+        setBootstrapError(toErrorMessage(error, 'Не удалось загрузить данные контекста диспетчеризации.'))
       } finally {
         if (isCurrent && requestId === bootstrapRequestIdRef.current) {
           setIsBootstrapLoading(false)
@@ -208,7 +205,7 @@ export function useDispatchWorkspaceContext({
 
         setBindingErrorByDiagramId((previous) => ({
           ...previous,
-          [diagramId]: toErrorMessage(error, 'Failed to load dispatch binding profiles.'),
+          [diagramId]: toErrorMessage(error, 'Не удалось загрузить профили привязок диспетчеризации.'),
         }))
       } finally {
         if (isCurrent && requestId === bindingRequestIdRef.current) {
@@ -267,7 +264,7 @@ export function useDispatchWorkspaceContext({
 
         setSavedDiagramErrorById((previous) => ({
           ...previous,
-          [diagramId]: toErrorMessage(error, 'Failed to load saved dispatch diagram.'),
+          [diagramId]: toErrorMessage(error, 'Не удалось загрузить сохраненную мнемосхему диспетчеризации.'),
         }))
       } finally {
         if (isCurrent && requestId === savedDiagramRequestIdRef.current) {
@@ -348,7 +345,7 @@ export function useDispatchWorkspaceContext({
         setCatalogsByEdgeId((previous) => removeRecordKey(previous, edgeId))
         setCatalogErrorByEdgeId((previous) => ({
           ...previous,
-          [edgeId]: toErrorMessage(error, 'Failed to load dispatch command catalog.'),
+          [edgeId]: toErrorMessage(error, 'Не удалось загрузить каталог команд диспетчеризации.'),
         }))
         setCatalogStatusByEdgeId((previous) => ({
           ...previous,

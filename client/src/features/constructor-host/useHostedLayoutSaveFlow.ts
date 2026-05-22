@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import type { HostedConstructorInstance, LayoutDocument } from '@/features/constructor-host/types'
 import { exportLayoutPayload, importLayoutPayload } from '@/features/constructor-host/adapters/layoutAdapter'
 import { isApiError } from '@/shared/api/client'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 import {
   cloneDiagram,
   getDiagramById,
@@ -11,11 +12,7 @@ import {
 } from '@/shared/api/diagrams'
 
 function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 export interface UseHostedLayoutSaveFlowOptions {
@@ -81,7 +78,7 @@ export function useHostedLayoutSaveFlow({
       return ''
     }
 
-    return `${sourceName} Copy`
+    return `${sourceName} - копия`
   }, [diagram?.name])
 
   const registerRuntime = useCallback((instance: HostedConstructorInstance) => {
@@ -91,7 +88,7 @@ export function useHostedLayoutSaveFlow({
   const getRuntimeLayoutSnapshot = useCallback(async (): Promise<LayoutDocument> => {
     const runtime = runtimeRef.current
     if (!runtime) {
-      throw new Error('Hosted constructor runtime is not ready yet.')
+      throw new Error('Runtime конструктора еще не готов.')
     }
 
     const runtimeLayout = await runtime.getLayout()
@@ -122,7 +119,7 @@ export function useHostedLayoutSaveFlow({
       })
       setIsSaveConflictOpen(false)
     } catch (error) {
-      setSaveConflictError(toErrorMessage(error, 'Failed to reload latest diagram version.'))
+      setSaveConflictError(toErrorMessage(error, 'Не удалось загрузить последнюю версию мнемосхемы.'))
     } finally {
       setIsReloadingLatest(false)
     }
@@ -151,7 +148,7 @@ export function useHostedLayoutSaveFlow({
         return false
       }
 
-      setSaveConflictError(toErrorMessage(error, 'Failed to save diagram layout.'))
+      setSaveConflictError(toErrorMessage(error, 'Не удалось сохранить layout мнемосхемы.'))
       return false
     } finally {
       setIsSavingLayout(false)
@@ -191,7 +188,7 @@ export function useHostedLayoutSaveFlow({
         setIsSaveConflictOpen(false)
         await navigate(`${routePrefix}/${createdDiagram._id}`)
       } catch (error) {
-        setSaveAsError(toErrorMessage(error, 'Failed to create diagram copy.'))
+        setSaveAsError(toErrorMessage(error, 'Не удалось создать копию мнемосхемы.'))
       } finally {
         setIsSavingAs(false)
       }

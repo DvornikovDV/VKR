@@ -6,15 +6,24 @@ import {
   type SubscriptionTier,
   type UserRow,
 } from '@/shared/api/users'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const
 
 function normalizeError(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
+  return getErrorDisplayMessage(error, fallback)
+}
+
+function formatRole(role: UserRow['role']): string {
+  return role === 'ADMIN' ? 'Администратор' : 'Пользователь'
+}
+
+function formatUserStatus(user: UserRow): string {
+  if (user.isDeleted) {
+    return 'Удален'
   }
 
-  return fallback
+  return user.isBanned ? 'Заблокирован' : 'Активен'
 }
 
 export function UserManagementPage() {
@@ -39,7 +48,7 @@ export function UserManagementPage() {
       })
       setRows(data)
     } catch (fetchError) {
-      setError(normalizeError(fetchError, 'Failed to load users.'))
+      setError(normalizeError(fetchError, 'Не удалось загрузить пользователей.'))
     } finally {
       setIsLoading(false)
     }
@@ -76,7 +85,7 @@ export function UserManagementPage() {
         ),
       )
     } catch (mutationError) {
-      setError(normalizeError(mutationError, 'Failed to update subscription tier.'))
+      setError(normalizeError(mutationError, 'Не удалось обновить тариф пользователя.'))
     } finally {
       setIsMutatingById((prev) => ({ ...prev, [user._id]: false }))
     }
@@ -105,7 +114,7 @@ export function UserManagementPage() {
         ),
       )
     } catch (mutationError) {
-      setError(normalizeError(mutationError, 'Failed to update ban status.'))
+      setError(normalizeError(mutationError, 'Не удалось обновить статус блокировки.'))
     } finally {
       setIsMutatingById((prev) => ({ ...prev, [user._id]: false }))
     }
@@ -117,19 +126,19 @@ export function UserManagementPage() {
 
   const pageLabel = useMemo(() => {
     if (!hasRows && !isLoading) {
-      return 'No users found'
+      return 'Пользователи не найдены'
     }
 
-    return `Page ${page}`
+    return `Страница ${page}`
   }, [hasRows, isLoading, page])
 
   return (
     <section className="mx-auto w-full max-w-7xl px-4 py-6">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-white">User Management</h1>
+          <h1 className="text-xl font-semibold text-white">Пользователи</h1>
           <p className="text-sm text-[#94a3b8]">
-            Search users, update subscription tier, and ban or unban access.
+            Ищите пользователей, меняйте тариф и блокируйте или восстанавливайте доступ.
           </p>
         </div>
       </header>
@@ -139,7 +148,7 @@ export function UserManagementPage() {
           type="search"
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
-          placeholder="Search users"
+          placeholder="Поиск пользователей"
           className="w-full max-w-xs rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white outline-none ring-[var(--color-brand-500)] focus:ring-1"
         />
 
@@ -147,11 +156,11 @@ export function UserManagementPage() {
           type="submit"
           className="rounded-md bg-[var(--color-brand-600)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--color-brand-500)]"
         >
-          Search
+          Найти
         </button>
 
         <label className="ml-auto flex items-center gap-2 text-sm text-[#94a3b8]">
-          Rows
+          Строк
           <select
             value={limit}
             onChange={(event) => {
@@ -180,11 +189,11 @@ export function UserManagementPage() {
           <thead className="bg-[var(--color-surface-200)] text-xs uppercase tracking-wide text-[#94a3b8]">
             <tr>
               <th className="px-3 py-3">Email</th>
-              <th className="px-3 py-3">Role</th>
-              <th className="px-3 py-3">Tier</th>
-              <th className="px-3 py-3">Status</th>
-              <th className="px-3 py-3">Created</th>
-              <th className="px-3 py-3">Actions</th>
+              <th className="px-3 py-3">Роль</th>
+              <th className="px-3 py-3">Тариф</th>
+              <th className="px-3 py-3">Статус</th>
+              <th className="px-3 py-3">Создан</th>
+              <th className="px-3 py-3">Действия</th>
             </tr>
           </thead>
 
@@ -192,13 +201,13 @@ export function UserManagementPage() {
             {isLoading ? (
               <tr>
                 <td className="px-3 py-6 text-[#94a3b8]" colSpan={6}>
-                  Loading users...
+                  Загрузка пользователей...
                 </td>
               </tr>
             ) : !hasRows ? (
               <tr>
                 <td className="px-3 py-6 text-[#94a3b8]" colSpan={6}>
-                  No matching users found.
+                  Пользователи по заданным условиям не найдены.
                 </td>
               </tr>
             ) : (
@@ -208,11 +217,9 @@ export function UserManagementPage() {
                 return (
                   <tr key={user._id} className="border-t border-[var(--color-surface-border)]">
                     <td className="px-3 py-3 text-white">{user.email}</td>
-                    <td className="px-3 py-3">{user.role}</td>
+                    <td className="px-3 py-3">{formatRole(user.role)}</td>
                     <td className="px-3 py-3">{user.subscriptionTier}</td>
-                    <td className="px-3 py-3">
-                      {user.isDeleted ? 'Deleted' : user.isBanned ? 'Banned' : 'Active'}
-                    </td>
+                    <td className="px-3 py-3">{formatUserStatus(user)}</td>
                     <td className="px-3 py-3 text-[#94a3b8]">
                       {new Date(user.createdAt).toLocaleDateString()}
                     </td>
@@ -225,7 +232,7 @@ export function UserManagementPage() {
                             void handleTierChange(user, event.target.value as SubscriptionTier)
                           }
                           className="rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-2 py-1.5 text-xs text-white disabled:opacity-60"
-                          aria-label={`Change tier for ${user.email}`}
+                          aria-label={`Изменить тариф для ${user.email}`}
                         >
                           <option value="FREE">FREE</option>
                           <option value="PRO">PRO</option>
@@ -237,7 +244,7 @@ export function UserManagementPage() {
                           onClick={() => void handleBanToggle(user)}
                           className="rounded-md border border-[var(--color-surface-border)] px-2 py-1.5 text-xs text-white hover:bg-[var(--color-surface-200)] disabled:opacity-60"
                         >
-                          {user.isBanned ? 'Unban' : 'Ban'}
+                          {user.isBanned ? 'Разблокировать' : 'Заблокировать'}
                         </button>
                       </div>
                     </td>
@@ -259,7 +266,7 @@ export function UserManagementPage() {
             onClick={() => setPage((prev) => Math.max(1, prev - 1))}
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-1.5 text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Previous
+            Назад
           </button>
           <button
             type="button"
@@ -267,7 +274,7 @@ export function UserManagementPage() {
             onClick={() => setPage((prev) => prev + 1)}
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-1.5 text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
-            Next
+            Вперед
           </button>
         </div>
       </footer>

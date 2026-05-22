@@ -6,6 +6,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { LogOut, Menu, X, LayoutDashboard } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useAuthStore } from '@/shared/store/useAuthStore'
+import { ruUiText } from '@/shared/i18n'
 
 export interface NavItem {
     label: string
@@ -33,6 +34,14 @@ export function AppShell({ hubTitle, navItems, showWorkspaceHeader = true }: App
     function handleLogout() {
         logout()
         navigate('/login', { replace: true })
+    }
+
+    function getRoleLabel(role: string) {
+        return role === 'ADMIN' ? ruUiText.terms.admin : ruUiText.terms.user
+    }
+
+    function getTierLabel(tier: string) {
+        return tier === 'FREE' ? ruUiText.terms.freeTier : tier
     }
 
     return (
@@ -63,7 +72,7 @@ export function AppShell({ hubTitle, navItems, showWorkspaceHeader = true }: App
 
                     {/* Close button (mobile) */}
                     <button
-                        aria-label="Close sidebar"
+                        aria-label="Закрыть меню"
                         className="ml-auto p-1 rounded text-[#64748b] hover:text-white lg:hidden"
                         onClick={() => setSidebarOpen(false)}
                     >
@@ -101,7 +110,7 @@ export function AppShell({ hubTitle, navItems, showWorkspaceHeader = true }: App
                             <div className="mb-2 px-1">
                                 <p className="text-xs font-medium text-white truncate">{session.email}</p>
                                 <p className="text-[0.6875rem] text-[#64748b]">
-                                    {session.role} · {session.tier}
+                                    {getRoleLabel(session.role)} · {getTierLabel(session.tier)}
                                 </p>
                             </div>
 
@@ -115,7 +124,7 @@ export function AppShell({ hubTitle, navItems, showWorkspaceHeader = true }: App
                                 )}
                             >
                                 <LogOut size={14} />
-                                Sign out
+                                {ruUiText.actions.signOut}
                             </button>
                         </>
                     )}
@@ -130,7 +139,7 @@ export function AppShell({ hubTitle, navItems, showWorkspaceHeader = true }: App
                     {/* Hamburger (mobile) */}
                     <button
                         id="btn-sidebar-toggle"
-                        aria-label="Toggle sidebar"
+                        aria-label="Открыть или закрыть меню"
                         aria-expanded={sidebarOpen}
                         aria-controls="app-sidebar"
                         className="rounded p-1.5 text-[#64748b] hover:text-white transition-colors lg:hidden"
@@ -145,7 +154,7 @@ export function AppShell({ hubTitle, navItems, showWorkspaceHeader = true }: App
                     <div className="ml-auto" />
 
                     {/* Online badge placeholder — extended in later phases */}
-                    <div className="h-2 w-2 rounded-full bg-[var(--color-online)] animate-pulse" title="Cloud connected" />
+                    <div className="h-2 w-2 rounded-full bg-[var(--color-online)] animate-pulse" title="Облако подключено" />
                     </header>
                 )}
 

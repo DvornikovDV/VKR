@@ -49,7 +49,7 @@ function toError(error: unknown): Error {
     return error
   }
 
-  return new Error('Unknown hosted constructor runtime error.')
+  return new Error('Неизвестная ошибка runtime конструктора.')
 }
 
 function createNoopCallbacks() {
@@ -364,14 +364,14 @@ export function ConstructorHost({
 
       {phase === 'loading' && (
         <div className="flex h-full min-h-[16rem] items-center justify-center rounded-lg border border-dashed border-[var(--color-surface-border)] bg-[var(--color-surface-100)] text-sm text-[#94a3b8]">
-          Loading hosted constructor runtime...
+          Загрузка runtime конструктора...
         </div>
       )}
 
       {phase === 'error' && (
         <div className="flex h-full min-h-[16rem] flex-col items-center justify-center gap-3 rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 p-6 text-center">
           <p className="text-sm font-medium text-[var(--color-danger)]">
-            Failed to initialize hosted constructor runtime.
+            Не удалось инициализировать runtime конструктора.
           </p>
           {error && <p className="text-xs text-[var(--color-danger)]/90">{error}</p>}
           <button
@@ -381,7 +381,7 @@ export function ConstructorHost({
               setRetryKey((value) => value + 1)
             }}
           >
-            Retry runtime bootstrap
+            Повторить запуск runtime
           </button>
         </div>
       )}

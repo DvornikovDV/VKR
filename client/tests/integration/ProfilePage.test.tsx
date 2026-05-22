@@ -70,7 +70,7 @@ describe('ProfilePage route wiring and summary (T038-T040)', () => {
 
     mount('/hub/profile')
 
-    expect(await screen.findByRole('heading', { name: 'Profile' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Профиль' })).toBeInTheDocument()
     expect(screen.queryByText('User Hub - Page (Phase 4-8)')).not.toBeInTheDocument()
   })
 
@@ -105,10 +105,10 @@ describe('ProfilePage route wiring and summary (T038-T040)', () => {
     const equipmentCard = screen.getByLabelText('profile-equipment-usage')
 
     expect(within(tierSection).getByText('PRO')).toBeInTheDocument()
-    expect(within(diagramsCard).getByText('2 / Unlimited')).toBeInTheDocument()
-    expect(within(equipmentCard).getByText('1 / Unlimited')).toBeInTheDocument()
+    expect(within(diagramsCard).getByText('2 / Безлимит')).toBeInTheDocument()
+    expect(within(equipmentCard).getByText('1 / Безлимит')).toBeInTheDocument()
     expect(
-      screen.getByText('PRO access is active. Your diagram and equipment limits are unlimited.'),
+      screen.getByText('Доступ PRO активен. Лимиты мнемосхем и объектов не ограничены.'),
     ).toBeInTheDocument()
   })
 
@@ -121,7 +121,7 @@ describe('ProfilePage route wiring and summary (T038-T040)', () => {
         HttpResponse.json(
           {
             status: 'error',
-            message: 'Profile is temporarily unavailable',
+            message: 'Профиль временно недоступен',
           },
           { status: 500 },
         ),
@@ -130,7 +130,7 @@ describe('ProfilePage route wiring and summary (T038-T040)', () => {
         HttpResponse.json(
           {
             status: 'error',
-            message: 'Stats are temporarily unavailable',
+            message: 'Статистика временно недоступна',
           },
           { status: 500 },
         ),
@@ -146,16 +146,16 @@ describe('ProfilePage route wiring and summary (T038-T040)', () => {
 
     mount('/hub/profile')
 
-    await screen.findByRole('heading', { name: 'Profile' })
-    expect(await screen.findByText('Profile is temporarily unavailable')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Change password' })).toBeInTheDocument()
+    await screen.findByRole('heading', { name: 'Профиль' })
+    expect(await screen.findByText('Ошибка сервера. Попробуйте позже.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Смена пароля' })).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText('Current password'), 'old-password-1')
-    await user.type(screen.getByLabelText('New password'), 'new-password-2')
-    await user.type(screen.getByLabelText('Confirm new password'), 'new-password-2')
-    await user.click(screen.getByRole('button', { name: 'Update password' }))
+    await user.type(screen.getByLabelText('Текущий пароль'), 'old-password-1')
+    await user.type(screen.getByLabelText('Новый пароль'), 'new-password-2')
+    await user.type(screen.getByLabelText('Повторите новый пароль'), 'new-password-2')
+    await user.click(screen.getByRole('button', { name: 'Обновить пароль' }))
 
-    expect(await screen.findByText('Password updated successfully.')).toBeInTheDocument()
+    expect(await screen.findByText('Пароль успешно обновлен.')).toBeInTheDocument()
     expect(passwordPayload).toEqual({
       currentPassword: 'old-password-1',
       newPassword: 'new-password-2',

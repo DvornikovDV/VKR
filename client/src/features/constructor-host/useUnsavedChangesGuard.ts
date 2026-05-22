@@ -1,8 +1,8 @@
 import { useBeforeUnload, useBlocker } from 'react-router-dom'
 import { useCallback, useEffect, useRef } from 'react'
 
-export const DEFAULT_UNSAVED_CHANGES_MESSAGE = 'You have unsaved changes. Leave this page?'
-export const DEFAULT_MACHINE_SWITCH_MESSAGE = 'You have unsaved changes. Switch machine and discard them?'
+export const DEFAULT_UNSAVED_CHANGES_MESSAGE = 'Есть несохраненные изменения. Покинуть страницу?'
+export const DEFAULT_MACHINE_SWITCH_MESSAGE = 'Есть несохраненные изменения. Переключить объект и сбросить их?'
 
 export interface DirtyStateLike {
   layoutDirty: boolean

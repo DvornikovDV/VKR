@@ -18,6 +18,7 @@ import {
   DASHBOARD_ALARM_INCIDENT_LIFECYCLE_STATES,
   DASHBOARD_ALARM_SEVERITIES,
 } from '@/features/dashboard/model/types'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 
 type DashboardSocketListener = (...args: unknown[]) => void
 
@@ -71,11 +72,7 @@ function normalizeEdgeId(edgeId: string): string {
 }
 
 function toErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message
-  }
-
-  return fallback
+  return getErrorDisplayMessage(error, fallback)
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -397,7 +394,7 @@ export function createCloudRuntimeClient(
       const handleConnectError = (error: unknown) => {
         notifyTransportStatus('reconnecting')
         options.onRuntimeError?.(
-          new Error(toErrorMessage(error, 'Dashboard runtime transport connection failed.')),
+          new Error(toErrorMessage(error, 'Не удалось подключить транспорт runtime диспетчеризации.')),
         )
       }
 
@@ -492,7 +489,7 @@ export function createCloudRuntimeClient(
       const handleConnectError = (error: unknown) => {
         notifyTransportStatus('reconnecting')
         options.onRuntimeError?.(
-          new Error(toErrorMessage(error, 'Dashboard telemetry-only transport connection failed.')),
+          new Error(toErrorMessage(error, 'Не удалось подключить транспорт телеметрии.')),
         )
       }
 

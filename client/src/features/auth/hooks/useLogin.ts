@@ -4,7 +4,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { apiClient } from '@/shared/api/client'
-import { isApiError } from '@/shared/api/client'
+import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 import { useAuthStore } from '@/shared/store/useAuthStore'
 import type { Session } from '@/shared/store/useAuthStore'
 
@@ -29,13 +29,6 @@ interface UseLoginReturn {
     login: (credentials: LoginCredentials) => Promise<void>
     loading: boolean
     error: string | null
-}
-
-const BANNED_ACCOUNT_MESSAGE = 'Your account has been suspended. Please contact support.'
-
-function isBannedAccountError(message: string): boolean {
-    const normalizedMessage = message.toLowerCase()
-    return normalizedMessage.includes('suspend') || normalizedMessage.includes('bann')
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────
@@ -71,21 +64,7 @@ export function useLogin(): UseLoginReturn {
             // Redirect to role-appropriate hub
             navigate(session.role === 'ADMIN' ? '/admin' : '/hub', { replace: true })
         } catch (err) {
-            if (isApiError(err)) {
-                if (err.status === 401 || err.status === 403) {
-                    setError(
-                        isBannedAccountError(err.message)
-                            ? BANNED_ACCOUNT_MESSAGE
-                            : 'Invalid email or password.',
-                    )
-                } else if (err.status >= 500) {
-                    setError('Server error. Please try again later.')
-                } else {
-                    setError(err.message)
-                }
-            } else {
-                setError('Connection error. Please check your network.')
-            }
+            setError(getErrorDisplayMessage(err, 'Не удалось выполнить вход.'))
         } finally {
             setLoading(false)
         }

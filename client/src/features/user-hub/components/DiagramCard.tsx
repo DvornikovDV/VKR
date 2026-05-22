@@ -6,8 +6,10 @@ import {
   canOpenDashboardForEdgeContext,
   getDashboardHandoffNote,
   getEdgeAvailabilityBadgeClass,
+  getEdgeAvailabilityDisplayLabel,
   getEdgeAvailabilityLabel,
   getEdgeLifecycleBadgeClass,
+  getEdgeLifecycleDisplayLabel,
   type EdgeConsumerContextStatus,
 } from '@/shared/edgePresentation'
 
@@ -88,7 +90,7 @@ export function DiagramCard({
     }
 
     const isConfirmed = window.confirm(
-      `Delete diagram "${diagram.name}" permanently? This action cannot be undone.`,
+      `Удалить мнемосхему "${diagram.name}" без возможности восстановления?`,
     )
     if (!isConfirmed) {
       return
@@ -103,7 +105,7 @@ export function DiagramCard({
     try {
       await deleteDiagram(diagram.id)
     } catch {
-      setDeleteError('Failed to delete diagram. Please refresh and try again.')
+      setDeleteError('Не удалось удалить мнемосхему. Обновите страницу и попробуйте еще раз.')
     } finally {
       setIsDeletingDiagram(false)
     }
@@ -136,7 +138,7 @@ export function DiagramCard({
 
     const nextName = nameDraft.trim()
     if (nextName.length === 0) {
-      setRenameError('Diagram name cannot be empty.')
+      setRenameError('Название мнемосхемы не может быть пустым.')
       return
     }
 
@@ -158,7 +160,7 @@ export function DiagramCard({
       await onRenameDiagram(diagram.id, nextName)
       setIsEditingName(false)
     } catch {
-      setRenameError('Failed to rename diagram. Please try again.')
+      setRenameError('Не удалось переименовать мнемосхему. Попробуйте еще раз.')
     } finally {
       setIsRenaming(false)
     }
@@ -171,12 +173,12 @@ export function DiagramCard({
           {diagram.thumbnailUrl ? (
             <img
               src={diagram.thumbnailUrl}
-              alt={`${diagram.name} thumbnail`}
+              alt={`Миниатюра мнемосхемы ${diagram.name}`}
               className="h-full w-full object-cover"
             />
           ) : (
             <div className="flex h-full items-center justify-center text-xs text-[#94a3b8]">
-              No preview
+              Нет превью
             </div>
           )}
         </div>
@@ -206,7 +208,7 @@ export function DiagramCard({
                   }
                 }}
                 className="h-7 min-w-0 flex-1 rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-2 text-sm font-semibold text-white outline-none focus:border-[var(--color-brand-500)]"
-                aria-label="Diagram name"
+                aria-label="Название мнемосхемы"
               />
             ) : (
               <h3 className="truncate text-base font-semibold text-white">{diagram.name}</h3>
@@ -217,16 +219,16 @@ export function DiagramCard({
                 type="button"
                 onClick={startRename}
                 disabled={!canEdit || isDeletingDiagram}
-                title={!canEdit ? 'Renaming is disabled by diagram limit policy' : 'Rename diagram'}
+                title={!canEdit ? 'Переименование недоступно из-за лимита мнемосхем' : 'Переименовать мнемосхему'}
                 className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-[var(--color-surface-border)] text-[#cbd5e1] hover:bg-[var(--color-surface-200)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-                aria-label="Rename diagram"
+                aria-label="Переименовать мнемосхему"
               >
                 <Pencil size={12} />
               </button>
             )}
           </div>
           <p className="text-xs text-[#94a3b8]">
-            Telemetry Profiles: {diagram.telemetryProfiles.length}
+            Профили телеметрии: {diagram.telemetryProfiles.length}
           </p>
         </div>
 
@@ -235,11 +237,11 @@ export function DiagramCard({
             type="button"
             onClick={handleEditLayout}
             disabled={!canEdit}
-            title={!canEdit ? 'Editing is disabled by diagram limit policy' : undefined}
+            title={!canEdit ? 'Редактирование недоступно из-за лимита мнемосхем' : undefined}
             className="inline-flex items-center gap-1 rounded-md border border-[var(--color-surface-border)] px-2.5 py-1.5 text-xs font-medium text-[#cbd5e1] hover:bg-[var(--color-surface-200)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
           >
             <Pencil size={12} />
-            Edit Layout
+            Редактировать схему
           </button>
           <button
             type="button"
@@ -248,7 +250,7 @@ export function DiagramCard({
             className="inline-flex items-center gap-1 rounded-md border border-[var(--color-danger)]/40 px-2.5 py-1.5 text-xs font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Trash2 size={12} />
-            {isDeletingDiagram ? 'Deleting...' : 'Delete Diagram'}
+            {isDeletingDiagram ? 'Удаление...' : 'Удалить мнемосхему'}
           </button>
         </div>
       </div>
@@ -264,7 +266,7 @@ export function DiagramCard({
           aria-expanded={profilesOpen}
           aria-controls={`telemetry-profiles-${diagram.id}`}
         >
-          <span>Telemetry Profiles</span>
+          <span>Профили телеметрии</span>
           {profilesOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
         </button>
 
@@ -272,7 +274,7 @@ export function DiagramCard({
           <div id={`telemetry-profiles-${diagram.id}`} className="border-t border-[var(--color-surface-border)] p-3">
             {diagram.telemetryProfiles.length === 0 ? (
               <p className="text-sm text-[#94a3b8]">
-                No Telemetry Profiles yet. Open Constructor to create one.
+                Профилей телеметрии пока нет. Откройте конструктор, чтобы создать профиль.
               </p>
             ) : (
               <ul className="space-y-2">
@@ -284,6 +286,7 @@ export function DiagramCard({
                     {(() => {
                       const availabilityLabel =
                         profile.availabilityLabel ?? getEdgeAvailabilityLabel(profile.isOnline)
+                      const availabilityDisplayLabel = getEdgeAvailabilityDisplayLabel(availabilityLabel)
                       const dashboardDisabled = !canOpenDashboardForEdgeContext({
                         contextStatus: profile.edgeContextStatus,
                         lifecycleState: profile.lifecycleState,
@@ -300,11 +303,11 @@ export function DiagramCard({
                       <div className="flex flex-wrap items-center justify-end gap-2">
                         {profile.lifecycleState && (
                           <span className={getEdgeLifecycleBadgeClass(profile.lifecycleState)}>
-                            {profile.lifecycleState}
+                            {getEdgeLifecycleDisplayLabel(profile.lifecycleState)}
                           </span>
                         )}
                         <span className={getEdgeAvailabilityBadgeClass(profile.isOnline ?? null)}>
-                          {availabilityLabel}
+                          {availabilityDisplayLabel}
                         </span>
                       </div>
                     </div>
@@ -330,7 +333,7 @@ export function DiagramCard({
                         className="inline-flex items-center gap-1 rounded-md bg-[var(--color-brand-600)] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[var(--color-brand-500)] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <ExternalLink size={12} />
-                        Open Dashboard
+                        Открыть диспетчеризацию
                       </button>
                       <button
                         type="button"
@@ -338,7 +341,7 @@ export function DiagramCard({
                         className="inline-flex items-center gap-1 rounded-md border border-[var(--color-surface-border)] px-2.5 py-1.5 text-xs font-medium text-[#cbd5e1] hover:bg-[var(--color-surface-200)]"
                       >
                         <Pencil size={12} />
-                        Edit Bindings
+                        Редактировать привязки
                       </button>
                       <button
                         type="button"
@@ -346,7 +349,7 @@ export function DiagramCard({
                         className="inline-flex items-center gap-1 rounded-md border border-[var(--color-danger)]/40 px-2.5 py-1.5 text-xs font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10"
                       >
                         <Trash2 size={12} />
-                        Delete Telemetry Profile
+                        Удалить профиль телеметрии
                       </button>
                     </div>
                         </>
