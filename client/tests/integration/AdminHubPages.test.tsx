@@ -493,7 +493,7 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
       expect(updatedRow).not.toBeNull()
       expect(within(updatedRow as HTMLTableRowElement).getByText('Заблокирован')).toBeInTheDocument()
       expect(within(updatedRow as HTMLTableRowElement).getByText('Не в сети')).toBeInTheDocument()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Последний сигнал: 2026-03-29 10:55:00 UTC')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Последний сигнал: 29.03.2026, 10:55:00 UTC')).toBeInTheDocument()
     })
 
     const blockedRow = screen.getByText('Blocked Edge').closest('tr')
@@ -507,7 +507,7 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
       expect(updatedRow).not.toBeNull()
       expect(within(updatedRow as HTMLTableRowElement).getByText('Активен')).toBeInTheDocument()
       expect(within(updatedRow as HTMLTableRowElement).getByText('В сети')).toBeInTheDocument()
-      expect(within(updatedRow as HTMLTableRowElement).getByText('Последний сигнал: 2026-03-29 10:12:00 UTC')).toBeInTheDocument()
+      expect(within(updatedRow as HTMLTableRowElement).getByText('Последний сигнал: 29.03.2026, 10:12:00 UTC')).toBeInTheDocument()
     })
   })
 

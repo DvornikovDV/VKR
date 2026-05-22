@@ -122,7 +122,7 @@ describe('repro_task_T054', () => {
       expect(within(updatedRow as HTMLTableRowElement).getByText('Заблокирован')).toBeInTheDocument()
       expect(within(updatedRow as HTMLTableRowElement).getByText('Не в сети')).toBeInTheDocument()
       expect(
-        within(updatedRow as HTMLTableRowElement).getByText('Последний сигнал: 2026-04-17 10:55:00 UTC'),
+        within(updatedRow as HTMLTableRowElement).getByText('Последний сигнал: 17.04.2026, 10:55:00 UTC'),
       ).toBeInTheDocument()
     })
   })

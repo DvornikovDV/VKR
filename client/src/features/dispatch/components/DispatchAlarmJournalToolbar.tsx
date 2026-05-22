@@ -30,10 +30,10 @@ function getSummary(
   total: number | undefined,
 ): string {
   if (!pagination || visibleCount === undefined || total === undefined) {
-    return 'Alarm incidents'
+    return 'Аварии'
   }
 
-  return `Page ${pagination.page} | ${visibleCount} incidents visible | ${total} total`
+  return `Страница ${pagination.page} | видно аварий: ${visibleCount} | всего: ${total}`
 }
 
 export function DispatchAlarmJournalToolbar({
@@ -62,9 +62,9 @@ export function DispatchAlarmJournalToolbar({
   const content = (
     <>
       <label className="flex min-w-0 flex-col gap-1">
-        <span className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">State</span>
+        <span className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">Состояние</span>
         <select
-          aria-label="Alarm incident state"
+          aria-label="Состояние аварии"
           value={state}
           disabled={controlsDisabled}
           onChange={(event) => onStateChange(event.target.value as AlarmIncidentListState)}
@@ -88,7 +88,7 @@ export function DispatchAlarmJournalToolbar({
       <div className="flex min-w-0 items-center gap-1">
         <button
           type="button"
-          aria-label="Previous alarm journal page"
+          aria-label="Предыдущая страница журнала аварий"
           disabled={!canGoPrevious}
           onClick={onPreviousPage}
           className="inline-flex min-h-9 min-w-9 items-center justify-center rounded border border-[#334155] bg-[#0f172a] text-[#cbd5e1] disabled:cursor-not-allowed disabled:text-[#64748b]"
@@ -97,7 +97,7 @@ export function DispatchAlarmJournalToolbar({
         </button>
         <button
           type="button"
-          aria-label="Next alarm journal page"
+          aria-label="Следующая страница журнала аварий"
           disabled={!canGoNext}
           data-has-next-page={pagination?.hasNextPage ?? false}
           onClick={onNextPage}
@@ -118,14 +118,14 @@ export function DispatchAlarmJournalToolbar({
           className={isLoading ? 'animate-spin' : undefined}
           aria-hidden="true"
         />
-        <span>{isLoading ? 'Loading...' : 'Refresh'}</span>
+        <span>{isLoading ? 'Загрузка...' : 'Обновить'}</span>
       </button>
     </>
   )
 
   return (
     <form
-      aria-label="Alarm journal filters"
+      aria-label="Фильтры журнала аварий"
       data-testid="dispatch-alarm-journal-toolbar"
       className={clsx(
         'grid flex-shrink-0 gap-2 border-b border-[#1f2a3d] bg-[#0a1220] p-3 text-sm text-[#cbd5e1] md:grid-cols-[minmax(12rem,16rem)_1fr_auto_auto] md:items-end',

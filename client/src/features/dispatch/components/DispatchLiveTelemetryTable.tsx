@@ -35,31 +35,31 @@ function sortNewestFirst(rows: readonly DispatchLiveTelemetryRow[]): DispatchLiv
 
 export function DispatchLiveTelemetryTable({
   rows,
-  emptyMessage = 'No realtime telemetry rows match the selected binding profile yet.',
+  emptyMessage = 'Пока нет строк телеметрии, подходящих выбранному профилю привязок.',
   className,
 }: DispatchLiveTelemetryTableProps) {
   const sortedRows = sortNewestFirst(rows)
 
   return (
     <section
-      aria-label="Dispatch live telemetry table"
+      aria-label="Таблица live-телеметрии диспетчеризации"
       data-testid="dispatch-live-telemetry-table"
       className={
         className
           ?? 'min-w-0 rounded-md border border-[#1f2a3d] bg-[#0f172a] p-3'
       }
     >
-      <h3 className="text-sm font-semibold text-white">Live telemetry</h3>
+      <h3 className="text-sm font-semibold text-white">Live-телеметрия</h3>
       <div className="mt-3 min-w-0 overflow-x-auto">
         <table className="w-full min-w-[68rem] table-auto border-separate border-spacing-0 text-left text-xs text-[#cbd5e1]">
           <thead className="sticky top-0 bg-[#0f172a] text-[#94a3b8]">
             <tr>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">received</th>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">device</th>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">metric</th>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">value</th>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">event timestamp</th>
-              <th className="border-b border-[#1f2a3d] py-2 font-medium">server timestamp</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Получено</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Устройство</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Метрика</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Значение</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Время события</th>
+              <th className="border-b border-[#1f2a3d] py-2 font-medium">Время сервера</th>
             </tr>
           </thead>
           <tbody>

@@ -58,25 +58,25 @@ describe('Dispatch Alarm Journal presentation components', () => {
     expect(within(activeRow).getByText('Boiler temperature high')).toBeInTheDocument()
     expect(within(activeRow).getByText('boiler-1 / temperature')).toBeInTheDocument()
     expect(
-      within(activeRow).getByText('High condition: latest 98; trigger 90; clear 75'),
+      within(activeRow).getByText('Превышение порога: последнее 98; срабатывание 90; снятие 75'),
     ).toBeInTheDocument()
-    expect(within(activeRow).getByText('Danger')).toBeInTheDocument()
-    expect(within(activeRow).getByText('Active unacknowledged')).toBeInTheDocument()
+    expect(within(activeRow).getByText('Опасность')).toBeInTheDocument()
+    expect(within(activeRow).getByText('Активна, не подтверждена')).toBeInTheDocument()
     expect(activeRow.querySelector('time[datetime="2026-05-09T10:00:00.000Z"]')).toBeInTheDocument()
     expect(within(activeRow).getByText('ACK failed')).toBeInTheDocument()
 
-    await user.click(within(activeRow).getByRole('button', { name: /Acknowledge alarm/i }))
+    await user.click(within(activeRow).getByRole('button', { name: /Подтвердить аварию/i }))
     expect(onAcknowledgeIncident).toHaveBeenCalledWith(activeIncident)
 
     const closedRow = screen.getByTestId('dispatch-alarm-journal-row-incident-closed-1')
     expect(within(closedRow).getByText('pump-2 / pressure')).toBeInTheDocument()
-    expect(within(closedRow).getByText('Closed')).toBeInTheDocument()
+    expect(within(closedRow).getByText('Закрыта')).toBeInTheDocument()
     expect(
       within(screen.getByTestId('dispatch-alarm-journal-closed-at-incident-closed-1')).getByText(
         getDispatchAlarmJournalClosedAt(closedIncident)!,
       ),
     ).toBeInTheDocument()
-    expect(within(closedRow).getByText('Acknowledged')).toBeInTheDocument()
+    expect(within(closedRow).getByText('Подтверждена')).toBeInTheDocument()
   })
 
   it('renders toolbar state, refresh, and bounded pagination controls in one compact bar', async () => {
@@ -100,15 +100,15 @@ describe('Dispatch Alarm Journal presentation components', () => {
     )
 
     const toolbar = screen.getByTestId('dispatch-alarm-journal-toolbar')
-    await user.selectOptions(within(toolbar).getByRole('combobox', { name: 'Alarm incident state' }), 'all')
+    await user.selectOptions(within(toolbar).getByRole('combobox', { name: 'Состояние аварии' }), 'all')
     expect(onStateChange).toHaveBeenCalledWith('all')
 
-    await user.click(within(toolbar).getByRole('button', { name: /Refresh/i }))
+    await user.click(within(toolbar).getByRole('button', { name: 'Обновить' }))
     expect(onRefresh).toHaveBeenCalledTimes(1)
-    expect(within(toolbar).getByText('Page 2 | 50 incidents visible | 125 total')).toBeInTheDocument()
+    expect(within(toolbar).getByText('Страница 2 | видно аварий: 50 | всего: 125')).toBeInTheDocument()
 
-    await user.click(within(toolbar).getByRole('button', { name: 'Previous alarm journal page' }))
-    await user.click(within(toolbar).getByRole('button', { name: 'Next alarm journal page' }))
+    await user.click(within(toolbar).getByRole('button', { name: 'Предыдущая страница журнала аварий' }))
+    await user.click(within(toolbar).getByRole('button', { name: 'Следующая страница журнала аварий' }))
     expect(onPreviousPage).toHaveBeenCalledTimes(1)
     expect(onNextPage).toHaveBeenCalledTimes(1)
   })

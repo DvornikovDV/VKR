@@ -687,9 +687,9 @@ class PropertiesPanel {
               </select>
             </div>
             <div class="mb-1">
-              <label class="form-label small">Metric:</label>
+              <label class="form-label small">Метрика:</label>
               <select id="metric-binding-select" class="form-control form-control-sm" ${bindingId ? '' : 'disabled'}>
-                <option value="">-- select metric --</option>
+                <option value="">-- выберите метрику --</option>
         `;
 
         availableMetrics.forEach((metricKey) => {

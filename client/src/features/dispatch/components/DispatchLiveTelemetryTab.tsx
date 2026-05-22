@@ -73,7 +73,7 @@ function getValidationMessage(
   relevantPairCount: number,
 ): string | null {
   if (workspaceContext.status === 'loading') {
-    return 'Dispatch context is still loading.'
+    return 'Контекст диспетчеризации еще загружается.'
   }
 
   if (workspaceContext.errorMessage) {
@@ -81,23 +81,23 @@ function getValidationMessage(
   }
 
   if (!getContextValue(workspaceContext.selection.diagramId)) {
-    return 'Select a diagram before streaming live telemetry.'
+    return 'Выберите мнемосхему перед запуском live-телеметрии.'
   }
 
   if (!getContextValue(workspaceContext.selection.edgeId)) {
-    return 'Select an Edge Server before streaming live telemetry.'
+    return 'Выберите объект перед запуском live-телеметрии.'
   }
 
   if (workspaceContext.status === 'ready' && !workspaceContext.selection.selectedEdge) {
-    return 'Select a trusted Edge Server before streaming live telemetry.'
+    return 'Выберите доверенный объект перед запуском live-телеметрии.'
   }
 
   if (!workspaceContext.selection.selectedBindingProfile) {
-    return 'Select a saved binding profile before streaming live telemetry.'
+    return 'Выберите сохраненный профиль привязок перед запуском live-телеметрии.'
   }
 
   if (relevantPairCount === 0) {
-    return 'Selected binding profile has no widget telemetry bindings.'
+    return 'В выбранном профиле нет привязок виджетов к телеметрии.'
   }
 
   return null
@@ -205,7 +205,7 @@ export function DispatchLiveTelemetryTab({
 
   return (
     <section
-      aria-label="Dispatch live telemetry"
+      aria-label="Live-телеметрия диспетчеризации"
       data-testid="dispatch-live-telemetry-tab"
       data-diagram-id={selectedDiagramId ?? ''}
       data-edge-id={selectedEdgeId ?? ''}
@@ -253,7 +253,7 @@ export function DispatchLiveTelemetryTab({
           className="flex min-h-[12rem] flex-1 items-center justify-center gap-2 text-sm text-[#cbd5e1]"
         >
           <Loader2 className="animate-spin text-[#38bdf8]" size={18} aria-hidden="true" />
-          <span>Connecting live telemetry...</span>
+          <span>Подключение live-телеметрии...</span>
         </div>
       ) : streamEnabled ? (
         <div className="min-h-0 flex-1 overflow-auto p-3">
@@ -261,7 +261,7 @@ export function DispatchLiveTelemetryTab({
         </div>
       ) : (
         <div className="flex min-h-[12rem] flex-1 items-center justify-center p-4 text-center text-sm text-[#94a3b8]">
-          Live telemetry starts after the selected Dispatch context has a saved binding profile.
+          Live-телеметрия запустится после выбора контекста диспетчеризации с сохраненным профилем привязок.
         </div>
       )}
     </section>

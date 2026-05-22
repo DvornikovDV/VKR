@@ -1240,7 +1240,7 @@ describe('DispatchWorkspacePage routing', () => {
     const initialRow = await screen.findByTestId('dispatch-command-audit-row-command-audit-edge-1-initial')
     expect(within(initialRow).getByText('pump-1')).toBeInTheDocument()
     expect(within(initialRow).getByText('set_bool')).toBeInTheDocument()
-    expect(within(initialRow).getByText('Confirmed')).toBeInTheDocument()
+    expect(within(initialRow).getByText('Подтверждена')).toBeInTheDocument()
     expect(within(initialRow).getByText('dispatch.user@example.com')).toBeInTheDocument()
     expect(within(initialRow).queryByText('dispatch-user-1')).not.toBeInTheDocument()
     expect(within(initialRow).getByText('true')).toBeInTheDocument()
@@ -1292,8 +1292,8 @@ describe('DispatchWorkspacePage routing', () => {
     const currentRow = await screen.findByTestId('dispatch-command-audit-row-command-audit-edge-2-current')
     expect(within(currentRow).getByText('pump-2')).toBeInTheDocument()
     expect(within(currentRow).getByText('set_number')).toBeInTheDocument()
-    expect(within(currentRow).getByText('Failed')).toBeInTheDocument()
-    expect(within(currentRow).getByText('Edge command failed')).toBeInTheDocument()
+    expect(within(currentRow).getByText('Ошибка')).toBeInTheDocument()
+    expect(within(currentRow).getByText('Команда на объекте завершилась ошибкой')).toBeInTheDocument()
     expect(within(currentRow).getByText('dispatcher.two@example.com')).toBeInTheDocument()
     expect(within(currentRow).queryByText('dispatch-user-2')).not.toBeInTheDocument()
     expect(within(currentRow).getByText('42')).toBeInTheDocument()
@@ -1315,7 +1315,7 @@ describe('DispatchWorkspacePage routing', () => {
       expect(screen.queryByTestId('dispatch-command-audit-row-command-audit-edge-1-stale')).not.toBeInTheDocument()
     })
 
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Command status' }), 'failed')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Статус команды' }), 'failed')
     await waitFor(() => {
       expect(auditRequests[3]).toEqual({
         edgeId: 'edge-visual-2',
@@ -1503,11 +1503,11 @@ describe('DispatchWorkspacePage routing', () => {
     const row = screen.getByTestId('dispatch-alarm-journal-row-dispatch-alarm-edge-2-page-1')
     expect(within(row).getByText('Backup pressure')).toBeInTheDocument()
     expect(within(row).getByText('boiler-2 / pressure')).toBeInTheDocument()
-    expect(within(row).getByText(/High condition: latest/)).toBeInTheDocument()
-    expect(within(row).getByText('Danger')).toBeInTheDocument()
-    expect(within(row).getByText('Active unacknowledged')).toBeInTheDocument()
+    expect(within(row).getByText(/Превышение порога: последнее/)).toBeInTheDocument()
+    expect(within(row).getByText('Опасность')).toBeInTheDocument()
+    expect(within(row).getByText('Активна, не подтверждена')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Next alarm journal page' }))
+    await user.click(screen.getByRole('button', { name: 'Следующая страница журнала аварий' }))
     await waitFor(() => {
       expect(fixtures.dispatchAlarmIncidents.listRequests[2]).toEqual({
         edgeId: 'edge-visual-2',
@@ -1522,7 +1522,7 @@ describe('DispatchWorkspacePage routing', () => {
 
     const actionSlot = screen.getByTestId('dispatch-action-slot')
     expect(
-      within(actionSlot).queryByRole('combobox', { name: 'Alarm incident state' }),
+      within(actionSlot).queryByRole('combobox', { name: 'Состояние аварии' }),
     ).not.toBeInTheDocument()
     expect(
       within(actionSlot).queryByTestId('dispatch-alarm-journal-refresh'),
@@ -1530,15 +1530,15 @@ describe('DispatchWorkspacePage routing', () => {
 
     const alarmJournalTab = screen.getByTestId('dispatch-alarm-journal-tab')
     expect(
-      within(alarmJournalTab).getByRole('button', { name: 'Previous alarm journal page' }),
+      within(alarmJournalTab).getByRole('button', { name: 'Предыдущая страница журнала аварий' }),
     ).toBeInTheDocument()
     expect(
-      within(alarmJournalTab).getByRole('button', { name: 'Next alarm journal page' }),
+      within(alarmJournalTab).getByRole('button', { name: 'Следующая страница журнала аварий' }),
     ).toBeInTheDocument()
-    const stateSelect = within(alarmJournalTab).getByRole('combobox', { name: 'Alarm incident state' })
+    const stateSelect = within(alarmJournalTab).getByRole('combobox', { name: 'Состояние аварии' })
     expect(stateSelect).toHaveValue('unclosed')
     expect(within(alarmJournalTab).getByTestId('dispatch-alarm-journal-toolbar-summary')).toHaveTextContent(
-      'Page 2 | 1 incidents visible | 100 total',
+      'Страница 2 | видно аварий: 1 | всего: 100',
     )
     await user.selectOptions(stateSelect, 'all')
     await waitFor(() => {
@@ -1554,8 +1554,8 @@ describe('DispatchWorkspacePage routing', () => {
     const closedRow = await screen.findByTestId('dispatch-alarm-journal-row-dispatch-alarm-closed-2')
     expect(within(closedRow).getByText('Pump stopped')).toBeInTheDocument()
     expect(within(closedRow).getByText('pump-2 / running')).toBeInTheDocument()
-    expect(within(closedRow).getByText('Warning')).toBeInTheDocument()
-    expect(within(closedRow).getByText('Closed')).toBeInTheDocument()
+    expect(within(closedRow).getByText('Предупреждение')).toBeInTheDocument()
+    expect(within(closedRow).getByText('Закрыта')).toBeInTheDocument()
     expect(screen.getByTestId('dispatch-alarm-journal-closed-at-dispatch-alarm-closed-2')).not.toHaveTextContent('-')
 
     await user.click(within(alarmJournalTab).getByTestId('dispatch-alarm-journal-refresh'))
@@ -1709,10 +1709,10 @@ describe('DispatchWorkspacePage routing', () => {
     const confirmedRow = await screen.findByTestId('dispatch-alarm-journal-row-dispatch-alarm-confirmed-ack')
     const staleRow = await screen.findByTestId('dispatch-alarm-journal-row-dispatch-alarm-shared-ack')
     const confirmedAckButton = within(confirmedRow).getByRole('button', {
-      name: 'Acknowledge alarm Confirmed ACK alarm',
+      name: 'Подтвердить аварию Confirmed ACK alarm',
     })
     const staleAckButton = within(staleRow).getByRole('button', {
-      name: 'Acknowledge alarm Stale ACK alarm',
+      name: 'Подтвердить аварию Stale ACK alarm',
     })
 
     await user.click(confirmedAckButton)
@@ -1723,11 +1723,11 @@ describe('DispatchWorkspacePage routing', () => {
       })
     })
     expect(confirmedAckButton).toBeDisabled()
-    expect(within(confirmedRow).getByText('Pending')).toBeInTheDocument()
+    expect(within(confirmedRow).getByText('Ожидание')).toBeInTheDocument()
     expect(staleAckButton).not.toBeDisabled()
-    expect(within(confirmedRow).getByText('Active unacknowledged')).toBeInTheDocument()
-    expect(within(confirmedRow).queryByText('Active acknowledged')).not.toBeInTheDocument()
-    expect(within(confirmedRow).queryByText('Acknowledged')).not.toBeInTheDocument()
+    expect(within(confirmedRow).getByText('Активна, не подтверждена')).toBeInTheDocument()
+    expect(within(confirmedRow).queryByText('Активна, подтверждена')).not.toBeInTheDocument()
+    expect(within(confirmedRow).queryByText('Подтверждена')).not.toBeInTheDocument()
 
     confirmedAck.resolve(
       createDispatchActiveAcknowledgedAlarmIncidentProjectionFixture({
@@ -1742,8 +1742,8 @@ describe('DispatchWorkspacePage routing', () => {
       }),
     )
     await waitFor(() => {
-      expect(within(confirmedRow).getByText('Active acknowledged')).toBeInTheDocument()
-      expect(within(confirmedRow).getByText('Acknowledged')).toBeInTheDocument()
+      expect(within(confirmedRow).getByText('Активна, подтверждена')).toBeInTheDocument()
+      expect(within(confirmedRow).getByText('Подтверждена')).toBeInTheDocument()
     })
 
     await user.click(staleAckButton)
@@ -1754,7 +1754,7 @@ describe('DispatchWorkspacePage routing', () => {
       })
     })
     expect(staleAckButton).toBeDisabled()
-    expect(within(staleRow).getByText('Pending')).toBeInTheDocument()
+    expect(within(staleRow).getByText('Ожидание')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Объект' }), 'edge-visual-2')
     await waitFor(() => {
@@ -1762,10 +1762,10 @@ describe('DispatchWorkspacePage routing', () => {
     })
     const currentEdgeRow = await screen.findByTestId('dispatch-alarm-journal-row-dispatch-alarm-shared-ack')
     expect(within(currentEdgeRow).getByText('Current Edge ACK alarm')).toBeInTheDocument()
-    expect(within(currentEdgeRow).getByText('Active unacknowledged')).toBeInTheDocument()
+    expect(within(currentEdgeRow).getByText('Активна, не подтверждена')).toBeInTheDocument()
     expect(
       within(currentEdgeRow).getByRole('button', {
-        name: 'Acknowledge alarm Current Edge ACK alarm',
+        name: 'Подтвердить аварию Current Edge ACK alarm',
       }),
     ).not.toBeDisabled()
 
@@ -1786,9 +1786,9 @@ describe('DispatchWorkspacePage routing', () => {
         'data-edge-id',
         'edge-visual-2',
       )
-      expect(within(currentEdgeRow).getByText('Active unacknowledged')).toBeInTheDocument()
-      expect(within(currentEdgeRow).queryByText('Active acknowledged')).not.toBeInTheDocument()
-      expect(within(currentEdgeRow).queryByText('Acknowledged')).not.toBeInTheDocument()
+      expect(within(currentEdgeRow).getByText('Активна, не подтверждена')).toBeInTheDocument()
+      expect(within(currentEdgeRow).queryByText('Активна, подтверждена')).not.toBeInTheDocument()
+      expect(within(currentEdgeRow).queryByText('Подтверждена')).not.toBeInTheDocument()
     })
     expect(dispatchWorkspaceRuntimeHarness.startSession).not.toHaveBeenCalled()
   })

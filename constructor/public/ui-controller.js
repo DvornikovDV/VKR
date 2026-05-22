@@ -501,7 +501,7 @@ class UIController {
 
             const emptyOption = document.createElement('option');
             emptyOption.value = '';
-            emptyOption.textContent = 'No machine';
+            emptyOption.textContent = 'Объект не выбран';
             machineSelect.appendChild(emptyOption);
 
             machineSelect.value = '';
@@ -515,7 +515,7 @@ class UIController {
 
         const emptyOption = document.createElement('option');
         emptyOption.value = '';
-        emptyOption.textContent = 'No machine';
+        emptyOption.textContent = 'Объект не выбран';
         machineSelect.appendChild(emptyOption);
 
         this.getHostedMachineOptions().forEach((machine) => {

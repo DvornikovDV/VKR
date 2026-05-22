@@ -171,7 +171,7 @@ class BindingsManager {
     // Assign widget binding as widgetId + deviceId + metric.
     assignDeviceToElement(widgetId, deviceId, metric = null) {
         if (!this.selectedMachineId) {
-            alert('Select a machine first.');
+            alert('Сначала выберите объект.');
             return false;
         }
 

@@ -99,11 +99,10 @@ export function ReAuthOverlay() {
                     id="reauth-title"
                     style={{ margin: '0 0 0.5rem', color: '#e2e8f0', fontSize: '1.125rem' }}
                 >
-                    Session expired
+                    Сессия истекла
                 </h2>
                 <p style={{ margin: '0 0 1.5rem', color: '#94a3b8', fontSize: '0.875rem' }}>
-                    Your session has expired. Please sign in again to continue — your work
-                    is preserved.
+                    Войдите снова, чтобы продолжить. Несохраненная работа останется на месте.
                 </p>
 
                 <form onSubmit={(e) => { void handleSubmit(e) }}>
@@ -133,7 +132,7 @@ export function ReAuthOverlay() {
 
                     <div style={{ marginBottom: '1.25rem' }}>
                         <label htmlFor="reauth-password" style={{ display: 'block', marginBottom: '0.25rem', color: '#94a3b8', fontSize: '0.75rem' }}>
-                            Password
+                            Пароль
                         </label>
                         <input
                             id="reauth-password"
@@ -177,7 +176,7 @@ export function ReAuthOverlay() {
                             opacity: loading ? 0.7 : 1,
                         }}
                     >
-                        {loading ? 'Signing in…' : 'Sign in'}
+                        {loading ? 'Вход...' : 'Войти'}
                     </button>
                 </form>
             </div>

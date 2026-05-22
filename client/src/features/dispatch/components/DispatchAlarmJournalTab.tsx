@@ -116,7 +116,7 @@ export function DispatchAlarmJournalTab({
 
   const validationMessage = useMemo(() => {
     if (workspaceContext.status === 'loading') {
-      return 'Dispatch context is still loading.'
+      return 'Контекст диспетчеризации еще загружается.'
     }
 
     if (workspaceContext.errorMessage) {
@@ -124,11 +124,11 @@ export function DispatchAlarmJournalTab({
     }
 
     if (!selectedEdgeId) {
-      return 'Select an Edge Server before loading alarm incidents.'
+      return 'Выберите объект перед загрузкой аварий.'
     }
 
     if (workspaceContext.status === 'ready' && !workspaceContext.selection.selectedEdge) {
-      return 'Select a trusted Edge Server before loading alarm incidents.'
+      return 'Выберите доверенный объект перед загрузкой аварий.'
     }
 
     return null
@@ -449,7 +449,7 @@ export function DispatchAlarmJournalTab({
       {isLoading ? (
         <div className="flex min-h-[12rem] flex-1 items-center justify-center gap-2 text-sm text-[#cbd5e1]">
           <Loader2 className="animate-spin text-[#38bdf8]" size={18} aria-hidden="true" />
-          <span>Loading alarm incidents...</span>
+          <span>Загрузка аварий...</span>
         </div>
       ) : journalResponse ? (
         <>
@@ -460,13 +460,13 @@ export function DispatchAlarmJournalTab({
               ackErrorsByIncidentId={ackErrorsByIncidentId}
               isAckDisabled={!canUseControls}
               onAcknowledgeIncident={handleAcknowledgeIncident}
-              emptyMessage="No alarm incidents were returned for the selected Edge Server."
+              emptyMessage="Для выбранного объекта нет аварий."
             />
           </div>
         </>
       ) : (
         <div className="flex min-h-[12rem] flex-1 items-center justify-center p-4 text-center text-sm text-[#94a3b8]">
-          Select an Edge Server to load alarm incidents.
+          Выберите объект, чтобы загрузить аварии.
         </div>
       )}
     </section>

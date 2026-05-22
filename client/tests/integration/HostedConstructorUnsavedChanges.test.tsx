@@ -217,7 +217,7 @@ describe('Hosted constructor unsaved-changes coverage (T032)', () => {
       useReAuthStore.getState().triggerReAuth('/hub/editor/diagram-reauth-dirty')
     })
 
-    expect(await screen.findByText('Session expired')).toBeInTheDocument()
+    expect(await screen.findByText('Сессия истекла')).toBeInTheDocument()
     expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
     expect(harness.instanceSpies.destroyMock).not.toHaveBeenCalled()
 

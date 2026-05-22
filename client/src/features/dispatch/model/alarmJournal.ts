@@ -18,8 +18,8 @@ export const DISPATCH_ALARM_JOURNAL_DEFAULT_QUERY = {
 } as const satisfies Required<ListAlarmIncidentsQuery>
 
 export const DISPATCH_ALARM_JOURNAL_STATE_OPTIONS = [
-  { value: 'unclosed', label: 'Unclosed' },
-  { value: 'all', label: 'All incidents' },
+  { value: 'unclosed', label: 'Незакрытые' },
+  { value: 'all', label: 'Все аварии' },
 ] as const satisfies readonly DispatchAlarmJournalStateOption[]
 
 export type DispatchAlarmJournalLoadStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error'
@@ -76,22 +76,22 @@ const DISPATCH_ALARM_JOURNAL_LIFECYCLE_LABELS: Record<
   AlarmIncidentProjection['lifecycleState'],
   string
 > = {
-  active_unacknowledged: 'Active unacknowledged',
-  active_acknowledged: 'Active acknowledged',
-  cleared_unacknowledged: 'Cleared unacknowledged',
-  closed: 'Closed',
+  active_unacknowledged: 'Активна, не подтверждена',
+  active_acknowledged: 'Активна, подтверждена',
+  cleared_unacknowledged: 'Снята, не подтверждена',
+  closed: 'Закрыта',
 }
 
 const DISPATCH_ALARM_JOURNAL_SEVERITY_LABELS: Record<AlarmSeverity, string> = {
-  warning: 'Warning',
-  danger: 'Danger',
+  warning: 'Предупреждение',
+  danger: 'Опасность',
 }
 
 const DISPATCH_ALARM_JOURNAL_CONDITION_LABELS: Record<AlarmConditionType, string> = {
-  high: 'High condition',
-  low: 'Low condition',
-  state: 'State condition',
-  connectivity: 'Connectivity condition',
+  high: 'Превышение порога',
+  low: 'Ниже порога',
+  state: 'Состояние',
+  connectivity: 'Связь',
 }
 
 function parseDispatchAlarmJournalTimeMs(value: string | number | null | undefined): number | null {
@@ -111,7 +111,7 @@ function formatDispatchAlarmJournalValue(
   value: string | number | boolean | null | undefined,
 ): string {
   if (value === null || value === undefined) {
-    return 'not configured'
+    return 'не настроено'
   }
 
   if (typeof value === 'boolean') {
@@ -256,7 +256,7 @@ export function getDispatchAlarmJournalRuleTitle(
   }
 
   const ruleId = incident.ruleId.trim()
-  return ruleId.length > 0 ? ruleId : 'Untitled alarm rule'
+  return ruleId.length > 0 ? ruleId : 'Правило аварии без названия'
 }
 
 export function getDispatchAlarmJournalEquipmentIdentity(
@@ -270,14 +270,14 @@ export function getDispatchAlarmJournalEquipmentIdentity(
   }
 
   if (deviceId.length > 0) {
-    return `${deviceId} / unknown metric`
+    return `${deviceId} / неизвестная метрика`
   }
 
   if (metric.length > 0) {
-    return `unknown device / ${metric}`
+    return `неизвестное устройство / ${metric}`
   }
 
-  return 'unknown device / unknown metric'
+  return 'неизвестное устройство / неизвестная метрика'
 }
 
 export function getDispatchAlarmJournalConditionSummary(
@@ -290,10 +290,10 @@ export function getDispatchAlarmJournalConditionSummary(
   const expectedValue = formatDispatchAlarmJournalValue(incident.rule.expectedValue)
 
   if (incident.rule.conditionType === 'high' || incident.rule.conditionType === 'low') {
-    return `${conditionLabel}: latest ${latestValue}; trigger ${triggerThreshold}; clear ${clearThreshold}`
+    return `${conditionLabel}: последнее ${latestValue}; срабатывание ${triggerThreshold}; снятие ${clearThreshold}`
   }
 
-  return `${conditionLabel}: latest ${latestValue}; expected ${expectedValue}`
+  return `${conditionLabel}: последнее ${latestValue}; ожидается ${expectedValue}`
 }
 
 export function getDispatchAlarmJournalClosedAt(
@@ -323,7 +323,7 @@ export function getDispatchAlarmJournalTimestamps(
   >,
 ): DispatchAlarmJournalDisplayTimestamps {
   return {
-    activatedAt: formatDispatchAlarmJournalTimestamp(incident.activatedAt) ?? 'Time unavailable',
+    activatedAt: formatDispatchAlarmJournalTimestamp(incident.activatedAt) ?? 'Время недоступно',
     clearedAt: formatDispatchAlarmJournalTimestamp(incident.clearedAt),
     acknowledgedAt: formatDispatchAlarmJournalTimestamp(incident.acknowledgedAt),
     closedAt: getDispatchAlarmJournalClosedAt(incident),

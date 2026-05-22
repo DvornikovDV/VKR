@@ -131,14 +131,14 @@ describe('DispatchTrendsTab', () => {
     render(<DispatchTrendsTab workspaceContext={createWorkspaceContext('edge-1')} />)
 
     const metricSelect = await screen.findByRole('combobox', {
-      name: 'Numeric telemetry metric',
+      name: 'Числовая метрика телеметрии',
     })
     expect(getEdgeServerCatalog).toHaveBeenCalledWith('edge-1')
     expect(within(metricSelect).getByRole('option', { name: 'Pump temperature' })).toBeInTheDocument()
     expect(within(metricSelect).queryByRole('option', { name: 'Pump running' })).not.toBeInTheDocument()
 
     await userEvent.selectOptions(metricSelect, 'pump-1:temperature')
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh trends' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить тренды' }))
 
     await waitFor(() => {
       expect(getTelemetryHistory).toHaveBeenCalledWith(
@@ -160,13 +160,13 @@ describe('DispatchTrendsTab', () => {
     expect(getTelemetryHistory).toHaveBeenCalledTimes(1)
 
     const table = screen.getByTestId('dispatch-trends-table')
-    expect(within(table).getByRole('columnheader', { name: 'timeStart' })).toBeInTheDocument()
-    expect(within(table).getByRole('columnheader', { name: 'timeEnd' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'Начало' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'Конец' })).toBeInTheDocument()
     expect(within(table).getByRole('columnheader', { name: 'min' })).toBeInTheDocument()
     expect(within(table).getByRole('columnheader', { name: 'max' })).toBeInTheDocument()
-    expect(within(table).getByRole('columnheader', { name: 'avg' })).toBeInTheDocument()
-    expect(within(table).getByRole('columnheader', { name: 'last' })).toBeInTheDocument()
-    expect(within(table).getByRole('columnheader', { name: 'count' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'Среднее' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'Последнее' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'Количество' })).toBeInTheDocument()
     expect(table.querySelector('time[datetime="2026-05-13T08:00:00.000Z"]')).toBeInTheDocument()
     expect(table.querySelector('time[datetime="2026-05-13T08:05:00.000Z"]')).toBeInTheDocument()
     expect(within(table).getByText('10')).toBeInTheDocument()
@@ -210,17 +210,17 @@ describe('DispatchTrendsTab', () => {
       <DispatchTrendsTab workspaceContext={createWorkspaceContext('edge-1')} />,
     )
     await userEvent.selectOptions(
-      await screen.findByRole('combobox', { name: 'Numeric telemetry metric' }),
+      await screen.findByRole('combobox', { name: 'Числовая метрика телеметрии' }),
       'pump-1:temperature',
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh trends' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить тренды' }))
 
     rerender(<DispatchTrendsTab workspaceContext={createWorkspaceContext('edge-2')} />)
     await userEvent.selectOptions(
-      await screen.findByRole('combobox', { name: 'Numeric telemetry metric' }),
+      await screen.findByRole('combobox', { name: 'Числовая метрика телеметрии' }),
       'pump-2:pressure',
     )
-    await userEvent.click(screen.getByRole('button', { name: 'Refresh trends' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Обновить тренды' }))
 
     edgeTwoHistory.resolve(createHistoryResponse('edge-2', 'pump-2', 'pressure'))
     expect(await screen.findByTestId('dispatch-trends-history-summary')).toHaveTextContent(

@@ -48,7 +48,7 @@ function buildValidationMessage(
   workspaceContext: DispatchWorkspaceContextSnapshot,
 ): string | null {
   if (workspaceContext.status === 'loading') {
-    return 'Dispatch context is still loading.'
+    return 'Контекст диспетчеризации еще загружается.'
   }
 
   if (workspaceContext.errorMessage) {
@@ -56,34 +56,34 @@ function buildValidationMessage(
   }
 
   if (!filter.edgeId) {
-    return 'Select an Edge Server before loading trends.'
+    return 'Выберите объект перед загрузкой трендов.'
   }
 
   if (catalogStatus === 'loading') {
-    return 'Selected Edge catalog is still loading.'
+    return 'Каталог выбранного объекта еще загружается.'
   }
 
   if (catalogStatus === 'error') {
-    return 'Selected Edge catalog could not be loaded.'
+    return 'Не удалось загрузить каталог выбранного объекта.'
   }
 
   if (metricOptionsCount === 0) {
-    return 'Selected Edge catalog has no numeric telemetry metrics.'
+    return 'В каталоге выбранного объекта нет числовых метрик телеметрии.'
   }
 
   if (!filter.deviceId || !filter.metric) {
-    return 'Select a numeric telemetry metric.'
+    return 'Выберите числовую метрику телеметрии.'
   }
 
   const dateStart = parseTime(filter.dateStart)
   const dateEnd = parseTime(filter.dateEnd)
 
   if (dateStart === null || dateEnd === null) {
-    return 'Select a valid time range.'
+    return 'Выберите корректный диапазон времени.'
   }
 
   if (dateStart >= dateEnd) {
-    return 'Start date must be earlier than end date.'
+    return 'Дата начала должна быть раньше даты окончания.'
   }
 
   if (
@@ -91,7 +91,7 @@ function buildValidationMessage(
     filter.maxPoints < 1 ||
     filter.maxPoints > TELEMETRY_HISTORY_MAX_POINTS
   ) {
-    return `Max points must be between 1 and ${TELEMETRY_HISTORY_MAX_POINTS}.`
+    return `Максимум точек должен быть от 1 до ${TELEMETRY_HISTORY_MAX_POINTS}.`
   }
 
   return null
@@ -199,7 +199,7 @@ export function DispatchTrendsTab({
         if (!isCatalogForSelectedEdge(loadedCatalog, edgeId)) {
           setCatalog(null)
           setCatalogError(
-            `Selected Edge catalog response mismatch: expected ${edgeId}, received ${loadedCatalog.edgeServerId}.`,
+            `Ответ каталога не соответствует выбранному объекту: ожидался ${edgeId}, получен ${loadedCatalog.edgeServerId}.`,
           )
           setCatalogStatus('error')
           return
@@ -330,7 +330,7 @@ export function DispatchTrendsTab({
 
   return (
     <section
-      aria-label="Dispatch trends"
+      aria-label="Тренды диспетчеризации"
       data-testid="dispatch-trends-tab"
       data-edge-id={selectedEdgeId ?? ''}
       className={className ?? 'flex min-h-0 flex-1 flex-col bg-[#08111f]'}
@@ -358,11 +358,11 @@ export function DispatchTrendsTab({
       {historyState === 'loading' ? (
         <div className="flex min-h-[12rem] flex-1 items-center justify-center gap-2 text-sm text-[#cbd5e1]">
           <Loader2 className="animate-spin text-[#38bdf8]" size={18} aria-hidden="true" />
-          <span>Loading telemetry history...</span>
+          <span>Загрузка истории телеметрии...</span>
         </div>
       ) : historyState === 'empty' ? (
         <div className="flex min-h-[12rem] flex-1 items-center justify-center p-4 text-center text-sm text-[#94a3b8]">
-          No aggregate points were returned for the selected range.
+          Для выбранного диапазона нет агрегированных точек.
         </div>
       ) : displayProjection ? (
         <div className={resultsLayoutClassName}>
@@ -371,7 +371,7 @@ export function DispatchTrendsTab({
         </div>
       ) : (
         <div className="flex min-h-[12rem] flex-1 items-center justify-center p-4 text-center text-sm text-[#94a3b8]">
-          Select a numeric metric and refresh trends to load historical telemetry.
+          Выберите числовую метрику и обновите тренды, чтобы загрузить историю телеметрии.
         </div>
       )}
     </section>

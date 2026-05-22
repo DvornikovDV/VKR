@@ -17,7 +17,7 @@ describe('public and auth localization', () => {
     expect(screen.getAllByRole('link', { name: 'Войти' })).toHaveLength(2)
     expect(screen.getByRole('link', { name: 'Начать' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Начать бесплатно' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /Диспетчеризация/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Облачная диспетчеризация инженерных систем' })).toBeInTheDocument()
     expect(screen.getByText('Живая телеметрия')).toBeInTheDocument()
     expect(screen.getByText('Простые тарифы для MVP')).toBeInTheDocument()
   })

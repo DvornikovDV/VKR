@@ -234,7 +234,7 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
 
     renderRoutes('/admin/editor/diagram-admin')
 
-    expect(await screen.findByText('Hosted Constructor')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Конструктор' })).toBeInTheDocument()
 
     await waitFor(() => {
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
@@ -296,8 +296,8 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
     })
 
-    expect(screen.queryByText('Unable to open hosted constructor page.')).not.toBeInTheDocument()
-    expect(screen.getByText(/recovered with an empty layout/i)).toBeInTheDocument()
+    expect(screen.queryByText('Не удалось открыть страницу конструктора.')).not.toBeInTheDocument()
+    expect(screen.getByText(/восстановлен пустым layout/i)).toBeInTheDocument()
     expect(harness.getLastConfig()?.initialLayout).toEqual({})
     expect(harness.getLastConfig()?.mode).toBe('full')
   })
@@ -366,7 +366,7 @@ describe('Hosted constructor route bootstrapping (T009)', () => {
       useReAuthStore.getState().triggerReAuth('/hub/editor/diagram-reauth')
     })
 
-    expect(await screen.findByText('Session expired')).toBeInTheDocument()
+    expect(await screen.findByText('Сессия истекла')).toBeInTheDocument()
     expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
     expect(harness.instanceSpies.destroyMock).not.toHaveBeenCalled()
 

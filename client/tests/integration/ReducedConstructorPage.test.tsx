@@ -108,7 +108,7 @@ describe('Reduced constructor page integration coverage (T028)', () => {
 
     renderAdminRoutes('/admin/editor/diagram-1')
 
-    expect(await screen.findByText('Конструктор')).toBeInTheDocument()
+    expect(await screen.findByText(/Конструктор/)).toBeInTheDocument()
 
     await waitFor(() => {
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)

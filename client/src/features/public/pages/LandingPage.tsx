@@ -128,11 +128,10 @@ export function LandingPage() {
                     </span>
 
                     <h1 className="mb-5 text-4xl font-extrabold leading-tight tracking-tight text-white sm:text-5xl">
-                        Диспетчеризация&nbsp;
+                        Облачная диспетчеризация&nbsp;
                         <span className="bg-gradient-to-r from-[var(--color-brand-400)] to-[var(--color-info)] bg-clip-text text-transparent">
                             инженерных систем
                         </span>
-                        &nbsp;в&nbsp;реальном&nbsp;времени
                     </h1>
 
                     <p className="mb-8 text-base leading-relaxed text-[#94a3b8]">
@@ -233,7 +232,7 @@ export function LandingPage() {
 
             {/* ── Footer ───────────────────────────────────────────────────── */}
             <footer className="border-t border-[var(--color-surface-border)] px-4 py-8 text-center text-xs text-[#475569]">
-                © 2026 VKR SCADA Platform — все права защищены
+                © 2026 VKR SCADA Platform — права пока не защищены*
             </footer>
         </div>
     )

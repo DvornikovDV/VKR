@@ -66,7 +66,7 @@ export function DispatchTrendsControls({
 
   return (
     <form
-      aria-label="Trends filters"
+      aria-label="Фильтры трендов"
       className="grid flex-shrink-0 gap-2 border-b border-[#1f2a3d] bg-[#0a1220] p-3 text-sm text-[#cbd5e1] md:grid-cols-2 lg:grid-cols-[minmax(14rem,1.4fr)_repeat(3,minmax(8.5rem,1fr))] xl:grid-cols-[minmax(16rem,1.5fr)_repeat(3,minmax(9rem,1fr))_minmax(18rem,auto)_auto]"
       onSubmit={(event) => {
         event.preventDefault()
@@ -75,17 +75,17 @@ export function DispatchTrendsControls({
     >
       <label className="flex min-w-0 flex-col gap-1">
         <span className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
-          Numeric telemetry metric
+          Числовая метрика телеметрии
         </span>
         <select
-          aria-label="Numeric telemetry metric"
+          aria-label="Числовая метрика телеметрии"
           value={metricValue}
           disabled={isCatalogLoading || metricOptions.length === 0}
           onChange={(event) => handleMetricChange(event.target.value)}
           className="min-h-9 rounded border border-[#334155] bg-[#0f1929] px-2 py-1 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           <option value="">
-            {isCatalogLoading ? 'Loading metrics...' : 'Select metric'}
+            {isCatalogLoading ? 'Загрузка метрик...' : 'Выберите метрику'}
           </option>
           {metricOptions.map((option) => (
             <option key={option.id} value={option.id}>
@@ -96,9 +96,9 @@ export function DispatchTrendsControls({
       </label>
 
       <label className="flex min-w-0 flex-col gap-1">
-        <span className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">Start</span>
+        <span className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">Начало</span>
         <input
-          aria-label="Start date"
+          aria-label="Дата начала"
           type="datetime-local"
           value={toDispatchTrendsDateTimeLocalValue(filter.dateStart)}
           onChange={(event) =>
@@ -109,9 +109,9 @@ export function DispatchTrendsControls({
       </label>
 
       <label className="flex min-w-0 flex-col gap-1">
-        <span className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">End</span>
+        <span className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">Конец</span>
         <input
-          aria-label="End date"
+          aria-label="Дата окончания"
           type="datetime-local"
           value={toDispatchTrendsDateTimeLocalValue(filter.dateEnd)}
           onChange={(event) =>
@@ -123,10 +123,10 @@ export function DispatchTrendsControls({
 
       <label className="flex min-w-0 flex-col gap-1">
         <span className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
-          Max points
+          Точек максимум
         </span>
         <input
-          aria-label="Max points"
+          aria-label="Максимум точек"
           type="number"
           min={1}
           max={TELEMETRY_HISTORY_MAX_POINTS}
@@ -140,7 +140,7 @@ export function DispatchTrendsControls({
       <div className="flex min-w-0 flex-wrap items-end gap-2 lg:col-span-3 xl:col-span-1">
         <fieldset className="flex min-w-0 flex-col gap-1">
           <legend className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
-            Value
+            Значение
           </legend>
           <div className={segmentedGroupClassName}>
             {DISPATCH_TRENDS_VALUE_MODES.map((valueMode) => (
@@ -164,7 +164,7 @@ export function DispatchTrendsControls({
 
         <fieldset className="flex min-w-0 flex-col gap-1">
           <legend className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
-            View
+            Вид
           </legend>
           <div className={segmentedGroupClassName}>
             {DISPATCH_TRENDS_VIEW_MODES.map((viewMode) => (
@@ -199,7 +199,7 @@ export function DispatchTrendsControls({
             className={isHistoryLoading ? 'animate-spin' : undefined}
             aria-hidden="true"
           />
-          <span>{isHistoryLoading ? 'Loading...' : 'Refresh trends'}</span>
+          <span>{isHistoryLoading ? 'Загрузка...' : 'Обновить тренды'}</span>
         </button>
       </div>
 

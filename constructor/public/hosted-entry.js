@@ -66,7 +66,7 @@ function createHostedShell(mode) {
     <header class="toolbar-header">
       <div class="toolbar-content">
         <div class="toolbar-left">
-          <h1 class="app-title">Hosted Constructor</h1>
+          <h1 class="app-title">Конструктор мнемосхем</h1>
         </div>
         <div class="toolbar-center">
           <div class="hosted-file-menu" data-file-menu>
@@ -77,29 +77,29 @@ function createHostedShell(mode) {
               aria-haspopup="true"
               aria-expanded="false"
             >
-              File
+              Файл
             </button>
             <div class="hosted-file-menu-popover" data-file-menu-popover hidden>
-              <button type="button" class="hosted-file-item" id="add-image-btn">Add image</button>
-              <button type="button" class="hosted-file-item" id="save-schema-btn">Save layout</button>
-              <button type="button" class="hosted-file-item" id="save-as-btn">Save as</button>
-              <button type="button" class="hosted-file-item" id="clear-btn">Clear</button>
+              <button type="button" class="hosted-file-item" id="add-image-btn">Добавить изображение</button>
+              <button type="button" class="hosted-file-item" id="save-schema-btn">Сохранить layout</button>
+              <button type="button" class="hosted-file-item" id="save-as-btn">Сохранить как</button>
+              <button type="button" class="hosted-file-item" id="clear-btn">Очистить</button>
               <div class="hosted-file-separator" style="${bindingVisibilityStyle}" aria-hidden="true"></div>
-              <button type="button" class="hosted-file-item" style="${bindingVisibilityStyle}" id="save-bindings-btn">Save bindings</button>
-              <button type="button" class="hosted-file-item" style="${bindingVisibilityStyle}" id="load-bindings-btn">Load bindings</button>
+              <button type="button" class="hosted-file-item" style="${bindingVisibilityStyle}" id="save-bindings-btn">Сохранить привязки</button>
+              <button type="button" class="hosted-file-item" style="${bindingVisibilityStyle}" id="load-bindings-btn">Загрузить привязки</button>
             </div>
           </div>
         </div>
-        <div class="toolbar-icons" role="group" aria-label="tools">
-          <button id="create-line-btn" type="button" class="toolbar-icon-button toolbar-icon-button-primary" title="Create line">/</button>
-          <button id="delete-selected-btn" type="button" class="toolbar-icon-button toolbar-icon-button-danger" title="Delete selected">X</button>
+        <div class="toolbar-icons" role="group" aria-label="Инструменты">
+          <button id="create-line-btn" type="button" class="toolbar-icon-button toolbar-icon-button-primary" title="Создать линию">/</button>
+          <button id="delete-selected-btn" type="button" class="toolbar-icon-button toolbar-icon-button-danger" title="Удалить выбранное">X</button>
         </div>
         <div class="toolbar-right" style="${machineVisibilityStyle}">
-          <label for="machine-select" class="zoom-label">Machine:</label>
+          <label for="machine-select" class="zoom-label">Объект:</label>
           <select id="machine-select" class="machine-select">
-            <option value="">No machine</option>
+            <option value="">Объект не выбран</option>
           </select>
-          <label for="zoom-slider" class="zoom-label">Zoom:</label>
+          <label for="zoom-slider" class="zoom-label">Масштаб:</label>
           <input type="range" class="zoom-slider" id="zoom-slider" min="0.1" max="10" step="0.1" value="1">
           <span id="zoom-value" class="zoom-value">1.0x</span>
         </div>
@@ -114,10 +114,10 @@ function createHostedShell(mode) {
           </div>
         </div>
         <aside class="properties-panel">
-          <div class="properties-header"><h5>Properties</h5></div>
+          <div class="properties-header"><h5>Свойства</h5></div>
           <div class="properties-content">
             <div id="properties-content">
-              <p class="text-muted">Select an element to edit properties</p>
+              <p class="text-muted">Выберите элемент для редактирования свойств</p>
             </div>
           </div>
         </aside>

@@ -31,11 +31,11 @@ describe('dispatch command audit model helpers', () => {
       'timeout',
       'failed',
     ])
-    expect(getDispatchCommandAuditStatusLabel('sent_to_edge')).toBe('Sent to edge')
+    expect(getDispatchCommandAuditStatusLabel('sent_to_edge')).toBe('Отправлена на объект')
     expect(getDispatchCommandAuditFailureReasonLabel('edge_command_timeout')).toBe(
-      'Edge command timeout',
+      'Тайм-аут команды на объекте',
     )
-    expect(formatDispatchCommandAuditPayload({ value: true })).toBe('{"value":true}')
+    expect(formatDispatchCommandAuditPayload({ value: true })).toBe('true')
     expect(isDispatchCommandAuditRequestCurrent(activeGuard, activeGuard)).toBe(true)
     expect(isDispatchCommandAuditRequestCurrent(activeGuard, staleGuard)).toBe(false)
   })

@@ -14,7 +14,7 @@ describe('Dashboard alarm red-light UI primitives', () => {
     rerender(<DashboardAlarmRedLightIndicator count={2} />)
 
     expect(
-      screen.getByRole('status', { name: 'Known unclosed alarm incidents: 2' }),
+      screen.getByRole('status', { name: 'Известные незакрытые аварии: 2' }),
     ).toHaveAttribute('data-testid', 'dashboard-alarm-red-light-indicator')
     expect(screen.getByTestId('dashboard-alarm-red-light-count')).toHaveTextContent('2')
   })
@@ -38,13 +38,13 @@ describe('Dashboard alarm red-light UI primitives', () => {
     )
 
     const toast = screen.getByRole('alert', {
-      name: 'Unclosed alarm incident notice for Compressor pressure',
+      name: 'Уведомление о незакрытой аварии для Compressor pressure',
     })
     expect(toast).toHaveAttribute('data-testid', 'dashboard-alarm-toast-notice')
     expect(toast).toHaveAttribute('data-incident-id', 'incident-toast-1')
-    expect(screen.getByText('Incident ID: incident-toast-1')).toBeInTheDocument()
+    expect(screen.getByText('ID аварии: incident-toast-1')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss alarm incident notice incident-toast-1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Закрыть уведомление об аварии incident-toast-1' }))
 
     expect(onDismiss).toHaveBeenCalledWith('incident-toast-1')
   })

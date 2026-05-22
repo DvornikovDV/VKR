@@ -70,7 +70,7 @@ export function DispatchCommandAuditTab({
 
   const validationMessage = useMemo(() => {
     if (workspaceContext.status === 'loading') {
-      return 'Dispatch context is still loading.'
+      return 'Контекст диспетчеризации еще загружается.'
     }
 
     if (workspaceContext.errorMessage) {
@@ -78,7 +78,7 @@ export function DispatchCommandAuditTab({
     }
 
     if (!selectedEdgeId) {
-      return 'Select an Edge Server before loading command audit.'
+      return 'Выберите объект перед загрузкой аудита команд.'
     }
 
     return null
@@ -127,7 +127,7 @@ export function DispatchCommandAuditTab({
 
       if (response.audits.some((audit) => audit.edgeId !== descriptor.edgeId)) {
         setAuditResponse(null)
-        setAuditError('Command audit response did not match the selected Edge Server.')
+        setAuditError('Ответ аудита команд не соответствует выбранному объекту.')
         setAuditState('error')
         return
       }
@@ -194,13 +194,13 @@ export function DispatchCommandAuditTab({
 
   return (
     <section
-      aria-label="Dispatch command audit"
+      aria-label="Аудит команд диспетчеризации"
       data-testid="dispatch-command-audit-tab"
       data-edge-id={selectedEdgeId ?? ''}
       className={className ?? 'flex min-h-0 flex-1 flex-col bg-[#08111f]'}
     >
       <form
-        aria-label="Command audit filters"
+        aria-label="Фильтры аудита команд"
         className="grid flex-shrink-0 gap-2 border-b border-[#1f2a3d] bg-[#0a1220] p-3 text-sm text-[#cbd5e1] md:grid-cols-[minmax(12rem,16rem)_1fr_auto_auto] md:items-end"
         onSubmit={(event) => {
           event.preventDefault()
@@ -209,10 +209,10 @@ export function DispatchCommandAuditTab({
       >
         <label className="flex min-w-0 flex-col gap-1">
           <span className="text-xs font-medium uppercase tracking-wide text-[#94a3b8]">
-            Status
+            Статус
           </span>
           <select
-            aria-label="Command status"
+            aria-label="Статус команды"
             value={statusFilter}
             disabled={!requestDescriptor || isLoading}
             onChange={(event) => handleStatusFilterChange(event.target.value)}
@@ -230,13 +230,13 @@ export function DispatchCommandAuditTab({
           data-testid="dispatch-command-audit-summary"
           className="min-w-0 text-xs text-[#94a3b8] md:pb-2"
         >
-          Page {page} | {rowCount} rows visible | {total} total
+          Страница {page} | видно строк: {rowCount} | всего: {total}
         </p>
 
         <div className="flex min-w-0 items-center gap-1">
           <button
             type="button"
-            aria-label="Previous command audit page"
+            aria-label="Предыдущая страница аудита команд"
             disabled={!canPageBackward}
             onClick={handlePreviousPage}
             className="inline-flex min-h-9 min-w-9 items-center justify-center rounded border border-[#334155] bg-[#0f172a] text-[#cbd5e1] disabled:cursor-not-allowed disabled:text-[#64748b]"
@@ -245,7 +245,7 @@ export function DispatchCommandAuditTab({
           </button>
           <button
             type="button"
-            aria-label="Next command audit page"
+            aria-label="Следующая страница аудита команд"
             disabled={!canPageForward}
             onClick={handleNextPage}
             className="inline-flex min-h-9 min-w-9 items-center justify-center rounded border border-[#334155] bg-[#0f172a] text-[#cbd5e1] disabled:cursor-not-allowed disabled:text-[#64748b]"
@@ -265,7 +265,7 @@ export function DispatchCommandAuditTab({
             className={isLoading ? 'animate-spin' : undefined}
             aria-hidden="true"
           />
-          <span>{isLoading ? 'Loading...' : 'Refresh'}</span>
+          <span>{isLoading ? 'Загрузка...' : 'Обновить'}</span>
         </button>
 
         {validationMessage ? (
@@ -288,14 +288,14 @@ export function DispatchCommandAuditTab({
       {isLoading ? (
         <div className="flex min-h-[12rem] flex-1 items-center justify-center gap-2 text-sm text-[#cbd5e1]">
           <Loader2 className="animate-spin text-[#38bdf8]" size={18} aria-hidden="true" />
-          <span>Loading command audit...</span>
+          <span>Загрузка аудита команд...</span>
         </div>
       ) : auditState === 'empty' ? (
         <div
           data-testid="dispatch-command-audit-empty"
           className="flex min-h-[12rem] flex-1 items-center justify-center p-4 text-center text-sm text-[#94a3b8]"
         >
-          No command audit rows were returned for the selected Edge Server.
+          Для выбранного объекта нет строк аудита команд.
         </div>
       ) : auditResponse && auditResponse.audits.length > 0 ? (
         <div className="min-h-0 flex-1 overflow-auto p-3">
@@ -303,7 +303,7 @@ export function DispatchCommandAuditTab({
         </div>
       ) : (
         <div className="flex min-h-[12rem] flex-1 items-center justify-center p-4 text-center text-sm text-[#94a3b8]">
-          Select an Edge Server to load command audit rows.
+          Выберите объект, чтобы загрузить аудит команд.
         </div>
       )}
     </section>

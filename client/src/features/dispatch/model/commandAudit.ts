@@ -25,18 +25,18 @@ export interface DispatchCommandAuditRequestGuard {
 }
 
 const COMMAND_AUDIT_STATUS_LABELS: Record<CommandAuditStatus, string> = {
-  accepted: 'Accepted',
-  sent_to_edge: 'Sent to edge',
-  confirmed: 'Confirmed',
-  timeout: 'Timeout',
-  failed: 'Failed',
+  accepted: 'Принята',
+  sent_to_edge: 'Отправлена на объект',
+  confirmed: 'Подтверждена',
+  timeout: 'Тайм-аут',
+  failed: 'Ошибка',
 }
 
 const COMMAND_AUDIT_FAILURE_REASON_LABELS: Record<EdgeCommandFailureReason, string> = {
-  cloud_rpc_timeout: 'Cloud RPC timeout',
-  edge_command_timeout: 'Edge command timeout',
-  edge_command_failed: 'Edge command failed',
-  edge_unavailable: 'Edge unavailable',
+  cloud_rpc_timeout: 'Тайм-аут RPC в облаке',
+  edge_command_timeout: 'Тайм-аут команды на объекте',
+  edge_command_failed: 'Команда на объекте завершилась ошибкой',
+  edge_unavailable: 'Объект недоступен',
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -44,7 +44,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export const DISPATCH_COMMAND_AUDIT_STATUS_OPTIONS: readonly DispatchCommandAuditStatusOption[] = [
-  { value: 'all', label: 'All statuses' },
+  { value: 'all', label: 'Все статусы' },
   ...COMMAND_AUDIT_LIST_STATUSES.map((status) => ({
     value: status,
     label: COMMAND_AUDIT_STATUS_LABELS[status],

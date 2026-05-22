@@ -36,7 +36,7 @@ export function DispatchAlarmJournalTable({
   incidents,
   ackPendingIncidentIds,
   ackErrorsByIncidentId,
-  emptyMessage = 'No alarm incidents were returned for the selected Edge Server.',
+  emptyMessage = 'Для выбранного объекта нет аварий.',
   isAckDisabled = false,
   onAcknowledgeIncident,
   className,
@@ -45,30 +45,30 @@ export function DispatchAlarmJournalTable({
 
   return (
     <section
-      aria-label="Alarm incident journal table"
+      aria-label="Таблица журнала аварий"
       data-testid="dispatch-alarm-journal-table"
       className={
         className
           ?? 'min-w-0 rounded-md border border-[#1f2a3d] bg-[#0f172a] p-3'
       }
     >
-      <h3 className="text-sm font-semibold text-white">Alarm journal</h3>
+      <h3 className="text-sm font-semibold text-white">Журнал аварий</h3>
       <div className="mt-3 min-w-0 overflow-x-auto">
         <table className="w-full min-w-[82rem] table-auto border-separate border-spacing-0 text-left text-xs text-[#cbd5e1]">
           <thead className="sticky top-0 bg-[#0f172a] text-[#94a3b8]">
             <tr>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">rule</th>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">equipment</th>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">condition</th>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">severity</th>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">lifecycle</th>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">activatedAt</th>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">clearedAt</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Правило</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Оборудование</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Условие</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Важность</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Жизненный цикл</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Активирована</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Снята</th>
               <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">
-                acknowledgedAt
+                Подтверждена
               </th>
-              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">closedAt</th>
-              <th className="border-b border-[#1f2a3d] py-2 font-medium">ack</th>
+              <th className="border-b border-[#1f2a3d] py-2 pr-3 font-medium">Закрыта</th>
+              <th className="border-b border-[#1f2a3d] py-2 font-medium">Подтверждение</th>
             </tr>
           </thead>
           <tbody>
@@ -141,7 +141,7 @@ export function DispatchAlarmJournalTable({
                         <div className="flex min-w-0 flex-col gap-1">
                           <button
                             type="button"
-                            aria-label={`Acknowledge alarm ${row.ruleTitle}`}
+                            aria-label={`Подтвердить аварию ${row.ruleTitle}`}
                             disabled={ackButtonDisabled}
                             onClick={() => onAcknowledgeIncident?.(incident)}
                             className="inline-flex min-h-8 items-center justify-center gap-1.5 rounded border border-[#38bdf8] bg-[#0f172a] px-2 py-1 text-[11px] font-semibold text-[#e0f2fe] transition hover:bg-[#123049] disabled:cursor-not-allowed disabled:border-[#334155] disabled:text-[#64748b]"
@@ -151,7 +151,7 @@ export function DispatchAlarmJournalTable({
                             ) : (
                               <Check size={14} aria-hidden="true" />
                             )}
-                            <span>{isAckPending ? 'Pending' : 'ACK'}</span>
+                            <span>{isAckPending ? 'Ожидание' : 'Подтвердить'}</span>
                           </button>
                           {ackError ? (
                             <span role="alert" className="text-[11px] text-[#fecdd3]">
@@ -161,7 +161,7 @@ export function DispatchAlarmJournalTable({
                         </div>
                       ) : (
                         <span className="text-[#94a3b8]">
-                          {incident.isAcknowledged ? 'Acknowledged' : '-'}
+                          {incident.isAcknowledged ? 'Подтверждена' : '-'}
                         </span>
                       )}
                     </td>
