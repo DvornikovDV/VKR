@@ -20,7 +20,7 @@ const diagramDocument: DashboardDiagramDocument = {
       { id: 'widget-number', type: 'number-display' },
       { id: 'widget-text', type: 'text-display' },
       { id: 'widget-led', type: 'led' },
-      { id: 'widget-unsupported', type: 'button' },
+      { id: 'widget-unsupported', type: 'gauge' },
     ],
   },
 }
@@ -103,7 +103,7 @@ describe('dashboard runtime projection (T021)', () => {
     expect(unsupportedWidget).toEqual(
       expect.objectContaining({
         widgetId: 'widget-unsupported',
-        widgetType: 'button',
+        widgetType: 'gauge',
         isBound: true,
         isSupported: false,
       }),
@@ -561,7 +561,7 @@ describe('dashboard command runtime projection (T006-T010)', () => {
     })
     expect(projection.commandAvailabilityByWidgetId['button-command']).toMatchObject({
       isExecutable: false,
-      reason: 'unsupported-widget-type',
+      reason: 'invalid-button-command-preset',
     })
     expect(projection.commandAvailabilityByWidgetId['toggle-missing-command-binding']).toMatchObject({
       isExecutable: false,
@@ -594,6 +594,204 @@ describe('dashboard command runtime projection (T006-T010)', () => {
       'toggle-missing-command-binding': true,
       'toggle-device-mismatch': false,
       'toggle-stale-catalog': true,
+    })
+  })
+
+  it('marks button presets executable only from saved preset value, compatible command binding, catalog, and matching reported telemetry binding', () => {
+    const buttonDiagram: DashboardDiagramDocument = {
+      _id: 'diagram-command-button-preset',
+      name: 'Command Button Preset',
+      layout: {
+        widgets: [
+          { id: 'button-bool', type: 'button', commandValue: false, text: 'Ignored text value' },
+          { id: 'button-number', type: 'button', commandValue: 55, text: 'Ignored text value' },
+        ],
+      },
+    }
+    const buttonProfile: DashboardBindingProfile = {
+      _id: 'binding-command-button-preset',
+      diagramId: buttonDiagram._id,
+      edgeServerId: 'edge-1',
+      widgetBindings: [
+        { widgetId: 'button-bool', deviceId: 'pump-1', metric: 'running' },
+        { widgetId: 'button-number', deviceId: 'pump-1', metric: 'flowRate' },
+      ],
+      commandBindings: [
+        { widgetId: 'button-bool', deviceId: 'pump-1', commandType: 'set_bool' },
+        { widgetId: 'button-number', deviceId: 'pump-1', commandType: 'set_number' },
+      ],
+    }
+    const buttonCatalog: DashboardCommandCatalog = {
+      edgeServerId: 'edge-1',
+      telemetry: [
+        { deviceId: 'pump-1', metric: 'running', valueType: 'boolean', label: 'running' },
+        { deviceId: 'pump-1', metric: 'flowRate', valueType: 'number', label: 'flowRate' },
+      ],
+      commands: [
+        {
+          deviceId: 'pump-1',
+          commandType: 'set_bool',
+          valueType: 'boolean',
+          reportedMetric: 'running',
+          label: 'Silence siren',
+        },
+        {
+          deviceId: 'pump-1',
+          commandType: 'set_number',
+          valueType: 'number',
+          min: 0,
+          max: 100,
+          reportedMetric: 'flowRate',
+          label: 'Valve 50%',
+        },
+      ],
+    }
+    const buttonMetricMap = mergeTelemetryReadingsByBindingKey(
+      {},
+      [
+        { deviceId: 'pump-1', metric: 'running', last: true, ts: 1763895001000 },
+        { deviceId: 'pump-1', metric: 'flowRate', last: 10, ts: 1763895001001 },
+      ],
+    )
+
+    const projection = selectDashboardRuntimeProjection(
+      buttonDiagram,
+      buttonProfile,
+      buttonMetricMap,
+      buttonCatalog,
+    )
+
+    expect(projection.commandAvailabilityByWidgetId['button-bool']).toMatchObject({
+      isExecutable: true,
+      reason: 'available',
+      commandType: 'set_bool',
+      validatedSavedPresetValue: false,
+      buttonPayloadAuthority: 'saved-button-command-value',
+      reportedWidgetBinding: expect.objectContaining({
+        widgetId: 'button-bool',
+        deviceId: 'pump-1',
+        metric: 'running',
+      }),
+      catalogCommand: expect.objectContaining({
+        commandType: 'set_bool',
+        valueType: 'boolean',
+        reportedMetric: 'running',
+      }),
+    })
+    expect(projection.commandAvailabilityByWidgetId['button-number']).toMatchObject({
+      isExecutable: true,
+      reason: 'available',
+      commandType: 'set_number',
+      validatedSavedPresetValue: 55,
+      buttonPayloadAuthority: 'saved-button-command-value',
+      reportedWidgetBinding: expect.objectContaining({
+        widgetId: 'button-number',
+        deviceId: 'pump-1',
+        metric: 'flowRate',
+      }),
+      catalogCommand: expect.objectContaining({
+        commandType: 'set_number',
+        valueType: 'number',
+        min: 0,
+        max: 100,
+        reportedMetric: 'flowRate',
+      }),
+    })
+    expect(projection.widgetValueById).toMatchObject({
+      'button-bool': true,
+      'button-number': 10,
+    })
+    expect(projection.widgets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          widgetId: 'button-bool',
+          widgetType: 'button',
+          isBound: true,
+          isSupported: true,
+          value: true,
+        }),
+        expect.objectContaining({
+          widgetId: 'button-number',
+          widgetType: 'button',
+          isBound: true,
+          isSupported: true,
+          value: 10,
+        }),
+      ]),
+    )
+  })
+
+  it('suppresses execution for an invalid button preset while keeping telemetry projection intact', () => {
+    const buttonDiagram: DashboardDiagramDocument = {
+      _id: 'diagram-command-button-invalid-preset',
+      name: 'Command Button Invalid Preset',
+      layout: {
+        widgets: [{ id: 'button-invalid-number', type: 'button', commandValue: 101 }],
+      },
+    }
+    const buttonProfile: DashboardBindingProfile = {
+      _id: 'binding-command-button-invalid-preset',
+      diagramId: buttonDiagram._id,
+      edgeServerId: 'edge-1',
+      widgetBindings: [{ widgetId: 'button-invalid-number', deviceId: 'pump-1', metric: 'flowRate' }],
+      commandBindings: [
+        { widgetId: 'button-invalid-number', deviceId: 'pump-1', commandType: 'set_number' },
+      ],
+    }
+    const buttonCatalog: DashboardCommandCatalog = {
+      edgeServerId: 'edge-1',
+      telemetry: [{ deviceId: 'pump-1', metric: 'flowRate', valueType: 'number', label: 'flowRate' }],
+      commands: [
+        {
+          deviceId: 'pump-1',
+          commandType: 'set_number',
+          valueType: 'number',
+          min: 0,
+          max: 100,
+          reportedMetric: 'flowRate',
+          label: 'Valve 50%',
+        },
+      ],
+    }
+    const buttonMetricMap = mergeTelemetryReadingsByBindingKey(
+      {},
+      [{ deviceId: 'pump-1', metric: 'flowRate', last: 64, ts: 1763895002000 }],
+    )
+
+    const projection = selectDashboardRuntimeProjection(
+      buttonDiagram,
+      buttonProfile,
+      buttonMetricMap,
+      buttonCatalog,
+    )
+
+    expect(projection.commandAvailabilityByWidgetId['button-invalid-number']).toMatchObject({
+      isExecutable: false,
+      reason: 'invalid-button-command-preset',
+      commandType: 'set_number',
+      validatedSavedPresetValue: null,
+      buttonPayloadAuthority: null,
+      reportedWidgetBinding: expect.objectContaining({
+        widgetId: 'button-invalid-number',
+        deviceId: 'pump-1',
+        metric: 'flowRate',
+      }),
+      catalogCommand: expect.objectContaining({
+        commandType: 'set_number',
+        min: 0,
+        max: 100,
+        reportedMetric: 'flowRate',
+      }),
+    })
+    expect(projection.widgetValueById['button-invalid-number']).toBe(64)
+    expect(
+      projection.widgets.find((widgetProjection) => widgetProjection.widgetId === 'button-invalid-number'),
+    ).toMatchObject({
+      widgetId: 'button-invalid-number',
+      widgetType: 'button',
+      isBound: true,
+      isSupported: true,
+      value: 64,
     })
   })
 })

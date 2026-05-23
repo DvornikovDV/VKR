@@ -68,7 +68,7 @@ interface DashboardRuntimeCommandCommit {
   widgetId: string
   deviceId: string
   commandType: DashboardCommandType
-  value: boolean | number
+  value?: boolean | number
 }
 
 const FALLBACK_VIEWPORT_SIZE: DashboardViewportSize = {

@@ -41,7 +41,7 @@ interface DashboardSubtabCommandCommit {
   widgetId: string
   deviceId: string
   commandType: DashboardCommandType
-  value: boolean | number
+  value?: boolean | number
 }
 
 function formatCommandOutcomeError(outcome: Exclude<NormalizedCommandOutcome, 'confirmed'>): string {
@@ -60,6 +60,41 @@ function formatCommandOutcomeError(outcome: Exclude<NormalizedCommandOutcome, 'c
     default:
       return 'Команда не выполнена'
   }
+}
+
+function resolveCommandPayloadValue(
+  command: DashboardSubtabCommandCommit,
+  commandProjection: NonNullable<ReturnType<typeof selectDashboardRuntimeProjection>>['commandAvailabilityByWidgetId'][string],
+): boolean | number | null {
+  if (commandProjection.widgetType === 'button') {
+    if (commandProjection.buttonPayloadAuthority !== 'saved-button-command-value') {
+      return null
+    }
+
+    const presetValue = commandProjection.validatedSavedPresetValue
+    if (commandProjection.commandType === 'set_bool' && typeof presetValue === 'boolean') {
+      return presetValue
+    }
+    if (
+      commandProjection.commandType === 'set_number' &&
+      typeof presetValue === 'number' &&
+      Number.isFinite(presetValue)
+    ) {
+      return presetValue
+    }
+
+    return null
+  }
+
+  if (commandProjection.commandType === 'set_bool') {
+    return typeof command.value === 'boolean' ? command.value : null
+  }
+
+  if (commandProjection.commandType === 'set_number') {
+    return typeof command.value === 'number' && Number.isFinite(command.value) ? command.value : null
+  }
+
+  return null
 }
 
 /**
@@ -177,6 +212,12 @@ export function DashboardDispatchSubtab({
         return
       }
 
+      const payloadValue = resolveCommandPayloadValue(command, commandProjection)
+      if (payloadValue === null) {
+        commandLifecycle.markError(command.widgetId, 'Command unavailable')
+        return
+      }
+
       const reportedBindingKey = createDashboardBindingKey(
         commandProjection.reportedWidgetBinding.deviceId,
         commandProjection.reportedWidgetBinding.metric,
@@ -188,7 +229,7 @@ export function DashboardDispatchSubtab({
         deviceId: commandProjection.commandBinding.deviceId,
         commandType: commandProjection.commandBinding.commandType,
         payload: {
-          value: command.value,
+          value: payloadValue,
         },
       })
 

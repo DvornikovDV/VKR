@@ -3,6 +3,7 @@ import type {
   DashboardCommandBinding,
   DashboardCommandCapability,
   DashboardCommandCatalog,
+  DashboardCommandPresetValue,
   DashboardCommandRuntimeProjection,
   DashboardCommandType,
   DashboardDiagramDocument,
@@ -26,11 +27,25 @@ export const SUPPORTED_DASHBOARD_WIDGET_TYPES = new Set<string>([
   'led',
   'toggle',
   'slider',
+  'button',
 ])
 
-const COMMAND_WIDGET_TYPES_BY_COMMAND_TYPE: Record<string, DashboardCommandType> = {
-  toggle: 'set_bool',
-  slider: 'set_number',
+const COMMAND_TYPES_BY_WIDGET_TYPE: Record<string, DashboardCommandType[]> = {
+  toggle: ['set_bool'],
+  slider: ['set_number'],
+  button: ['set_bool', 'set_number'],
+}
+
+function isWidgetCommandTypeCompatible(
+  widgetType: string,
+  commandType: DashboardCommandType,
+): boolean {
+  const compatibleCommandTypes = COMMAND_TYPES_BY_WIDGET_TYPE[widgetType]
+  if (!compatibleCommandTypes) {
+    return false
+  }
+
+  return compatibleCommandTypes.includes(commandType)
 }
 
 function isBindableDashboardWidgetType(widgetType: string): boolean {
@@ -452,6 +467,31 @@ function selectCompatibleCatalogCommandMatch(
   return null
 }
 
+function selectValidatedButtonPresetValue(
+  widget: DashboardWidget,
+  catalogCommand: DashboardCommandCapability,
+): DashboardCommandPresetValue | null {
+  const savedCommandValue = widget.commandValue
+
+  if (catalogCommand.valueType === 'boolean') {
+    return typeof savedCommandValue === 'boolean' ? savedCommandValue : null
+  }
+
+  if (typeof savedCommandValue !== 'number' || !Number.isFinite(savedCommandValue)) {
+    return null
+  }
+
+  if (typeof catalogCommand.min === 'number' && savedCommandValue < catalogCommand.min) {
+    return null
+  }
+
+  if (typeof catalogCommand.max === 'number' && savedCommandValue > catalogCommand.max) {
+    return null
+  }
+
+  return savedCommandValue
+}
+
 export function selectDashboardCommandRuntimeProjection(
   widget: DashboardWidget,
   bindingProfile: DashboardBindingProfile | null | undefined,
@@ -459,7 +499,7 @@ export function selectDashboardCommandRuntimeProjection(
 ): DashboardCommandRuntimeProjection {
   const widgetId = widget.id.trim()
   const widgetType = widget.type.trim()
-  const expectedCommandType = COMMAND_WIDGET_TYPES_BY_COMMAND_TYPE[widgetType] ?? null
+  const compatibleCommandTypes = COMMAND_TYPES_BY_WIDGET_TYPE[widgetType] ?? null
   const commandBinding = bindingProfile
     ? selectCommandBindingForWidget(bindingProfile.commandBindings, widgetId)
     : null
@@ -477,7 +517,7 @@ export function selectDashboardCommandRuntimeProjection(
     }
   }
 
-  if (!expectedCommandType) {
+  if (!compatibleCommandTypes) {
     return {
       widgetId,
       widgetType,
@@ -490,7 +530,7 @@ export function selectDashboardCommandRuntimeProjection(
     }
   }
 
-  if (commandBinding.commandType !== expectedCommandType) {
+  if (!isWidgetCommandTypeCompatible(widgetType, commandBinding.commandType)) {
     return {
       widgetId,
       widgetType,
@@ -532,6 +572,41 @@ export function selectDashboardCommandRuntimeProjection(
       commandBinding,
       reportedWidgetBinding: null,
       catalogCommand,
+    }
+  }
+
+  if (widgetType === 'button') {
+    const validatedSavedPresetValue = selectValidatedButtonPresetValue(
+      widget,
+      compatibleMatch.catalogCommand,
+    )
+
+    if (validatedSavedPresetValue === null) {
+      return {
+        widgetId,
+        widgetType,
+        isExecutable: false,
+        reason: 'invalid-button-command-preset',
+        commandType: commandBinding.commandType,
+        commandBinding,
+        reportedWidgetBinding: compatibleMatch.reportedWidgetBinding,
+        catalogCommand: compatibleMatch.catalogCommand,
+        validatedSavedPresetValue: null,
+        buttonPayloadAuthority: null,
+      }
+    }
+
+    return {
+      widgetId,
+      widgetType,
+      isExecutable: true,
+      reason: 'available',
+      commandType: commandBinding.commandType,
+      commandBinding,
+      reportedWidgetBinding: compatibleMatch.reportedWidgetBinding,
+      catalogCommand: compatibleMatch.catalogCommand,
+      validatedSavedPresetValue,
+      buttonPayloadAuthority: 'saved-button-command-value',
     }
   }
 

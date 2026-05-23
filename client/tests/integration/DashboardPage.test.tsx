@@ -997,6 +997,118 @@ describe('DashboardPage (US2)', () => {
     })
   })
 
+  it('sends one button set_bool preset command from projection while preserving telemetry-rendered state', async () => {
+    setupDashboardApiFixtures(createDashboardVisualRestFixtures())
+    const commandRequests: Array<{ edgeId: string; body: unknown }> = []
+    let confirmCommand = () => { }
+
+    server.use(
+      http.post('/api/edge-servers/:edgeId/commands', async ({ params, request }) => {
+        commandRequests.push({
+          edgeId: String(params.edgeId),
+          body: await request.json(),
+        })
+
+        return new Promise((resolve) => {
+          confirmCommand = () =>
+            resolve(
+              HttpResponse.json({
+                status: 'success',
+                data: {
+                  requestId: 'command-button-bool-1',
+                  commandStatus: 'confirmed',
+                  completedAt: '2026-05-07T02:00:00.000Z',
+                },
+              }),
+            )
+        })
+      }),
+    )
+
+    mount(dashboardPath(`?diagramId=${dashboardVisualDiagram._id}&edgeId=edge-visual-1`))
+
+    expect(await screen.findByTestId('dashboard-visual-surface')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(runtimeHarness.startSession).toHaveBeenCalledWith(
+        expect.objectContaining({ edgeId: 'edge-visual-1' }),
+      )
+    })
+
+    act(() => {
+      runtimeHarness.emitTransportStatus('edge-visual-1', 'connected')
+      runtimeHarness.emitTelemetry(
+        createDashboardTelemetryEventFixture({
+          edgeId: 'edge-visual-1',
+          readings: [
+            {
+              deviceId: 'pump-1',
+              metric: 'running',
+              last: true,
+              ts: 1763895000004,
+            },
+          ],
+          serverTs: 1763895000500,
+        }),
+      )
+    })
+
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-button-bool')).toHaveTextContent(
+      'Silence Siren',
+    )
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-button-bool')).not.toHaveTextContent(
+      'false',
+    )
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+      'true',
+    )
+    expect(screen.getByTestId('dashboard-visual-toggle-track-widget-command-toggle')).toHaveAttribute(
+      'data-fill',
+      '#16a34a',
+    )
+
+    const buttonCommand = await screen.findByRole('button', {
+      name: 'Command button widget-command-button-bool',
+    })
+    expect(buttonCommand).toHaveAttribute('data-command-executable', 'true')
+    expect(buttonCommand).toHaveAttribute('data-command-availability', 'available')
+
+    await userEvent.setup().click(buttonCommand)
+
+    await waitFor(() => {
+      expect(commandRequests).toHaveLength(1)
+    })
+    expect(commandRequests[0]).toEqual({
+      edgeId: 'edge-visual-1',
+      body: {
+        deviceId: 'pump-1',
+        commandType: 'set_bool',
+        payload: { value: false },
+      },
+    })
+    expect(screen.getByTestId('dashboard-command-state-widget-command-button-bool')).toHaveTextContent(
+      'pending',
+    )
+    expect(buttonCommand).toBeDisabled()
+    expect(screen.getByTestId('dashboard-visual-widget-value-widget-command-toggle')).toHaveTextContent(
+      'true',
+    )
+    expect(screen.getByTestId('dashboard-visual-toggle-track-widget-command-toggle')).toHaveAttribute(
+      'data-fill',
+      '#16a34a',
+    )
+
+    fireEvent.click(buttonCommand)
+    fireEvent.keyUp(buttonCommand, { key: 'Enter' })
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+    expect(commandRequests).toHaveLength(1)
+
+    await act(async () => {
+      confirmCommand()
+    })
+  })
+
   it('keeps command lifecycle state visible when a command-capable widget is near the top of the visual surface', async () => {
     const fixtures = createDashboardVisualRestFixtures()
     setupDashboardApiFixtures({
@@ -1742,7 +1854,6 @@ describe('DashboardPage (US3)', () => {
 
     expect(screen.queryByRole('button', { name: /widget-display-command/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /widget-led-command/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /widget-button-command/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('slider', { name: /widget-display-command/ })).not.toBeInTheDocument()
     expect(screen.getByTestId('dashboard-visual-widget-widget-button-command')).toHaveAttribute(
       'data-listening',
@@ -1759,10 +1870,19 @@ describe('DashboardPage (US3)', () => {
     const reportedMismatchToggle = screen.getByRole('button', {
       name: 'Команда-переключатель widget-toggle-reported-mismatch',
     })
+    const invalidPresetButton = screen.getByRole('button', {
+      name: 'Command button widget-button-command',
+    })
     const staleCatalogSlider = screen.getByRole('slider', {
       name: 'Команда-слайдер widget-slider-stale-catalog',
     })
 
+    expect(invalidPresetButton).toBeDisabled()
+    expect(invalidPresetButton).toHaveAttribute('data-command-executable', 'false')
+    expect(invalidPresetButton).toHaveAttribute(
+      'data-command-availability',
+      'invalid-button-command-preset',
+    )
     expect(missingCommandToggle).toBeDisabled()
     expect(missingCommandToggle).toHaveAttribute('data-command-executable', 'false')
     expect(missingCommandToggle).toHaveAttribute('data-command-availability', 'missing-command-binding')
@@ -1777,6 +1897,8 @@ describe('DashboardPage (US3)', () => {
     expect(staleCatalogSlider).toHaveAttribute('data-command-availability', 'missing-catalog-command')
 
     fireEvent.click(screen.getByTestId('dashboard-visual-widget-widget-button-command'))
+    fireEvent.click(invalidPresetButton)
+    fireEvent.keyUp(invalidPresetButton, { key: 'Enter' })
     fireEvent.click(missingCommandToggle)
     fireEvent.keyUp(missingCommandToggle, { key: 'Enter' })
     fireEvent.click(reportedMismatchToggle)
@@ -2091,14 +2213,15 @@ describe('DashboardPage (US4)', () => {
     expect(within(diagnosticsPanel).getByText('widget-command-slider')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('widget-temperature')).toBeInTheDocument()
     expect(within(diagnosticsPanel).getByText('Значение: 49')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('Значение: false')).toBeInTheDocument()
-    expect(within(diagnosticsPanel).getByText('Значение: 68')).toBeInTheDocument()
+    const nonOperativeWidget = within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-command-toggle')
+    const nonOperativeSlider = within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-command-slider')
+    expect(within(nonOperativeWidget).getByText('Значение: false')).toBeInTheDocument()
+    expect(within(nonOperativeSlider).getByText('Значение: 68')).toBeInTheDocument()
+    expect(nonOperativeWidget).not.toHaveAttribute('aria-disabled', 'true')
     expect(
       within(diagnosticsPanel).getAllByText('Команда: недоступна (missing-catalog-command)')[0],
     ).toBeInTheDocument()
 
-    const nonOperativeWidget = within(diagnosticsPanel).getByTestId('dashboard-runtime-widget-widget-command-toggle')
-    expect(nonOperativeWidget).not.toHaveAttribute('aria-disabled', 'true')
     const unavailableToggle = screen.getByRole('button', {
       name: 'Команда-переключатель widget-command-toggle',
     })

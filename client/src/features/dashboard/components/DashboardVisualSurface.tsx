@@ -36,7 +36,7 @@ interface DashboardVisualCommandCommit {
   widgetId: string
   deviceId: string
   commandType: DashboardCommandType
-  value: boolean | number
+  value?: boolean | number
 }
 
 type KonvaDragEvent = {
@@ -503,6 +503,51 @@ export function DashboardVisualSurface({
         .filter((anchor): anchor is NonNullable<typeof anchor> => anchor !== null),
     [commandLifecycleByWidgetId, runtimeLayout.runtimeRenderableWidgets, runtimeProjection, viewport, widgetProjectionById],
   )
+  const commandButtonAnchors = useMemo(
+    () =>
+      runtimeLayout.runtimeRenderableWidgets
+        .map((widget) => {
+          if (widget.type !== 'button') {
+            return null
+          }
+
+          const commandProjection = runtimeProjection?.commandAvailabilityByWidgetId[widget.id]
+          const lifecycle = commandLifecycleByWidgetId[widget.id]
+          const isPending = lifecycle?.status === 'pending'
+          const left = viewport.offsetX + toFiniteNumber(widget.x, 0) * viewport.scale
+          const top = viewport.offsetY + toFiniteNumber(widget.y, 0) * viewport.scale
+          const width = Math.max(1, resolveWidgetWidth(widget) * viewport.scale)
+          const height = Math.max(1, resolveWidgetHeight(widget) * viewport.scale)
+          const presetValue = commandProjection?.validatedSavedPresetValue
+          const hasProjectionPresetValue =
+            (commandProjection?.commandType === 'set_bool' && typeof presetValue === 'boolean') ||
+            (
+              commandProjection?.commandType === 'set_number' &&
+              typeof presetValue === 'number' &&
+              Number.isFinite(presetValue)
+            )
+          const canCommit =
+            Boolean(commandProjection?.isExecutable) &&
+            Boolean(commandProjection?.commandBinding) &&
+            commandProjection?.buttonPayloadAuthority === 'saved-button-command-value' &&
+            hasProjectionPresetValue
+
+          return {
+            widgetId: widget.id,
+            deviceId: commandProjection?.commandBinding?.deviceId ?? null,
+            commandType: commandProjection?.commandType ?? null,
+            availabilityReason: selectCommandAvailabilityReason(commandProjection),
+            left,
+            top,
+            width,
+            height,
+            disabled: isPending || !canCommit,
+            canCommit,
+          }
+        })
+        .filter((anchor): anchor is NonNullable<typeof anchor> => anchor !== null),
+    [commandLifecycleByWidgetId, runtimeLayout.runtimeRenderableWidgets, runtimeProjection, viewport],
+  )
   const commandStateAnchors = useMemo(
     () =>
       runtimeLayout.runtimeRenderableWidgets
@@ -823,10 +868,11 @@ export function DashboardVisualSurface({
               const isVisualValueWidget = widget.type === 'number-display' || widget.type === 'text-display'
               const isToggleWidget = widget.type === 'toggle'
               const isSliderWidget = widget.type === 'slider'
+              const isButtonWidget = widget.type === 'button'
               const isRuntimeValueWidget = isVisualValueWidget || isToggleWidget || isSliderWidget
               const widgetText = isVisualValueWidget && widgetProjection ? widgetProjection.visualValue : widget.id
               const isLedWidget = widget.type === 'led'
-              const isUnsupportedVisualWidget = !isLedWidget && !isRuntimeValueWidget
+              const isUnsupportedVisualWidget = !isLedWidget && !isRuntimeValueWidget && !isButtonWidget
               const widgetCaption = selectWidgetCaption(widget)
               const readOnlyTextY = y + Math.max(20, height / 2)
               const isToggleOn = actualValue === true
@@ -998,6 +1044,34 @@ export function DashboardVisualSurface({
                         listening={false}
                       />
                     </>
+                  ) : isButtonWidget ? (
+                    <>
+                      <Rect
+                        data-testid={`dashboard-visual-widget-shell-${widget.id}`}
+                        x={x}
+                        y={y}
+                        width={width}
+                        height={height}
+                        cornerRadius={6}
+                        fill={fill}
+                        stroke={stroke}
+                        strokeWidth={2}
+                        listening={false}
+                      />
+                      <Text
+                        data-testid={`dashboard-visual-widget-value-${widget.id}`}
+                        x={x + 8}
+                        y={y + Math.max(6, (height - fontSize) / 2)}
+                        width={Math.max(0, width - 16)}
+                        height={Math.max(0, height - 8)}
+                        align="center"
+                        verticalAlign="middle"
+                        text={widgetCaption}
+                        fontSize={Math.min(fontSize, 14)}
+                        fill={textFill}
+                        listening={false}
+                      />
+                    </>
                   ) : (
                     <>
                       <Rect
@@ -1127,6 +1201,41 @@ export function DashboardVisualSurface({
                 deviceId: anchor.deviceId,
                 commandType: anchor.commandType,
                 value: anchor.value,
+              })
+            }}
+            className="pointer-events-auto absolute cursor-pointer opacity-0 disabled:cursor-not-allowed"
+            style={{
+              left: `${anchor.left}px`,
+              top: `${anchor.top}px`,
+              width: `${anchor.width}px`,
+              height: `${anchor.height}px`,
+            }}
+          />
+        ))}
+        {commandButtonAnchors.map((anchor) => (
+          <button
+            key={anchor.widgetId}
+            type="button"
+            aria-label={`Command button ${anchor.widgetId}`}
+            data-testid={`dashboard-command-button-${anchor.widgetId}`}
+            data-command-availability={anchor.availabilityReason}
+            data-command-executable={anchor.canCommit ? 'true' : 'false'}
+            disabled={anchor.disabled}
+            onClick={() => {
+              if (
+                anchor.disabled ||
+                !anchor.canCommit ||
+                !anchor.deviceId ||
+                !anchor.commandType ||
+                !onCommandCommit
+              ) {
+                return
+              }
+
+              onCommandCommit({
+                widgetId: anchor.widgetId,
+                deviceId: anchor.deviceId,
+                commandType: anchor.commandType,
               })
             }}
             className="pointer-events-auto absolute cursor-pointer opacity-0 disabled:cursor-not-allowed"
