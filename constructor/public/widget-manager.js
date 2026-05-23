@@ -513,7 +513,11 @@ export class WidgetManager {
         return { ...base, isOn: w.isOn, labelOn: w.labelOn, labelOff: w.labelOff, backgroundColorOn: w.backgroundColorOn, backgroundColorOff: w.backgroundColorOff };
       }
       if (w.type === 'button') {
-        return { ...base, text: w.text };
+        const button = { ...base, text: w.text };
+        if (Object.prototype.hasOwnProperty.call(w, 'commandValue') && w.commandValue !== undefined) {
+          button.commandValue = w.commandValue;
+        }
+        return button;
       }
       if (w.type === 'slider') {
         return { ...base, min: w.min, max: w.max, step: w.step, value: w.value };

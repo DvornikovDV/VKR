@@ -375,6 +375,10 @@ export type DashboardCommandAvailabilityReason =
   | 'incompatible-widget-command'
   | 'missing-catalog-command'
   | 'missing-reported-widget-binding'
+  | 'invalid-button-command-preset'
+
+export type DashboardCommandPresetValue = boolean | number
+export type DashboardButtonPayloadAuthority = 'saved-button-command-value'
 
 export interface DashboardCommandRuntimeProjection {
   widgetId: string
@@ -385,6 +389,8 @@ export interface DashboardCommandRuntimeProjection {
   commandBinding: DashboardCommandBinding | null
   reportedWidgetBinding: DashboardWidgetBinding | null
   catalogCommand: DashboardCommandCapability | null
+  validatedSavedPresetValue?: DashboardCommandPresetValue | null
+  buttonPayloadAuthority?: DashboardButtonPayloadAuthority | null
 }
 
 export type DashboardCommandLifecycleStatus =

@@ -9,6 +9,7 @@ import { normalizeDashboardRuntimeLayout } from '@/features/dashboard/model/runt
 import {
   createDashboardVisualRestFixtures,
   dashboardVisualBindingProfile,
+  dashboardVisualCatalog,
   dashboardVisualDiagram,
   dashboardVisualLayout,
 } from '../fixtures/dashboardVisualLayout'
@@ -24,8 +25,75 @@ describe('dashboard visual layout fixture (T034)', () => {
       'led',
       'toggle',
       'slider',
+      'button',
+      'button',
       'number-display',
     ])
+    expect(
+      dashboardVisualLayout.widgets.find((widget) => widget.id === 'widget-command-button-bool'),
+    ).toEqual(
+      expect.objectContaining({
+        type: 'button',
+        commandValue: false,
+      }),
+    )
+    expect(
+      dashboardVisualLayout.widgets.find((widget) => widget.id === 'widget-command-button-number'),
+    ).toEqual(
+      expect.objectContaining({
+        type: 'button',
+        commandValue: 50,
+      }),
+    )
+    expect(dashboardVisualBindingProfile.widgetBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          widgetId: 'widget-command-button-bool',
+          deviceId: 'pump-1',
+          metric: 'running',
+        }),
+        expect.objectContaining({
+          widgetId: 'widget-command-button-number',
+          deviceId: 'boiler-1',
+          metric: 'flowRate',
+        }),
+      ]),
+    )
+    expect(dashboardVisualBindingProfile.commandBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          widgetId: 'widget-command-button-bool',
+          deviceId: 'pump-1',
+          commandType: 'set_bool',
+        }),
+        expect.objectContaining({
+          widgetId: 'widget-command-button-number',
+          deviceId: 'boiler-1',
+          commandType: 'set_number',
+        }),
+      ]),
+    )
+    expect(
+      dashboardVisualBindingProfile.commandBindings.every(
+        (binding) => !Object.prototype.hasOwnProperty.call(binding, 'commandValue'),
+      ),
+    ).toBe(true)
+    expect(dashboardVisualCatalog.commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          deviceId: 'pump-1',
+          commandType: 'set_bool',
+          valueType: 'boolean',
+          reportedMetric: 'running',
+        }),
+        expect.objectContaining({
+          deviceId: 'boiler-1',
+          commandType: 'set_number',
+          valueType: 'number',
+          reportedMetric: 'flowRate',
+        }),
+      ]),
+    )
 
     const fixtures = createDashboardVisualRestFixtures()
 

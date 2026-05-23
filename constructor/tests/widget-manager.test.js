@@ -166,6 +166,57 @@ test('WidgetManager persists label widgets without telemetry bindings', () => {
   assert.deepEqual(manager.exportBindings(), []);
 });
 
+test('WidgetManager persists button commandValue false and numeric presets through layout serialization only', () => {
+  const imageManager = createImageManager();
+  const sourceManager = new WidgetManager(createLayer(), imageManager, {});
+
+  const falseButton = sourceManager.create(createWidgetConfig('button', {
+    text: 'Silence siren',
+    commandValue: false,
+    bindingId: 'siren',
+    bindingMetric: 'actual_state',
+    binding: { deviceId: 'siren', metric: 'actual_state' },
+  }));
+  const numericButton = sourceManager.create(createWidgetConfig('button', {
+    y: 110,
+    text: 'Valve 50%',
+    commandValue: 128,
+  }));
+  sourceManager.syncWidgetBinding(falseButton, { deviceId: 'siren', metric: 'actual_state' });
+
+  assert.equal(falseButton.commandValue, false);
+  assert.equal(numericButton.commandValue, 128);
+
+  const firstExport = sourceManager.exportWidgets();
+  const exportedFalseButton = firstExport.find((widget) => widget.id === falseButton.id);
+  const exportedNumericButton = firstExport.find((widget) => widget.id === numericButton.id);
+
+  assert.equal(exportedFalseButton.commandValue, false);
+  assert.equal(exportedNumericButton.commandValue, 128);
+
+  const widgetBindings = sourceManager.exportBindings();
+  assert.deepEqual(widgetBindings, [
+    {
+      widgetId: falseButton.id,
+      deviceId: 'siren',
+      metric: 'actual_state',
+    },
+  ]);
+  assert.equal(Object.prototype.hasOwnProperty.call(widgetBindings[0], 'commandValue'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(widgetBindings[0], 'commandType'), false);
+
+  const importedManager = new WidgetManager(createLayer(), imageManager, {});
+  importedManager.importWidgets(firstExport, imageManager);
+
+  const secondExport = importedManager.exportWidgets();
+  const reexportedFalseButton = secondExport.find((widget) => widget.id === falseButton.id);
+  const reexportedNumericButton = secondExport.find((widget) => widget.id === numericButton.id);
+
+  assert.equal(reexportedFalseButton.commandValue, false);
+  assert.equal(reexportedNumericButton.commandValue, 128);
+  assert.deepEqual(importedManager.exportBindings(), widgetBindings);
+});
+
 test('FileManager layout load resyncs widget counter from mixed widget ids and ignores malformed ids', async () => {
   const layer = createLayer();
   const imageManager = createImageManager();

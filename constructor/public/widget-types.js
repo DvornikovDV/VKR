@@ -584,6 +584,9 @@ export class ButtonWidget extends ControlWidget {
   constructor(config) {
     super(config);
     this.text = config.text || 'Button';
+    if (Object.prototype.hasOwnProperty.call(config, 'commandValue') && config.commandValue !== undefined) {
+      this.commandValue = config.commandValue;
+    }
   }
 
   render(layer) {
