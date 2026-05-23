@@ -27,9 +27,9 @@ function createColorProperty(label, propName, value) {
 }
 
 function createNumberProperty(label, propName, value, min = '', max = '', step = '') {
-    const minAttr = min ? `min="${min}"` : '';
-    const maxAttr = max ? `max="${max}"` : '';
-    const stepAttr = step ? `step="${step}"` : '';
+    const minAttr = min !== '' && min !== null && min !== undefined ? `min="${min}"` : '';
+    const maxAttr = max !== '' && max !== null && max !== undefined ? `max="${max}"` : '';
+    const stepAttr = step !== '' && step !== null && step !== undefined ? `step="${step}"` : '';
     return `
     <div class="mb-1">
       <label class="form-label small">${label}</label>
@@ -186,30 +186,174 @@ class PropertiesPanel {
         this.bindingsManager = bindingsManager;
     }
 
-    /**
-     * Return the allowed commandType for a widget type, or null if unsupported.
-     * toggle -> set_bool, slider -> set_number, all others -> null.
-     */
+    getAllowedCommandTypes(widgetType) {
+        if (widgetType === 'toggle') return ['set_bool'];
+        if (widgetType === 'slider') return ['set_number'];
+        if (widgetType === 'button') return ['set_bool', 'set_number'];
+        return [];
+    }
+
     getAllowedCommandType(widgetType) {
-        if (widgetType === 'toggle') return 'set_bool';
-        if (widgetType === 'slider') return 'set_number';
-        return null;
+        const types = this.getAllowedCommandTypes(widgetType);
+        return types.length === 1 ? types[0] : null;
+    }
+
+    isCommandTypeAllowedForWidget(widgetType, commandType) {
+        return this.getAllowedCommandTypes(widgetType).includes(commandType);
     }
 
     /**
-     * Return filtered command options from the catalog for the given allowed commandType.
+     * Return filtered command options from the catalog for the given allowed commandType(s).
      * Options come exclusively from bindingsManager.availableCommandOptions.
-     * @param {string} allowedCommandType
+     * @param {string|string[]} allowedCommandTypes
      * @returns {Array<{deviceId, commandType, label}>}
      */
-    getCommandTargetOptions(allowedCommandType) {
-        if (!allowedCommandType) return [];
+    getCommandTargetOptions(allowedCommandTypes) {
+        const allowedTypes = Array.isArray(allowedCommandTypes)
+            ? allowedCommandTypes
+            : allowedCommandTypes
+                ? [allowedCommandTypes]
+                : [];
+        if (allowedTypes.length === 0) return [];
         if (!this.bindingsManager || !Array.isArray(this.bindingsManager.availableCommandOptions)) {
             return [];
         }
         return this.bindingsManager.availableCommandOptions.filter(
-            (opt) => opt && opt.commandType === allowedCommandType
+            (opt) => opt && allowedTypes.includes(opt.commandType)
         );
+    }
+
+    getCommandOptionValue(option) {
+        if (!option || typeof option.deviceId !== 'string' || typeof option.commandType !== 'string') {
+            return '';
+        }
+
+        return `${option.commandType}:${encodeURIComponent(option.deviceId)}`;
+    }
+
+    getCommandOptionByValue(widget, value) {
+        if (!widget || typeof value !== 'string' || value.length === 0) {
+            return null;
+        }
+
+        const separatorIndex = value.indexOf(':');
+        if (separatorIndex <= 0) {
+            return null;
+        }
+
+        const commandType = value.slice(0, separatorIndex);
+        let deviceId = '';
+        try {
+            deviceId = decodeURIComponent(value.slice(separatorIndex + 1));
+        } catch (_error) {
+            return null;
+        }
+
+        return this.getCommandTargetOptions(this.getAllowedCommandTypes(widget.type)).find(
+            (option) =>
+                option &&
+                option.deviceId === deviceId &&
+                option.commandType === commandType,
+        ) || null;
+    }
+
+    getSelectedCommandOption(widget) {
+        if (!widget || !this.bindingsManager || typeof this.bindingsManager.getCommandBindingForWidget !== 'function') {
+            return null;
+        }
+
+        const commandBinding = this.bindingsManager.getCommandBindingForWidget(widget.id);
+        if (!commandBinding || !this.isCommandTypeAllowedForWidget(widget.type, commandBinding.commandType)) {
+            return null;
+        }
+
+        return this.getCommandOptionForBinding(commandBinding);
+    }
+
+    getCommandOptionValueType(commandOption) {
+        const catalogValueType = this.normalizeMetricValueType(commandOption && commandOption.valueType);
+        if (catalogValueType) {
+            return catalogValueType;
+        }
+
+        if (commandOption && commandOption.commandType === 'set_bool') return 'boolean';
+        if (commandOption && commandOption.commandType === 'set_number') return 'number';
+        return null;
+    }
+
+    getFiniteCatalogNumber(value) {
+        return typeof value === 'number' && Number.isFinite(value) ? value : null;
+    }
+
+    validateCommandPresetValue(rawValue, commandOption) {
+        if (!commandOption) {
+            return { valid: false };
+        }
+
+        if (rawValue === '') {
+            return { valid: true, cleared: true };
+        }
+
+        const valueType = this.getCommandOptionValueType(commandOption);
+        if (valueType === 'boolean') {
+            if (rawValue === true || rawValue === 'true') {
+                return { valid: true, value: true };
+            }
+            if (rawValue === false || rawValue === 'false') {
+                return { valid: true, value: false };
+            }
+            return { valid: false };
+        }
+
+        if (valueType === 'number') {
+            const value = typeof rawValue === 'number' ? rawValue : Number(rawValue);
+            if (!Number.isFinite(value)) {
+                return { valid: false };
+            }
+
+            const min = this.getFiniteCatalogNumber(commandOption.min);
+            const max = this.getFiniteCatalogNumber(commandOption.max);
+            if (min !== null && value < min) {
+                return { valid: false };
+            }
+            if (max !== null && value > max) {
+                return { valid: false };
+            }
+
+            return { valid: true, value };
+        }
+
+        return { valid: false };
+    }
+
+    applyCommandPresetValue(widget, rawValue) {
+        if (!widget || widget.type !== 'button') {
+            return false;
+        }
+
+        const commandOption = this.getSelectedCommandOption(widget);
+        const validation = this.validateCommandPresetValue(rawValue, commandOption);
+        if (!validation.valid) {
+            return false;
+        }
+
+        if (validation.cleared) {
+            delete widget.commandValue;
+        } else {
+            widget.commandValue = validation.value;
+        }
+
+        this.notifyWidgetConfigChanged(widget);
+        return true;
+    }
+
+    notifyWidgetConfigChanged(widget) {
+        const layer = this.canvasManager ? this.canvasManager.getLayer() : null;
+        if (layer && widget && typeof widget.render === 'function') {
+            widget.render(layer);
+            layer.batchDraw();
+        }
+        if (this.onWidgetUpdated) this.onWidgetUpdated(widget);
     }
 
     normalizeMetricValueType(valueType) {
@@ -345,20 +489,38 @@ class PropertiesPanel {
      * @param {string} commandType
      */
     setCommandBinding(widget, deviceId, commandType) {
-        if (!this.bindingsManager) return;
+        if (!this.bindingsManager || !widget) return;
         const widgetId = widget && widget.id;
         if (!deviceId) {
             if (typeof this.bindingsManager.removeCommand === 'function') {
                 this.bindingsManager.removeCommand(widgetId);
             }
+            if (widget.type === 'button') {
+                delete widget.commandValue;
+                this.notifyWidgetConfigChanged(widget);
+            }
             if (this.onBindingsChanged) this.onBindingsChanged();
             return;
         }
+        if (!this.isCommandTypeAllowedForWidget(widget.type, commandType)) {
+            return;
+        }
+
+        const previousBinding = typeof this.bindingsManager.getCommandBindingForWidget === 'function'
+            ? this.bindingsManager.getCommandBindingForWidget(widgetId)
+            : null;
         if (typeof this.bindingsManager.assignCommand === 'function') {
             const assigned = this.bindingsManager.assignCommand(widgetId, deviceId, commandType);
             if (!assigned) {
                 console.warn(`[PropertiesPanel] assignCommand returned false: deviceId=${deviceId}, commandType=${commandType}. Command not in active catalog.`);
             } else {
+                const targetChanged = !previousBinding ||
+                    previousBinding.deviceId !== deviceId ||
+                    previousBinding.commandType !== commandType;
+                if (widget.type === 'button' && targetChanged) {
+                    delete widget.commandValue;
+                    this.notifyWidgetConfigChanged(widget);
+                }
                 this.syncReportedBindingForCommand(widget);
             }
         }
@@ -372,25 +534,20 @@ class PropertiesPanel {
      * @returns {string} HTML fragment (may be empty string)
      */
     renderCommandTargetSection(widget) {
-        const allowedCommandType = this.getAllowedCommandType(widget.type);
-        if (!allowedCommandType) return '';
+        const allowedCommandTypes = this.getAllowedCommandTypes(widget.type);
+        if (allowedCommandTypes.length === 0) return '';
 
-        const options = this.getCommandTargetOptions(allowedCommandType);
+        const options = this.getCommandTargetOptions(allowedCommandTypes);
         if (options.length === 0) return '';
 
-        // Resolve current binding from bindingsManager
-        let currentDeviceId = '';
-        if (this.bindingsManager && typeof this.bindingsManager.getCommandBindingForWidget === 'function') {
-            const existing = this.bindingsManager.getCommandBindingForWidget(widget.id);
-            if (existing && existing.commandType === allowedCommandType) {
-                currentDeviceId = existing.deviceId || '';
-            }
-        }
+        const currentOption = this.getSelectedCommandOption(widget);
+        const currentValue = currentOption ? this.getCommandOptionValue(currentOption) : '';
 
         const labelMap = { set_bool: 'set_bool (bool)', set_number: 'set_number (number)' };
+        const typeLabel = allowedCommandTypes.map((type) => labelMap[type] || type).join(' / ');
         let html = `
             <div class="mb-2 mt-3"><strong>Цель команды</strong></div>
-            <div class="small text-muted mb-1">Тип команды: <em>${labelMap[allowedCommandType] || allowedCommandType}</em></div>
+            <div class="small text-muted mb-1">Тип команды: <em>${typeLabel}</em></div>
             <div class="mb-1" id="cmd-target-section">
               <label class="form-label small">Устройство (команда):</label>
               <select id="command-target-select" class="form-control form-control-sm">
@@ -398,9 +555,10 @@ class PropertiesPanel {
         `;
 
         options.forEach((opt) => {
-            const selected = currentDeviceId === opt.deviceId ? 'selected' : '';
+            const value = this.getCommandOptionValue(opt);
+            const selected = currentValue === value ? 'selected' : '';
             const label = opt.label || `${opt.deviceId}/${opt.commandType}`;
-            html += `<option value="${opt.deviceId}" ${selected}>${label}</option>`;
+            html += `<option value="${value}" ${selected}>${label} (${opt.commandType})</option>`;
         });
 
         html += `
@@ -409,6 +567,55 @@ class PropertiesPanel {
         `;
 
         return html;
+    }
+
+    renderCommandPresetSection(widget) {
+        if (!widget || widget.type !== 'button') {
+            return '';
+        }
+
+        const commandOption = this.getSelectedCommandOption(widget);
+        if (!commandOption) {
+            return '';
+        }
+
+        const valueType = this.getCommandOptionValueType(commandOption);
+        const validation = Object.prototype.hasOwnProperty.call(widget, 'commandValue')
+            ? this.validateCommandPresetValue(widget.commandValue, commandOption)
+            : { valid: false };
+
+        if (valueType === 'boolean') {
+            const selectedTrue = validation.valid && widget.commandValue === true ? 'selected' : '';
+            const selectedFalse = validation.valid && widget.commandValue === false ? 'selected' : '';
+            return `
+            <div class="mb-2 mt-3" id="cmd-preset-section"><strong>Фиксированное значение</strong></div>
+            <div class="mb-1">
+              <label class="form-label small">Value:</label>
+              <select id="command-preset-value-select" class="form-control form-control-sm">
+                <option value="">-- выберите значение --</option>
+                <option value="true" ${selectedTrue}>true</option>
+                <option value="false" ${selectedFalse}>false</option>
+              </select>
+            </div>
+        `;
+        }
+
+        if (valueType === 'number') {
+            const min = this.getFiniteCatalogNumber(commandOption.min);
+            const max = this.getFiniteCatalogNumber(commandOption.max);
+            const minAttr = min !== null ? `min="${min}"` : '';
+            const maxAttr = max !== null ? `max="${max}"` : '';
+            const value = validation.valid && typeof widget.commandValue === 'number' ? widget.commandValue : '';
+            return `
+            <div class="mb-2 mt-3" id="cmd-preset-section"><strong>Фиксированное значение</strong></div>
+            <div class="mb-1">
+              <label class="form-label small">Value:</label>
+              <input id="command-preset-value-input" type="number" class="form-control form-control-sm" value="${value}" ${minAttr} ${maxAttr}>
+            </div>
+        `;
+        }
+
+        return '';
     }
 
     normalizeBindingMetric(metric) {
@@ -658,6 +865,7 @@ class PropertiesPanel {
 
         // Command target section (toggle -> set_bool, slider -> set_number only)
         html += this.renderCommandTargetSection(widget);
+        html += this.renderCommandPresetSection(widget);
         if (!isBindableWidget) {
             this.container.innerHTML = html;
             this.attachWidgetPropertyListeners(widget);
@@ -820,11 +1028,35 @@ class PropertiesPanel {
         // Command target select handler
         const commandTargetSelect = this.container.querySelector('#command-target-select');
         if (commandTargetSelect) {
-            const allowedCommandType = this.getAllowedCommandType(widget.type);
             commandTargetSelect.addEventListener('change', (e) => {
-                const deviceId = e.target.value || null;
-                this.setCommandBinding(widget, deviceId, allowedCommandType);
+                const selectedOption = this.getCommandOptionByValue(widget, e.target.value);
+                if (!selectedOption) {
+                    this.setCommandBinding(widget, null, null);
+                    this.showPropertiesForWidget(widget);
+                    return;
+                }
+
+                this.setCommandBinding(widget, selectedOption.deviceId, selectedOption.commandType);
                 // Re-render to reflect saved state
+                this.showPropertiesForWidget(widget);
+            });
+        }
+
+        const commandPresetSelect = this.container.querySelector('#command-preset-value-select');
+        if (commandPresetSelect) {
+            commandPresetSelect.addEventListener('change', (e) => {
+                this.applyCommandPresetValue(widget, e.target.value);
+                this.showPropertiesForWidget(widget);
+            });
+        }
+
+        const commandPresetInput = this.container.querySelector('#command-preset-value-input');
+        if (commandPresetInput) {
+            commandPresetInput.addEventListener('change', (e) => {
+                const applied = this.applyCommandPresetValue(widget, e.target.value);
+                if (!applied && Object.prototype.hasOwnProperty.call(widget, 'commandValue')) {
+                    e.target.value = widget.commandValue;
+                }
                 this.showPropertiesForWidget(widget);
             });
         }
