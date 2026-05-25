@@ -297,8 +297,8 @@ describe('FullConstructorPage recovery and retry flows', () => {
       harness.emitSaveBindingsIntent()
     })
 
-    expect(await screen.findByText('Сначала сохранить layout?')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Сохранить layout и привязки' }))
+    expect(await screen.findByText('Сначала сохранить разметку?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Сохранить разметку и привязки' }))
 
     await waitFor(() => {
       expect(callOrder).toEqual(['put', 'post-bindings'])
@@ -432,8 +432,8 @@ describe('FullConstructorPage recovery and retry flows', () => {
       harness.emitSaveBindingsIntent()
     })
 
-    expect(await screen.findByText('Сначала сохранить layout?')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Сохранить layout и привязки' }))
+    expect(await screen.findByText('Сначала сохранить разметку?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Сохранить разметку и привязки' }))
 
     expect(await screen.findByText('Сохранение layout удалит существующие привязки.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Продолжить с удалением' }))

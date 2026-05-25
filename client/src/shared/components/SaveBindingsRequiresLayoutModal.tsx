@@ -48,7 +48,7 @@ export function SaveBindingsRequiresLayoutModal({
         className="w-full max-w-lg rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-5"
       >
         <h2 id={titleId} className="text-base font-semibold text-white">
-          Сначала сохранить layout?
+          Сначала сохранить разметку?
         </h2>
         <p id={descriptionId} className="mt-1 text-sm text-[#94a3b8]">
           В мнемосхеме есть несохраненные изменения layout. Чтобы привязки остались связанными
@@ -62,7 +62,7 @@ export function SaveBindingsRequiresLayoutModal({
             onClick={onConfirm}
             className="rounded-md bg-[var(--color-brand-600)] px-3 py-2 text-sm text-white hover:bg-[var(--color-brand-500)] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSubmitting ? 'Сохранение...' : 'Сохранить layout и привязки'}
+            {isSubmitting ? 'Сохранение...' : 'Сохранить разметку и привязки'}
           </button>
           <button
             type="button"

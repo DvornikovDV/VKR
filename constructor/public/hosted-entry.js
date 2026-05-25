@@ -81,7 +81,7 @@ function createHostedShell(mode) {
             </button>
             <div class="hosted-file-menu-popover" data-file-menu-popover hidden>
               <button type="button" class="hosted-file-item" id="add-image-btn">Добавить изображение</button>
-              <button type="button" class="hosted-file-item" id="save-schema-btn">Сохранить layout</button>
+              <button type="button" class="hosted-file-item" id="save-schema-btn">Сохранить разметку</button>
               <button type="button" class="hosted-file-item" id="save-as-btn">Сохранить как</button>
               <button type="button" class="hosted-file-item" id="clear-btn">Очистить</button>
               <div class="hosted-file-separator" style="${bindingVisibilityStyle}" aria-hidden="true"></div>

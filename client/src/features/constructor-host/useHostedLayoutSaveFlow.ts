@@ -148,7 +148,7 @@ export function useHostedLayoutSaveFlow({
         return false
       }
 
-      setSaveConflictError(toErrorMessage(error, 'Не удалось сохранить layout мнемосхемы.'))
+      setSaveConflictError(toErrorMessage(error, 'Не удалось сохранить разметку мнемосхемы.'))
       return false
     } finally {
       setIsSavingLayout(false)
