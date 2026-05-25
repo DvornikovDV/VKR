@@ -1061,9 +1061,9 @@ export function DashboardVisualSurface({
                       <Text
                         data-testid={`dashboard-visual-widget-value-${widget.id}`}
                         x={x + 8}
-                        y={y + Math.max(6, (height - fontSize) / 2)}
+                        y={y}
                         width={Math.max(0, width - 16)}
-                        height={Math.max(0, height - 8)}
+                        height={height}
                         align="center"
                         verticalAlign="middle"
                         text={widgetCaption}

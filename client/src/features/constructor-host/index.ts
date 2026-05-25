@@ -1,5 +1,6 @@
 export * from './runtimePaths'
 export * from './types'
 export * from './loadHostedConstructor'
+export * from './useHostedRuntimeDirtyState'
 export * from './useUnsavedChangesGuard'
 export * from './ConstructorHost'

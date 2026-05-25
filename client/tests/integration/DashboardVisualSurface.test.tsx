@@ -164,6 +164,9 @@ describe('Dashboard visual runtime surface (T040)', () => {
     expect(temperatureShell).toHaveAttribute('data-fill', '#0f172a')
     expect(temperatureShell).toHaveAttribute('data-stroke', '#38bdf8')
     expect(screen.getByTestId('dashboard-visual-widget-widget-command-toggle')).toBeInTheDocument()
+    const buttonLabel = screen.getByTestId('dashboard-visual-widget-value-widget-command-button-bool')
+    expect(buttonLabel).toHaveAttribute('data-y', '36')
+    expect(buttonLabel).toHaveAttribute('data-height', '40')
 
     expect(screen.getByText('Проблемы визуальной отрисовки: 2 восстановимых')).toBeInTheDocument()
     expect(screen.queryByText('Saved diagram snapshot')).not.toBeInTheDocument()
