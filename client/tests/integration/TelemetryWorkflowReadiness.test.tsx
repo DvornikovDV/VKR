@@ -249,7 +249,7 @@ describe('Telemetry workflow readiness integration (T050c)', () => {
     expect(router.state.location.search).toContain('edgeId=edge-a')
 
     const dispatchTabs = await screen.findByRole('tablist', { name: 'Вкладки диспетчеризации' })
-    expect(within(dispatchTabs).getByRole('tab', { name: 'Мнемосхема' })).toHaveAttribute(
+    expect(within(dispatchTabs).getByRole('tab', { name: 'Дашборд' })).toHaveAttribute(
       'aria-selected',
       'true',
     )

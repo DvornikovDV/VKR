@@ -233,7 +233,7 @@ describe('DispatchWorkspacePage routing', () => {
     expect(screen.getByRole('link', { name: 'Диспетчеризация' })).toHaveAttribute('href', '/hub/dispatch')
 
     const tablist = await screen.findByRole('tablist', { name: 'Вкладки диспетчеризации' })
-    expect(within(tablist).getByRole('tab', { name: 'Мнемосхема' })).toHaveAttribute(
+    expect(within(tablist).getByRole('tab', { name: 'Дашборд' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
@@ -389,7 +389,7 @@ describe('DispatchWorkspacePage routing', () => {
     expect(legacySearchParams.get('diagramId')).toBe(dashboardVisualDiagram._id)
     expect(legacySearchParams.get('edgeId')).toBe('edge-visual-1')
 
-    expect(await screen.findByRole('tab', { name: 'Мнемосхема' })).toHaveAttribute(
+    expect(await screen.findByRole('tab', { name: 'Дашборд' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
@@ -598,7 +598,7 @@ describe('DispatchWorkspacePage routing', () => {
 
     await user.click(
       within(screen.getByRole('tablist', { name: 'Вкладки диспетчеризации' })).getByRole('tab', {
-        name: 'Мнемосхема',
+        name: 'Дашборд',
       }),
     )
 

@@ -147,7 +147,7 @@ describe('Dispatch shell component primitives (T007-T010)', () => {
     expect(screen.getByRole('button', { name: 'Fit to view' })).toBeInTheDocument()
 
     const tabs = screen.getByRole('tablist', { name: 'Вкладки диспетчеризации' })
-    expect(within(tabs).getByRole('tab', { name: 'Мнемосхема' })).toHaveAttribute(
+    expect(within(tabs).getByRole('tab', { name: 'Дашборд' })).toHaveAttribute(
       'href',
       '/hub/dispatch/dashboard?diagramId=diagram-1&edgeId=edge-1',
     )

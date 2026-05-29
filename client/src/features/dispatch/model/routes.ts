@@ -28,7 +28,7 @@ export interface DispatchTabRouteDefinition {
 export const DISPATCH_TAB_ROUTES = [
   {
     id: DISPATCH_DASHBOARD_TAB,
-    label: 'Мнемосхема',
+    label: 'Дашборд',
     path: `${DISPATCH_ROUTE_PREFIX}/${DISPATCH_DASHBOARD_TAB}`,
     segment: DISPATCH_DASHBOARD_TAB,
     isRuntimeTab: true,
