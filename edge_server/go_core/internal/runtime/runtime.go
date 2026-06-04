@@ -23,6 +23,7 @@ type Runner struct {
 	persistMu   sync.Mutex
 	bootstrap   *BootstrapSession
 	transport   cloud.Transport
+	reconnect   *ReconnectPolicy
 	telemetry   *TelemetryPipeline
 	alarm       *AlarmDetector
 	bridge      *CommandBridge
@@ -45,6 +46,7 @@ func NewWithTransport(transport cloud.Transport) *Runner {
 }
 
 var ErrCloudTransportUnavailable = errors.New("cloud transport is not configured")
+var ErrReconnectPolicyUnavailable = errors.New("runtime reconnect policy is not configured")
 
 func NewMissingAuthPathError(lastReason *string) error {
 	if lastReason != nil && strings.TrimSpace(*lastReason) != "" {
@@ -183,6 +185,28 @@ func (r *Runner) currentTransport() (cloud.Transport, error) {
 		return nil, ErrCloudTransportUnavailable
 	}
 	return r.transport, nil
+}
+
+func (r *Runner) BindReconnectPolicy(policy *ReconnectPolicy) error {
+	if policy == nil {
+		return ErrReconnectPolicyUnavailable
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.reconnect = policy
+	return nil
+}
+
+func (r *Runner) currentReconnectPolicy() (*ReconnectPolicy, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if r.reconnect == nil {
+		return nil, ErrReconnectPolicyUnavailable
+	}
+	return r.reconnect, nil
 }
 
 func (r *Runner) currentTelemetryPipeline() *TelemetryPipeline {
@@ -417,6 +441,7 @@ func (r *Runner) Run(ctx context.Context) error {
 	)
 	lifecycleEvents := make(chan string, 8)
 	sessionFlow := newTrustSessionFlow(r)
+	reconnectAttempt := 0
 
 	for {
 		select {
@@ -495,6 +520,7 @@ func (r *Runner) Run(ctx context.Context) error {
 		if err := sessionFlow.HandleSuccessfulConnect(auth); err != nil {
 			return fmt.Errorf("promote runtime session after connect: %w", err)
 		}
+		reconnectAttempt = 0
 		if err := r.emitCapabilitiesCatalog(client, auth.EdgeID); err != nil {
 			return fmt.Errorf("emit capabilities catalog after connect: %w", err)
 		}
@@ -509,12 +535,29 @@ func (r *Runner) Run(ctx context.Context) error {
 				return nil
 			case <-lifecycleEvents:
 				_ = client.Disconnect()
+				reconnectAttempt++
+				if err := r.waitForReconnectAttempt(ctx, reconnectAttempt); err != nil {
+					if errors.Is(err, context.Canceled) {
+						return nil
+					}
+					return err
+				}
 				goto nextAttempt
 			}
 		}
 
 	nextAttempt:
 	}
+}
+
+func (r *Runner) waitForReconnectAttempt(ctx context.Context, attempt int) error {
+	policy, err := r.currentReconnectPolicy()
+	if err != nil {
+		return err
+	}
+
+	result := policy.PlanAttempt(attempt)
+	return policy.Wait(ctx, result)
 }
 
 func (r *Runner) emitCapabilitiesCatalog(client *cloud.SocketIOClient, edgeID string) error {

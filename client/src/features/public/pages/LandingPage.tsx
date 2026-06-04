@@ -232,7 +232,7 @@ export function LandingPage() {
 
             {/* ── Footer ───────────────────────────────────────────────────── */}
             <footer className="border-t border-[var(--color-surface-border)] px-4 py-8 text-center text-xs text-[#475569]">
-                © 2026 VKR SCADA Platform — права пока не защищены*
+                © 2026 VKR SCADA Platform*
             </footer>
         </div>
     )

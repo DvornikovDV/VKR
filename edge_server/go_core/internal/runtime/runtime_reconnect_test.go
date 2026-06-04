@@ -2,13 +2,22 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"edge_server/go_core/internal/cloud"
 )
 
+type scriptedConnectResult struct {
+	err              error
+	blockUntilCancel bool
+}
 
+type emittedTransportEvent struct {
+	event   string
+	payload any
+}
 
 type dummyExecutor struct{}
 
@@ -17,16 +26,39 @@ func (d *dummyExecutor) ExecuteCommand(ctx context.Context, req CommandExecution
 }
 
 type fakeTransport struct {
-	connectCh      chan struct{}
-	disconnectCh   chan string
-	executeCommand func(any)
-	emitted        chan any
+	connectCh             chan struct{}
+	disconnectCh          chan string
+	connectResults        []scriptedConnectResult
+	connectCancelObserved chan struct{}
+	executeCommand        func(any)
+	onConnectError        func(error)
+	emitted               chan emittedTransportEvent
 }
 
 func (f *fakeTransport) Connect(ctx context.Context, auth cloud.HandshakeAuth) error {
 	select {
 	case f.connectCh <- struct{}{}:
 	default:
+	}
+
+	var result scriptedConnectResult
+	if len(f.connectResults) > 0 {
+		result = f.connectResults[0]
+		f.connectResults = f.connectResults[1:]
+	}
+	if result.blockUntilCancel {
+		<-ctx.Done()
+		select {
+		case f.connectCancelObserved <- struct{}{}:
+		default:
+		}
+		return ctx.Err()
+	}
+	if result.err != nil && f.onConnectError != nil {
+		f.onConnectError(result.err)
+	}
+	if result.err != nil {
+		return result.err
 	}
 	return nil
 }
@@ -36,8 +68,8 @@ func (f *fakeTransport) Disconnect() error {
 }
 
 func (f *fakeTransport) Emit(event string, payload any) error {
-	if event == "command_result" {
-		f.emitted <- payload
+	if f.emitted != nil {
+		f.emitted <- emittedTransportEvent{event: event, payload: payload}
 	}
 	return nil
 }
@@ -50,7 +82,9 @@ func (f *fakeTransport) OnExecuteCommand(handler func(any)) {
 
 func (f *fakeTransport) OnConnect(handler func() error) {}
 
-func (f *fakeTransport) OnConnectError(handler func(error)) {}
+func (f *fakeTransport) OnConnectError(handler func(error)) {
+	f.onConnectError = handler
+}
 
 func (f *fakeTransport) OnDisconnect(handler func(string)) {
 	go func() {
@@ -66,9 +100,16 @@ func TestRunner_Reconnect_NoDuplicateTerminalResponses(t *testing.T) {
 	transport := &fakeTransport{
 		connectCh:    make(chan struct{}, 10),
 		disconnectCh: make(chan string, 10),
-		emitted:      make(chan any, 10),
+		emitted:      make(chan emittedTransportEvent, 10),
 	}
 	runner.transport = transport
+	if err := runner.BindReconnectPolicy(mustReconnectPolicy(t, ReconnectPolicyConfig{
+		BaseDelay:   time.Millisecond,
+		MaxDelay:    time.Millisecond,
+		MaxAttempts: 0,
+	})); err != nil {
+		t.Fatalf("bind reconnect policy: %v", err)
+	}
 
 	bridge, err := NewCommandBridge(CommandBridgeConfig{
 		EdgeID:   "edge-1",
@@ -111,7 +152,7 @@ func TestRunner_Reconnect_NoDuplicateTerminalResponses(t *testing.T) {
 		"commandType": "set_bool",
 		"payload":     map[string]any{"value": true},
 	}
-	
+
 	if transport.executeCommand != nil {
 		transport.executeCommand(payload)
 	} else {
@@ -120,10 +161,13 @@ func TestRunner_Reconnect_NoDuplicateTerminalResponses(t *testing.T) {
 
 	// Wait for result
 	select {
-	case res := <-transport.emitted:
-		cmdRes, ok := res.(*cloud.CommandResult)
+	case emitted := <-transport.emitted:
+		if emitted.event != "command_result" {
+			t.Fatalf("expected command_result event, got %q", emitted.event)
+		}
+		cmdRes, ok := emitted.payload.(*cloud.CommandResult)
 		if !ok || cmdRes.Status != cloud.CommandStatusConfirmed {
-			t.Fatalf("expected confirmed result, got %v", res)
+			t.Fatalf("expected confirmed result, got %v", emitted.payload)
 		}
 	case <-time.After(1 * time.Second):
 		t.Fatal("timeout waiting for command result")
@@ -148,12 +192,53 @@ func TestRunner_Reconnect_NoDuplicateTerminalResponses(t *testing.T) {
 
 	// Wait to ensure NO second result is emitted (at-most-once prevents it)
 	select {
-	case res := <-transport.emitted:
-		t.Fatalf("expected no duplicate terminal response, got %v", res)
+	case emitted := <-transport.emitted:
+		t.Fatalf("expected no duplicate terminal response, got %v", emitted.payload)
 	case <-time.After(100 * time.Millisecond):
 		// Success: no duplicate response
 	}
 
 	cancel()
 	<-runDone
+}
+
+func TestRunnerReconnectRequiresBoundPolicy(t *testing.T) {
+	runner := New()
+
+	transport := &fakeTransport{
+		connectCh:    make(chan struct{}, 10),
+		disconnectCh: make(chan string, 10),
+		emitted:      make(chan emittedTransportEvent, 10),
+	}
+	runner.transport = transport
+	NewBootstrapSession(runner)
+
+	if err := runner.ActivateTrustedSession("edge-1", "persistent-secret-v1"); err != nil {
+		t.Fatalf("activate trusted session: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runner.Run(ctx)
+	}()
+
+	select {
+	case <-transport.connectCh:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for first connect")
+	}
+
+	transport.disconnectCh <- "transport close"
+
+	select {
+	case err := <-runDone:
+		if !errors.Is(err, ErrReconnectPolicyUnavailable) {
+			t.Fatalf("expected missing reconnect policy error, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for reconnect policy validation")
+	}
 }
