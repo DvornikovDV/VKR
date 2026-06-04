@@ -28,9 +28,9 @@ func MapConnectError(code cloud.ConnectErrorCode) RuntimeOutcome {
 	case cloud.ConnectErrorEdgeAuthInternalError:
 		return RuntimeOutcome{
 			Code:            string(code),
-			RuntimeStatus:   "stopped",
-			CloudConnection: "rejected",
-			AuthSummary:     "internal_error",
+			RuntimeStatus:   "retrying",
+			CloudConnection: "disconnected",
+			AuthSummary:     "retryable_disconnect",
 		}
 	case cloud.ConnectErrorInvalidCredential:
 		return RuntimeOutcome{

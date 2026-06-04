@@ -122,6 +122,30 @@ func (r *Runner) MarkDisconnected(reason string) error {
 	return nil
 }
 
+func (r *Runner) MarkRetryableConnectFailure(reason string) error {
+	r.state.MarkRetryableConnectFailure(reason)
+	if err := r.persistRuntimeState(); err != nil {
+		return fmt.Errorf("persist runtime state after retryable connect failure: %w", err)
+	}
+	if telemetry := r.currentTelemetryPipeline(); telemetry != nil {
+		telemetry.Reset()
+	}
+
+	return nil
+}
+
+func (r *Runner) MarkReconnectExhausted(reason string) error {
+	r.state.MarkReconnectExhausted(reason)
+	if err := r.persistRuntimeState(); err != nil {
+		return fmt.Errorf("persist runtime state after reconnect exhaustion: %w", err)
+	}
+	if telemetry := r.currentTelemetryPipeline(); telemetry != nil {
+		telemetry.Reset()
+	}
+
+	return nil
+}
+
 func (r *Runner) MarkUntrusted(reason string, clearCredential bool) error {
 	r.state.MarkUntrusted(reason, clearCredential)
 	if err := r.persistRuntimeState(); err != nil {

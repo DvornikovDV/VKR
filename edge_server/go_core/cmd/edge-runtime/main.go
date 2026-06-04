@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"edge_server/go_core/internal/cloud"
 	"edge_server/go_core/internal/config"
@@ -31,10 +32,7 @@ func main() {
 		log.Fatalf("edge runtime config load failed: %v", err)
 	}
 
-	transport, err := cloud.NewWebSocketTransport(cloud.WebSocketTransportConfig{
-		CloudURL:  cfg.Cloud.URL,
-		Namespace: cfg.Cloud.Namespace,
-	})
+	transport, err := cloud.NewWebSocketTransport(buildWebSocketTransportConfig(cfg))
 	if err != nil {
 		log.Fatalf("edge runtime transport setup failed: %v", err)
 	}
@@ -48,6 +46,14 @@ func main() {
 	}
 	if err := process.Runner.Run(ctx); err != nil {
 		log.Fatalf("edge runtime failed: %v", err)
+	}
+}
+
+func buildWebSocketTransportConfig(cfg config.Config) cloud.WebSocketTransportConfig {
+	return cloud.WebSocketTransportConfig{
+		CloudURL:       cfg.Cloud.URL,
+		Namespace:      cfg.Cloud.Namespace,
+		ConnectTimeout: time.Duration(cfg.Cloud.ConnectTimeoutMs) * time.Millisecond,
 	}
 }
 

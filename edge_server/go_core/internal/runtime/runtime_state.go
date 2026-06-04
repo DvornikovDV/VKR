@@ -247,6 +247,53 @@ func (s *RuntimeState) MarkDisconnected(reason string) {
 	s.touchLockedAt(now)
 }
 
+func (s *RuntimeState) MarkRetryableConnectFailure(reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.epochs.Invalidate()
+	now := time.Now().UTC()
+	retryEligible := s.session.CredentialStatus == state.CredentialStatusLoaded && s.session.PersistentCredentialSecret != nil
+	sessionState := state.SessionStateOperatorActionRequired
+	if retryEligible {
+		sessionState = state.SessionStateRetryWait
+	}
+	s.session.Trusted = false
+	s.session.Connected = false
+	s.session.SessionEpoch = 0
+	s.session.SessionState = sessionState
+	s.session.AuthOutcome = retryableConnectFailureOutcome(reason)
+	s.session.RetryEligible = retryEligible
+	s.session.LastDisconnectAt = runtimeTimePointer(now)
+	s.session.LastDisconnectReason = normalizeReasonWithFallback(reason, "cloud_unavailable")
+	s.session.LastReason = normalizeReasonWithFallback(reason, "cloud_unavailable")
+	if s.session.CredentialMode == "" {
+		s.session.CredentialMode = CredentialModeNone
+	}
+	s.touchLockedAt(now)
+}
+
+func (s *RuntimeState) MarkReconnectExhausted(reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.epochs.Invalidate()
+	now := time.Now().UTC()
+	s.session.Trusted = false
+	s.session.Connected = false
+	s.session.SessionEpoch = 0
+	s.session.SessionState = state.SessionStateOperatorActionRequired
+	s.session.AuthOutcome = state.AuthOutcomeEdgeAuthInternalErr
+	s.session.RetryEligible = false
+	s.session.LastDisconnectAt = runtimeTimePointer(now)
+	s.session.LastDisconnectReason = normalizeReasonWithFallback(reason, "max_attempts_exhausted")
+	s.session.LastReason = normalizeReasonWithFallback(reason, "max_attempts_exhausted")
+	if s.session.CredentialMode == "" {
+		s.session.CredentialMode = CredentialModeNone
+	}
+	s.touchLockedAt(now)
+}
+
 func (s *RuntimeState) MarkUntrusted(reason string, clearCredential bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -323,6 +370,14 @@ func normalizeReason(reason string) *string {
 	return stringPointer(normalized)
 }
 
+func normalizeReasonWithFallback(reason string, fallback string) *string {
+	if normalized := normalizeReason(reason); normalized != nil {
+		return normalized
+	}
+
+	return normalizeReason(fallback)
+}
+
 func cloneStringPointer(value *string) *string {
 	if value == nil {
 		return nil
@@ -365,6 +420,15 @@ func runtimeTimePointer(value time.Time) *time.Time {
 	return &copy
 }
 
+func retryableConnectFailureOutcome(reason string) state.AuthOutcome {
+	switch strings.TrimSpace(reason) {
+	case "edge_auth_internal_error", "protocol_error":
+		return state.AuthOutcomeEdgeAuthInternalErr
+	default:
+		return state.AuthOutcomeDisconnected
+	}
+}
+
 func (s *RuntimeState) touchLocked() {
 	s.touchLockedAt(time.Now().UTC())
 }
@@ -382,6 +446,8 @@ func classifyUntrustedReason(reason string, clearCredential bool) (state.AuthOut
 	case "edge_not_found":
 		return state.AuthOutcomeEdgeNotFound, state.CredentialStatusRejected, false, state.SessionStateOperatorActionRequired
 	case "invalid_credential":
+		return state.AuthOutcomeInvalidCredential, state.CredentialStatusRejected, false, state.SessionStateOperatorActionRequired
+	case "persistent_credential_revoked", "onboarding_not_allowed", "onboarding_package_missing", "onboarding_package_expired", "onboarding_package_reused":
 		return state.AuthOutcomeInvalidCredential, state.CredentialStatusRejected, false, state.SessionStateOperatorActionRequired
 	case "edge_auth_internal_error", "protocol_error":
 		if clearCredential {

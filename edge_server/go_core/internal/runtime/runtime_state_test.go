@@ -70,3 +70,66 @@ func TestRuntimeStateTracksCredentialSessionAndSourceState(t *testing.T) {
 		t.Fatalf("expected lastDisconnectReason=transport_closed, got %+v", disconnected.LastDisconnectReason)
 	}
 }
+
+func TestRuntimeStateReconnectOutageAndExhaustionPreserveCredential(t *testing.T) {
+	sessionState := NewRuntimeState()
+
+	if err := sessionState.SetSourceSnapshot("edge-1", "rev-009"); err != nil {
+		t.Fatalf("set source snapshot: %v", err)
+	}
+	if err := sessionState.LoadPersistentCredential("edge-1", 7, "persist-secret-v7"); err != nil {
+		t.Fatalf("load persistent credential: %v", err)
+	}
+	if err := sessionState.MarkConnectAttempt("edge-1"); err != nil {
+		t.Fatalf("mark connect attempt: %v", err)
+	}
+
+	sessionState.MarkRetryableConnectFailure("cloud_unavailable")
+
+	retryable := sessionState.Snapshot()
+	if retryable.CredentialVersion == nil || *retryable.CredentialVersion != 7 {
+		t.Fatalf("expected retryable outage to preserve credentialVersion=7, got %+v", retryable.CredentialVersion)
+	}
+	if retryable.CredentialStatus != state.CredentialStatusLoaded {
+		t.Fatalf("expected retryable outage to preserve credentialStatus=loaded, got %q", retryable.CredentialStatus)
+	}
+	if retryable.PersistentCredentialSecret == nil || *retryable.PersistentCredentialSecret != "persist-secret-v7" {
+		t.Fatalf("expected retryable outage to preserve in-memory credential secret")
+	}
+	if retryable.SessionState != state.SessionStateRetryWait {
+		t.Fatalf("expected retryable outage sessionState=retry_wait, got %q", retryable.SessionState)
+	}
+	if retryable.AuthOutcome != state.AuthOutcomeDisconnected {
+		t.Fatalf("expected retryable outage authOutcome=disconnected, got %q", retryable.AuthOutcome)
+	}
+	if !retryable.RetryEligible {
+		t.Fatal("expected retryable outage to remain retry eligible")
+	}
+
+	sessionState.MarkReconnectExhausted("max_attempts_exhausted")
+
+	exhausted := sessionState.Snapshot()
+	if exhausted.CredentialVersion == nil || *exhausted.CredentialVersion != 7 {
+		t.Fatalf("expected exhaustion to preserve credentialVersion=7, got %+v", exhausted.CredentialVersion)
+	}
+	if exhausted.CredentialStatus != state.CredentialStatusLoaded {
+		t.Fatalf("expected exhaustion to preserve credentialStatus=loaded, got %q", exhausted.CredentialStatus)
+	}
+	if exhausted.PersistentCredentialSecret == nil || *exhausted.PersistentCredentialSecret != "persist-secret-v7" {
+		t.Fatalf("expected exhaustion to preserve in-memory credential secret")
+	}
+	if exhausted.SessionState != state.SessionStateOperatorActionRequired {
+		t.Fatalf("expected exhaustion sessionState=operator_action_required, got %q", exhausted.SessionState)
+	}
+	if exhausted.AuthOutcome != state.AuthOutcomeEdgeAuthInternalErr {
+		t.Fatalf("expected exhaustion authOutcome=edge_auth_internal_error, got %q", exhausted.AuthOutcome)
+	}
+	if exhausted.RetryEligible {
+		t.Fatal("expected exhaustion to disable retry eligibility")
+	}
+
+	persisted := sessionState.PersistenceSnapshot()
+	if persisted.CredentialStatus != state.CredentialStatusLoaded || persisted.RetryEligible {
+		t.Fatalf("expected persisted exhausted state to keep loaded non-retryable credential, got %+v", persisted)
+	}
+}

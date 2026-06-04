@@ -55,8 +55,32 @@ func (f trustSessionFlow) HandleConnectError(code cloud.ConnectErrorCode) {
 		return
 	}
 
-	if err := f.runner.MarkUntrusted(string(code), true); err != nil {
-		f.runner.reportAsyncError(fmt.Errorf("persist runtime state after connect error: %w", err))
+	reason := string(code)
+	if isTerminalConnectError(code) {
+		if err := f.runner.MarkUntrusted(reason, true); err != nil {
+			f.runner.reportAsyncError(fmt.Errorf("persist runtime state after terminal connect error: %w", err))
+		}
+		return
+	}
+
+	if err := f.runner.MarkRetryableConnectFailure(reason); err != nil {
+		f.runner.reportAsyncError(fmt.Errorf("persist runtime state after retryable connect error: %w", err))
+	}
+}
+
+func isTerminalConnectError(code cloud.ConnectErrorCode) bool {
+	switch code {
+	case cloud.ConnectErrorBlocked,
+		cloud.ConnectErrorEdgeNotFound,
+		cloud.ConnectErrorInvalidCredential,
+		cloud.ConnectErrorOnboardingNotAllowed,
+		cloud.ConnectErrorOnboardingPackageMissing,
+		cloud.ConnectErrorOnboardingPackageExpired,
+		cloud.ConnectErrorOnboardingPackageReused,
+		cloud.ConnectErrorPersistentCredentialRevoked:
+		return true
+	default:
+		return false
 	}
 }
 

@@ -51,6 +51,14 @@ func TestOutcomeMappingFromCloudSignals(t *testing.T) {
 			wantAuthSummary:   "retryable_disconnect",
 		},
 		{
+			name:              "internal connect error maps to retryable outage status contract",
+			got:               MapConnectError(cloud.ConnectErrorEdgeAuthInternalError),
+			wantCode:          "edge_auth_internal_error",
+			wantRuntimeStatus: "retrying",
+			wantCloud:         "disconnected",
+			wantAuthSummary:   "retryable_disconnect",
+		},
+		{
 			name:              "telemetry discard while disconnected maps to retrying status contract",
 			got:               telemetryDiscardOutcome(t, false, false),
 			wantCode:          "telemetry_discarded_disconnected",

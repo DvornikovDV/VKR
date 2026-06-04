@@ -116,7 +116,10 @@ func projectRuntimeStatus(runtimeState state.RuntimeState, sourceSummary string)
 		switch runtimeState.AuthOutcome {
 		case state.AuthOutcomeBlocked:
 			return "blocked"
-		case state.AuthOutcomeInvalidCredential, state.AuthOutcomeEdgeNotFound, state.AuthOutcomeCredentialRotated:
+		case state.AuthOutcomeInvalidCredential,
+			state.AuthOutcomeEdgeNotFound,
+			state.AuthOutcomeCredentialRotated,
+			state.AuthOutcomeEdgeAuthInternalErr:
 			return "waiting_for_credential"
 		default:
 			return "stopped"
@@ -141,8 +144,7 @@ func projectCloudConnection(runtimeState state.RuntimeState) string {
 		case state.AuthOutcomeBlocked,
 			state.AuthOutcomeInvalidCredential,
 			state.AuthOutcomeEdgeNotFound,
-			state.AuthOutcomeCredentialRotated,
-			state.AuthOutcomeEdgeAuthInternalErr:
+			state.AuthOutcomeCredentialRotated:
 			return "rejected"
 		default:
 			return "disconnected"
@@ -170,6 +172,9 @@ func projectAuthSummary(runtimeState state.RuntimeState) string {
 	case state.AuthOutcomeCredentialRotated:
 		return "credential_replaced"
 	case state.AuthOutcomeEdgeAuthInternalErr:
+		if runtimeState.RetryEligible {
+			return "retryable_disconnect"
+		}
 		return "internal_error"
 	default:
 		return "internal_error"
