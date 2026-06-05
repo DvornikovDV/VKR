@@ -583,6 +583,8 @@ func (r *Runner) Run(ctx context.Context) error {
 				return nil
 			case <-lifecycleEvents:
 				_ = client.Disconnect()
+				client = nil
+				expectedEdge = ""
 				reconnectAttempt++
 				if err := r.waitForReconnectAttempt(ctx, reconnectAttempt); err != nil {
 					if ctx.Err() != nil || errors.Is(err, context.Canceled) {

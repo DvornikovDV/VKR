@@ -50,6 +50,7 @@ type fakeTransport struct {
 	connectResults        []scriptedConnectResult
 	connectCancelObserved chan struct{}
 	executeCommand        func(any)
+	commandRegistrations  chan struct{}
 	onConnectError        func(error)
 	emitted               chan emittedTransportEvent
 	catalogEmitStarted    chan struct{}
@@ -116,6 +117,12 @@ func (f *fakeTransport) OnEdgeDisconnect(handler func(any)) {}
 
 func (f *fakeTransport) OnExecuteCommand(handler func(any)) {
 	f.executeCommand = handler
+	if f.commandRegistrations != nil {
+		select {
+		case f.commandRegistrations <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (f *fakeTransport) OnConnect(handler func() error) {}
@@ -556,9 +563,10 @@ func TestRunner_Reconnect_NoDuplicateTerminalResponses(t *testing.T) {
 	runner := New()
 
 	transport := &fakeTransport{
-		connectCh:    make(chan struct{}, 10),
-		disconnectCh: make(chan string, 10),
-		emitted:      make(chan emittedTransportEvent, 10),
+		connectCh:            make(chan struct{}, 10),
+		disconnectCh:         make(chan string, 10),
+		commandRegistrations: make(chan struct{}, 10),
+		emitted:              make(chan emittedTransportEvent, 10),
 	}
 	runner.transport = transport
 	if err := runner.BindReconnectPolicy(mustReconnectPolicy(t, ReconnectPolicyConfig{
@@ -595,12 +603,8 @@ func TestRunner_Reconnect_NoDuplicateTerminalResponses(t *testing.T) {
 		runDone <- runner.Run(ctx)
 	}()
 
-	// Wait for first connect
-	select {
-	case <-transport.connectCh:
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for first connect")
-	}
+	waitForCommandHandlerRegistrations(t, transport.commandRegistrations, 1)
+	waitForConnectAttempts(t, transport.connectCh, 1)
 
 	// Inject first command
 	payload := map[string]any{
@@ -631,15 +635,10 @@ func TestRunner_Reconnect_NoDuplicateTerminalResponses(t *testing.T) {
 		t.Fatal("timeout waiting for command result")
 	}
 
-	// Trigger reconnect
 	transport.disconnectCh <- "transport close"
 
-	// Wait for second connect
-	select {
-	case <-transport.connectCh:
-	case <-time.After(1 * time.Second):
-		t.Fatal("timeout waiting for second connect")
-	}
+	waitForConnectAttempts(t, transport.connectCh, 1)
+	waitForCommandHandlerRegistrations(t, transport.commandRegistrations, 1)
 
 	// Inject SAME command after reconnect
 	if transport.executeCommand != nil {
@@ -657,7 +656,14 @@ func TestRunner_Reconnect_NoDuplicateTerminalResponses(t *testing.T) {
 	}
 
 	cancel()
-	<-runDone
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("expected clean shutdown after duplicate command proof, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for clean shutdown after duplicate command proof")
+	}
 }
 
 func waitForConnectAttempts(t *testing.T, attempts <-chan struct{}, count int) {
@@ -668,6 +674,18 @@ func waitForConnectAttempts(t *testing.T, attempts <-chan struct{}, count int) {
 		case <-attempts:
 		case <-time.After(time.Second):
 			t.Fatalf("timeout waiting for connect attempt %d", i+1)
+		}
+	}
+}
+
+func waitForCommandHandlerRegistrations(t *testing.T, registrations <-chan struct{}, count int) {
+	t.Helper()
+
+	for i := 0; i < count; i++ {
+		select {
+		case <-registrations:
+		case <-time.After(time.Second):
+			t.Fatalf("timeout waiting for command handler registration %d", i+1)
 		}
 	}
 }
