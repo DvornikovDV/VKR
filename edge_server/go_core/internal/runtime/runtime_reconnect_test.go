@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"edge_server/go_core/internal/cloud"
+	"edge_server/go_core/internal/source"
+	"edge_server/go_core/internal/state"
 )
 
 type scriptedConnectResult struct {
@@ -17,6 +19,22 @@ type scriptedConnectResult struct {
 type emittedTransportEvent struct {
 	event   string
 	payload any
+}
+
+type recordingRuntimeStateSaver struct {
+	saved chan state.RuntimeState
+}
+
+func newRecordingRuntimeStateSaver(buffer int) *recordingRuntimeStateSaver {
+	return &recordingRuntimeStateSaver{saved: make(chan state.RuntimeState, buffer)}
+}
+
+func (s *recordingRuntimeStateSaver) Save(snapshot state.RuntimeState) error {
+	select {
+	case s.saved <- snapshot:
+	default:
+	}
+	return nil
 }
 
 type dummyExecutor struct{}
@@ -33,6 +51,8 @@ type fakeTransport struct {
 	executeCommand        func(any)
 	onConnectError        func(error)
 	emitted               chan emittedTransportEvent
+	catalogEmitStarted    chan struct{}
+	releaseCatalogEmit    chan struct{}
 }
 
 func (f *fakeTransport) Connect(ctx context.Context, auth cloud.HandshakeAuth) error {
@@ -54,7 +74,8 @@ func (f *fakeTransport) Connect(ctx context.Context, auth cloud.HandshakeAuth) e
 		}
 		return ctx.Err()
 	}
-	if result.err != nil && f.onConnectError != nil {
+	var connectErr cloud.ConnectError
+	if result.err != nil && f.onConnectError != nil && errors.As(result.err, &connectErr) {
 		f.onConnectError(result.err)
 	}
 	if result.err != nil {
@@ -68,6 +89,15 @@ func (f *fakeTransport) Disconnect() error {
 }
 
 func (f *fakeTransport) Emit(event string, payload any) error {
+	if event == string(cloud.EdgeEventCapabilitiesCatalog) {
+		select {
+		case f.catalogEmitStarted <- struct{}{}:
+		default:
+		}
+		if f.releaseCatalogEmit != nil {
+			<-f.releaseCatalogEmit
+		}
+	}
 	if f.emitted != nil {
 		f.emitted <- emittedTransportEvent{event: event, payload: payload}
 	}
@@ -92,6 +122,315 @@ func (f *fakeTransport) OnDisconnect(handler func(string)) {
 			handler(reason)
 		}
 	}()
+}
+
+func TestRunnerStartupReconnectInitialFailuresThenSuccess(t *testing.T) {
+	runner := New()
+
+	transport := &fakeTransport{
+		connectCh: make(chan struct{}, 10),
+		connectResults: []scriptedConnectResult{
+			{err: errors.New("dial tcp connect refused")},
+			{err: cloud.ConnectError{Code: cloud.ConnectErrorEdgeAuthInternalError}},
+		},
+		disconnectCh: make(chan string, 10),
+		emitted:      make(chan emittedTransportEvent, 10),
+	}
+	runner.transport = transport
+
+	if err := runner.BindReconnectPolicy(mustReconnectPolicy(t, ReconnectPolicyConfig{
+		BaseDelay:   time.Millisecond,
+		MaxDelay:    time.Millisecond,
+		MaxAttempts: 0,
+	})); err != nil {
+		t.Fatalf("bind reconnect policy: %v", err)
+	}
+
+	store := newRecordingRuntimeStateSaver(20)
+	if err := runner.BindRuntimeStateStore(store); err != nil {
+		t.Fatalf("bind runtime state store: %v", err)
+	}
+
+	NewBootstrapSession(runner)
+	if err := runner.LoadPersistentCredential("edge-1", 2, "persistent-secret-v2"); err != nil {
+		t.Fatalf("load persistent credential: %v", err)
+	}
+	if err := runner.BindCapabilitiesCatalog(cloud.EdgeCapabilitiesCatalog{
+		EdgeServerID: "edge-1",
+		Telemetry: []cloud.EdgeCatalogTelemetryMetric{
+			{DeviceID: "dev-1", Metric: "temperature", ValueType: cloud.CatalogValueTypeNumber, Label: "Temperature"},
+		},
+	}); err != nil {
+		t.Fatalf("bind capabilities catalog: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runner.Run(ctx)
+	}()
+
+	waitForConnectAttempts(t, transport.connectCh, 3)
+
+	retryable := waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateRetryWait &&
+			snapshot.CredentialStatus == state.CredentialStatusLoaded &&
+			snapshot.RetryEligible
+	})
+	if retryable.CredentialVersion == nil || *retryable.CredentialVersion != 2 {
+		t.Fatalf("expected retryable state to preserve credential version 2, got %+v", retryable.CredentialVersion)
+	}
+
+	select {
+	case emitted := <-transport.emitted:
+		if emitted.event != string(cloud.EdgeEventCapabilitiesCatalog) {
+			t.Fatalf("expected capabilities_catalog emission, got %q", emitted.event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for capabilities catalog emission after reconnect")
+	}
+
+	select {
+	case err := <-runDone:
+		t.Fatalf("Runner.Run returned before shutdown: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("expected clean shutdown after reconnect, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for clean shutdown after reconnect")
+	}
+}
+
+func TestRunnerStartupTerminalConnectErrorStaysAliveUntilShutdown(t *testing.T) {
+	runner := New()
+
+	transport := &fakeTransport{
+		connectCh: make(chan struct{}, 10),
+		connectResults: []scriptedConnectResult{
+			{err: cloud.ConnectError{Code: cloud.ConnectErrorInvalidCredential}},
+		},
+		disconnectCh: make(chan string, 10),
+		emitted:      make(chan emittedTransportEvent, 10),
+	}
+	runner.transport = transport
+
+	if err := runner.BindReconnectPolicy(mustReconnectPolicy(t, ReconnectPolicyConfig{
+		BaseDelay:   time.Millisecond,
+		MaxDelay:    time.Millisecond,
+		MaxAttempts: 0,
+	})); err != nil {
+		t.Fatalf("bind reconnect policy: %v", err)
+	}
+
+	store := newRecordingRuntimeStateSaver(10)
+	if err := runner.BindRuntimeStateStore(store); err != nil {
+		t.Fatalf("bind runtime state store: %v", err)
+	}
+
+	NewBootstrapSession(runner)
+	if err := runner.LoadPersistentCredential("edge-1", 2, "persistent-secret-v2"); err != nil {
+		t.Fatalf("load persistent credential: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runner.Run(ctx)
+	}()
+
+	waitForConnectAttempts(t, transport.connectCh, 1)
+	terminal := waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateOperatorActionRequired &&
+			snapshot.CredentialStatus == state.CredentialStatusRejected &&
+			!snapshot.RetryEligible
+	})
+	if terminal.AuthOutcome != state.AuthOutcomeInvalidCredential {
+		t.Fatalf("expected invalid credential outcome, got %q", terminal.AuthOutcome)
+	}
+
+	select {
+	case err := <-runDone:
+		t.Fatalf("Runner.Run returned fatal error for terminal Cloud rejection: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("expected clean shutdown after terminal rejection, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for clean shutdown after terminal rejection")
+	}
+}
+
+func TestRunnerStartupReconnectWaitCancellation(t *testing.T) {
+	runner := New()
+
+	transport := &fakeTransport{
+		connectCh: make(chan struct{}, 10),
+		connectResults: []scriptedConnectResult{
+			{err: errors.New("dial tcp connect refused")},
+		},
+		disconnectCh: make(chan string, 10),
+		emitted:      make(chan emittedTransportEvent, 10),
+	}
+	runner.transport = transport
+
+	if err := runner.BindReconnectPolicy(mustReconnectPolicy(t, ReconnectPolicyConfig{
+		BaseDelay:   time.Second,
+		MaxDelay:    time.Second,
+		MaxAttempts: 0,
+	})); err != nil {
+		t.Fatalf("bind reconnect policy: %v", err)
+	}
+
+	store := newRecordingRuntimeStateSaver(10)
+	if err := runner.BindRuntimeStateStore(store); err != nil {
+		t.Fatalf("bind runtime state store: %v", err)
+	}
+
+	NewBootstrapSession(runner)
+	if err := runner.LoadPersistentCredential("edge-1", 2, "persistent-secret-v2"); err != nil {
+		t.Fatalf("load persistent credential: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runner.Run(ctx)
+	}()
+
+	waitForConnectAttempts(t, transport.connectCh, 1)
+	waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateRetryWait && snapshot.RetryEligible
+	})
+
+	startedCancel := time.Now()
+	cancel()
+
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("expected cancellation to stop reconnect wait cleanly, got %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatalf("startup reconnect wait did not stop promptly after %s", time.Since(startedCancel))
+	}
+}
+
+func TestRunnerStartupReconnectCatalogEmitsBeforeTelemetryResumes(t *testing.T) {
+	runner := New()
+
+	transport := &fakeTransport{
+		connectCh:          make(chan struct{}, 10),
+		disconnectCh:       make(chan string, 10),
+		emitted:            make(chan emittedTransportEvent, 10),
+		catalogEmitStarted: make(chan struct{}, 1),
+		releaseCatalogEmit: make(chan struct{}),
+	}
+	runner.transport = transport
+
+	if err := runner.BindReconnectPolicy(mustReconnectPolicy(t, ReconnectPolicyConfig{
+		BaseDelay:   time.Millisecond,
+		MaxDelay:    time.Millisecond,
+		MaxAttempts: 0,
+	})); err != nil {
+		t.Fatalf("bind reconnect policy: %v", err)
+	}
+
+	store := newRecordingRuntimeStateSaver(20)
+	if err := runner.BindRuntimeStateStore(store); err != nil {
+		t.Fatalf("bind runtime state store: %v", err)
+	}
+
+	readings := make(chan source.Reading, 2)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := runner.BindTelemetryReadings(ctx, readings, 50, 1); err != nil {
+		t.Fatalf("bind telemetry readings: %v", err)
+	}
+
+	NewBootstrapSession(runner)
+	if err := runner.LoadPersistentCredential("edge-1", 2, "persistent-secret-v2"); err != nil {
+		t.Fatalf("load persistent credential: %v", err)
+	}
+	if err := runner.BindCapabilitiesCatalog(cloud.EdgeCapabilitiesCatalog{
+		EdgeServerID: "edge-1",
+		Telemetry: []cloud.EdgeCatalogTelemetryMetric{
+			{DeviceID: "dev-1", Metric: "temperature", ValueType: cloud.CatalogValueTypeNumber, Label: "Temperature"},
+		},
+	}); err != nil {
+		t.Fatalf("bind capabilities catalog: %v", err)
+	}
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runner.Run(ctx)
+	}()
+
+	waitForConnectAttempts(t, transport.connectCh, 1)
+	select {
+	case <-transport.catalogEmitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for capabilities catalog emission to start")
+	}
+
+	readings <- source.Reading{SourceID: "src-1", DeviceID: "dev-1", Metric: "temperature", Value: 42.0, TS: 1}
+	select {
+	case emitted := <-transport.emitted:
+		t.Fatalf("expected no telemetry before capabilities_catalog completes, got %q", emitted.event)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(transport.releaseCatalogEmit)
+
+	select {
+	case emitted := <-transport.emitted:
+		if emitted.event != string(cloud.EdgeEventCapabilitiesCatalog) {
+			t.Fatalf("expected capabilities_catalog before telemetry, got %q", emitted.event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for capabilities_catalog emission")
+	}
+
+	waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateTrusted &&
+			snapshot.AuthOutcome == state.AuthOutcomeAccepted
+	})
+
+	readings <- source.Reading{SourceID: "src-1", DeviceID: "dev-1", Metric: "temperature", Value: 43.0, TS: 2}
+	select {
+	case emitted := <-transport.emitted:
+		if emitted.event != "telemetry" {
+			t.Fatalf("expected telemetry after capabilities_catalog and trusted promotion, got %q", emitted.event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for telemetry after capabilities_catalog")
+	}
+
+	cancel()
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("expected clean shutdown after ordering proof, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for clean shutdown after ordering proof")
+	}
 }
 
 func TestRunner_Reconnect_NoDuplicateTerminalResponses(t *testing.T) {
@@ -200,6 +539,38 @@ func TestRunner_Reconnect_NoDuplicateTerminalResponses(t *testing.T) {
 
 	cancel()
 	<-runDone
+}
+
+func waitForConnectAttempts(t *testing.T, attempts <-chan struct{}, count int) {
+	t.Helper()
+
+	for i := 0; i < count; i++ {
+		select {
+		case <-attempts:
+		case <-time.After(time.Second):
+			t.Fatalf("timeout waiting for connect attempt %d", i+1)
+		}
+	}
+}
+
+func waitForSavedRuntimeState(
+	t *testing.T,
+	saved <-chan state.RuntimeState,
+	matches func(state.RuntimeState) bool,
+) state.RuntimeState {
+	t.Helper()
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case snapshot := <-saved:
+			if matches(snapshot) {
+				return snapshot
+			}
+		case <-deadline:
+			t.Fatal("timeout waiting for expected runtime state persistence")
+		}
+	}
 }
 
 func TestRunnerReconnectRequiresBoundPolicy(t *testing.T) {

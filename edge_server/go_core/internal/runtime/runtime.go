@@ -534,19 +534,20 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 
 		if err := client.Connect(ctx, auth); err != nil {
-			var connectErr cloud.ConnectError
-			if errors.As(err, &connectErr) {
-				sessionFlow.HandleConnectError(connectErr.Code)
-				if isTerminalConnectError(connectErr.Code) {
-					return fmt.Errorf("cloud rejected runtime handshake: %w", connectErr)
-				}
-			} else {
-				if ctx.Err() != nil {
-					return nil
-				}
-				if err := r.MarkRetryableConnectFailure("cloud_unavailable"); err != nil {
-					return fmt.Errorf("record retryable runtime connect failure: %w", err)
-				}
+			if ctx.Err() != nil {
+				return nil
+			}
+
+			connectFailure := classifyStartupConnectFailure(err)
+			if connectFailure.terminal {
+				sessionFlow.HandleConnectError(connectFailure.code)
+				return r.waitForShutdown(ctx, client)
+			}
+
+			if connectFailure.hasCode {
+				sessionFlow.HandleConnectError(connectFailure.code)
+			} else if err := r.MarkRetryableConnectFailure(connectFailure.reason); err != nil {
+				return fmt.Errorf("record retryable runtime connect failure: %w", err)
 			}
 
 			reconnectAttempt++
@@ -554,16 +555,22 @@ func (r *Runner) Run(ctx context.Context) error {
 				if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 					return nil
 				}
+				if errors.Is(err, ErrReconnectAttemptsExhausted) {
+					if markErr := r.MarkReconnectExhausted("max_attempts_exhausted"); markErr != nil {
+						return fmt.Errorf("record reconnect exhaustion: %w", markErr)
+					}
+					return r.waitForShutdown(ctx, client)
+				}
 				return err
 			}
 			goto nextAttempt
 		}
-		if err := sessionFlow.HandleSuccessfulConnect(auth); err != nil {
-			return fmt.Errorf("promote runtime session after connect: %w", err)
-		}
 		reconnectAttempt = 0
 		if err := r.emitCapabilitiesCatalog(client, auth.EdgeID); err != nil {
 			return fmt.Errorf("emit capabilities catalog after connect: %w", err)
+		}
+		if err := sessionFlow.HandleSuccessfulConnect(auth); err != nil {
+			return fmt.Errorf("promote runtime session after connect: %w", err)
 		}
 
 		for {
@@ -581,6 +588,12 @@ func (r *Runner) Run(ctx context.Context) error {
 					if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 						return nil
 					}
+					if errors.Is(err, ErrReconnectAttemptsExhausted) {
+						if markErr := r.MarkReconnectExhausted("max_attempts_exhausted"); markErr != nil {
+							return fmt.Errorf("record reconnect exhaustion: %w", markErr)
+						}
+						return r.waitForShutdown(ctx, client)
+					}
 					return err
 				}
 				goto nextAttempt
@@ -588,6 +601,46 @@ func (r *Runner) Run(ctx context.Context) error {
 		}
 
 	nextAttempt:
+	}
+}
+
+type startupConnectFailure struct {
+	reason   string
+	code     cloud.ConnectErrorCode
+	hasCode  bool
+	terminal bool
+}
+
+func classifyStartupConnectFailure(err error) startupConnectFailure {
+	var connectErr cloud.ConnectError
+	if errors.As(err, &connectErr) {
+		return startupConnectFailure{
+			reason:   string(connectErr.Code),
+			code:     connectErr.Code,
+			hasCode:  true,
+			terminal: isTerminalConnectError(connectErr.Code),
+		}
+	}
+
+	return startupConnectFailure{
+		reason: "cloud_unavailable",
+	}
+}
+
+func (r *Runner) waitForShutdown(ctx context.Context, client *cloud.SocketIOClient) error {
+	for {
+		select {
+		case err := <-r.asyncErrors:
+			if client != nil {
+				_ = client.Disconnect()
+			}
+			return err
+		case <-ctx.Done():
+			if client != nil {
+				_ = client.Disconnect()
+			}
+			return nil
+		}
 	}
 }
 
