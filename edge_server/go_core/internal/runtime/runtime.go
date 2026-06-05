@@ -536,10 +536,27 @@ func (r *Runner) Run(ctx context.Context) error {
 		if err := client.Connect(ctx, auth); err != nil {
 			var connectErr cloud.ConnectError
 			if errors.As(err, &connectErr) {
-				return fmt.Errorf("cloud rejected runtime handshake: %w", connectErr)
+				sessionFlow.HandleConnectError(connectErr.Code)
+				if isTerminalConnectError(connectErr.Code) {
+					return fmt.Errorf("cloud rejected runtime handshake: %w", connectErr)
+				}
+			} else {
+				if ctx.Err() != nil {
+					return nil
+				}
+				if err := r.MarkRetryableConnectFailure("cloud_unavailable"); err != nil {
+					return fmt.Errorf("record retryable runtime connect failure: %w", err)
+				}
 			}
 
-			return fmt.Errorf("connect runtime to cloud transport: %w", err)
+			reconnectAttempt++
+			if err := r.waitForReconnectAttempt(ctx, reconnectAttempt); err != nil {
+				if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+					return nil
+				}
+				return err
+			}
+			goto nextAttempt
 		}
 		if err := sessionFlow.HandleSuccessfulConnect(auth); err != nil {
 			return fmt.Errorf("promote runtime session after connect: %w", err)
@@ -561,7 +578,7 @@ func (r *Runner) Run(ctx context.Context) error {
 				_ = client.Disconnect()
 				reconnectAttempt++
 				if err := r.waitForReconnectAttempt(ctx, reconnectAttempt); err != nil {
-					if errors.Is(err, context.Canceled) {
+					if ctx.Err() != nil || errors.Is(err, context.Canceled) {
 						return nil
 					}
 					return err

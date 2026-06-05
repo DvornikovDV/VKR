@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"edge_server/go_core/internal/cloud"
 	"edge_server/go_core/internal/config"
@@ -68,6 +69,17 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	}
 
 	runner := runtime.NewWithTransport(transport)
+	reconnectPolicy, err := runtime.NewReconnectPolicy(runtime.ReconnectPolicyConfig{
+		BaseDelay:   time.Duration(cfg.Cloud.Reconnect.BaseDelayMs) * time.Millisecond,
+		MaxDelay:    time.Duration(cfg.Cloud.Reconnect.MaxDelayMs) * time.Millisecond,
+		MaxAttempts: cfg.Cloud.Reconnect.MaxAttempts,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create runtime reconnect policy: %w", err)
+	}
+	if err := runner.BindReconnectPolicy(reconnectPolicy); err != nil {
+		return nil, fmt.Errorf("bind runtime reconnect policy: %w", err)
+	}
 	bootstrap := runtime.NewBootstrapSession(runner)
 	runtimeStore := state.NewRuntimeStateStore(cfg.Runtime.StateDir)
 	existingRuntimeState, existingRuntimeStateFound, err := runtimeStore.Load()

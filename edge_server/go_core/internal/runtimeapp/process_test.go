@@ -77,6 +77,103 @@ func (t *fakeTransport) InjectExecuteCommand(payload any) {
 	}
 }
 
+type startupRetryTransport struct {
+	noopTransport
+	attempts chan int
+	mu       sync.Mutex
+	count    int
+}
+
+var _ cloud.Transport = (*startupRetryTransport)(nil)
+
+func newStartupRetryTransport() *startupRetryTransport {
+	return &startupRetryTransport{attempts: make(chan int, 4)}
+}
+
+func (t *startupRetryTransport) Connect(ctx context.Context, _ cloud.HandshakeAuth) error {
+	t.mu.Lock()
+	t.count++
+	attempt := t.count
+	t.mu.Unlock()
+
+	select {
+	case t.attempts <- attempt:
+	default:
+	}
+	if attempt == 1 {
+		return errors.New("cloud temporarily unavailable")
+	}
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+const pollingProofAdapterKind = "polling-proof"
+
+type pollingProofAdapter struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+}
+
+var _ source.Adapter = (*pollingProofAdapter)(nil)
+
+func (a *pollingProofAdapter) ApplyDefinition(definition source.Definition, sink source.Sink) error {
+	if sink == nil {
+		return errors.New("polling proof sink is required")
+	}
+	if len(definition.Devices) == 0 || len(definition.Devices[0].Metrics) == 0 {
+		return errors.New("polling proof definition requires a device metric")
+	}
+
+	interval := time.Duration(definition.PollIntervalMs) * time.Millisecond
+	if interval <= 0 {
+		interval = time.Millisecond
+	}
+	deviceID := definition.Devices[0].DeviceID
+	metric := definition.Devices[0].Metrics[0].Metric
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.mu.Lock()
+	if a.cancel != nil {
+		a.cancel()
+	}
+	a.cancel = cancel
+	a.mu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		var sequence int64 = 3000
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sequence++
+				sink.PublishReading(source.RawReading{
+					DeviceID: deviceID,
+					Metric:   metric,
+					Value:    float64(sequence),
+					TS:       sequence,
+				})
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (a *pollingProofAdapter) Close() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.cancel != nil {
+		a.cancel()
+		a.cancel = nil
+	}
+	return nil
+}
+
 func TestNewInitializesRuntimeStateAndStatusFiles(t *testing.T) {
 	stateDir := t.TempDir()
 	cfg := runtimeConfigFixture(stateDir)
@@ -357,6 +454,82 @@ func TestRuntimeTrustLossUpdatesOperatorStatus(t *testing.T) {
 	}
 	if status.LoadedCredentialVersion == nil || *status.LoadedCredentialVersion != 3 {
 		t.Fatalf("expected loadedCredentialVersion=3 after credential rotation, got %+v", status.LoadedCredentialVersion)
+	}
+}
+
+func TestProcessKeepsReadingDispatchActiveDuringStartupCloudRetry(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := runtimeConfigFixture(stateDir)
+	cfg.Cloud.Reconnect.BaseDelayMs = 250
+	cfg.Cloud.Reconnect.MaxDelayMs = 250
+	cfg.Cloud.Reconnect.MaxAttempts = 0
+	cfg.Sources[0].AdapterKind = pollingProofAdapterKind
+	cfg.Sources[0].PollIntervalMs = 10
+	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
+
+	transport := newStartupRetryTransport()
+	factories := source.FactoryRegistry{
+		pollingProofAdapterKind: func() (source.Adapter, error) {
+			return &pollingProofAdapter{}, nil
+		},
+	}
+	process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, transport, factories)
+	if err != nil {
+		t.Fatalf("construct runtime process: %v", err)
+	}
+	defer process.Sources.ApplyDefinitions(nil)
+
+	retryReadings, err := process.ReadingDispatcher.AddConsumer("startup-retry-proof", 1)
+	if err != nil {
+		t.Fatalf("add startup retry proof consumer: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- process.Runner.Run(ctx)
+	}()
+
+	select {
+	case attempt := <-transport.attempts:
+		if attempt != 1 {
+			t.Fatalf("expected first connect attempt, got %d", attempt)
+		}
+	case err := <-runDone:
+		t.Fatalf("runner returned before startup retry state: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for first cloud connect attempt")
+	}
+
+	waitForRuntimeSessionState(t, process.Runner, state.SessionStateRetryWait, time.Second)
+	drainReadings(retryReadings)
+
+	select {
+	case reading := <-retryReadings:
+		if reading.SourceID != "mock-source-1" ||
+			reading.DeviceID != "pump-01" ||
+			reading.Metric != "pressure" ||
+			reading.TS <= 3000 {
+			t.Fatalf("unexpected polled reading during startup retry: %+v", reading)
+		}
+	case attempt := <-transport.attempts:
+		t.Fatalf("expected autonomous local poll before next cloud retry attempt, got attempt %d first", attempt)
+	case err := <-runDone:
+		t.Fatalf("runner returned while startup cloud retry should keep process alive: %v", err)
+	case <-time.After(150 * time.Millisecond):
+		t.Fatal("timeout waiting for autonomous local poll during startup cloud retry")
+	}
+
+	cancel()
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("runner returned error after cancellation: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runner did not exit after cancellation")
 	}
 }
 
@@ -1225,6 +1398,30 @@ func waitForTrustedRuntimeState(t *testing.T, runner *runtime.Runner, timeout ti
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("timeout waiting for trusted runtime state, got %+v", runner.StateSnapshot())
+}
+
+func waitForRuntimeSessionState(t *testing.T, runner *runtime.Runner, want state.SessionState, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		snapshot := runner.StateSnapshot()
+		if snapshot.SessionState == want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for runtime session state %q, got %+v", want, runner.StateSnapshot())
+}
+
+func drainReadings(readings <-chan source.Reading) {
+	for {
+		select {
+		case <-readings:
+		default:
+			return
+		}
+	}
 }
 
 func waitForEmittedEvent(t *testing.T, ch <-chan emittedEvent, event string, timeout time.Duration) emittedEvent {

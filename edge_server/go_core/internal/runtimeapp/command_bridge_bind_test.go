@@ -13,14 +13,15 @@ import (
 )
 
 type dummyTransport struct{}
+
 func (dummyTransport) Connect(context.Context, cloud.HandshakeAuth) error { return nil }
-func (dummyTransport) Disconnect() error { return nil }
-func (dummyTransport) Emit(string, any) error { return nil }
-func (dummyTransport) OnEdgeDisconnect(func(any)) {}
-func (dummyTransport) OnConnect(func() error) {}
-func (dummyTransport) OnConnectError(func(error)) {}
-func (dummyTransport) OnDisconnect(func(string)) {}
-func (dummyTransport) OnExecuteCommand(func(any)) {}
+func (dummyTransport) Disconnect() error                                  { return nil }
+func (dummyTransport) Emit(string, any) error                             { return nil }
+func (dummyTransport) OnEdgeDisconnect(func(any))                         {}
+func (dummyTransport) OnConnect(func() error)                             {}
+func (dummyTransport) OnConnectError(func(error))                         {}
+func (dummyTransport) OnDisconnect(func(string))                          {}
+func (dummyTransport) OnExecuteCommand(func(any))                         {}
 
 func TestProcessBindsCommandBridge(t *testing.T) {
 	stateDir := t.TempDir()
@@ -28,6 +29,13 @@ func TestProcessBindsCommandBridge(t *testing.T) {
 		Runtime: config.RuntimeConfig{
 			EdgeID:   "test-edge-id",
 			StateDir: stateDir,
+		},
+		Cloud: config.CloudConfig{
+			Reconnect: config.ReconnectConfig{
+				BaseDelayMs: 1,
+				MaxDelayMs:  1,
+				MaxAttempts: 0,
+			},
 		},
 		Batch: config.BatchConfig{IntervalMs: 100, MaxReadings: 10},
 	}
