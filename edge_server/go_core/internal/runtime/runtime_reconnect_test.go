@@ -290,6 +290,86 @@ func TestRunnerStartupTerminalConnectErrorStaysAliveUntilShutdown(t *testing.T) 
 	}
 }
 
+func TestRunnerFiniteReconnectExhaustionStopsRetriesAndStaysAlive(t *testing.T) {
+	runner := New()
+
+	transport := &fakeTransport{
+		connectCh: make(chan struct{}, 10),
+		connectResults: []scriptedConnectResult{
+			{err: errors.New("dial tcp connect refused")},
+			{err: errors.New("dial tcp connect refused")},
+			{err: errors.New("dial tcp connect refused")},
+			{err: errors.New("dial tcp connect refused")},
+		},
+		disconnectCh: make(chan string, 10),
+		emitted:      make(chan emittedTransportEvent, 10),
+	}
+	runner.transport = transport
+
+	if err := runner.BindReconnectPolicy(mustReconnectPolicy(t, ReconnectPolicyConfig{
+		BaseDelay:   time.Millisecond,
+		MaxDelay:    time.Millisecond,
+		MaxAttempts: 2,
+	})); err != nil {
+		t.Fatalf("bind reconnect policy: %v", err)
+	}
+
+	store := newRecordingRuntimeStateSaver(20)
+	if err := runner.BindRuntimeStateStore(store); err != nil {
+		t.Fatalf("bind runtime state store: %v", err)
+	}
+
+	NewBootstrapSession(runner)
+	if err := runner.LoadPersistentCredential("edge-1", 2, "persistent-secret-v2"); err != nil {
+		t.Fatalf("load persistent credential: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runner.Run(ctx)
+	}()
+
+	waitForConnectAttempts(t, transport.connectCh, 3)
+
+	exhausted := waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateOperatorActionRequired &&
+			snapshot.AuthOutcome == state.AuthOutcomeEdgeAuthInternalErr &&
+			snapshot.CredentialStatus == state.CredentialStatusLoaded &&
+			!snapshot.RetryEligible
+	})
+	if exhausted.CredentialVersion == nil || *exhausted.CredentialVersion != 2 {
+		t.Fatalf("expected exhausted state to preserve credential version 2, got %+v", exhausted.CredentialVersion)
+	}
+	if exhausted.LastDisconnectReason == nil || *exhausted.LastDisconnectReason != "max_attempts_exhausted" {
+		t.Fatalf("expected exhaustion reason to be persisted, got %+v", exhausted.LastDisconnectReason)
+	}
+
+	select {
+	case <-transport.connectCh:
+		t.Fatal("expected automatic Cloud retry attempts to stop after maxAttempts exhaustion")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	select {
+	case err := <-runDone:
+		t.Fatalf("Runner.Run returned ordinary exhaustion error before shutdown: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	cancel()
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("expected clean shutdown after reconnect exhaustion, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for clean shutdown after reconnect exhaustion")
+	}
+}
+
 func TestRunnerStartupReconnectWaitCancellation(t *testing.T) {
 	runner := New()
 
