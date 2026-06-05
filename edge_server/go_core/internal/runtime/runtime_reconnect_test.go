@@ -14,6 +14,7 @@ import (
 type scriptedConnectResult struct {
 	err              error
 	blockUntilCancel bool
+	release          <-chan struct{}
 }
 
 type emittedTransportEvent struct {
@@ -73,6 +74,13 @@ func (f *fakeTransport) Connect(ctx context.Context, auth cloud.HandshakeAuth) e
 		default:
 		}
 		return ctx.Err()
+	}
+	if result.release != nil {
+		select {
+		case <-result.release:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	var connectErr cloud.ConnectError
 	if result.err != nil && f.onConnectError != nil && errors.As(result.err, &connectErr) {
@@ -433,6 +441,117 @@ func TestRunnerStartupReconnectCatalogEmitsBeforeTelemetryResumes(t *testing.T) 
 	}
 }
 
+func TestRunnerEstablishedDisconnectReconnectPersistsRetryableStateAndResumesFreshTelemetry(t *testing.T) {
+	runner := New()
+
+	transport := &fakeTransport{
+		connectCh:    make(chan struct{}, 10),
+		disconnectCh: make(chan string, 10),
+		emitted:      make(chan emittedTransportEvent, 20),
+	}
+	releaseReconnect := make(chan struct{})
+	transport.connectResults = []scriptedConnectResult{
+		{},
+		{release: releaseReconnect},
+	}
+	runner.transport = transport
+
+	if err := runner.BindReconnectPolicy(mustReconnectPolicy(t, ReconnectPolicyConfig{
+		BaseDelay:   200 * time.Millisecond,
+		MaxDelay:    200 * time.Millisecond,
+		MaxAttempts: 0,
+	})); err != nil {
+		t.Fatalf("bind reconnect policy: %v", err)
+	}
+
+	store := newRecordingRuntimeStateSaver(50)
+	if err := runner.BindRuntimeStateStore(store); err != nil {
+		t.Fatalf("bind runtime state store: %v", err)
+	}
+
+	readings := make(chan source.Reading)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := runner.BindTelemetryReadings(ctx, readings, 50, 1); err != nil {
+		t.Fatalf("bind telemetry readings: %v", err)
+	}
+
+	NewBootstrapSession(runner)
+	if err := runner.LoadPersistentCredential("edge-1", 2, "persistent-secret-v2"); err != nil {
+		t.Fatalf("load persistent credential: %v", err)
+	}
+	if err := runner.BindCapabilitiesCatalog(cloud.EdgeCapabilitiesCatalog{
+		EdgeServerID: "edge-1",
+		Telemetry: []cloud.EdgeCatalogTelemetryMetric{
+			{DeviceID: "dev-1", Metric: "temperature", ValueType: cloud.CatalogValueTypeNumber, Label: "Temperature"},
+		},
+	}); err != nil {
+		t.Fatalf("bind capabilities catalog: %v", err)
+	}
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runner.Run(ctx)
+	}()
+
+	waitForConnectAttempts(t, transport.connectCh, 1)
+	waitForEmittedEvent(t, transport.emitted, string(cloud.EdgeEventCapabilitiesCatalog))
+	waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateTrusted &&
+			snapshot.AuthOutcome == state.AuthOutcomeAccepted
+	})
+
+	sendReading(t, readings, source.Reading{
+		SourceID: "src-1", DeviceID: "dev-1", Metric: "temperature", Value: 41.0, TS: 1,
+	})
+	assertTelemetryWithTS(t, transport.emitted, 1)
+
+	transport.disconnectCh <- "transport close"
+
+	retryable := waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateRetryWait &&
+			snapshot.AuthOutcome == state.AuthOutcomeDisconnected &&
+			snapshot.CredentialStatus == state.CredentialStatusLoaded &&
+			snapshot.RetryEligible
+	})
+	if retryable.LastDisconnectReason == nil || *retryable.LastDisconnectReason != string(cloud.DisconnectReasonForced) {
+		t.Fatalf("expected ordinary disconnect reason to be persisted, got %+v", retryable.LastDisconnectReason)
+	}
+	if retryable.LastTrustedSessionAt == nil {
+		t.Fatal("expected previous trusted session timestamp to be preserved during retryable outage")
+	}
+
+	waitForConnectAttempts(t, transport.connectCh, 1)
+	sendReading(t, readings, source.Reading{
+		SourceID: "src-1", DeviceID: "dev-1", Metric: "temperature", Value: 42.0, TS: 2,
+	})
+	assertNoTelemetry(t, transport.emitted, 75*time.Millisecond)
+
+	close(releaseReconnect)
+	waitForEmittedEvent(t, transport.emitted, string(cloud.EdgeEventCapabilitiesCatalog))
+	waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateTrusted &&
+			snapshot.AuthOutcome == state.AuthOutcomeAccepted &&
+			snapshot.LastTrustedSessionAt != nil
+	})
+
+	sendReading(t, readings, source.Reading{
+		SourceID: "src-1", DeviceID: "dev-1", Metric: "temperature", Value: 43.0, TS: 3,
+	})
+	assertTelemetryWithTS(t, transport.emitted, 3)
+
+	cancel()
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("expected clean shutdown after established reconnect proof, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for clean shutdown after established reconnect proof")
+	}
+}
+
 func TestRunner_Reconnect_NoDuplicateTerminalResponses(t *testing.T) {
 	runner := New()
 
@@ -569,6 +688,66 @@ func waitForSavedRuntimeState(
 			}
 		case <-deadline:
 			t.Fatal("timeout waiting for expected runtime state persistence")
+		}
+	}
+}
+
+func waitForEmittedEvent(t *testing.T, emitted <-chan emittedTransportEvent, event string) emittedTransportEvent {
+	t.Helper()
+
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case current := <-emitted:
+			if current.event == event {
+				return current
+			}
+		case <-deadline:
+			t.Fatalf("timeout waiting for emitted event %q", event)
+		}
+	}
+}
+
+func sendReading(t *testing.T, readings chan<- source.Reading, reading source.Reading) {
+	t.Helper()
+
+	select {
+	case readings <- reading:
+	case <-time.After(time.Second):
+		t.Fatalf("timeout sending reading ts=%d", reading.TS)
+	}
+}
+
+func assertTelemetryWithTS(t *testing.T, emitted <-chan emittedTransportEvent, expectedTS int64) {
+	t.Helper()
+
+	event := waitForEmittedEvent(t, emitted, "telemetry")
+	payload, ok := event.payload.(cloud.TelemetryPayload)
+	if !ok {
+		t.Fatalf("expected telemetry payload, got %T", event.payload)
+	}
+	if len(payload.Readings) != 1 {
+		t.Fatalf("expected one telemetry reading, got %d", len(payload.Readings))
+	}
+	if payload.Readings[0].TS != expectedTS {
+		t.Fatalf("expected telemetry ts=%d, got %d", expectedTS, payload.Readings[0].TS)
+	}
+}
+
+func assertNoTelemetry(t *testing.T, emitted <-chan emittedTransportEvent, wait time.Duration) {
+	t.Helper()
+
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+
+	for {
+		select {
+		case event := <-emitted:
+			if event.event == "telemetry" {
+				t.Fatalf("expected no telemetry during disconnected outage, got %+v", event.payload)
+			}
+		case <-timer.C:
+			return
 		}
 	}
 }
