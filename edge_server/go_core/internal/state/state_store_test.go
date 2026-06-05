@@ -297,21 +297,128 @@ func TestRuntimeAndStatusStorePersistence(t *testing.T) {
 	}
 }
 
-func TestRuntimeStateStoreRejectsRetryEligibleBlockedOutcomes(t *testing.T) {
+func TestRuntimeStateStoreRejectsInvalidRetryEligibility(t *testing.T) {
 	store := NewRuntimeStateStore(t.TempDir())
 	now := time.Date(2026, 4, 6, 10, 20, 0, 0, time.UTC)
 
-	err := store.Save(RuntimeState{
-		EdgeID:               "507f1f77bcf86cd799439011",
-		CredentialStatus:     CredentialStatusBlocked,
-		SessionState:         SessionStateOperatorActionRequired,
-		AuthOutcome:          AuthOutcomeBlocked,
-		RetryEligible:        true,
-		SourceConfigRevision: "rev-2",
-		UpdatedAt:            now,
-	})
-	if err == nil || !strings.Contains(err.Error(), "runtimeState.retryEligible must be false") {
-		t.Fatalf("expected blocked runtime-state to reject retryEligible=true, got %v", err)
+	cases := []struct {
+		name  string
+		state RuntimeState
+	}{
+		{
+			name: "blocked credential status",
+			state: RuntimeState{
+				EdgeID:               "507f1f77bcf86cd799439011",
+				CredentialStatus:     CredentialStatusBlocked,
+				SessionState:         SessionStateOperatorActionRequired,
+				AuthOutcome:          AuthOutcomeBlocked,
+				RetryEligible:        true,
+				SourceConfigRevision: "rev-2",
+				UpdatedAt:            now,
+			},
+		},
+		{
+			name: "terminal auth outcome",
+			state: RuntimeState{
+				EdgeID:               "507f1f77bcf86cd799439011",
+				CredentialStatus:     CredentialStatusLoaded,
+				SessionState:         SessionStateRetryWait,
+				AuthOutcome:          AuthOutcomeInvalidCredential,
+				RetryEligible:        true,
+				SourceConfigRevision: "rev-2",
+				UpdatedAt:            now,
+			},
+		},
+		{
+			name: "operator action required",
+			state: RuntimeState{
+				EdgeID:               "507f1f77bcf86cd799439011",
+				CredentialStatus:     CredentialStatusLoaded,
+				SessionState:         SessionStateOperatorActionRequired,
+				AuthOutcome:          AuthOutcomeEdgeAuthInternalErr,
+				RetryEligible:        true,
+				SourceConfigRevision: "rev-2",
+				UpdatedAt:            now,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := store.Save(tc.state)
+			if err == nil || !strings.Contains(err.Error(), "runtimeState.retryEligible must be false") {
+				t.Fatalf("expected runtime-state to reject retryEligible=true, got %v", err)
+			}
+		})
+	}
+}
+
+func TestRuntimeStateStoreRejectsUnexpectedOrSecretFields(t *testing.T) {
+	stateDir := t.TempDir()
+	store := NewRuntimeStateStore(stateDir)
+
+	cases := []struct {
+		name        string
+		payload     string
+		expectedErr string
+	}{
+		{
+			name: "secret field",
+			payload: `{
+  "edgeId": "507f1f77bcf86cd799439011",
+  "credentialVersion": 2,
+  "credentialStatus": "loaded",
+  "sessionState": "retry_wait",
+  "authOutcome": "edge_auth_internal_error",
+  "retryEligible": true,
+  "credentialSecret": "plain-secret",
+  "lastConnectAttemptAt": null,
+  "lastTrustedSessionAt": null,
+  "lastDisconnectAt": null,
+  "lastDisconnectReason": null,
+  "lastTelemetrySentAt": null,
+  "sourceConfigRevision": "rev-2",
+  "updatedAt": "2026-04-06T10:20:00Z"
+}`,
+			expectedErr: "runtime-state.credentialSecret is not supported",
+		},
+		{
+			name: "unsupported reconnect field",
+			payload: `{
+  "edgeId": "507f1f77bcf86cd799439011",
+  "credentialVersion": 2,
+  "credentialStatus": "loaded",
+  "sessionState": "retry_wait",
+  "authOutcome": "edge_auth_internal_error",
+  "retryEligible": true,
+  "reconnectState": "terminal_reconnect_failure",
+  "lastConnectAttemptAt": null,
+  "lastTrustedSessionAt": null,
+  "lastDisconnectAt": null,
+  "lastDisconnectReason": null,
+  "lastTelemetrySentAt": null,
+  "sourceConfigRevision": "rev-2",
+  "updatedAt": "2026-04-06T10:20:00Z"
+}`,
+			expectedErr: "runtime-state.reconnectState is not supported",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runtimeStatePath := filepath.Join(stateDir, runtimeStateFileName)
+			if err := os.WriteFile(runtimeStatePath, []byte(tc.payload), 0o600); err != nil {
+				t.Fatalf("write runtime-state fixture: %v", err)
+			}
+
+			_, exists, err := store.Load()
+			if !exists {
+				t.Fatal("expected runtime-state file to be observed as existing")
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.expectedErr) {
+				t.Fatalf("expected error containing %q, got %v", tc.expectedErr, err)
+			}
+		})
 	}
 }
 
@@ -372,6 +479,85 @@ func TestStatusStoreRejectsMissingEdgeID(t *testing.T) {
 	err := store.Save(status)
 	if err == nil || !strings.Contains(err.Error(), "status.edgeId is required") {
 		t.Fatalf("expected missing edgeId validation error, got %v", err)
+	}
+}
+
+func TestStatusStoreRejectsUnexpectedSecretAndUnsupportedValues(t *testing.T) {
+	stateDir := t.TempDir()
+	store := NewStatusStore(stateDir)
+
+	cases := []struct {
+		name        string
+		payload     string
+		expectedErr string
+	}{
+		{
+			name: "secret field",
+			payload: `{
+  "edgeId": "507f1f77bcf86cd799439011",
+  "runtimeStatus": "retrying",
+  "cloudConnection": "disconnected",
+  "authSummary": "retryable_disconnect",
+  "retryEligible": true,
+  "loadedCredentialVersion": 2,
+  "sourceSummary": "healthy",
+  "lastTelemetrySentAt": null,
+  "lastReason": null,
+  "credentialSecret": "plain-secret",
+  "updatedAt": "2026-04-06T10:20:00Z"
+}`,
+			expectedErr: "status.credentialSecret is not supported",
+		},
+		{
+			name: "unsupported status value",
+			payload: `{
+  "edgeId": "507f1f77bcf86cd799439011",
+  "runtimeStatus": "terminal_reconnect_failure",
+  "cloudConnection": "disconnected",
+  "authSummary": "retryable_disconnect",
+  "retryEligible": false,
+  "loadedCredentialVersion": 2,
+  "sourceSummary": "healthy",
+  "lastTelemetrySentAt": null,
+  "lastReason": null,
+  "updatedAt": "2026-04-06T10:20:00Z"
+}`,
+			expectedErr: "status.runtimeStatus must be starting, connecting, trusted, retrying, degraded, blocked, waiting_for_credential, or stopped",
+		},
+		{
+			name: "unsupported schema field",
+			payload: `{
+  "edgeId": "507f1f77bcf86cd799439011",
+  "runtimeStatus": "retrying",
+  "cloudConnection": "disconnected",
+  "authSummary": "retryable_disconnect",
+  "retryEligible": true,
+  "loadedCredentialVersion": 2,
+  "sourceSummary": "healthy",
+  "lastTelemetrySentAt": null,
+  "lastReason": null,
+  "reconnectState": "retry_wait",
+  "updatedAt": "2026-04-06T10:20:00Z"
+}`,
+			expectedErr: "status.reconnectState is not supported",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			statusPath := filepath.Join(stateDir, statusFileName)
+			if err := os.WriteFile(statusPath, []byte(tc.payload), 0o600); err != nil {
+				t.Fatalf("write status fixture: %v", err)
+			}
+
+			_, exists, err := store.Load()
+			if !exists {
+				t.Fatal("expected status file to be observed as existing")
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.expectedErr) {
+				t.Fatalf("expected error containing %q, got %v", tc.expectedErr, err)
+			}
+		})
 	}
 }
 

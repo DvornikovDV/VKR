@@ -84,6 +84,10 @@ func (s *StatusStore) Load() (StatusSnapshot, bool, error) {
 }
 
 func validateStatusSnapshotRequiredKeys(raw map[string]json.RawMessage) error {
+	if err := validateSupportedJSONKeys(raw, "status", requiredStatusSnapshotKeys); err != nil {
+		return err
+	}
+
 	for _, key := range requiredStatusSnapshotKeys {
 		value, ok := raw[key]
 		if !ok {
@@ -96,6 +100,21 @@ func validateStatusSnapshotRequiredKeys(raw map[string]json.RawMessage) error {
 
 	if bytes.Equal(bytes.TrimSpace(raw["retryEligible"]), []byte("null")) {
 		return fmt.Errorf("status.retryEligible is required")
+	}
+
+	return nil
+}
+
+func validateSupportedJSONKeys(raw map[string]json.RawMessage, label string, supportedKeys []string) error {
+	supported := make(map[string]struct{}, len(supportedKeys))
+	for _, key := range supportedKeys {
+		supported[key] = struct{}{}
+	}
+
+	for key := range raw {
+		if _, ok := supported[key]; !ok {
+			return fmt.Errorf("%s.%s is not supported", label, key)
+		}
 	}
 
 	return nil

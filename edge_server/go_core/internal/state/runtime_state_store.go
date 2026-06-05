@@ -1,7 +1,10 @@
 package state
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -61,6 +64,22 @@ type RuntimeStateStore struct {
 	path string
 }
 
+var runtimeStateKeys = []string{
+	"edgeId",
+	"credentialVersion",
+	"credentialStatus",
+	"sessionState",
+	"authOutcome",
+	"retryEligible",
+	"lastConnectAttemptAt",
+	"lastTrustedSessionAt",
+	"lastDisconnectAt",
+	"lastDisconnectReason",
+	"lastTelemetrySentAt",
+	"sourceConfigRevision",
+	"updatedAt",
+}
+
 func NewRuntimeStateStore(stateDir string) *RuntimeStateStore {
 	return &RuntimeStateStore{
 		path: filepath.Join(stateDir, runtimeStateFileName),
@@ -76,13 +95,25 @@ func (s *RuntimeStateStore) Save(state RuntimeState) error {
 }
 
 func (s *RuntimeStateStore) Load() (RuntimeState, bool, error) {
-	var state RuntimeState
-	exists, err := readJSONFile(s.path, &state)
+	payload, err := os.ReadFile(s.path)
 	if err != nil {
-		return RuntimeState{}, exists, err
+		if errors.Is(err, os.ErrNotExist) {
+			return RuntimeState{}, false, nil
+		}
+		return RuntimeState{}, false, fmt.Errorf("read %s: %w", runtimeStateFileName, err)
 	}
-	if !exists {
-		return RuntimeState{}, false, nil
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &raw); err != nil {
+		return RuntimeState{}, true, fmt.Errorf("parse %s: %w", runtimeStateFileName, err)
+	}
+	if err := validateSupportedJSONKeys(raw, "runtime-state", runtimeStateKeys); err != nil {
+		return RuntimeState{}, true, err
+	}
+
+	var state RuntimeState
+	if err := json.Unmarshal(payload, &state); err != nil {
+		return RuntimeState{}, true, fmt.Errorf("parse %s: %w", runtimeStateFileName, err)
 	}
 	if err := validateRuntimeState(state); err != nil {
 		return RuntimeState{}, true, err
