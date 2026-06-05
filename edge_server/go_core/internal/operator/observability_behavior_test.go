@@ -59,6 +59,14 @@ func TestOutcomeMappingFromCloudSignals(t *testing.T) {
 			wantAuthSummary:   "retryable_disconnect",
 		},
 		{
+			name:              "revoked persistent credential maps to terminal credential status contract",
+			got:               MapConnectError(cloud.ConnectErrorPersistentCredentialRevoked),
+			wantCode:          "persistent_credential_revoked",
+			wantRuntimeStatus: "waiting_for_credential",
+			wantCloud:         "rejected",
+			wantAuthSummary:   "invalid_credential",
+		},
+		{
 			name:              "telemetry discard while disconnected maps to retrying status contract",
 			got:               telemetryDiscardOutcome(t, false, false),
 			wantCode:          "telemetry_discarded_disconnected",

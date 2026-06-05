@@ -47,6 +47,7 @@ func (d *dummyExecutor) ExecuteCommand(ctx context.Context, req CommandExecution
 type fakeTransport struct {
 	connectCh             chan struct{}
 	disconnectCh          chan string
+	edgeDisconnectCh      chan any
 	connectResults        []scriptedConnectResult
 	connectCancelObserved chan struct{}
 	executeCommand        func(any)
@@ -113,7 +114,17 @@ func (f *fakeTransport) Emit(event string, payload any) error {
 	return nil
 }
 
-func (f *fakeTransport) OnEdgeDisconnect(handler func(any)) {}
+func (f *fakeTransport) OnEdgeDisconnect(handler func(any)) {
+	if f.edgeDisconnectCh == nil {
+		return
+	}
+
+	go func() {
+		for payload := range f.edgeDisconnectCh {
+			handler(payload)
+		}
+	}()
+}
 
 func (f *fakeTransport) OnExecuteCommand(handler func(any)) {
 	f.executeCommand = handler
@@ -224,16 +235,127 @@ func TestRunnerStartupReconnectInitialFailuresThenSuccess(t *testing.T) {
 	}
 }
 
-func TestRunnerStartupTerminalConnectErrorStaysAliveUntilShutdown(t *testing.T) {
+func TestRunnerStartupTerminalConnectErrorsStopRetryWithoutSpinning(t *testing.T) {
+	cases := []struct {
+		name                 string
+		code                 cloud.ConnectErrorCode
+		wantCredentialStatus state.CredentialStatus
+		wantAuthOutcome      state.AuthOutcome
+	}{
+		{
+			name:                 "invalid credential",
+			code:                 cloud.ConnectErrorInvalidCredential,
+			wantCredentialStatus: state.CredentialStatusRejected,
+			wantAuthOutcome:      state.AuthOutcomeInvalidCredential,
+		},
+		{
+			name:                 "blocked edge",
+			code:                 cloud.ConnectErrorBlocked,
+			wantCredentialStatus: state.CredentialStatusBlocked,
+			wantAuthOutcome:      state.AuthOutcomeBlocked,
+		},
+		{
+			name:                 "edge not found",
+			code:                 cloud.ConnectErrorEdgeNotFound,
+			wantCredentialStatus: state.CredentialStatusRejected,
+			wantAuthOutcome:      state.AuthOutcomeEdgeNotFound,
+		},
+		{
+			name:                 "credential replacement",
+			code:                 cloud.ConnectErrorPersistentCredentialRevoked,
+			wantCredentialStatus: state.CredentialStatusRejected,
+			wantAuthOutcome:      state.AuthOutcomeInvalidCredential,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := New()
+
+			transport := &fakeTransport{
+				connectCh: make(chan struct{}, 10),
+				connectResults: []scriptedConnectResult{
+					{err: cloud.ConnectError{Code: tc.code}},
+				},
+				disconnectCh: make(chan string, 10),
+				emitted:      make(chan emittedTransportEvent, 10),
+			}
+			runner.transport = transport
+
+			if err := runner.BindReconnectPolicy(mustReconnectPolicy(t, ReconnectPolicyConfig{
+				BaseDelay:   time.Millisecond,
+				MaxDelay:    time.Millisecond,
+				MaxAttempts: 0,
+			})); err != nil {
+				t.Fatalf("bind reconnect policy: %v", err)
+			}
+
+			store := newRecordingRuntimeStateSaver(10)
+			if err := runner.BindRuntimeStateStore(store); err != nil {
+				t.Fatalf("bind runtime state store: %v", err)
+			}
+
+			NewBootstrapSession(runner)
+			if err := runner.LoadPersistentCredential("edge-1", 2, "persistent-secret-v2"); err != nil {
+				t.Fatalf("load persistent credential: %v", err)
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			runDone := make(chan error, 1)
+			go func() {
+				runDone <- runner.Run(ctx)
+			}()
+
+			waitForConnectAttempts(t, transport.connectCh, 1)
+			terminal := waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
+				return snapshot.SessionState == state.SessionStateOperatorActionRequired &&
+					snapshot.CredentialStatus == tc.wantCredentialStatus &&
+					snapshot.AuthOutcome == tc.wantAuthOutcome &&
+					!snapshot.RetryEligible
+			})
+			if terminal.CredentialVersion == nil || *terminal.CredentialVersion != 2 {
+				t.Fatalf("expected terminal rejection to retain credential version metadata, got %+v", terminal.CredentialVersion)
+			}
+
+			select {
+			case <-transport.connectCh:
+				t.Fatal("expected terminal Cloud rejection to stop automatic retry for current credential")
+			case <-time.After(100 * time.Millisecond):
+			}
+
+			select {
+			case err := <-runDone:
+				t.Fatalf("Runner.Run returned fatal error for terminal Cloud rejection: %v", err)
+			case <-time.After(100 * time.Millisecond):
+			}
+
+			cancel()
+			select {
+			case err := <-runDone:
+				if err != nil {
+					t.Fatalf("expected clean shutdown after terminal rejection, got %v", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("timeout waiting for clean shutdown after terminal rejection")
+			}
+		})
+	}
+}
+
+func TestRunnerStartupInternalAuthErrorRemainsRetryableAndPreservesCredential(t *testing.T) {
 	runner := New()
 
 	transport := &fakeTransport{
 		connectCh: make(chan struct{}, 10),
 		connectResults: []scriptedConnectResult{
-			{err: cloud.ConnectError{Code: cloud.ConnectErrorInvalidCredential}},
+			{err: cloud.ConnectError{Code: cloud.ConnectErrorEdgeAuthInternalError}},
+			{blockUntilCancel: true},
 		},
-		disconnectCh: make(chan string, 10),
-		emitted:      make(chan emittedTransportEvent, 10),
+		connectCancelObserved: make(chan struct{}, 1),
+		disconnectCh:          make(chan string, 10),
+		emitted:               make(chan emittedTransportEvent, 10),
 	}
 	runner.transport = transport
 
@@ -245,7 +367,75 @@ func TestRunnerStartupTerminalConnectErrorStaysAliveUntilShutdown(t *testing.T) 
 		t.Fatalf("bind reconnect policy: %v", err)
 	}
 
-	store := newRecordingRuntimeStateSaver(10)
+	store := newRecordingRuntimeStateSaver(20)
+	if err := runner.BindRuntimeStateStore(store); err != nil {
+		t.Fatalf("bind runtime state store: %v", err)
+	}
+
+	NewBootstrapSession(runner)
+	if err := runner.LoadPersistentCredential("edge-1", 2, "persistent-secret-v2"); err != nil {
+		t.Fatalf("load persistent credential: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- runner.Run(ctx)
+	}()
+
+	waitForConnectAttempts(t, transport.connectCh, 1)
+	retryable := waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateRetryWait &&
+			snapshot.AuthOutcome == state.AuthOutcomeEdgeAuthInternalErr &&
+			snapshot.CredentialStatus == state.CredentialStatusLoaded &&
+			snapshot.RetryEligible
+	})
+	if retryable.CredentialVersion == nil || *retryable.CredentialVersion != 2 {
+		t.Fatalf("expected internal auth error to preserve credential version 2, got %+v", retryable.CredentialVersion)
+	}
+	if retryable.LastDisconnectReason == nil || *retryable.LastDisconnectReason != string(cloud.ConnectErrorEdgeAuthInternalError) {
+		t.Fatalf("expected internal auth error reason to be persisted, got %+v", retryable.LastDisconnectReason)
+	}
+
+	waitForConnectAttempts(t, transport.connectCh, 1)
+
+	cancel()
+	select {
+	case <-transport.connectCancelObserved:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for retry connect attempt to observe shutdown cancellation")
+	}
+	select {
+	case err := <-runDone:
+		if err != nil {
+			t.Fatalf("expected clean shutdown after retryable internal auth error, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for clean shutdown after retryable internal auth error")
+	}
+}
+
+func TestRunnerEstablishedCredentialReplacementDisconnectStopsRetryAndStaysAlive(t *testing.T) {
+	runner := New()
+
+	transport := &fakeTransport{
+		connectCh:        make(chan struct{}, 10),
+		disconnectCh:     make(chan string, 10),
+		edgeDisconnectCh: make(chan any, 10),
+		emitted:          make(chan emittedTransportEvent, 10),
+	}
+	runner.transport = transport
+
+	if err := runner.BindReconnectPolicy(mustReconnectPolicy(t, ReconnectPolicyConfig{
+		BaseDelay:   time.Millisecond,
+		MaxDelay:    time.Millisecond,
+		MaxAttempts: 0,
+	})); err != nil {
+		t.Fatalf("bind reconnect policy: %v", err)
+	}
+
+	store := newRecordingRuntimeStateSaver(20)
 	if err := runner.BindRuntimeStateStore(store); err != nil {
 		t.Fatalf("bind runtime state store: %v", err)
 	}
@@ -264,18 +454,35 @@ func TestRunnerStartupTerminalConnectErrorStaysAliveUntilShutdown(t *testing.T) 
 	}()
 
 	waitForConnectAttempts(t, transport.connectCh, 1)
+	waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
+		return snapshot.SessionState == state.SessionStateTrusted &&
+			snapshot.AuthOutcome == state.AuthOutcomeAccepted
+	})
+
+	transport.edgeDisconnectCh <- map[string]any{
+		"edgeId": "edge-1",
+		"reason": string(cloud.DisconnectReasonCredentialRotated),
+	}
+
 	terminal := waitForSavedRuntimeState(t, store.saved, func(snapshot state.RuntimeState) bool {
 		return snapshot.SessionState == state.SessionStateOperatorActionRequired &&
-			snapshot.CredentialStatus == state.CredentialStatusRejected &&
+			snapshot.CredentialStatus == state.CredentialStatusSuperseded &&
+			snapshot.AuthOutcome == state.AuthOutcomeCredentialRotated &&
 			!snapshot.RetryEligible
 	})
-	if terminal.AuthOutcome != state.AuthOutcomeInvalidCredential {
-		t.Fatalf("expected invalid credential outcome, got %q", terminal.AuthOutcome)
+	if terminal.CredentialVersion == nil || *terminal.CredentialVersion != 2 {
+		t.Fatalf("expected credential replacement to retain credential version metadata, got %+v", terminal.CredentialVersion)
+	}
+
+	select {
+	case <-transport.connectCh:
+		t.Fatal("expected credential replacement disconnect to stop automatic retry for current credential")
+	case <-time.After(100 * time.Millisecond):
 	}
 
 	select {
 	case err := <-runDone:
-		t.Fatalf("Runner.Run returned fatal error for terminal Cloud rejection: %v", err)
+		t.Fatalf("Runner.Run returned fatal error after credential replacement disconnect: %v", err)
 	case <-time.After(100 * time.Millisecond):
 	}
 
@@ -283,10 +490,10 @@ func TestRunnerStartupTerminalConnectErrorStaysAliveUntilShutdown(t *testing.T) 
 	select {
 	case err := <-runDone:
 		if err != nil {
-			t.Fatalf("expected clean shutdown after terminal rejection, got %v", err)
+			t.Fatalf("expected clean shutdown after credential replacement disconnect, got %v", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for clean shutdown after terminal rejection")
+		t.Fatal("timeout waiting for clean shutdown after credential replacement disconnect")
 	}
 }
 

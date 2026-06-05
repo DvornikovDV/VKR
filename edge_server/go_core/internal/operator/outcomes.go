@@ -39,6 +39,17 @@ func MapConnectError(code cloud.ConnectErrorCode) RuntimeOutcome {
 			CloudConnection: "rejected",
 			AuthSummary:     "invalid_credential",
 		}
+	case cloud.ConnectErrorPersistentCredentialRevoked,
+		cloud.ConnectErrorOnboardingNotAllowed,
+		cloud.ConnectErrorOnboardingPackageMissing,
+		cloud.ConnectErrorOnboardingPackageExpired,
+		cloud.ConnectErrorOnboardingPackageReused:
+		return RuntimeOutcome{
+			Code:            string(code),
+			RuntimeStatus:   "waiting_for_credential",
+			CloudConnection: "rejected",
+			AuthSummary:     "invalid_credential",
+		}
 	default:
 		return RuntimeOutcome{
 			Code:            string(code),

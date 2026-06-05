@@ -509,6 +509,10 @@ func (r *Runner) Run(ctx context.Context) error {
 			if err := client.RegisterLifecycleHandlers(cloud.LifecycleHandlers{
 				OnDisconnect: func(event cloud.EdgeDisconnect) {
 					if sessionFlow.HandleDisconnect(event) {
+						if event.RequiresFreshCredential() {
+							signalLifecycleEvent(lifecycleEvents, "terminal_disconnect")
+							return
+						}
 						signalLifecycleEvent(lifecycleEvents, "disconnect")
 					}
 				},
@@ -581,8 +585,11 @@ func (r *Runner) Run(ctx context.Context) error {
 			case <-ctx.Done():
 				_ = client.Disconnect()
 				return nil
-			case <-lifecycleEvents:
+			case lifecycleEvent := <-lifecycleEvents:
 				_ = client.Disconnect()
+				if lifecycleEvent == "terminal_disconnect" {
+					return r.waitForShutdown(ctx, client)
+				}
 				client = nil
 				expectedEdge = ""
 				reconnectAttempt++
