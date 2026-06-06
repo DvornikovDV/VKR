@@ -110,6 +110,7 @@ type modbusAppliedDefinition struct {
 	mappings        []modbusMetricMapping
 	commandMappings []modbusCommandMapping
 	cancel          context.CancelFunc
+	runDone         chan struct{}
 }
 
 type modbusObservationKey struct {
@@ -129,6 +130,7 @@ type modbusObservationState struct {
 }
 
 type ModbusSerialAdapter struct {
+	lifecycleMu         sync.Mutex
 	mu                  sync.RWMutex
 	transactionMu       sync.Mutex
 	transactionSequence uint64
@@ -141,11 +143,14 @@ type ModbusSerialAdapter struct {
 	client              modbusRegisterClient
 	reconnectState      modbusReconnectState
 	reconnectPolicy     modbusReconnectPolicy
+	transportFailures   int
+	reconnectNotify     chan struct{}
 	mappings            []modbusMetricMapping
 	commandMappings     []modbusCommandMapping
 	commandObservations map[modbusObservationKey]modbusObservationState
 	observationNotify   chan struct{}
 	cancel              context.CancelFunc
+	runDone             chan struct{}
 	closed              bool
 }
 
@@ -191,6 +196,7 @@ func newModbusSerialAdapterWithFactory(factory modbusSerialClientFactory, now fu
 		now:                 now,
 		reconnectState:      modbusReconnectStateDisconnected,
 		reconnectPolicy:     defaultModbusReconnectPolicy(),
+		reconnectNotify:     make(chan struct{}, 1),
 		commandObservations: make(map[modbusObservationKey]modbusObservationState),
 		observationNotify:   make(chan struct{}),
 		closed:              true,
@@ -206,6 +212,9 @@ func defaultModbusReconnectPolicy() modbusReconnectPolicy {
 }
 
 func (a *ModbusSerialAdapter) ApplyDefinition(definition Definition, sink Sink) error {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+
 	if a.clientFactory == nil {
 		return fmt.Errorf("modbus serial client factory is required")
 	}
@@ -230,16 +239,12 @@ func (a *ModbusSerialAdapter) ApplyDefinition(definition Definition, sink Sink) 
 		return err
 	}
 
-	a.mu.Lock()
-	if a.cancel != nil {
-		a.cancel()
-		a.cancel = nil
-	}
-	a.mu.Unlock()
+	a.stopRun()
 
 	a.resetCommandObservations()
 
 	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
 	applied := modbusAppliedDefinition{
 		sourceID:        sourceID,
 		sink:            sink,
@@ -247,25 +252,30 @@ func (a *ModbusSerialAdapter) ApplyDefinition(definition Definition, sink Sink) 
 		mappings:        mappings,
 		commandMappings: commandMappings,
 		cancel:          cancel,
+		runDone:         runDone,
 	}
-	if err := a.replaceClient(applied); err != nil {
+	if err := a.replaceClient(ctx, applied); err != nil {
 		cancel()
 		return err
 	}
 
 	interval := time.Duration(definition.PollIntervalMs) * time.Millisecond
-	go a.run(ctx, interval)
+	go a.run(ctx, interval, runDone)
 
 	return nil
 }
 
 func (a *ModbusSerialAdapter) Close() error {
+	a.lifecycleMu.Lock()
+	defer a.lifecycleMu.Unlock()
+
 	a.mu.Lock()
-	if a.cancel != nil {
-		a.cancel()
-		a.cancel = nil
-	}
+	cancel := a.cancel
+	runDone := a.runDone
+	a.cancel = nil
+	a.runDone = nil
 	a.reconnectState = modbusReconnectStateDisconnected
+	a.transportFailures = 0
 	a.sink = nil
 	a.connection = modbusSerialConnection{}
 	a.mappings = nil
@@ -273,14 +283,41 @@ func (a *ModbusSerialAdapter) Close() error {
 	a.closed = true
 	a.mu.Unlock()
 
+	if cancel != nil {
+		cancel()
+	}
+	if runDone != nil {
+		<-runDone
+	}
+
 	a.resetCommandObservations()
 
 	return a.closeClient()
 }
 
-func (a *ModbusSerialAdapter) replaceClient(applied modbusAppliedDefinition) error {
+func (a *ModbusSerialAdapter) stopRun() {
+	a.mu.Lock()
+	cancel := a.cancel
+	runDone := a.runDone
+	a.cancel = nil
+	a.runDone = nil
+	a.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if runDone != nil {
+		<-runDone
+	}
+}
+
+func (a *ModbusSerialAdapter) replaceClient(ctx context.Context, applied modbusAppliedDefinition) error {
 	a.transactionMu.Lock()
 	defer a.transactionMu.Unlock()
+
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	nextClient, err := a.clientFactory(applied.connection)
 	if err != nil {
@@ -297,12 +334,23 @@ func (a *ModbusSerialAdapter) replaceClient(applied modbusAppliedDefinition) err
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		_ = nextClient.Close()
+		return err
+	}
 	if err := nextClient.Open(); err != nil {
 		_ = nextClient.Close()
 		return fmt.Errorf("open modbus serial connection: %w", err)
 	}
 	if applied.connection.settleDelay > 0 {
-		time.Sleep(applied.connection.settleDelay)
+		if !waitForContext(ctx, applied.connection.settleDelay) {
+			_ = nextClient.Close()
+			return ctx.Err()
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		_ = nextClient.Close()
+		return err
 	}
 
 	a.installAppliedDefinitionLocked(nextClient, applied)
@@ -339,28 +387,70 @@ func (a *ModbusSerialAdapter) installAppliedDefinitionLocked(client modbusRegist
 	a.connection = applied.connection
 	a.client = client
 	a.reconnectState = modbusReconnectStateConnected
+	a.transportFailures = 0
 	a.mappings = applied.mappings
 	a.commandMappings = applied.commandMappings
 	a.cancel = applied.cancel
+	a.runDone = applied.runDone
 	a.closed = false
 }
 
-func (a *ModbusSerialAdapter) run(ctx context.Context, interval time.Duration) {
+func (a *ModbusSerialAdapter) run(ctx context.Context, interval time.Duration, done chan struct{}) {
+	defer close(done)
+
 	if interval <= 0 {
 		interval = time.Second
 	}
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	_, _ = a.pollOnce()
+	backoff := a.reconnectPolicy.initialBackoff
 
 	for {
-		select {
-		case <-ctx.Done():
+		state, closed := a.reconnectStateSnapshot()
+		if closed {
 			return
-		case <-ticker.C:
+		}
+
+		switch state {
+		case modbusReconnectStateConnected:
 			_, _ = a.pollOnce()
+			if !a.waitForPoll(ctx, interval) {
+				return
+			}
+		case modbusReconnectStateDisconnected:
+			sourceID, ok := a.beginReconnect()
+			if !ok {
+				continue
+			}
+			if err := a.closeClient(); err != nil {
+				log.Printf("modbus source %q stale client close failed during reconnect: %v", sourceID, err)
+			}
+		case modbusReconnectStateReconnecting:
+			if !waitForContext(ctx, backoff) {
+				return
+			}
+
+			applied, ok := a.reconnectDefinitionSnapshot()
+			if !ok {
+				return
+			}
+			log.Printf("modbus source %q reconnect attempt", applied.sourceID)
+			if err := a.replaceClient(ctx, applied); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				log.Printf("modbus source %q reconnect failed: %v", applied.sourceID, err)
+				applied.sink.PublishFault(Fault{
+					SourceID: applied.sourceID,
+					Severity: SeverityError,
+					Code:     "modbus_reconnect_failed",
+					Message:  fmt.Sprintf("modbus reconnect failed: %v", err),
+					TS:       a.now().UnixMilli(),
+				})
+				backoff = nextModbusReconnectBackoff(backoff, a.reconnectPolicy.maxBackoff)
+				continue
+			}
+			log.Printf("modbus source %q reconnect succeeded", applied.sourceID)
+			backoff = a.reconnectPolicy.initialBackoff
 		}
 	}
 }
@@ -383,9 +473,13 @@ func (a *ModbusSerialAdapter) pollOnce() (int, error) {
 				Message:  fmt.Sprintf("modbus read failed for device %q metric %q: %v", mapping.deviceID, mapping.metric, readErr),
 				TS:       ts,
 			})
+			if a.recordTransportFailure(readErr) {
+				break
+			}
 			continue
 		}
 
+		a.recordTransportSuccess()
 		converted := convertModbusValue(value, mapping)
 		a.recordReportedMetricObservation(mapping.deviceID, mapping.metric, converted, observationTransaction)
 		sink.PublishReading(RawReading{
@@ -440,9 +534,11 @@ func (a *ModbusSerialAdapter) ExecuteCommand(ctx context.Context, request Comman
 	observationKey := modbusObservationKey{deviceID: commandMapping.deviceID, metric: commandMapping.reportedMetric}
 	observationMarker, err := a.writeModbusCommandRegister(client, commandMapping.address, writeValue)
 	if err != nil {
+		a.recordTransportFailure(err)
 		result.Reason = fmt.Sprintf("write modbus command: %v", err)
 		return result, nil
 	}
+	a.recordTransportSuccess()
 
 	for i := 0; i < modbusCommandForcedPollAttempts; i++ {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -517,7 +613,7 @@ func (a *ModbusSerialAdapter) isCurrentClientLocked(client modbusRegisterClient)
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	return !a.closed && client != nil && a.client == client
+	return !a.closed && a.reconnectState == modbusReconnectStateConnected && client != nil && a.client == client
 }
 
 func (a *ModbusSerialAdapter) nextModbusTransactionSequenceLocked() uint64 {
@@ -529,8 +625,11 @@ func (a *ModbusSerialAdapter) snapshot() (string, Sink, modbusRegisterClient, []
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	if a.closed || a.client == nil || a.sink == nil {
+	if a.closed || a.sink == nil {
 		return "", nil, nil, nil, fmt.Errorf("modbus serial adapter is not running")
+	}
+	if a.reconnectState != modbusReconnectStateConnected || a.client == nil {
+		return "", nil, nil, nil, fmt.Errorf("modbus serial source is unavailable while %s", a.reconnectState)
 	}
 
 	mappings := append([]modbusMetricMapping(nil), a.mappings...)
@@ -541,8 +640,11 @@ func (a *ModbusSerialAdapter) commandSnapshot(deviceID string, command string) (
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
-	if a.closed || a.client == nil {
+	if a.closed {
 		return nil, modbusCommandMapping{}, false, fmt.Errorf("modbus serial adapter is not running")
+	}
+	if a.reconnectState != modbusReconnectStateConnected || a.client == nil {
+		return nil, modbusCommandMapping{}, false, fmt.Errorf("modbus serial source is unavailable while %s", a.reconnectState)
 	}
 
 	for _, commandMapping := range a.commandMappings {
@@ -639,6 +741,147 @@ func (a *ModbusSerialAdapter) resetCommandObservations() {
 func (a *ModbusSerialAdapter) notifyCommandObservationLocked() {
 	close(a.observationNotify)
 	a.observationNotify = make(chan struct{})
+}
+
+func (a *ModbusSerialAdapter) reconnectStateSnapshot() (modbusReconnectState, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	return a.reconnectState, a.closed
+}
+
+func (a *ModbusSerialAdapter) beginReconnect() (string, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.closed || a.reconnectState != modbusReconnectStateDisconnected {
+		return "", false
+	}
+	a.reconnectState = modbusReconnectStateReconnecting
+	return a.sourceID, true
+}
+
+func (a *ModbusSerialAdapter) reconnectDefinitionSnapshot() (modbusAppliedDefinition, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if a.closed || a.reconnectState != modbusReconnectStateReconnecting || a.sink == nil {
+		return modbusAppliedDefinition{}, false
+	}
+	return modbusAppliedDefinition{
+		sourceID:        a.sourceID,
+		sink:            a.sink,
+		connection:      a.connection,
+		mappings:        append([]modbusMetricMapping(nil), a.mappings...),
+		commandMappings: append([]modbusCommandMapping(nil), a.commandMappings...),
+		cancel:          a.cancel,
+		runDone:         a.runDone,
+	}, true
+}
+
+func (a *ModbusSerialAdapter) recordTransportFailure(err error) bool {
+	if !isModbusTransportFailure(err) {
+		return false
+	}
+
+	a.mu.Lock()
+	if a.closed || a.reconnectState != modbusReconnectStateConnected {
+		a.mu.Unlock()
+		return false
+	}
+	a.transportFailures++
+	if a.transportFailures < a.reconnectPolicy.failureThreshold {
+		a.mu.Unlock()
+		return false
+	}
+	a.reconnectState = modbusReconnectStateDisconnected
+	sourceID := a.sourceID
+	a.mu.Unlock()
+
+	log.Printf("modbus source %q disconnect detected after repeated transport failures: %v", sourceID, err)
+	select {
+	case a.reconnectNotify <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+func (a *ModbusSerialAdapter) recordTransportSuccess() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if !a.closed && a.reconnectState == modbusReconnectStateConnected {
+		a.transportFailures = 0
+	}
+}
+
+func (a *ModbusSerialAdapter) waitForPoll(ctx context.Context, interval time.Duration) bool {
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-a.reconnectNotify:
+		return true
+	case <-timer.C:
+		return true
+	}
+}
+
+func waitForContext(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func nextModbusReconnectBackoff(current time.Duration, maximum time.Duration) time.Duration {
+	next := current * 2
+	if next > maximum {
+		return maximum
+	}
+	return next
+}
+
+func isModbusTransportFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) {
+		return true
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary()) {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"broken pipe",
+		"device disconnected",
+		"device is not connected",
+		"device attached to the system is not functioning",
+		"file has been closed",
+		"handle is invalid",
+		"i/o device error",
+		"input/output error",
+		"port is closed",
+		"serial port is closed",
+		"request timed out",
+		"timeout",
+	} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func newSimonvetterModbusClient(connection modbusSerialConnection) (modbusRegisterClient, error) {

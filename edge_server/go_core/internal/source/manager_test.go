@@ -221,6 +221,125 @@ func TestManagerPreservesExistingSourceWhenReconfigurationFails(t *testing.T) {
 	}
 }
 
+func TestManagerDoesNotHoldStateLockWhileClosingAdapter(t *testing.T) {
+	adapter := &closePublishingAdapter{}
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			return adapter, nil
+		},
+	})
+	if _, err := manager.ApplyDefinitions([]Definition{
+		boundaryDefinition("source-1", "device-1", "pressure"),
+	}); err != nil {
+		t.Fatalf("apply source definition: %v", err)
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := manager.ApplyDefinitions(nil)
+		result <- err
+	}()
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("stop source definitions: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("adapter Close deadlocked while publishing through manager sink")
+	}
+}
+
+func TestManagerFaultNotificationSaturationDoesNotBlockSourceOrShutdown(t *testing.T) {
+	adapter := &boundaryAdapter{}
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			return adapter, nil
+		},
+	})
+	if _, err := manager.ApplyDefinitions([]Definition{
+		boundaryDefinition("source-1", "device-1", "pressure"),
+	}); err != nil {
+		t.Fatalf("apply source definition: %v", err)
+	}
+
+	published := make(chan struct{})
+	go func() {
+		for i := 0; i < cap(manager.faults)+10; i++ {
+			adapter.publishFault(Fault{
+				SourceID: "source-1",
+				Severity: SeverityError,
+				Code:     "modbus_timeout",
+				Message:  "read timed out",
+				TS:       int64(i + 1),
+			})
+		}
+		close(published)
+	}()
+	waitForSignal(t, published, "fault publication beyond notification channel capacity")
+
+	health := manager.HealthSnapshot()["source-1"]
+	if health.State != SourceHealthFailed || health.ConsecutiveFaults != cap(manager.faults)+10 {
+		t.Fatalf("fault saturation must preserve source health, got %+v", health)
+	}
+
+	stopped := make(chan error, 1)
+	go func() {
+		_, err := manager.ApplyDefinitions(nil)
+		stopped <- err
+	}()
+	if err := receiveAdapterCall(t, stopped, "source shutdown after fault channel saturation"); err != nil {
+		t.Fatalf("stop saturated source: %v", err)
+	}
+}
+
+func TestManagerRejectsStaleGenerationEventsAfterSourceReplacement(t *testing.T) {
+	adapters := make([]*boundaryAdapter, 0, 2)
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			adapter := &boundaryAdapter{}
+			adapters = append(adapters, adapter)
+			return adapter, nil
+		},
+	})
+	defer manager.ApplyDefinitions(nil)
+
+	initial := boundaryDefinition("source-1", "device-1", "pressure")
+	if _, err := manager.ApplyDefinitions([]Definition{initial}); err != nil {
+		t.Fatalf("apply initial source definition: %v", err)
+	}
+	updated := boundaryDefinition("source-1", "device-1", "temperature")
+	if _, err := manager.ApplyDefinitions([]Definition{updated}); err != nil {
+		t.Fatalf("apply updated source definition: %v", err)
+	}
+
+	adapters[0].sink.PublishFault(Fault{
+		SourceID: "source-1",
+		Severity: SeverityError,
+		Code:     "stale_fault",
+		Message:  "stale generation fault",
+		TS:       10,
+	})
+	adapters[1].publishReading(RawReading{
+		SourceID: "source-1",
+		DeviceID: "device-1",
+		Metric:   "temperature",
+		Value:    21.5,
+		TS:       11,
+	})
+
+	select {
+	case reading := <-manager.Readings():
+		assertCloudSafeReading(t, reading, "source-1", "device-1", "temperature", 21.5)
+	case <-time.After(time.Second):
+		t.Fatal("current source generation reading was not accepted")
+	}
+	health := manager.HealthSnapshot()["source-1"]
+	if health.State != SourceHealthRunning || health.LastFaultCode != "" {
+		t.Fatalf("stale generation must not update replacement health, got %+v", health)
+	}
+}
+
 func TestDefinitionsFromConfigPreservesCommands(t *testing.T) {
 	cfgDefinitions := []config.PollingSourceDefinition{
 		{
@@ -715,6 +834,28 @@ type boundaryAdapter struct {
 	adapters          map[string]*boundaryAdapter
 	applyErr          error
 	appliedDefinition Definition
+}
+
+type closePublishingAdapter struct {
+	sourceID string
+	sink     Sink
+}
+
+func (a *closePublishingAdapter) ApplyDefinition(definition Definition, sink Sink) error {
+	a.sourceID = definition.SourceID
+	a.sink = sink
+	return nil
+}
+
+func (a *closePublishingAdapter) Close() error {
+	a.sink.PublishFault(Fault{
+		SourceID: a.sourceID,
+		Severity: SeverityError,
+		Code:     "close_probe",
+		Message:  "close lock-order probe",
+		TS:       1,
+	})
+	return nil
 }
 
 func (a *boundaryAdapter) ApplyDefinition(definition Definition, sink Sink) error {

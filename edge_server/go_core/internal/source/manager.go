@@ -10,6 +10,7 @@ import (
 )
 
 type Manager struct {
+	applyMu   sync.Mutex
 	mu        sync.RWMutex
 	factories FactoryRegistry
 	sources   map[string]*managedSource
@@ -19,17 +20,45 @@ type Manager struct {
 }
 
 type managedSource struct {
-	signature string
-	adapter   Adapter
-	control   MockControl
-	identity  map[string]struct{}
-	commands  map[string]struct{}
-	health    SourceHealthSnapshot
+	signature  string
+	adapter    Adapter
+	control    MockControl
+	generation *sourceGeneration
+	identity   map[string]struct{}
+	commands   map[string]struct{}
+	health     SourceHealthSnapshot
 }
 
 type managerSink struct {
-	manager  *Manager
-	sourceID string
+	manager    *Manager
+	sourceID   string
+	generation *sourceGeneration
+}
+
+type sourceGeneration struct {
+	ready     chan struct{}
+	done      chan struct{}
+	readyOnce sync.Once
+	doneOnce  sync.Once
+}
+
+func newSourceGeneration() *sourceGeneration {
+	return &sourceGeneration{
+		ready: make(chan struct{}),
+		done:  make(chan struct{}),
+	}
+}
+
+func (g *sourceGeneration) activate() {
+	g.readyOnce.Do(func() {
+		close(g.ready)
+	})
+}
+
+func (g *sourceGeneration) deactivate() {
+	g.doneOnce.Do(func() {
+		close(g.done)
+	})
 }
 
 func NewManager(factories FactoryRegistry) *Manager {
@@ -48,31 +77,51 @@ func NewManager(factories FactoryRegistry) *Manager {
 }
 
 func (m *Manager) ApplyDefinitions(definitions []Definition) (ApplyReport, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.applyMu.Lock()
+	defer m.applyMu.Unlock()
 
 	report := ApplyReport{}
 	nextSources := make(map[string]*managedSource, len(definitions))
 	closedSources := make(map[string]struct{})
+	adaptersToClose := make([]Adapter, 0)
+	startedAdapters := make([]Adapter, 0)
+	startedGenerations := make([]*sourceGeneration, 0)
+
+	m.mu.RLock()
+	currentSources := make(map[string]*managedSource, len(m.sources))
+	for sourceID, managed := range m.sources {
+		currentSources[sourceID] = managed
+	}
+	m.mu.RUnlock()
+
+	abort := func(err error) (ApplyReport, error) {
+		for _, generation := range startedGenerations {
+			generation.deactivate()
+		}
+		for _, adapter := range startedAdapters {
+			_ = adapter.Close()
+		}
+		return report, err
+	}
 
 	for _, rawDefinition := range definitions {
 		definition := cloneDefinition(rawDefinition)
 		sourceID := strings.TrimSpace(definition.SourceID)
 		if sourceID == "" {
-			return report, fmt.Errorf("source definition sourceId is required")
+			return abort(fmt.Errorf("source definition sourceId is required"))
 		}
 		definition.SourceID = sourceID
 
 		adapterKind := strings.TrimSpace(definition.AdapterKind)
 		if adapterKind == "" {
-			return report, fmt.Errorf("source definition %s adapterKind is required", sourceID)
+			return abort(fmt.Errorf("source definition %s adapterKind is required", sourceID))
 		}
 		definition.AdapterKind = adapterKind
 
-		existing := m.sources[sourceID]
+		existing := currentSources[sourceID]
 		if !definition.Enabled {
 			if existing != nil {
-				_ = existing.adapter.Close()
+				adaptersToClose = append(adaptersToClose, existing.adapter)
 				closedSources[sourceID] = struct{}{}
 				report.Stopped = append(report.Stopped, sourceID)
 			}
@@ -81,7 +130,7 @@ func (m *Manager) ApplyDefinitions(definitions []Definition) (ApplyReport, error
 
 		signature, err := definitionSignature(definition)
 		if err != nil {
-			return report, fmt.Errorf("calculate definition signature for %s: %w", sourceID, err)
+			return abort(fmt.Errorf("calculate definition signature for %s: %w", sourceID, err))
 		}
 
 		if existing != nil && existing.signature == signature {
@@ -92,42 +141,47 @@ func (m *Manager) ApplyDefinitions(definitions []Definition) (ApplyReport, error
 
 		identities, err := readingIdentities(definition)
 		if err != nil {
-			return report, fmt.Errorf("validate reading identities for %s: %w", sourceID, err)
+			return abort(fmt.Errorf("validate reading identities for %s: %w", sourceID, err))
 		}
 		commandIdentities, err := commandIdentities(definition)
 		if err != nil {
-			return report, fmt.Errorf("validate command identities for %s: %w", sourceID, err)
+			return abort(fmt.Errorf("validate command identities for %s: %w", sourceID, err))
 		}
 
 		factory := m.factories[definition.AdapterKind]
 		if factory == nil {
-			return report, fmt.Errorf("source adapter kind %q is not registered", definition.AdapterKind)
+			return abort(fmt.Errorf("source adapter kind %q is not registered", definition.AdapterKind))
 		}
 
 		adapter, err := factory()
 		if err != nil {
-			return report, fmt.Errorf("create source adapter for %s: %w", sourceID, err)
+			return abort(fmt.Errorf("create source adapter for %s: %w", sourceID, err))
 		}
 
+		generation := newSourceGeneration()
 		sink := managerSink{
-			manager:  m,
-			sourceID: sourceID,
+			manager:    m,
+			sourceID:   sourceID,
+			generation: generation,
 		}
 		if err := adapter.ApplyDefinition(definition, sink); err != nil {
 			_ = adapter.Close()
-			return report, fmt.Errorf("apply source definition %s: %w", sourceID, err)
+			return abort(fmt.Errorf("apply source definition %s: %w", sourceID, err))
 		}
+		startedAdapters = append(startedAdapters, adapter)
+		startedGenerations = append(startedGenerations, generation)
 
 		if existing != nil {
-			_ = existing.adapter.Close()
+			adaptersToClose = append(adaptersToClose, existing.adapter)
 			closedSources[sourceID] = struct{}{}
 		}
 
 		managed := &managedSource{
-			signature: signature,
-			adapter:   adapter,
-			identity:  identities,
-			commands:  commandIdentities,
+			signature:  signature,
+			adapter:    adapter,
+			generation: generation,
+			identity:   identities,
+			commands:   commandIdentities,
 			health: SourceHealthSnapshot{
 				SourceID: sourceID,
 				State:    SourceHealthRunning,
@@ -141,7 +195,7 @@ func (m *Manager) ApplyDefinitions(definitions []Definition) (ApplyReport, error
 		report.Applied = append(report.Applied, sourceID)
 	}
 
-	for sourceID, existing := range m.sources {
+	for sourceID, existing := range currentSources {
 		if _, kept := nextSources[sourceID]; kept {
 			continue
 		}
@@ -149,11 +203,26 @@ func (m *Manager) ApplyDefinitions(definitions []Definition) (ApplyReport, error
 			continue
 		}
 
-		_ = existing.adapter.Close()
+		adaptersToClose = append(adaptersToClose, existing.adapter)
 		report.Stopped = append(report.Stopped, sourceID)
 	}
 
+	m.mu.Lock()
+	for sourceID, existing := range currentSources {
+		if nextSources[sourceID] != existing && existing.generation != nil {
+			existing.generation.deactivate()
+		}
+	}
 	m.sources = nextSources
+	for _, generation := range startedGenerations {
+		generation.activate()
+	}
+	m.mu.Unlock()
+
+	for _, adapter := range adaptersToClose {
+		_ = adapter.Close()
+	}
+
 	sort.Strings(report.Applied)
 	sort.Strings(report.Reused)
 	sort.Strings(report.Stopped)
@@ -284,7 +353,7 @@ func (m *Manager) HealthSnapshot() map[string]SourceHealthSnapshot {
 }
 
 func (s managerSink) PublishReading(reading RawReading) {
-	if s.manager == nil {
+	if s.manager == nil || !s.waitUntilActive() {
 		return
 	}
 
@@ -292,18 +361,18 @@ func (s managerSink) PublishReading(reading RawReading) {
 	if err != nil {
 		return
 	}
-	if !s.manager.acceptReading(normalized) {
-		return
-	}
-	if !s.manager.markReading(normalized) {
+	if !s.manager.acceptAndMarkReading(normalized, s.generation) {
 		return
 	}
 
-	s.manager.readings <- normalized
+	select {
+	case s.manager.readings <- normalized:
+	case <-s.generation.done:
+	}
 }
 
 func (s managerSink) PublishFault(fault Fault) {
-	if s.manager == nil {
+	if s.manager == nil || !s.waitUntilActive() {
 		return
 	}
 
@@ -311,31 +380,39 @@ func (s managerSink) PublishFault(fault Fault) {
 	if err != nil {
 		return
 	}
-	if !s.manager.markFault(normalized) {
+	if !s.manager.markFault(normalized, s.generation) {
 		return
 	}
 
-	s.manager.faults <- normalized
+	select {
+	case s.manager.faults <- normalized:
+	case <-s.generation.done:
+	default:
+	}
 }
 
-func (m *Manager) acceptReading(reading Reading) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (s managerSink) waitUntilActive() bool {
+	if s.generation == nil {
+		return true
+	}
 
-	managed := m.sources[reading.SourceID]
-	if managed == nil {
+	select {
+	case <-s.generation.ready:
+		return true
+	case <-s.generation.done:
 		return false
 	}
-	_, ok := managed.identity[readingIdentityKey(reading.DeviceID, reading.Metric)]
-	return ok
 }
 
-func (m *Manager) markReading(reading Reading) bool {
+func (m *Manager) acceptAndMarkReading(reading Reading, generation *sourceGeneration) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	managed := m.sources[reading.SourceID]
-	if managed == nil {
+	if managed == nil || managed.generation != generation {
+		return false
+	}
+	if _, ok := managed.identity[readingIdentityKey(reading.DeviceID, reading.Metric)]; !ok {
 		return false
 	}
 	managed.health.State = SourceHealthRunning
@@ -344,12 +421,12 @@ func (m *Manager) markReading(reading Reading) bool {
 	return true
 }
 
-func (m *Manager) markFault(fault Fault) bool {
+func (m *Manager) markFault(fault Fault, generation *sourceGeneration) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	managed := m.sources[fault.SourceID]
-	if managed == nil {
+	if managed == nil || managed.generation != generation {
 		return false
 	}
 	if fault.Severity == SeverityWarning {

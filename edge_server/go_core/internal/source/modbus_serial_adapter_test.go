@@ -1,10 +1,14 @@
 package source
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"math"
+	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -1476,6 +1480,273 @@ func TestModbusSerialAdapterRejectsStaleClientSnapshotAfterReplacement(t *testin
 	}
 }
 
+func TestModbusSerialAdapterSharesReadAndWriteTransportFailureAccounting(t *testing.T) {
+	client := &fakeModbusClient{
+		err:      timeoutErr{},
+		writeErr: timeoutErr{},
+	}
+	factory := newSequentialFakeModbusClientFactory(t, client, &fakeModbusClient{})
+	adapter := newModbusSerialAdapterWithFactory(factory.factory, fixedNow)
+	adapter.reconnectPolicy.initialBackoff = time.Second
+	adapter.reconnectPolicy.maxBackoff = time.Second
+
+	definition := validModbusDefinitionWithCommands(
+		[]MetricDefinition{
+			modbusMetric("actual_state", "boolean", "input", 31, nil),
+		},
+		[]CommandDefinition{
+			modbusCommand("set_bool", "holding", 160, "actual_state"),
+		},
+	)
+	definition.PollIntervalMs = 60000
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+	client.waitForReadCalls(t, 1)
+
+	for i := 0; i < 2; i++ {
+		result, err := adapter.ExecuteCommand(context.Background(), CommandRequest{
+			DeviceID: "device-1",
+			Command:  "set_bool",
+			Value:    true,
+		})
+		if err != nil {
+			t.Fatalf("execute failing command %d: %v", i+1, err)
+		}
+		if result.Status != CommandStatusFailed {
+			t.Fatalf("transport write failure must fail command, got %+v", result)
+		}
+	}
+
+	client.waitForCloseCalls(t, 1)
+	result, err := adapter.ExecuteCommand(context.Background(), CommandRequest{
+		DeviceID: "device-1",
+		Command:  "set_bool",
+		Value:    true,
+	})
+	if err != nil {
+		t.Fatalf("execute command while reconnecting: %v", err)
+	}
+	if result.Status != CommandStatusFailed || !strings.Contains(result.Reason, "unavailable") {
+		t.Fatalf("reconnecting command must fail unavailable, got %+v", result)
+	}
+	client.assertWriteCalls(t, []modbusWriteCall{
+		{address: 160, value: 1},
+		{address: 160, value: 1},
+	})
+}
+
+func TestModbusTransportFailureClassificationRejectsProtocolAndInternalErrors(t *testing.T) {
+	for _, err := range []error{
+		modbus.ErrIllegalDataAddress,
+		errors.New("unsupported serial mapping"),
+		errors.New("modbus serial client snapshot is no longer current"),
+		errors.New("register not found"),
+	} {
+		if isModbusTransportFailure(err) {
+			t.Fatalf("non-transport error must not trigger reconnect accounting: %v", err)
+		}
+	}
+
+	for _, err := range []error{
+		timeoutErr{},
+		io.EOF,
+		net.ErrClosed,
+		errors.New("serial port is closed"),
+		errors.New("a device attached to the system is not functioning"),
+	} {
+		if !isModbusTransportFailure(err) {
+			t.Fatalf("equipment transport loss must trigger reconnect accounting: %v", err)
+		}
+	}
+}
+
+func TestModbusSerialAdapterCloseClosesCurrentClient(t *testing.T) {
+	client := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 10, registerType: modbus.INPUT_REGISTER}: 42,
+		},
+	}
+	factory := newSequentialFakeModbusClientFactory(t, client)
+	adapter := newModbusSerialAdapterWithFactory(factory.factory, fixedNow)
+
+	definition := validModbusDefinition([]MetricDefinition{
+		modbusMetric("temperature", "number", "input", 10, nil),
+	})
+	definition.PollIntervalMs = 60000
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	client.waitForReadCalls(t, 1)
+
+	if err := adapter.Close(); err != nil {
+		t.Fatalf("close connected modbus adapter: %v", err)
+	}
+
+	factory.assertConnectionCount(t, 1)
+	client.assertOpenCount(t, 1)
+	client.assertCloseCount(t, 1)
+}
+
+func TestModbusSerialAdapterCloseWaitsForInitialOpenAndPreventsLateRun(t *testing.T) {
+	openStarted := make(chan struct{})
+	openRelease := make(chan struct{})
+	client := &fakeModbusClient{
+		openStarted: openStarted,
+		openRelease: openRelease,
+		values: map[modbusReadKey]uint16{
+			{address: 10, registerType: modbus.INPUT_REGISTER}: 42,
+		},
+	}
+	factory := newSequentialFakeModbusClientFactory(t, client)
+	adapter := newModbusSerialAdapterWithFactory(factory.factory, fixedNow)
+	definition := validModbusDefinition([]MetricDefinition{
+		modbusMetric("temperature", "number", "input", 10, nil),
+	})
+	definition.PollIntervalMs = 5
+
+	applyResult := make(chan error, 1)
+	go func() {
+		applyResult <- adapter.ApplyDefinition(definition, &captureModbusSink{})
+	}()
+	waitForSignal(t, openStarted, "initial Modbus open")
+
+	closeResult := make(chan error, 1)
+	go func() {
+		closeResult <- adapter.Close()
+	}()
+	assertCallStillRunning(t, closeResult, "Close during initial Modbus open")
+
+	close(openRelease)
+	if err := receiveAdapterCall(t, applyResult, "ApplyDefinition after initial open release"); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	if err := receiveAdapterCall(t, closeResult, "Close after initial open release"); err != nil {
+		t.Fatalf("close modbus adapter: %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	factory.assertConnectionCount(t, 1)
+	client.assertOpenCount(t, 1)
+	client.assertCloseCount(t, 1)
+}
+
+func TestModbusSerialAdapterCloseStopsReconnectBackoff(t *testing.T) {
+	stale := &fakeModbusClient{err: timeoutErr{}}
+	replacement := &fakeModbusClient{}
+	factory := newSequentialFakeModbusClientFactory(t, stale, replacement)
+	adapter := newModbusSerialAdapterWithFactory(factory.factory, fixedNow)
+	adapter.reconnectPolicy.initialBackoff = 100 * time.Millisecond
+	adapter.reconnectPolicy.maxBackoff = 100 * time.Millisecond
+
+	definition := validModbusDefinition([]MetricDefinition{
+		modbusMetric("temperature", "number", "input", 10, nil),
+	})
+	definition.PollIntervalMs = 5
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	stale.waitForCloseCalls(t, 1)
+
+	if err := adapter.Close(); err != nil {
+		t.Fatalf("close modbus adapter during reconnect backoff: %v", err)
+	}
+	time.Sleep(2 * adapter.reconnectPolicy.initialBackoff)
+
+	factory.assertConnectionCount(t, 1)
+	stale.assertCloseCount(t, 1)
+	replacement.assertOpenCount(t, 0)
+	replacement.assertCloseCount(t, 0)
+}
+
+func TestModbusSerialAdapterCloseWaitsForReconnectOpenAndPreventsLaterAttempts(t *testing.T) {
+	openStarted := make(chan struct{})
+	openRelease := make(chan struct{})
+	stale := &fakeModbusClient{err: timeoutErr{}}
+	replacement := &fakeModbusClient{
+		openStarted: openStarted,
+		openRelease: openRelease,
+		values: map[modbusReadKey]uint16{
+			{address: 10, registerType: modbus.INPUT_REGISTER}: 42,
+		},
+	}
+	unused := &fakeModbusClient{}
+	factory := newSequentialFakeModbusClientFactory(t, stale, replacement, unused)
+	adapter := newModbusSerialAdapterWithFactory(factory.factory, fixedNow)
+	adapter.reconnectPolicy.initialBackoff = time.Millisecond
+	adapter.reconnectPolicy.maxBackoff = time.Millisecond
+
+	definition := validModbusDefinition([]MetricDefinition{
+		modbusMetric("temperature", "number", "input", 10, nil),
+	})
+	definition.PollIntervalMs = 5
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	waitForSignal(t, openStarted, "reconnect Modbus open")
+
+	closeResult := make(chan error, 1)
+	go func() {
+		closeResult <- adapter.Close()
+	}()
+	assertCallStillRunning(t, closeResult, "Close during reconnect Modbus open")
+
+	close(openRelease)
+	if err := receiveAdapterCall(t, closeResult, "Close after reconnect open release"); err != nil {
+		t.Fatalf("close modbus adapter: %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	factory.assertConnectionCount(t, 2)
+	stale.assertCloseCount(t, 1)
+	replacement.assertOpenCount(t, 1)
+	replacement.assertCloseCount(t, 1)
+	unused.assertOpenCount(t, 0)
+}
+
+func TestModbusSerialAdapterLogsReconnectLifecycle(t *testing.T) {
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+	})
+
+	stale := &fakeModbusClient{err: timeoutErr{}}
+	failedReconnect := &fakeModbusClient{openErr: errors.New("serial port unavailable")}
+	recovered := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 10, registerType: modbus.INPUT_REGISTER}: 42,
+		},
+	}
+	factory := newSequentialFakeModbusClientFactory(t, stale, failedReconnect, recovered)
+	adapter := newModbusSerialAdapterWithFactory(factory.factory, fixedNow)
+	adapter.reconnectPolicy.initialBackoff = time.Millisecond
+	adapter.reconnectPolicy.maxBackoff = time.Millisecond
+
+	definition := validModbusDefinition([]MetricDefinition{
+		modbusMetric("temperature", "number", "input", 10, nil),
+	})
+	definition.PollIntervalMs = 5
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+	recovered.waitForReadCalls(t, 1)
+
+	for _, expected := range []string{
+		"disconnect detected",
+		"reconnect attempt",
+		"reconnect failed",
+		"reconnect succeeded",
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("expected reconnect log containing %q, got %q", expected, logs.String())
+		}
+	}
+}
+
 func TestModbusSerialAdapterEmitsTimeoutFault(t *testing.T) {
 	client := &fakeModbusClient{err: timeoutErr{}}
 	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
@@ -1895,6 +2166,9 @@ type fakeModbusClient struct {
 	writeErr                  error
 	writeErrSequence          []error
 	delay                     time.Duration
+	openStarted               chan struct{}
+	openRelease               <-chan struct{}
+	openStartedOnce           sync.Once
 	calls                     []modbusReadCall
 	writeCalls                []modbusWriteCall
 	lifecycle                 func(string)
@@ -1908,13 +2182,25 @@ type fakeModbusClient struct {
 
 func (c *fakeModbusClient) Open() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	c.openCount++
-	if c.lifecycle != nil {
-		c.lifecycle("open")
+	lifecycle := c.lifecycle
+	openStarted := c.openStarted
+	openRelease := c.openRelease
+	openErr := c.openErr
+	c.mu.Unlock()
+
+	if lifecycle != nil {
+		lifecycle("open")
 	}
-	return c.openErr
+	if openStarted != nil {
+		c.openStartedOnce.Do(func() {
+			close(openStarted)
+		})
+	}
+	if openRelease != nil {
+		<-openRelease
+	}
+	return openErr
 }
 
 func (c *fakeModbusClient) Close() error {
@@ -2166,6 +2452,20 @@ func (c *fakeModbusClient) waitForWriteCalls(t *testing.T, want int) {
 	t.Fatalf("timed out waiting for %d Modbus writes, observed %d", want, writes)
 }
 
+func (c *fakeModbusClient) waitForCloseCalls(t *testing.T, want int) {
+	t.Helper()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if c.closeCountSnapshot() >= want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for %d Modbus closes, observed %d", want, c.closeCountSnapshot())
+}
+
 func (c *fakeModbusClient) waitForWriteCallsWithin(want int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
@@ -2181,6 +2481,38 @@ func (c *fakeModbusClient) waitForWriteCallsWithin(want int, timeout time.Durati
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return len(c.writeCalls) >= want
+}
+
+func waitForSignal(t *testing.T, signal <-chan struct{}, operation string) {
+	t.Helper()
+
+	select {
+	case <-signal:
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for %s", operation)
+	}
+}
+
+func assertCallStillRunning(t *testing.T, result <-chan error, operation string) {
+	t.Helper()
+
+	select {
+	case err := <-result:
+		t.Fatalf("%s returned before owned open work completed: %v", operation, err)
+	case <-time.After(20 * time.Millisecond):
+	}
+}
+
+func receiveAdapterCall(t *testing.T, result <-chan error, operation string) error {
+	t.Helper()
+
+	select {
+	case err := <-result:
+		return err
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for %s", operation)
+		return nil
+	}
 }
 
 type sequentialFakeModbusClientFactory struct {
