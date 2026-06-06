@@ -465,7 +465,7 @@ func TestSourceHealthProjectionFixturesAreStatusSchemaCompatible(t *testing.T) {
 				t.Fatal("source health fixture must include source.Manager health input")
 			}
 
-			summary, err := operator.ProjectSourceSummary(fixture.operatorHealth)
+			summary, err := projectSourceSummary(fixture.sourceHealth)
 			if err != nil {
 				t.Fatalf("project source summary fixture: %v", err)
 			}
@@ -680,7 +680,6 @@ const (
 type sourceHealthToOperatorSummaryFixture struct {
 	name              string
 	sourceHealth      map[string]source.SourceHealthSnapshot
-	operatorHealth    []operator.SourceHealthSnapshot
 	wantSourceSummary string
 	wantRuntimeStatus string
 }
@@ -692,9 +691,6 @@ func sourceHealthToOperatorSummaryFixtures() []sourceHealthToOperatorSummaryFixt
 			sourceHealth: map[string]source.SourceHealthSnapshot{
 				sourceHealthProjectionHealthyID: sourceHealthSnapshotFixture(sourceHealthProjectionHealthyID, source.SourceHealthRunning),
 			},
-			operatorHealth: []operator.SourceHealthSnapshot{
-				operatorSourceHealthSnapshotFixture(operator.SourceHealthStateRunning),
-			},
 			wantSourceSummary: "healthy",
 			wantRuntimeStatus: "trusted",
 		},
@@ -702,9 +698,6 @@ func sourceHealthToOperatorSummaryFixtures() []sourceHealthToOperatorSummaryFixt
 			name: "degraded source degrades trusted runtime status",
 			sourceHealth: map[string]source.SourceHealthSnapshot{
 				sourceHealthProjectionDegradedID: sourceHealthSnapshotFixture(sourceHealthProjectionDegradedID, source.SourceHealthDegraded),
-			},
-			operatorHealth: []operator.SourceHealthSnapshot{
-				operatorSourceHealthSnapshotFixture(operator.SourceHealthStateDegraded),
 			},
 			wantSourceSummary: "degraded",
 			wantRuntimeStatus: "degraded",
@@ -714,10 +707,6 @@ func sourceHealthToOperatorSummaryFixtures() []sourceHealthToOperatorSummaryFixt
 			sourceHealth: map[string]source.SourceHealthSnapshot{
 				sourceHealthProjectionHealthyID: sourceHealthSnapshotFixture(sourceHealthProjectionHealthyID, source.SourceHealthRunning),
 				sourceHealthProjectionFailedID:  sourceHealthSnapshotFixture(sourceHealthProjectionFailedID, source.SourceHealthFailed),
-			},
-			operatorHealth: []operator.SourceHealthSnapshot{
-				operatorSourceHealthSnapshotFixture(operator.SourceHealthStateRunning),
-				operatorSourceHealthSnapshotFixture(operator.SourceHealthStateFailed),
 			},
 			wantSourceSummary: "failed",
 			wantRuntimeStatus: "degraded",
@@ -737,10 +726,6 @@ func sourceHealthSnapshotFixture(sourceID string, health source.SourceHealthStat
 		snapshot.ConsecutiveFaults = 1
 	}
 	return snapshot
-}
-
-func operatorSourceHealthSnapshotFixture(health operator.SourceHealthState) operator.SourceHealthSnapshot {
-	return operator.SourceHealthSnapshot{State: health}
 }
 
 func trustedRuntimeStateFixture() state.RuntimeState {

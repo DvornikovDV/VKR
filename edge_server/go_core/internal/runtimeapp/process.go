@@ -269,6 +269,17 @@ func (p runtimeStatusProjector) Save(runtimeState state.RuntimeState) error {
 	return nil
 }
 
+func projectSourceSummary(sourceHealth map[string]source.SourceHealthSnapshot) (string, error) {
+	operatorHealth := make([]operator.SourceHealthSnapshot, 0, len(sourceHealth))
+	for _, snapshot := range sourceHealth {
+		operatorHealth = append(operatorHealth, operator.SourceHealthSnapshot{
+			State: operator.SourceHealthState(snapshot.State),
+		})
+	}
+
+	return operator.ProjectSourceSummary(operatorHealth)
+}
+
 func activeSourceRevision(definitions []source.Definition) (string, error) {
 	activeDefinitions := make([]source.Definition, 0, len(definitions))
 	for _, definition := range definitions {

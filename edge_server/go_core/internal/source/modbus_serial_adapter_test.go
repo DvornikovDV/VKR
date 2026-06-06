@@ -1480,6 +1480,112 @@ func TestModbusSerialAdapterRejectsStaleClientSnapshotAfterReplacement(t *testin
 	}
 }
 
+func TestModbusSerialAdapterRepeatedReadFailuresEnterReconnect(t *testing.T) {
+	stale := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 10, registerType: modbus.INPUT_REGISTER}: 42,
+		},
+		readErrSequences: map[modbusReadKey][]error{
+			{address: 20, registerType: modbus.INPUT_REGISTER}: repeatModbusErrors(timeoutErr{}, 100),
+		},
+	}
+	unusedReplacement := &fakeModbusClient{}
+	factory := newSequentialFakeModbusClientFactory(t, stale, unusedReplacement)
+	adapter := newModbusSerialAdapterWithFactory(factory.factory, fixedNow)
+	adapter.reconnectPolicy.initialBackoff = time.Second
+	adapter.reconnectPolicy.maxBackoff = time.Second
+	sink := &captureModbusSink{}
+
+	definition := validModbusDefinition([]MetricDefinition{
+		modbusMetric("temperature", "number", "input", 10, nil),
+		modbusMetric("pressure", "number", "input", 20, nil),
+	})
+	definition.PollIntervalMs = 2
+	if err := adapter.ApplyDefinition(definition, sink); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+
+	stale.waitForCloseCalls(t, 1)
+	waitForModbusReconnectState(t, adapter, modbusReconnectStateReconnecting)
+
+	if faults := sink.faultsSnapshot(); len(faults) < modbusReconnectFailureThreshold {
+		t.Fatalf("expected at least %d read faults before reconnect, got %+v", modbusReconnectFailureThreshold, faults)
+	}
+	if readings := sink.readingsSnapshot(); len(readings) != 0 {
+		t.Fatalf("transport-failed poll cycles must not publish partial telemetry, got %+v", readings)
+	}
+	factory.assertConnectionCount(t, 1)
+	stale.assertCloseCount(t, 1)
+	unusedReplacement.assertOpenCount(t, 0)
+
+	if err := adapter.Close(); err != nil {
+		t.Fatalf("close reconnecting modbus adapter: %v", err)
+	}
+	stale.assertCloseCount(t, 1)
+}
+
+func TestModbusSerialAdapterReconnectRequiresSuccessfulPoll(t *testing.T) {
+	stale := &fakeModbusClient{err: timeoutErr{}}
+	openedWithoutReading := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 10, registerType: modbus.INPUT_REGISTER}: 41,
+		},
+		readErrSequences: map[modbusReadKey][]error{
+			{address: 20, registerType: modbus.INPUT_REGISTER}: {timeoutErr{}},
+		},
+	}
+	recovered := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 10, registerType: modbus.INPUT_REGISTER}: 42,
+			{address: 20, registerType: modbus.INPUT_REGISTER}: 84,
+		},
+	}
+	factory := newSequentialFakeModbusClientFactory(t, stale, openedWithoutReading, recovered)
+	adapter := newModbusSerialAdapterWithFactory(factory.factory, fixedNow)
+	adapter.reconnectPolicy.failureThreshold = 1
+	adapter.reconnectPolicy.initialBackoff = time.Millisecond
+	adapter.reconnectPolicy.maxBackoff = time.Millisecond
+	sink := &captureModbusSink{}
+
+	definition := validModbusDefinition([]MetricDefinition{
+		modbusMetric("temperature", "number", "input", 10, nil),
+		modbusMetric("pressure", "number", "input", 20, nil),
+	})
+	definition.Connection["settleDelayMs"] = 1
+	definition.PollIntervalMs = 60000
+	if err := adapter.ApplyDefinition(definition, sink); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+
+	openedWithoutReading.waitForReadCalls(t, 1)
+	waitForModbusReconnectState(t, adapter, modbusReconnectStateReconnecting)
+	if readings := sink.readingsSnapshot(); len(readings) != 0 {
+		t.Fatalf("successful reopen without a successful poll must not publish telemetry, got %+v", readings)
+	}
+	openedWithoutReading.waitForCloseCalls(t, 1)
+
+	recovered.waitForReadCalls(t, 1)
+	waitForModbusReconnectState(t, adapter, modbusReconnectStateConnected)
+
+	factory.assertConnectionCount(t, 3)
+	factory.assertAllConnectionsEqual(t)
+	stale.assertCloseCount(t, 1)
+	openedWithoutReading.assertOpenCount(t, 1)
+	openedWithoutReading.assertCloseCount(t, 1)
+	recovered.assertOpenCount(t, 1)
+
+	readings := sink.readingsSnapshot()
+	if len(readings) == 0 {
+		t.Fatal("expected telemetry after the successful recovery poll")
+	}
+	for _, reading := range readings {
+		if reading.Value == 41.0 {
+			t.Fatalf("partial reconnect probe must not publish telemetry, got %+v", readings)
+		}
+	}
+}
+
 func TestModbusSerialAdapterSharesReadAndWriteTransportFailureAccounting(t *testing.T) {
 	client := &fakeModbusClient{
 		err:      timeoutErr{},
@@ -2491,6 +2597,30 @@ func waitForSignal(t *testing.T, signal <-chan struct{}, operation string) {
 	case <-time.After(time.Second):
 		t.Fatalf("timed out waiting for %s", operation)
 	}
+}
+
+func repeatModbusErrors(err error, count int) []error {
+	errors := make([]error, count)
+	for i := range errors {
+		errors[i] = err
+	}
+	return errors
+}
+
+func waitForModbusReconnectState(t *testing.T, adapter *ModbusSerialAdapter, want modbusReconnectState) {
+	t.Helper()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		state, _ := adapter.reconnectStateSnapshot()
+		if state == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	state, _ := adapter.reconnectStateSnapshot()
+	t.Fatalf("timed out waiting for reconnect state %q, got %q", want, state)
 }
 
 func assertCallStillRunning(t *testing.T, result <-chan error, operation string) {
