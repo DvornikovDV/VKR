@@ -1643,6 +1643,84 @@ func TestModbusSerialAdapterSharesReadAndWriteTransportFailureAccounting(t *test
 	})
 }
 
+func TestModbusSerialAdapterRepeatedWriteFailuresReconnectWithoutObservationLock(t *testing.T) {
+	stale := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 31, registerType: modbus.INPUT_REGISTER}: 0,
+		},
+		writeErr: timeoutErr{},
+	}
+	recovered := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 31, registerType: modbus.INPUT_REGISTER}: 1,
+		},
+	}
+	factory := newSequentialFakeModbusClientFactory(t, stale, recovered)
+	adapter := newModbusSerialAdapterWithFactory(factory.factory, fixedNow)
+	adapter.reconnectPolicy.failureThreshold = 2
+	adapter.reconnectPolicy.initialBackoff = time.Millisecond
+	adapter.reconnectPolicy.maxBackoff = time.Millisecond
+
+	definition := validModbusDefinitionWithCommands(
+		[]MetricDefinition{
+			modbusMetric("actual_state", "boolean", "input", 31, nil),
+		},
+		[]CommandDefinition{
+			modbusCommand("set_bool", "holding", 160, "actual_state"),
+		},
+	)
+	definition.PollIntervalMs = 60000
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+	stale.waitForReadCalls(t, 1)
+	stale.clearCalls()
+
+	adapter.commandMu.Lock()
+	commandMuLocked := true
+	defer func() {
+		if commandMuLocked {
+			adapter.commandMu.Unlock()
+		}
+	}()
+
+	for i := 0; i < adapter.reconnectPolicy.failureThreshold; i++ {
+		resultCh := executeSetBoolCommandAsync(context.Background(), adapter, true)
+		select {
+		case execution := <-resultCh:
+			if execution.err != nil {
+				t.Fatalf("execute failing command %d: %v", i+1, execution.err)
+			}
+			if execution.result.Status != CommandStatusFailed || !strings.Contains(execution.result.Reason, "write modbus command") {
+				t.Fatalf("transport write failure must fail without confirmation waiting, got %+v", execution.result)
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Fatalf("transport write failure %d waited for command observation lock or confirmation", i+1)
+		}
+	}
+
+	stale.waitForCloseCalls(t, 1)
+	recovered.waitForReadCalls(t, 1)
+
+	adapter.commandMu.Unlock()
+	commandMuLocked = false
+	waitForModbusReconnectState(t, adapter, modbusReconnectStateConnected)
+
+	factory.assertConnectionCount(t, 2)
+	factory.assertAllConnectionsEqual(t)
+	factory.assertLifecycle(t, []string{
+		"client[0].open",
+		"client[0].close",
+		"client[1].open",
+	})
+	stale.assertWriteCalls(t, []modbusWriteCall{
+		{address: 160, value: 1},
+		{address: 160, value: 1},
+	})
+	recovered.assertOpenCount(t, 1)
+}
+
 func TestModbusSerialAdapterFailsCommandsWithoutWritingWhileEquipmentUnavailable(t *testing.T) {
 	client := &fakeModbusClient{
 		values: map[modbusReadKey]uint16{

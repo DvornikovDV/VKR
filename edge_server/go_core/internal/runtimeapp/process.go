@@ -99,10 +99,11 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	if _, _, err := statusStore.Load(); err != nil {
 		return nil, fmt.Errorf("load existing status snapshot: %w", err)
 	}
+	sources := source.NewManager(factories)
 	if err := runner.BindRuntimeStateStore(runtimeStatusProjector{
-		runtimeStore:  runtimeStore,
-		statusStore:   statusStore,
-		sourceSummary: "healthy",
+		runtimeStore: runtimeStore,
+		statusStore:  statusStore,
+		sources:      sources,
 	}); err != nil {
 		return nil, fmt.Errorf("bind runtime-state store: %w", err)
 	}
@@ -115,7 +116,6 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	}
 
 	definitions := source.DefinitionsFromConfig(cfg.Sources)
-	sources := source.NewManager(factories)
 
 	if _, err := sources.ApplyDefinitions(definitions); err != nil {
 		return nil, fmt.Errorf("apply source definitions: %w", err)
@@ -236,9 +236,9 @@ func (p *Process) ReloadInstalledCredential() error {
 }
 
 type runtimeStatusProjector struct {
-	runtimeStore  *state.RuntimeStateStore
-	statusStore   *state.StatusStore
-	sourceSummary string
+	runtimeStore *state.RuntimeStateStore
+	statusStore  *state.StatusStore
+	sources      *source.Manager
 }
 
 func (p runtimeStatusProjector) Save(runtimeState state.RuntimeState) error {
@@ -248,14 +248,21 @@ func (p runtimeStatusProjector) Save(runtimeState state.RuntimeState) error {
 	if p.statusStore == nil {
 		return fmt.Errorf("status store is required")
 	}
+	if p.sources == nil {
+		return fmt.Errorf("source manager is required")
+	}
 
 	if err := p.runtimeStore.Save(runtimeState); err != nil {
 		return err
 	}
 
+	sourceSummary, err := projectSourceSummary(p.sources.HealthSnapshot())
+	if err != nil {
+		return fmt.Errorf("project source summary: %w", err)
+	}
 	statusSnapshot, err := operator.ProjectStatusSnapshot(operator.StatusProjectionInput{
 		RuntimeState:  runtimeState,
-		SourceSummary: p.sourceSummary,
+		SourceSummary: sourceSummary,
 		LastReason:    runtimeState.LastDisconnectReason,
 	})
 	if err != nil {
@@ -272,12 +279,36 @@ func (p runtimeStatusProjector) Save(runtimeState state.RuntimeState) error {
 func projectSourceSummary(sourceHealth map[string]source.SourceHealthSnapshot) (string, error) {
 	operatorHealth := make([]operator.SourceHealthSnapshot, 0, len(sourceHealth))
 	for _, snapshot := range sourceHealth {
-		operatorHealth = append(operatorHealth, operator.SourceHealthSnapshot{
-			State: operator.SourceHealthState(snapshot.State),
-		})
+		mapped, err := mapSourceHealthSnapshot(snapshot)
+		if err != nil {
+			return "", err
+		}
+		operatorHealth = append(operatorHealth, mapped)
 	}
 
 	return operator.ProjectSourceSummary(operatorHealth)
+}
+
+func mapSourceHealthSnapshot(snapshot source.SourceHealthSnapshot) (operator.SourceHealthSnapshot, error) {
+	var state operator.SourceHealthState
+	switch snapshot.State {
+	case source.SourceHealthRunning:
+		state = operator.SourceHealthStateRunning
+	case source.SourceHealthDegraded:
+		state = operator.SourceHealthStateDegraded
+	case source.SourceHealthFailed:
+		state = operator.SourceHealthStateFailed
+	case source.SourceHealthStopped:
+		state = operator.SourceHealthStateStopped
+	default:
+		return operator.SourceHealthSnapshot{}, fmt.Errorf(
+			"source %q health state %q is not supported",
+			snapshot.SourceID,
+			snapshot.State,
+		)
+	}
+
+	return operator.SourceHealthSnapshot{State: state}, nil
 }
 
 func activeSourceRevision(definitions []source.Definition) (string, error) {

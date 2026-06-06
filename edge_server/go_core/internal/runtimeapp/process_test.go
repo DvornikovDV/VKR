@@ -493,6 +493,162 @@ func TestSourceHealthProjectionFixturesAreStatusSchemaCompatible(t *testing.T) {
 	}
 }
 
+func TestRuntimeStatusPersistsDegradedOrFailedSourceWithoutCloudLifecycleChange(t *testing.T) {
+	tests := []struct {
+		name              string
+		severity          source.FaultSeverity
+		wantSourceSummary string
+	}{
+		{
+			name:              "warning persists degraded source",
+			severity:          source.SeverityWarning,
+			wantSourceSummary: "degraded",
+		},
+		{
+			name:              "error persists failed source",
+			severity:          source.SeverityError,
+			wantSourceSummary: "failed",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			cfg := runtimeConfigFixture(stateDir)
+			writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
+
+			process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, noopTransport{}, mockSourceFactories())
+			if err != nil {
+				t.Fatalf("construct runtime process: %v", err)
+			}
+			defer process.Sources.ApplyDefinitions(nil)
+
+			if err := process.Runner.ActivateTrustedSession(cfg.Runtime.EdgeID, "persistent-secret-fixture-valid"); err != nil {
+				t.Fatalf("activate trusted session: %v", err)
+			}
+			cloudLifecycle := process.Runner.StateSnapshot()
+
+			control, err := process.Sources.MockControl("mock-source-1")
+			if err != nil {
+				t.Fatalf("get mock source control: %v", err)
+			}
+			if err := control.EmitFault(source.Fault{
+				Severity: tc.severity,
+				Code:     "modbus_read_failed",
+				Message:  "equipment unavailable",
+				TS:       sourceHealthProjectionFaultTS,
+			}); err != nil {
+				t.Fatalf("emit source fault: %v", err)
+			}
+			if err := process.Runner.ConfigureRuntimeState(cfg.Runtime.EdgeID, process.sourceConfigRevision); err != nil {
+				t.Fatalf("persist runtime status after source fault: %v", err)
+			}
+
+			status, exists, err := state.NewStatusStore(stateDir).Load()
+			if err != nil {
+				t.Fatalf("load status after source fault: %v", err)
+			}
+			if !exists {
+				t.Fatal("expected status.json after source fault")
+			}
+			if status.SourceSummary != tc.wantSourceSummary {
+				t.Fatalf("expected sourceSummary=%q, got %q", tc.wantSourceSummary, status.SourceSummary)
+			}
+			if status.RuntimeStatus != "degraded" {
+				t.Fatalf("expected runtimeStatus=degraded, got %q", status.RuntimeStatus)
+			}
+			if status.CloudConnection != "trusted" || status.AuthSummary != "ok" {
+				t.Fatalf("source fault must keep trusted Cloud status, got %+v", status)
+			}
+			assertCloudLifecycleUnchanged(t, cloudLifecycle, process.Runner.StateSnapshot())
+		})
+	}
+}
+
+func TestRuntimeStatusReturnsToHealthyAfterAcceptedSourceReadingWithoutCloudLifecycleChange(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := runtimeConfigFixture(stateDir)
+	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
+
+	process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, noopTransport{}, mockSourceFactories())
+	if err != nil {
+		t.Fatalf("construct runtime process: %v", err)
+	}
+	defer process.Sources.ApplyDefinitions(nil)
+
+	if err := process.Runner.ActivateTrustedSession(cfg.Runtime.EdgeID, "persistent-secret-fixture-valid"); err != nil {
+		t.Fatalf("activate trusted session: %v", err)
+	}
+	cloudLifecycle := process.Runner.StateSnapshot()
+
+	control, err := process.Sources.MockControl("mock-source-1")
+	if err != nil {
+		t.Fatalf("get mock source control: %v", err)
+	}
+	if err := control.EmitFault(source.Fault{
+		Severity: source.SeverityError,
+		Code:     "modbus_read_failed",
+		Message:  "equipment unavailable",
+		TS:       sourceHealthProjectionFaultTS,
+	}); err != nil {
+		t.Fatalf("emit source fault: %v", err)
+	}
+	if err := process.Runner.ConfigureRuntimeState(cfg.Runtime.EdgeID, process.sourceConfigRevision); err != nil {
+		t.Fatalf("persist runtime status after source fault: %v", err)
+	}
+
+	degraded, exists, err := state.NewStatusStore(stateDir).Load()
+	if err != nil {
+		t.Fatalf("load status after source fault: %v", err)
+	}
+	if !exists || degraded.SourceSummary != "failed" || degraded.RuntimeStatus != "degraded" {
+		t.Fatalf("expected persisted failed/degraded status before recovery, got %+v", degraded)
+	}
+
+	if err := control.EmitReading(source.RawReading{
+		DeviceID: "pump-01",
+		Metric:   "pressure",
+		Value:    42.5,
+		TS:       sourceHealthProjectionReadingTS,
+	}); err != nil {
+		t.Fatalf("emit recovered source reading: %v", err)
+	}
+	if health := process.Sources.HealthSnapshot()["mock-source-1"]; health.State != source.SourceHealthRunning {
+		t.Fatalf("expected accepted reading to recover source health, got %+v", health)
+	}
+	if err := process.Runner.ConfigureRuntimeState(cfg.Runtime.EdgeID, process.sourceConfigRevision); err != nil {
+		t.Fatalf("persist runtime status after source recovery: %v", err)
+	}
+
+	recovered, exists, err := state.NewStatusStore(stateDir).Load()
+	if err != nil {
+		t.Fatalf("load status after source recovery: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected status.json after source recovery")
+	}
+	if recovered.SourceSummary != "healthy" || recovered.RuntimeStatus != "trusted" {
+		t.Fatalf("expected healthy/trusted status after accepted reading, got %+v", recovered)
+	}
+	if recovered.CloudConnection != "trusted" || recovered.AuthSummary != "ok" {
+		t.Fatalf("source recovery must keep trusted Cloud status, got %+v", recovered)
+	}
+	assertCloudLifecycleUnchanged(t, cloudLifecycle, process.Runner.StateSnapshot())
+}
+
+func assertCloudLifecycleUnchanged(t *testing.T, before runtime.SessionStateSnapshot, after runtime.SessionStateSnapshot) {
+	t.Helper()
+
+	if after.SessionState != before.SessionState ||
+		after.AuthOutcome != before.AuthOutcome ||
+		after.RetryEligible != before.RetryEligible ||
+		after.Trusted != before.Trusted ||
+		after.Connected != before.Connected ||
+		after.SessionEpoch != before.SessionEpoch {
+		t.Fatalf("source health projection changed Cloud lifecycle: before=%+v after=%+v", before, after)
+	}
+}
+
 func TestProcessKeepsReadingDispatchActiveDuringStartupCloudRetry(t *testing.T) {
 	stateDir := t.TempDir()
 	cfg := runtimeConfigFixture(stateDir)
