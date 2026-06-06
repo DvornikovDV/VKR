@@ -16,6 +16,7 @@ import (
 	"edge_server/go_core/internal/cloud"
 	"edge_server/go_core/internal/config"
 	"edge_server/go_core/internal/mockadapter"
+	"edge_server/go_core/internal/operator"
 	"edge_server/go_core/internal/runtime"
 	"edge_server/go_core/internal/source"
 	"edge_server/go_core/internal/state"
@@ -457,6 +458,41 @@ func TestRuntimeTrustLossUpdatesOperatorStatus(t *testing.T) {
 	}
 }
 
+func TestSourceHealthProjectionFixturesAreStatusSchemaCompatible(t *testing.T) {
+	for _, fixture := range sourceHealthToOperatorSummaryFixtures() {
+		t.Run(fixture.name, func(t *testing.T) {
+			if len(fixture.sourceHealth) == 0 {
+				t.Fatal("source health fixture must include source.Manager health input")
+			}
+
+			summary, err := operator.ProjectSourceSummary(fixture.operatorHealth)
+			if err != nil {
+				t.Fatalf("project source summary fixture: %v", err)
+			}
+			if summary != fixture.wantSourceSummary {
+				t.Fatalf("expected sourceSummary=%q, got %q", fixture.wantSourceSummary, summary)
+			}
+
+			status, err := operator.ProjectStatusSnapshot(operator.StatusProjectionInput{
+				RuntimeState:  trustedRuntimeStateFixture(),
+				SourceSummary: summary,
+			})
+			if err != nil {
+				t.Fatalf("project status snapshot fixture: %v", err)
+			}
+			if status.SourceSummary != fixture.wantSourceSummary {
+				t.Fatalf("expected persisted sourceSummary=%q, got %q", fixture.wantSourceSummary, status.SourceSummary)
+			}
+			if status.RuntimeStatus != fixture.wantRuntimeStatus {
+				t.Fatalf("expected runtimeStatus=%q, got %q", fixture.wantRuntimeStatus, status.RuntimeStatus)
+			}
+			if status.CloudConnection != "trusted" {
+				t.Fatalf("source-local health must not change cloudConnection, got %q", status.CloudConnection)
+			}
+		})
+	}
+}
+
 func TestProcessKeepsReadingDispatchActiveDuringStartupCloudRetry(t *testing.T) {
 	stateDir := t.TempDir()
 	cfg := runtimeConfigFixture(stateDir)
@@ -630,6 +666,94 @@ func runtimeConfigFixture(stateDir string) config.Config {
 				},
 			},
 		},
+	}
+}
+
+const (
+	sourceHealthProjectionHealthyID  = "source-status-healthy"
+	sourceHealthProjectionDegradedID = "source-status-degraded"
+	sourceHealthProjectionFailedID   = "source-status-failed"
+	sourceHealthProjectionReadingTS  = int64(1715000000100)
+	sourceHealthProjectionFaultTS    = int64(1715000000200)
+)
+
+type sourceHealthToOperatorSummaryFixture struct {
+	name              string
+	sourceHealth      map[string]source.SourceHealthSnapshot
+	operatorHealth    []operator.SourceHealthSnapshot
+	wantSourceSummary string
+	wantRuntimeStatus string
+}
+
+func sourceHealthToOperatorSummaryFixtures() []sourceHealthToOperatorSummaryFixture {
+	return []sourceHealthToOperatorSummaryFixture{
+		{
+			name: "healthy source keeps trusted runtime status",
+			sourceHealth: map[string]source.SourceHealthSnapshot{
+				sourceHealthProjectionHealthyID: sourceHealthSnapshotFixture(sourceHealthProjectionHealthyID, source.SourceHealthRunning),
+			},
+			operatorHealth: []operator.SourceHealthSnapshot{
+				operatorSourceHealthSnapshotFixture(operator.SourceHealthStateRunning),
+			},
+			wantSourceSummary: "healthy",
+			wantRuntimeStatus: "trusted",
+		},
+		{
+			name: "degraded source degrades trusted runtime status",
+			sourceHealth: map[string]source.SourceHealthSnapshot{
+				sourceHealthProjectionDegradedID: sourceHealthSnapshotFixture(sourceHealthProjectionDegradedID, source.SourceHealthDegraded),
+			},
+			operatorHealth: []operator.SourceHealthSnapshot{
+				operatorSourceHealthSnapshotFixture(operator.SourceHealthStateDegraded),
+			},
+			wantSourceSummary: "degraded",
+			wantRuntimeStatus: "degraded",
+		},
+		{
+			name: "failed source fails source summary without cloud trust loss",
+			sourceHealth: map[string]source.SourceHealthSnapshot{
+				sourceHealthProjectionHealthyID: sourceHealthSnapshotFixture(sourceHealthProjectionHealthyID, source.SourceHealthRunning),
+				sourceHealthProjectionFailedID:  sourceHealthSnapshotFixture(sourceHealthProjectionFailedID, source.SourceHealthFailed),
+			},
+			operatorHealth: []operator.SourceHealthSnapshot{
+				operatorSourceHealthSnapshotFixture(operator.SourceHealthStateRunning),
+				operatorSourceHealthSnapshotFixture(operator.SourceHealthStateFailed),
+			},
+			wantSourceSummary: "failed",
+			wantRuntimeStatus: "degraded",
+		},
+	}
+}
+
+func sourceHealthSnapshotFixture(sourceID string, health source.SourceHealthState) source.SourceHealthSnapshot {
+	snapshot := source.SourceHealthSnapshot{
+		SourceID:      sourceID,
+		State:         health,
+		LastReadingAt: sourceHealthProjectionReadingTS,
+	}
+	if health == source.SourceHealthDegraded || health == source.SourceHealthFailed {
+		snapshot.LastFaultCode = "modbus_read_failed"
+		snapshot.LastFaultAt = sourceHealthProjectionFaultTS
+		snapshot.ConsecutiveFaults = 1
+	}
+	return snapshot
+}
+
+func operatorSourceHealthSnapshotFixture(health operator.SourceHealthState) operator.SourceHealthSnapshot {
+	return operator.SourceHealthSnapshot{State: health}
+}
+
+func trustedRuntimeStateFixture() state.RuntimeState {
+	credentialVersion := 3
+	return state.RuntimeState{
+		EdgeID:               "507f1f77bcf86cd799439011",
+		CredentialVersion:    &credentialVersion,
+		CredentialStatus:     state.CredentialStatusLoaded,
+		SessionState:         state.SessionStateTrusted,
+		AuthOutcome:          state.AuthOutcomeAccepted,
+		RetryEligible:        true,
+		SourceConfigRevision: "rev-source-health-fixture",
+		UpdatedAt:            time.Date(2026, 5, 6, 10, 0, 0, 0, time.UTC),
 	}
 }
 
@@ -1223,8 +1347,8 @@ func TestRuntimeStartup_EmitsCapabilitiesCatalogAfterConnect(t *testing.T) {
 	default:
 		t.Fatal("expected capabilities catalog emit to capture runtime state")
 	}
-	if !snapshotAtEmit.Trusted || !snapshotAtEmit.Connected {
-		t.Fatalf("expected catalog emit after trusted runtime connect, got %+v", snapshotAtEmit)
+	if snapshotAtEmit.Trusted || snapshotAtEmit.Connected || snapshotAtEmit.SessionEpoch != 0 {
+		t.Fatalf("expected catalog emit before trusted telemetry state resumes, got %+v", snapshotAtEmit)
 	}
 
 	catalog, ok := emitted.Payload.(cloud.EdgeCapabilitiesCatalog)

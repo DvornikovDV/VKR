@@ -17,11 +17,21 @@ import (
 
 const ModbusRTUKind = "modbus_rtu"
 
+type modbusReconnectState string
+
 const (
 	modbusCommandConfirmationObservationCount = 2
 	modbusCommandConfirmationTimeout          = 3 * time.Second
 	modbusCommandForcedPollAttempts           = 2
 	modbusObservationHistoryLimit             = 32
+
+	modbusReconnectStateConnected    modbusReconnectState = "connected"
+	modbusReconnectStateDisconnected modbusReconnectState = "disconnected"
+	modbusReconnectStateReconnecting modbusReconnectState = "reconnecting"
+
+	modbusReconnectFailureThreshold = 3
+	modbusReconnectInitialBackoff   = 250 * time.Millisecond
+	modbusReconnectMaxBackoff       = 5 * time.Second
 )
 
 type modbusRegisterClient interface {
@@ -42,6 +52,12 @@ type modbusSerialConnection struct {
 	slaveID     uint8
 	timeout     time.Duration
 	settleDelay time.Duration
+}
+
+type modbusReconnectPolicy struct {
+	failureThreshold int
+	initialBackoff   time.Duration
+	maxBackoff       time.Duration
 }
 
 type ModbusRegisterClient = modbusRegisterClient
@@ -87,6 +103,15 @@ type modbusCommandMapping struct {
 	reportedMetricType string
 }
 
+type modbusAppliedDefinition struct {
+	sourceID        string
+	sink            Sink
+	connection      modbusSerialConnection
+	mappings        []modbusMetricMapping
+	commandMappings []modbusCommandMapping
+	cancel          context.CancelFunc
+}
+
 type modbusObservationKey struct {
 	deviceID string
 	metric   string
@@ -112,7 +137,10 @@ type ModbusSerialAdapter struct {
 	now                 func() time.Time
 	sourceID            string
 	sink                Sink
+	connection          modbusSerialConnection
 	client              modbusRegisterClient
+	reconnectState      modbusReconnectState
+	reconnectPolicy     modbusReconnectPolicy
 	mappings            []modbusMetricMapping
 	commandMappings     []modbusCommandMapping
 	commandObservations map[modbusObservationKey]modbusObservationState
@@ -161,9 +189,19 @@ func newModbusSerialAdapterWithFactory(factory modbusSerialClientFactory, now fu
 	return &ModbusSerialAdapter{
 		clientFactory:       factory,
 		now:                 now,
+		reconnectState:      modbusReconnectStateDisconnected,
+		reconnectPolicy:     defaultModbusReconnectPolicy(),
 		commandObservations: make(map[modbusObservationKey]modbusObservationState),
 		observationNotify:   make(chan struct{}),
 		closed:              true,
+	}
+}
+
+func defaultModbusReconnectPolicy() modbusReconnectPolicy {
+	return modbusReconnectPolicy{
+		failureThreshold: modbusReconnectFailureThreshold,
+		initialBackoff:   modbusReconnectInitialBackoff,
+		maxBackoff:       modbusReconnectMaxBackoff,
 	}
 }
 
@@ -192,42 +230,27 @@ func (a *ModbusSerialAdapter) ApplyDefinition(definition Definition, sink Sink) 
 		return err
 	}
 
-	client, err := a.clientFactory(connection)
-	if err != nil {
-		return fmt.Errorf("create modbus serial client: %w", err)
-	}
-	if client == nil {
-		return fmt.Errorf("modbus serial client factory returned nil client")
-	}
-	if err := client.Open(); err != nil {
-		return fmt.Errorf("open modbus serial connection: %w", err)
-	}
-	if connection.settleDelay > 0 {
-		time.Sleep(connection.settleDelay)
-	}
-
-	a.resetCommandObservations()
-
 	a.mu.Lock()
 	if a.cancel != nil {
 		a.cancel()
 		a.cancel = nil
 	}
-	oldClient := a.client
-	ctx, cancel := context.WithCancel(context.Background())
-	a.sourceID = sourceID
-	a.sink = sink
-	a.client = client
-	a.mappings = mappings
-	a.commandMappings = commandMappings
-	a.cancel = cancel
-	a.closed = false
 	a.mu.Unlock()
 
-	if oldClient != nil {
-		a.transactionMu.Lock()
-		_ = oldClient.Close()
-		a.transactionMu.Unlock()
+	a.resetCommandObservations()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	applied := modbusAppliedDefinition{
+		sourceID:        sourceID,
+		sink:            sink,
+		connection:      connection,
+		mappings:        mappings,
+		commandMappings: commandMappings,
+		cancel:          cancel,
+	}
+	if err := a.replaceClient(applied); err != nil {
+		cancel()
+		return err
 	}
 
 	interval := time.Duration(definition.PollIntervalMs) * time.Millisecond
@@ -242,9 +265,9 @@ func (a *ModbusSerialAdapter) Close() error {
 		a.cancel()
 		a.cancel = nil
 	}
-	client := a.client
-	a.client = nil
+	a.reconnectState = modbusReconnectStateDisconnected
 	a.sink = nil
+	a.connection = modbusSerialConnection{}
 	a.mappings = nil
 	a.commandMappings = nil
 	a.closed = true
@@ -252,14 +275,74 @@ func (a *ModbusSerialAdapter) Close() error {
 
 	a.resetCommandObservations()
 
+	return a.closeClient()
+}
+
+func (a *ModbusSerialAdapter) replaceClient(applied modbusAppliedDefinition) error {
+	a.transactionMu.Lock()
+	defer a.transactionMu.Unlock()
+
+	nextClient, err := a.clientFactory(applied.connection)
+	if err != nil {
+		return fmt.Errorf("create modbus serial client: %w", err)
+	}
+	if nextClient == nil {
+		return fmt.Errorf("modbus serial client factory returned nil client")
+	}
+
+	currentClient := a.swapClientLocked(nil)
+	if currentClient != nil {
+		if err := currentClient.Close(); err != nil {
+			return fmt.Errorf("close current modbus serial connection: %w", err)
+		}
+	}
+
+	if err := nextClient.Open(); err != nil {
+		_ = nextClient.Close()
+		return fmt.Errorf("open modbus serial connection: %w", err)
+	}
+	if applied.connection.settleDelay > 0 {
+		time.Sleep(applied.connection.settleDelay)
+	}
+
+	a.installAppliedDefinitionLocked(nextClient, applied)
+	return nil
+}
+
+func (a *ModbusSerialAdapter) closeClient() error {
+	a.transactionMu.Lock()
+	defer a.transactionMu.Unlock()
+
+	client := a.swapClientLocked(nil)
 	if client == nil {
 		return nil
 	}
 
-	a.transactionMu.Lock()
-	defer a.transactionMu.Unlock()
-
 	return client.Close()
+}
+
+func (a *ModbusSerialAdapter) swapClientLocked(client modbusRegisterClient) modbusRegisterClient {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	previous := a.client
+	a.client = client
+	return previous
+}
+
+func (a *ModbusSerialAdapter) installAppliedDefinitionLocked(client modbusRegisterClient, applied modbusAppliedDefinition) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.sourceID = applied.sourceID
+	a.sink = applied.sink
+	a.connection = applied.connection
+	a.client = client
+	a.reconnectState = modbusReconnectStateConnected
+	a.mappings = applied.mappings
+	a.commandMappings = applied.commandMappings
+	a.cancel = applied.cancel
+	a.closed = false
 }
 
 func (a *ModbusSerialAdapter) run(ctx context.Context, interval time.Duration) {
@@ -412,6 +495,9 @@ func (a *ModbusSerialAdapter) readModbusRegister(client modbusRegisterClient, ma
 	a.transactionMu.Lock()
 	defer a.transactionMu.Unlock()
 
+	if !a.isCurrentClientLocked(client) {
+		return 0, a.nextModbusTransactionSequenceLocked(), fmt.Errorf("modbus serial client snapshot is no longer current")
+	}
 	value, err := client.ReadRegister(mapping.address, mapping.registerType)
 	return value, a.nextModbusTransactionSequenceLocked(), err
 }
@@ -420,8 +506,18 @@ func (a *ModbusSerialAdapter) writeModbusCommandRegister(client modbusRegisterCl
 	a.transactionMu.Lock()
 	defer a.transactionMu.Unlock()
 
+	if !a.isCurrentClientLocked(client) {
+		return a.nextModbusTransactionSequenceLocked(), fmt.Errorf("modbus serial client snapshot is no longer current")
+	}
 	err := client.WriteRegister(address, value)
 	return a.nextModbusTransactionSequenceLocked(), err
+}
+
+func (a *ModbusSerialAdapter) isCurrentClientLocked(client modbusRegisterClient) bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	return !a.closed && client != nil && a.client == client
 }
 
 func (a *ModbusSerialAdapter) nextModbusTransactionSequenceLocked() uint64 {
