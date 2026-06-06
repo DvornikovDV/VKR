@@ -154,6 +154,10 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 	if err != nil {
 		return nil, fmt.Errorf("bind telemetry reading consumer: %w", err)
 	}
+	statusRecoveryReadings, err := readingDispatcher.AddConsumer("runtime-status-recovery", cfg.Batch.MaxReadings)
+	if err != nil {
+		return nil, fmt.Errorf("bind runtime status recovery reading consumer: %w", err)
+	}
 	if err := runner.BindTelemetryReadings(
 		ctx,
 		telemetryReadings,
@@ -176,6 +180,7 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 			return nil, fmt.Errorf("bind runtime alarm detector path: %w", err)
 		}
 	}
+	go runRuntimeStatusRefresh(ctx, runner, sources.Faults(), statusRecoveryReadings)
 	go readingDispatcher.Run(ctx)
 
 	return &Process{
@@ -188,6 +193,43 @@ func newWithSourceFactories(ctx context.Context, cfg config.Config, transport cl
 		expectedEdgeID:       cfg.Runtime.EdgeID,
 		sourceConfigRevision: sourceConfigRevision,
 	}, nil
+}
+
+func runRuntimeStatusRefresh(
+	ctx context.Context,
+	runner *runtime.Runner,
+	faults <-chan source.Fault,
+	recoveryReadings <-chan source.Reading,
+) {
+	pendingRecovery := make(map[string]struct{})
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case fault, ok := <-faults:
+			if !ok {
+				faults = nil
+				continue
+			}
+			pendingRecovery[fault.SourceID] = struct{}{}
+			if err := runner.RefreshRuntimeStatus(); err != nil {
+				runner.ReportAsyncError(fmt.Errorf("refresh runtime status after source fault: %w", err))
+			}
+		case reading, ok := <-recoveryReadings:
+			if !ok {
+				return
+			}
+			if _, tracked := pendingRecovery[reading.SourceID]; !tracked {
+				continue
+			}
+			if err := runner.RefreshRuntimeStatus(); err != nil {
+				runner.ReportAsyncError(fmt.Errorf("refresh runtime status after source recovery: %w", err))
+				continue
+			}
+			delete(pendingRecovery, reading.SourceID)
+		}
+	}
 }
 
 func (p *Process) ReloadInstalledCredential() error {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,12 @@ func (noopTransport) OnConnectError(func(error))                         {}
 func (noopTransport) OnDisconnect(func(string))                          {}
 
 var _ cloud.Transport = noopTransport{}
+
+type failingRuntimeStateSaver struct{}
+
+func (failingRuntimeStateSaver) Save(state.RuntimeState) error {
+	return errors.New("synthetic runtime status persistence failure")
+}
 
 type fakeTransport struct {
 	noopTransport
@@ -517,7 +524,10 @@ func TestRuntimeStatusPersistsDegradedOrFailedSourceWithoutCloudLifecycleChange(
 			cfg := runtimeConfigFixture(stateDir)
 			writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
 
-			process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, noopTransport{}, mockSourceFactories())
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			process, err := NewWithSourceFactoriesForTest(ctx, cfg, noopTransport{}, mockSourceFactories())
 			if err != nil {
 				t.Fatalf("construct runtime process: %v", err)
 			}
@@ -540,17 +550,8 @@ func TestRuntimeStatusPersistsDegradedOrFailedSourceWithoutCloudLifecycleChange(
 			}); err != nil {
 				t.Fatalf("emit source fault: %v", err)
 			}
-			if err := process.Runner.ConfigureRuntimeState(cfg.Runtime.EdgeID, process.sourceConfigRevision); err != nil {
-				t.Fatalf("persist runtime status after source fault: %v", err)
-			}
 
-			status, exists, err := state.NewStatusStore(stateDir).Load()
-			if err != nil {
-				t.Fatalf("load status after source fault: %v", err)
-			}
-			if !exists {
-				t.Fatal("expected status.json after source fault")
-			}
+			status := waitForStatusSummary(t, stateDir, tc.wantSourceSummary, "degraded")
 			if status.SourceSummary != tc.wantSourceSummary {
 				t.Fatalf("expected sourceSummary=%q, got %q", tc.wantSourceSummary, status.SourceSummary)
 			}
@@ -570,7 +571,10 @@ func TestRuntimeStatusReturnsToHealthyAfterAcceptedSourceReadingWithoutCloudLife
 	cfg := runtimeConfigFixture(stateDir)
 	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
 
-	process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, noopTransport{}, mockSourceFactories())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	process, err := NewWithSourceFactoriesForTest(ctx, cfg, noopTransport{}, mockSourceFactories())
 	if err != nil {
 		t.Fatalf("construct runtime process: %v", err)
 	}
@@ -593,15 +597,9 @@ func TestRuntimeStatusReturnsToHealthyAfterAcceptedSourceReadingWithoutCloudLife
 	}); err != nil {
 		t.Fatalf("emit source fault: %v", err)
 	}
-	if err := process.Runner.ConfigureRuntimeState(cfg.Runtime.EdgeID, process.sourceConfigRevision); err != nil {
-		t.Fatalf("persist runtime status after source fault: %v", err)
-	}
 
-	degraded, exists, err := state.NewStatusStore(stateDir).Load()
-	if err != nil {
-		t.Fatalf("load status after source fault: %v", err)
-	}
-	if !exists || degraded.SourceSummary != "failed" || degraded.RuntimeStatus != "degraded" {
+	degraded := waitForStatusSummary(t, stateDir, "failed", "degraded")
+	if degraded.SourceSummary != "failed" || degraded.RuntimeStatus != "degraded" {
 		t.Fatalf("expected persisted failed/degraded status before recovery, got %+v", degraded)
 	}
 
@@ -616,17 +614,8 @@ func TestRuntimeStatusReturnsToHealthyAfterAcceptedSourceReadingWithoutCloudLife
 	if health := process.Sources.HealthSnapshot()["mock-source-1"]; health.State != source.SourceHealthRunning {
 		t.Fatalf("expected accepted reading to recover source health, got %+v", health)
 	}
-	if err := process.Runner.ConfigureRuntimeState(cfg.Runtime.EdgeID, process.sourceConfigRevision); err != nil {
-		t.Fatalf("persist runtime status after source recovery: %v", err)
-	}
 
-	recovered, exists, err := state.NewStatusStore(stateDir).Load()
-	if err != nil {
-		t.Fatalf("load status after source recovery: %v", err)
-	}
-	if !exists {
-		t.Fatal("expected status.json after source recovery")
-	}
+	recovered := waitForStatusSummary(t, stateDir, "healthy", "trusted")
 	if recovered.SourceSummary != "healthy" || recovered.RuntimeStatus != "trusted" {
 		t.Fatalf("expected healthy/trusted status after accepted reading, got %+v", recovered)
 	}
@@ -636,16 +625,129 @@ func TestRuntimeStatusReturnsToHealthyAfterAcceptedSourceReadingWithoutCloudLife
 	assertCloudLifecycleUnchanged(t, cloudLifecycle, process.Runner.StateSnapshot())
 }
 
+func TestRuntimeStatusPersistenceFailureDoesNotBlockReadingDispatch(t *testing.T) {
+	stateDir := t.TempDir()
+	cfg := runtimeConfigFixture(stateDir)
+	cfg.Batch.MaxReadings = 1
+	writeCredentialFixture(t, stateDir, cfg.Runtime.EdgeID)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	process, err := NewWithSourceFactoriesForTest(ctx, cfg, noopTransport{}, mockSourceFactories())
+	if err != nil {
+		t.Fatalf("construct runtime process: %v", err)
+	}
+	defer process.Sources.ApplyDefinitions(nil)
+
+	runDone := make(chan error, 1)
+	go func() {
+		runDone <- process.Runner.Run(ctx)
+	}()
+	waitForRuntimeSessionState(t, process.Runner, state.SessionStateTrusted, time.Second)
+
+	proofReadings, err := process.ReadingDispatcher.AddConsumer("status-failure-dispatch-proof", 4)
+	if err != nil {
+		t.Fatalf("add reading dispatch proof consumer: %v", err)
+	}
+	if err := process.Runner.BindRuntimeStateStore(failingRuntimeStateSaver{}); err != nil {
+		t.Fatalf("bind failing runtime state saver: %v", err)
+	}
+
+	control, err := process.Sources.MockControl("mock-source-1")
+	if err != nil {
+		t.Fatalf("get mock source control: %v", err)
+	}
+	if err := control.EmitFault(source.Fault{
+		Severity: source.SeverityError,
+		Code:     "modbus_read_failed",
+		Message:  "equipment unavailable",
+		TS:       sourceHealthProjectionFaultTS,
+	}); err != nil {
+		t.Fatalf("emit source fault: %v", err)
+	}
+
+	select {
+	case err := <-runDone:
+		if err == nil || !strings.Contains(err.Error(), "refresh runtime status after source fault") {
+			t.Fatalf("expected runtime to observe status refresh persistence failure, got %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("runtime did not observe status refresh persistence failure")
+	}
+
+	emitDone := make(chan error, 1)
+	go func() {
+		for sequence := int64(1); sequence <= 3; sequence++ {
+			if err := control.EmitReading(source.RawReading{
+				DeviceID: "pump-01",
+				Metric:   "pressure",
+				Value:    float64(sequence),
+				TS:       sourceHealthProjectionReadingTS + sequence,
+			}); err != nil {
+				emitDone <- err
+				return
+			}
+		}
+		emitDone <- nil
+	}()
+
+	for sequence := int64(1); sequence <= 3; sequence++ {
+		select {
+		case reading := <-proofReadings:
+			if reading.TS != sourceHealthProjectionReadingTS+sequence {
+				t.Fatalf("unexpected reading after status persistence failure: %+v", reading)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("runtime status persistence failure blocked reading dispatch")
+		}
+	}
+
+	select {
+	case err := <-emitDone:
+		if err != nil {
+			t.Fatalf("emit readings after status persistence failure: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("source reading publication blocked after status persistence failure")
+	}
+}
+
+func waitForStatusSummary(t *testing.T, stateDir string, sourceSummary string, runtimeStatus string) state.StatusSnapshot {
+	t.Helper()
+
+	store := state.NewStatusStore(stateDir)
+	time.Sleep(25 * time.Millisecond)
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		snapshot, exists, err := store.Load()
+		if err != nil {
+			t.Fatalf("load status snapshot: %v", err)
+		}
+		if exists && snapshot.SourceSummary == sourceSummary && snapshot.RuntimeStatus == runtimeStatus {
+			return snapshot
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	snapshot, _, err := store.Load()
+	if err != nil {
+		t.Fatalf("load final status snapshot: %v", err)
+	}
+	t.Fatalf(
+		"timeout waiting for sourceSummary=%q runtimeStatus=%q, got %+v",
+		sourceSummary,
+		runtimeStatus,
+		snapshot,
+	)
+	return state.StatusSnapshot{}
+}
+
 func assertCloudLifecycleUnchanged(t *testing.T, before runtime.SessionStateSnapshot, after runtime.SessionStateSnapshot) {
 	t.Helper()
 
-	if after.SessionState != before.SessionState ||
-		after.AuthOutcome != before.AuthOutcome ||
-		after.RetryEligible != before.RetryEligible ||
-		after.Trusted != before.Trusted ||
-		after.Connected != before.Connected ||
-		after.SessionEpoch != before.SessionEpoch {
-		t.Fatalf("source health projection changed Cloud lifecycle: before=%+v after=%+v", before, after)
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("source health projection changed runtime, credential, or Cloud lifecycle state: before=%+v after=%+v", before, after)
 	}
 }
 
@@ -665,7 +767,10 @@ func TestProcessKeepsReadingDispatchActiveDuringStartupCloudRetry(t *testing.T) 
 			return &pollingProofAdapter{}, nil
 		},
 	}
-	process, err := NewWithSourceFactoriesForTest(context.Background(), cfg, transport, factories)
+	processCtx, processCancel := context.WithCancel(context.Background())
+	defer processCancel()
+
+	process, err := NewWithSourceFactoriesForTest(processCtx, cfg, transport, factories)
 	if err != nil {
 		t.Fatalf("construct runtime process: %v", err)
 	}

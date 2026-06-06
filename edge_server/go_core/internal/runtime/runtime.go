@@ -184,6 +184,18 @@ func (r *Runner) RecordTelemetrySent(at time.Time) error {
 	return nil
 }
 
+func (r *Runner) RefreshRuntimeStatus() error {
+	if err := r.persistRuntimeState(); err != nil {
+		return fmt.Errorf("persist current runtime status: %w", err)
+	}
+
+	return nil
+}
+
+func (r *Runner) ReportAsyncError(err error) {
+	r.reportAsyncError(err)
+}
+
 func (r *Runner) attachBootstrapSession(session *BootstrapSession) {
 	if r == nil {
 		return

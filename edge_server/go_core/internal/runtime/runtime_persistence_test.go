@@ -38,4 +38,7 @@ func TestRunnerReturnsPersistErrorsForStateTransitions(t *testing.T) {
 	if err := runner.RecordTelemetrySent(time.Date(2026, 4, 22, 12, 0, 0, 0, time.UTC)); err == nil || !strings.Contains(err.Error(), "persist runtime state after telemetry emit") {
 		t.Fatalf("expected telemetry update to return persist error, got %v", err)
 	}
+	if err := runner.RefreshRuntimeStatus(); err == nil || !strings.Contains(err.Error(), "persist current runtime status") {
+		t.Fatalf("expected runtime status refresh to return persist error, got %v", err)
+	}
 }
