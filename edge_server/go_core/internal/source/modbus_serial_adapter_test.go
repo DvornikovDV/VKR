@@ -1643,6 +1643,133 @@ func TestModbusSerialAdapterSharesReadAndWriteTransportFailureAccounting(t *test
 	})
 }
 
+func TestModbusSerialAdapterFailsCommandsWithoutWritingWhileEquipmentUnavailable(t *testing.T) {
+	client := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 31, registerType: modbus.INPUT_REGISTER}: 0,
+		},
+	}
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		return client, nil
+	}, fixedNow)
+
+	definition := validModbusDefinitionWithCommands(
+		[]MetricDefinition{
+			modbusMetric("actual_state", "boolean", "input", 31, nil),
+		},
+		[]CommandDefinition{
+			modbusCommand("set_bool", "holding", 160, "actual_state"),
+		},
+	)
+	definition.PollIntervalMs = 60000
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+	client.waitForReadCalls(t, 1)
+	client.clearCalls()
+
+	for _, state := range []modbusReconnectState{
+		modbusReconnectStateDisconnected,
+		modbusReconnectStateReconnecting,
+	} {
+		t.Run(string(state), func(t *testing.T) {
+			adapter.mu.Lock()
+			adapter.reconnectState = state
+			adapter.mu.Unlock()
+
+			resultCh := executeSetBoolCommandAsync(context.Background(), adapter, true)
+			select {
+			case execution := <-resultCh:
+				if execution.err != nil {
+					t.Fatalf("execute command while %s: %v", state, execution.err)
+				}
+				if execution.result.Status != CommandStatusFailed || !strings.Contains(execution.result.Reason, "unavailable") {
+					t.Fatalf("command while %s must fail with unavailable reason, got %+v", state, execution.result)
+				}
+			case <-time.After(100 * time.Millisecond):
+				t.Fatalf("command while %s must fail quickly", state)
+			}
+
+			client.assertWriteCalls(t, nil)
+		})
+	}
+
+	if _, err := adapter.writeModbusCommandRegister(client, 160, 1); err == nil {
+		t.Fatal("reconnecting command write snapshot must be rejected before Modbus I/O")
+	}
+	client.assertWriteCalls(t, nil)
+}
+
+func TestModbusSerialAdapterSerializesCommandWriteWithDisconnectTransition(t *testing.T) {
+	writeStarted := make(chan struct{})
+	writeRelease := make(chan struct{})
+	var releaseWrite sync.Once
+	release := func() {
+		releaseWrite.Do(func() {
+			close(writeRelease)
+		})
+	}
+	client := &fakeModbusClient{
+		values: map[modbusReadKey]uint16{
+			{address: 31, registerType: modbus.INPUT_REGISTER}: 0,
+		},
+		writeStarted: writeStarted,
+		writeRelease: writeRelease,
+	}
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		return client, nil
+	}, fixedNow)
+	adapter.reconnectPolicy.failureThreshold = 1
+
+	definition := validModbusDefinitionWithCommands(
+		[]MetricDefinition{
+			modbusMetric("actual_state", "boolean", "input", 31, nil),
+		},
+		[]CommandDefinition{
+			modbusCommand("set_bool", "holding", 160, "actual_state"),
+		},
+	)
+	definition.PollIntervalMs = 60000
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+	defer release()
+	client.waitForReadCalls(t, 1)
+	client.clearCalls()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	resultCh := executeSetBoolCommandAsync(ctx, adapter, true)
+	waitForSignal(t, writeStarted, "command write")
+
+	disconnectDone := make(chan bool, 1)
+	go func() {
+		disconnectDone <- adapter.recordTransportFailure(timeoutErr{})
+	}()
+
+	select {
+	case <-disconnectDone:
+		t.Fatal("disconnect transition completed while an accepted command write was still in flight")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	release()
+	if transitioned := <-disconnectDone; !transitioned {
+		t.Fatal("expected transport failure to transition adapter to disconnected")
+	}
+	cancel()
+
+	execution := receiveCommandExecution(t, resultCh)
+	if execution.err != nil {
+		t.Fatalf("execute command during disconnect transition: %v", execution.err)
+	}
+	if execution.result.Status == CommandStatusConfirmed {
+		t.Fatalf("command without post-write confirmation must not be confirmed, got %+v", execution.result)
+	}
+	client.assertWriteCalls(t, []modbusWriteCall{{address: 160, value: 1}})
+}
+
 func TestModbusTransportFailureClassificationRejectsProtocolAndInternalErrors(t *testing.T) {
 	for _, err := range []error{
 		modbus.ErrIllegalDataAddress,
@@ -2275,6 +2402,9 @@ type fakeModbusClient struct {
 	openStarted               chan struct{}
 	openRelease               <-chan struct{}
 	openStartedOnce           sync.Once
+	writeStarted              chan struct{}
+	writeRelease              <-chan struct{}
+	writeStartedOnce          sync.Once
 	calls                     []modbusReadCall
 	writeCalls                []modbusWriteCall
 	lifecycle                 func(string)
@@ -2375,8 +2505,18 @@ func (c *fakeModbusClient) WriteRegister(address uint16, value uint16) error {
 		c.maxTransactionConcurrency = c.inFlightTransactions
 	}
 	c.writeCalls = append(c.writeCalls, modbusWriteCall{address: address, value: value})
+	writeStarted := c.writeStarted
+	writeRelease := c.writeRelease
 	c.mu.Unlock()
 
+	if writeStarted != nil {
+		c.writeStartedOnce.Do(func() {
+			close(writeStarted)
+		})
+	}
+	if writeRelease != nil {
+		<-writeRelease
+	}
 	if c.delay > 0 {
 		time.Sleep(c.delay)
 	}

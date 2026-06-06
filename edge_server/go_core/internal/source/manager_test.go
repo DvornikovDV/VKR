@@ -132,6 +132,80 @@ func TestManagerKeepsSourceFaultLocalAndValidatesStableReadingIdentity(t *testin
 	}
 }
 
+func TestManagerRecoversFailedSourceOnlyAfterAcceptedReadingWithoutBlockingOtherSources(t *testing.T) {
+	adapters := map[string]*boundaryAdapter{}
+	manager := NewManager(FactoryRegistry{
+		ModbusRTUKind: func() (Adapter, error) {
+			return &boundaryAdapter{adapters: adapters}, nil
+		},
+	})
+	defer manager.ApplyDefinitions(nil)
+
+	if _, err := manager.ApplyDefinitions([]Definition{
+		boundaryDefinition("source-a", "pump-a", "pressure"),
+		boundaryDefinition("source-b", "pump-b", "pressure"),
+	}); err != nil {
+		t.Fatalf("apply source definitions: %v", err)
+	}
+
+	adapters["source-a"].publishFault(Fault{
+		SourceID: "source-a",
+		Severity: SeverityError,
+		Code:     "transport_unavailable",
+		Message:  "equipment connection unavailable",
+		TS:       1001,
+	})
+	adapters["source-b"].publishReading(RawReading{
+		SourceID: "source-b",
+		DeviceID: "pump-b",
+		Metric:   "pressure",
+		Value:    12.5,
+		TS:       1002,
+	})
+
+	select {
+	case reading := <-manager.Readings():
+		assertCloudSafeReading(t, reading, "source-b", "pump-b", "pressure", 12.5)
+	case <-time.After(time.Second):
+		t.Fatal("unaffected source reading was blocked by another source failure")
+	}
+
+	adapters["source-a"].publishReading(RawReading{
+		SourceID: "source-a",
+		DeviceID: "pump-a",
+		Metric:   "unconfigured",
+		Value:    10.0,
+		TS:       1003,
+	})
+	health := manager.HealthSnapshot()
+	if health["source-a"].State != SourceHealthFailed {
+		t.Fatalf("rejected reading must not recover source-a, got %+v", health["source-a"])
+	}
+	if health["source-b"].State != SourceHealthRunning {
+		t.Fatalf("source-b must remain running while source-a is failed, got %+v", health["source-b"])
+	}
+
+	adapters["source-a"].publishReading(RawReading{
+		SourceID: "source-a",
+		DeviceID: "pump-a",
+		Metric:   "pressure",
+		Value:    11.0,
+		TS:       1004,
+	})
+
+	select {
+	case reading := <-manager.Readings():
+		assertCloudSafeReading(t, reading, "source-a", "pump-a", "pressure", 11.0)
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for recovered source reading")
+	}
+
+	recovered := manager.HealthSnapshot()["source-a"]
+	if recovered.State != SourceHealthRunning || recovered.LastReadingAt != 1004 || recovered.ConsecutiveFaults != 0 {
+		t.Fatalf("accepted reading must recover source-a health, got %+v", recovered)
+	}
+}
+
 func TestManagerReusesStableProductionDefinitionsWithoutRedefinition(t *testing.T) {
 	adapters := map[string]*boundaryAdapter{}
 	manager := NewManager(FactoryRegistry{

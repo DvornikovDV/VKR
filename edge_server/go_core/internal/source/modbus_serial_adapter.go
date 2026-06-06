@@ -663,11 +663,27 @@ func (a *ModbusSerialAdapter) writeModbusCommandRegister(client modbusRegisterCl
 	a.transactionMu.Lock()
 	defer a.transactionMu.Unlock()
 
-	if !a.isCurrentClientLocked(client) {
-		return a.nextModbusTransactionSequenceLocked(), fmt.Errorf("modbus serial client snapshot is no longer current")
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	if err := a.commandClientAvailabilityErrorLocked(client); err != nil {
+		return a.nextModbusTransactionSequenceLocked(), err
 	}
 	err := client.WriteRegister(address, value)
 	return a.nextModbusTransactionSequenceLocked(), err
+}
+
+func (a *ModbusSerialAdapter) commandClientAvailabilityErrorLocked(client modbusRegisterClient) error {
+	if a.closed {
+		return fmt.Errorf("modbus serial adapter is not running")
+	}
+	if a.reconnectState != modbusReconnectStateConnected || client == nil {
+		return fmt.Errorf("modbus serial source is unavailable while %s", a.reconnectState)
+	}
+	if a.client != client {
+		return fmt.Errorf("modbus serial client snapshot is no longer current")
+	}
+	return nil
 }
 
 func (a *ModbusSerialAdapter) isCurrentClientLocked(client modbusRegisterClient) bool {
