@@ -10,6 +10,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/simonvetter/modbus"
@@ -18,6 +19,10 @@ import (
 const ModbusRTUKind = "modbus_rtu"
 
 type modbusReconnectState string
+
+type modbusRuntimeIOOperation string
+
+type modbusCurrentReconnectDecision string
 
 const (
 	modbusCommandConfirmationObservationCount = 2
@@ -32,7 +37,36 @@ const (
 	modbusReconnectFailureThreshold = 3
 	modbusReconnectInitialBackoff   = 250 * time.Millisecond
 	modbusReconnectMaxBackoff       = 5 * time.Second
+
+	modbusRuntimeIORead  modbusRuntimeIOOperation = "read"
+	modbusRuntimeIOWrite modbusRuntimeIOOperation = "write"
+
+	modbusCurrentReconnectCandidate modbusCurrentReconnectDecision = "reconnect_candidate"
+	modbusCurrentReconnectIgnored   modbusCurrentReconnectDecision = "ignored"
+	modbusCurrentReconnectInternal  modbusCurrentReconnectDecision = "internal"
 )
+
+var (
+	errModbusAdapterNotRunning   = errors.New("modbus serial adapter is not running")
+	errModbusClientSnapshotStale = errors.New("modbus serial client snapshot is no longer current")
+)
+
+type modbusSourceUnavailableError struct {
+	state modbusReconnectState
+}
+
+func (e modbusSourceUnavailableError) Error() string {
+	return fmt.Sprintf("modbus serial source is unavailable while %s", e.state)
+}
+
+type modbusRuntimeIOFailureDiagnostic struct {
+	operation       modbusRuntimeIOOperation
+	currentDecision modbusCurrentReconnectDecision
+	errorType       string
+	osErrorCode     uint64
+	hasOSErrorCode  bool
+	cause           error
+}
 
 type modbusRegisterClient interface {
 	Open() error
@@ -132,6 +166,7 @@ type modbusObservationState struct {
 type modbusPollResult struct {
 	published        int
 	transportFailure bool
+	ioFailure        bool
 }
 
 type modbusPendingReading struct {
@@ -154,6 +189,7 @@ type ModbusSerialAdapter struct {
 	reconnectState      modbusReconnectState
 	reconnectPolicy     modbusReconnectPolicy
 	transportFailures   int
+	ioFailureStreak     bool
 	reconnectNotify     chan struct{}
 	mappings            []modbusMetricMapping
 	commandMappings     []modbusCommandMapping
@@ -286,6 +322,7 @@ func (a *ModbusSerialAdapter) Close() error {
 	a.runDone = nil
 	a.reconnectState = modbusReconnectStateDisconnected
 	a.transportFailures = 0
+	a.ioFailureStreak = false
 	a.sink = nil
 	a.connection = modbusSerialConnection{}
 	a.mappings = nil
@@ -398,6 +435,7 @@ func (a *ModbusSerialAdapter) installAppliedDefinitionLocked(client modbusRegist
 	a.client = client
 	a.reconnectState = nextState
 	a.transportFailures = 0
+	a.ioFailureStreak = false
 	a.mappings = applied.mappings
 	a.commandMappings = applied.commandMappings
 	a.cancel = applied.cancel
@@ -502,6 +540,8 @@ func (a *ModbusSerialAdapter) pollOnceResult() (modbusPollResult, error) {
 		value, observationTransaction, readErr := a.readModbusRegister(client, mapping)
 		ts := a.now().UnixMilli()
 		if readErr != nil {
+			result.ioFailure = true
+			a.recordRuntimeIOFailureDiagnostic(diagnoseModbusRuntimeIOFailure(modbusRuntimeIORead, readErr))
 			sink.PublishFault(Fault{
 				SourceID: sourceID,
 				Severity: SeverityError,
@@ -509,7 +549,7 @@ func (a *ModbusSerialAdapter) pollOnceResult() (modbusPollResult, error) {
 				Message:  fmt.Sprintf("modbus read failed for device %q metric %q: %v", mapping.deviceID, mapping.metric, readErr),
 				TS:       ts,
 			})
-			if isModbusTransportFailure(readErr) {
+			if isModbusReconnectCandidate(readErr) {
 				result.transportFailure = true
 				lastTransportErr = readErr
 			}
@@ -534,6 +574,9 @@ func (a *ModbusSerialAdapter) pollOnceResult() (modbusPollResult, error) {
 		a.recordTransportFailure(lastTransportErr)
 	} else {
 		a.recordTransportSuccess()
+	}
+	if !result.ioFailure {
+		a.recordRuntimeIOSuccess()
 	}
 
 	if !result.transportFailure {
@@ -595,10 +638,12 @@ func (a *ModbusSerialAdapter) ExecuteCommand(ctx context.Context, request Comman
 	observationKey := modbusObservationKey{deviceID: commandMapping.deviceID, metric: commandMapping.reportedMetric}
 	observationMarker, err := a.writeModbusCommandRegister(client, commandMapping.address, writeValue)
 	if err != nil {
+		a.recordRuntimeIOFailureDiagnostic(diagnoseModbusRuntimeIOFailure(modbusRuntimeIOWrite, err))
 		a.recordTransportFailure(err)
 		result.Reason = fmt.Sprintf("write modbus command: %v", err)
 		return result, nil
 	}
+	a.recordRuntimeIOSuccess()
 	a.recordTransportSuccess()
 
 	for i := 0; i < modbusCommandForcedPollAttempts; i++ {
@@ -653,7 +698,7 @@ func (a *ModbusSerialAdapter) readModbusRegister(client modbusRegisterClient, ma
 	defer a.transactionMu.Unlock()
 
 	if !a.isCurrentClientLocked(client) {
-		return 0, a.nextModbusTransactionSequenceLocked(), fmt.Errorf("modbus serial client snapshot is no longer current")
+		return 0, a.nextModbusTransactionSequenceLocked(), errModbusClientSnapshotStale
 	}
 	value, err := client.ReadRegister(mapping.address, mapping.registerType)
 	return value, a.nextModbusTransactionSequenceLocked(), err
@@ -675,13 +720,13 @@ func (a *ModbusSerialAdapter) writeModbusCommandRegister(client modbusRegisterCl
 
 func (a *ModbusSerialAdapter) commandClientAvailabilityErrorLocked(client modbusRegisterClient) error {
 	if a.closed {
-		return fmt.Errorf("modbus serial adapter is not running")
+		return errModbusAdapterNotRunning
 	}
 	if a.reconnectState != modbusReconnectStateConnected || client == nil {
-		return fmt.Errorf("modbus serial source is unavailable while %s", a.reconnectState)
+		return modbusSourceUnavailableError{state: a.reconnectState}
 	}
 	if a.client != client {
-		return fmt.Errorf("modbus serial client snapshot is no longer current")
+		return errModbusClientSnapshotStale
 	}
 	return nil
 }
@@ -706,10 +751,10 @@ func (a *ModbusSerialAdapter) snapshot() (string, Sink, modbusRegisterClient, []
 	defer a.mu.RUnlock()
 
 	if a.closed || a.sink == nil {
-		return "", nil, nil, nil, fmt.Errorf("modbus serial adapter is not running")
+		return "", nil, nil, nil, errModbusAdapterNotRunning
 	}
 	if (a.reconnectState != modbusReconnectStateConnected && a.reconnectState != modbusReconnectStateReconnecting) || a.client == nil {
-		return "", nil, nil, nil, fmt.Errorf("modbus serial source is unavailable while %s", a.reconnectState)
+		return "", nil, nil, nil, modbusSourceUnavailableError{state: a.reconnectState}
 	}
 
 	mappings := append([]modbusMetricMapping(nil), a.mappings...)
@@ -721,10 +766,10 @@ func (a *ModbusSerialAdapter) commandSnapshot(deviceID string, command string) (
 	defer a.mu.RUnlock()
 
 	if a.closed {
-		return nil, modbusCommandMapping{}, false, fmt.Errorf("modbus serial adapter is not running")
+		return nil, modbusCommandMapping{}, false, errModbusAdapterNotRunning
 	}
 	if a.reconnectState != modbusReconnectStateConnected || a.client == nil {
-		return nil, modbusCommandMapping{}, false, fmt.Errorf("modbus serial source is unavailable while %s", a.reconnectState)
+		return nil, modbusCommandMapping{}, false, modbusSourceUnavailableError{state: a.reconnectState}
 	}
 
 	for _, commandMapping := range a.commandMappings {
@@ -882,7 +927,7 @@ func (a *ModbusSerialAdapter) completeReconnectAfterPoll(result modbusPollResult
 }
 
 func (a *ModbusSerialAdapter) recordTransportFailure(err error) bool {
-	if !isModbusTransportFailure(err) {
+	if !isModbusReconnectCandidate(err) {
 		return false
 	}
 
@@ -915,6 +960,76 @@ func (a *ModbusSerialAdapter) recordTransportSuccess() {
 	if !a.closed && a.reconnectState == modbusReconnectStateConnected {
 		a.transportFailures = 0
 	}
+}
+
+func diagnoseModbusRuntimeIOFailure(operation modbusRuntimeIOOperation, err error) modbusRuntimeIOFailureDiagnostic {
+	diagnostic := modbusRuntimeIOFailureDiagnostic{
+		operation: operation,
+		errorType: fmt.Sprintf("%T", err),
+		cause:     err,
+	}
+
+	switch {
+	case isModbusAdapterInternalError(err):
+		diagnostic.currentDecision = modbusCurrentReconnectInternal
+	case isModbusReconnectCandidate(err):
+		diagnostic.currentDecision = modbusCurrentReconnectCandidate
+	default:
+		diagnostic.currentDecision = modbusCurrentReconnectIgnored
+	}
+
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		diagnostic.osErrorCode = uint64(errno)
+		diagnostic.hasOSErrorCode = true
+	}
+
+	return diagnostic
+}
+
+func isModbusAdapterInternalError(err error) bool {
+	if errors.Is(err, errModbusAdapterNotRunning) || errors.Is(err, errModbusClientSnapshotStale) {
+		return true
+	}
+
+	var unavailable modbusSourceUnavailableError
+	return errors.As(err, &unavailable)
+}
+
+func (a *ModbusSerialAdapter) recordRuntimeIOFailureDiagnostic(diagnostic modbusRuntimeIOFailureDiagnostic) {
+	if diagnostic.cause == nil || diagnostic.currentDecision == modbusCurrentReconnectInternal {
+		return
+	}
+
+	a.mu.Lock()
+	if a.closed || a.ioFailureStreak {
+		a.mu.Unlock()
+		return
+	}
+	a.ioFailureStreak = true
+	sourceID := a.sourceID
+	a.mu.Unlock()
+
+	osCode := "none"
+	if diagnostic.hasOSErrorCode {
+		osCode = fmt.Sprintf("%d", diagnostic.osErrorCode)
+	}
+	log.Printf(
+		"modbus source %q runtime I/O failure: operation=%s currentDecision=%s errorType=%s osCode=%s error=%v",
+		sourceID,
+		diagnostic.operation,
+		diagnostic.currentDecision,
+		diagnostic.errorType,
+		osCode,
+		diagnostic.cause,
+	)
+}
+
+func (a *ModbusSerialAdapter) recordRuntimeIOSuccess() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.ioFailureStreak = false
 }
 
 func (a *ModbusSerialAdapter) waitForPoll(ctx context.Context, interval time.Duration) bool {
@@ -951,39 +1066,36 @@ func nextModbusReconnectBackoff(current time.Duration, maximum time.Duration) ti
 	return next
 }
 
-func isModbusTransportFailure(err error) bool {
+func isModbusReconnectCandidate(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, net.ErrClosed) {
-		return true
+	if isModbusAdapterInternalError(err) {
+		return false
 	}
 
-	var netErr net.Error
-	if errors.As(err, &netErr) && (netErr.Timeout() || netErr.Temporary()) {
-		return true
-	}
-
-	message := strings.ToLower(err.Error())
-	for _, marker := range []string{
-		"broken pipe",
-		"device disconnected",
-		"device is not connected",
-		"device attached to the system is not functioning",
-		"file has been closed",
-		"handle is invalid",
-		"i/o device error",
-		"input/output error",
-		"port is closed",
-		"serial port is closed",
-		"request timed out",
-		"timeout",
+	for _, excluded := range []error{
+		modbus.ErrConfigurationError,
+		modbus.ErrUnexpectedParameters,
+		modbus.ErrIllegalFunction,
+		modbus.ErrIllegalDataAddress,
+		modbus.ErrIllegalDataValue,
+		modbus.ErrServerDeviceFailure,
+		modbus.ErrAcknowledge,
+		modbus.ErrServerDeviceBusy,
+		modbus.ErrMemoryParityError,
+		modbus.ErrGWPathUnavailable,
+		modbus.ErrGWTargetFailedToRespond,
 	} {
-		if strings.Contains(message, marker) {
-			return true
+		if errors.Is(err, excluded) {
+			return false
 		}
 	}
-	return false
+
+	// This classifier is called only for errors returned by an accepted runtime
+	// Modbus read or write. Unknown errors at that boundary are reconnect
+	// candidates because keeping the current serial client cannot recover them.
+	return true
 }
 
 func newSimonvetterModbusClient(connection modbusSerialConnection) (modbusRegisterClient, error) {

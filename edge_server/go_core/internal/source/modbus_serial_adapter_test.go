@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1486,7 +1487,7 @@ func TestModbusSerialAdapterRepeatedReadFailuresEnterReconnect(t *testing.T) {
 			{address: 10, registerType: modbus.INPUT_REGISTER}: 42,
 		},
 		readErrSequences: map[modbusReadKey][]error{
-			{address: 20, registerType: modbus.INPUT_REGISTER}: repeatModbusErrors(timeoutErr{}, 100),
+			{address: 20, registerType: modbus.INPUT_REGISTER}: repeatModbusErrors(syscall.Errno(5), 100),
 		},
 	}
 	unusedReplacement := &fakeModbusClient{}
@@ -1512,7 +1513,7 @@ func TestModbusSerialAdapterRepeatedReadFailuresEnterReconnect(t *testing.T) {
 		t.Fatalf("expected at least %d read faults before reconnect, got %+v", modbusReconnectFailureThreshold, faults)
 	}
 	if readings := sink.readingsSnapshot(); len(readings) != 0 {
-		t.Fatalf("transport-failed poll cycles must not publish partial telemetry, got %+v", readings)
+		t.Fatalf("reconnect-candidate poll cycles must not publish partial telemetry, got %+v", readings)
 	}
 	factory.assertConnectionCount(t, 1)
 	stale.assertCloseCount(t, 1)
@@ -1648,7 +1649,7 @@ func TestModbusSerialAdapterRepeatedWriteFailuresReconnectWithoutObservationLock
 		values: map[modbusReadKey]uint16{
 			{address: 31, registerType: modbus.INPUT_REGISTER}: 0,
 		},
-		writeErr: timeoutErr{},
+		writeErr: errors.New("unrecognized serial write failure"),
 	}
 	recovered := &fakeModbusClient{
 		values: map[modbusReadKey]uint16{
@@ -1848,28 +1849,249 @@ func TestModbusSerialAdapterSerializesCommandWriteWithDisconnectTransition(t *te
 	client.assertWriteCalls(t, []modbusWriteCall{{address: 160, value: 1}})
 }
 
-func TestModbusTransportFailureClassificationRejectsProtocolAndInternalErrors(t *testing.T) {
-	for _, err := range []error{
+func TestModbusRuntimeIORecoveryDecisionMatrix(t *testing.T) {
+	cases := []struct {
+		name      string
+		err       error
+		candidate bool
+	}{
+		{name: "nil", err: nil, candidate: false},
+		{name: "adapter not running", err: errModbusAdapterNotRunning, candidate: false},
+		{name: "stale client", err: errModbusClientSnapshotStale, candidate: false},
+		{name: "source unavailable", err: modbusSourceUnavailableError{state: modbusReconnectStateReconnecting}, candidate: false},
+		{name: "configuration", err: modbus.ErrConfigurationError, candidate: false},
+		{name: "unexpected parameters", err: modbus.ErrUnexpectedParameters, candidate: false},
+		{name: "illegal function response", err: modbus.ErrIllegalFunction, candidate: false},
+		{name: "illegal address response", err: modbus.ErrIllegalDataAddress, candidate: false},
+		{name: "illegal value response", err: modbus.ErrIllegalDataValue, candidate: false},
+		{name: "server failure response", err: modbus.ErrServerDeviceFailure, candidate: false},
+		{name: "acknowledge response", err: modbus.ErrAcknowledge, candidate: false},
+		{name: "server busy response", err: modbus.ErrServerDeviceBusy, candidate: false},
+		{name: "parity response", err: modbus.ErrMemoryParityError, candidate: false},
+		{name: "gateway path response", err: modbus.ErrGWPathUnavailable, candidate: false},
+		{name: "gateway target response", err: modbus.ErrGWTargetFailedToRespond, candidate: false},
+		{name: "bad crc", err: modbus.ErrBadCRC, candidate: true},
+		{name: "short frame", err: modbus.ErrShortFrame, candidate: true},
+		{name: "protocol error", err: modbus.ErrProtocolError, candidate: true},
+		{name: "bad unit id", err: modbus.ErrBadUnitId, candidate: true},
+		{name: "request timeout", err: modbus.ErrRequestTimedOut, candidate: true},
+		{name: "net timeout", err: timeoutErr{}, candidate: true},
+		{name: "eof", err: io.EOF, candidate: true},
+		{name: "closed connection", err: net.ErrClosed, candidate: true},
+		{name: "confirmed windows unplug errno", err: syscall.Errno(5), candidate: true},
+		{name: "wrapped os error", err: fmt.Errorf("read serial device: %w", syscall.Errno(1167)), candidate: true},
+		{name: "unknown runtime io error", err: errors.New("unrecognized serial failure"), candidate: true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isModbusReconnectCandidate(tc.err); got != tc.candidate {
+				t.Fatalf("expected reconnect candidate=%t for %v, got %t", tc.candidate, tc.err, got)
+			}
+		})
+	}
+}
+
+func TestModbusRuntimeIORecoveryDecisionDrivesExistingReconnectAccounting(t *testing.T) {
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		return &fakeModbusClient{}, nil
+	}, fixedNow)
+	adapter.mu.Lock()
+	adapter.sourceID = "source-rtu"
+	adapter.closed = false
+	adapter.reconnectState = modbusReconnectStateConnected
+	adapter.reconnectPolicy.failureThreshold = 2
+	adapter.mu.Unlock()
+
+	for _, excluded := range []error{
+		errModbusClientSnapshotStale,
+		modbus.ErrConfigurationError,
 		modbus.ErrIllegalDataAddress,
-		errors.New("unsupported serial mapping"),
-		errors.New("modbus serial client snapshot is no longer current"),
-		errors.New("register not found"),
 	} {
-		if isModbusTransportFailure(err) {
-			t.Fatalf("non-transport error must not trigger reconnect accounting: %v", err)
+		if adapter.recordTransportFailure(excluded) {
+			t.Fatalf("excluded runtime failure must not transition reconnect state: %v", excluded)
 		}
 	}
 
+	adapter.mu.RLock()
+	if adapter.transportFailures != 0 || adapter.reconnectState != modbusReconnectStateConnected {
+		t.Fatalf("excluded failures must not affect reconnect accounting, failures=%d state=%s", adapter.transportFailures, adapter.reconnectState)
+	}
+	adapter.mu.RUnlock()
+
+	if adapter.recordTransportFailure(syscall.Errno(5)) {
+		t.Fatal("first confirmed Windows unplug error must not transition before the existing threshold")
+	}
+	if !adapter.recordTransportFailure(syscall.Errno(5)) {
+		t.Fatal("repeated confirmed Windows unplug error must transition at the existing threshold")
+	}
+
+	adapter.mu.RLock()
+	if adapter.transportFailures != 2 || adapter.reconnectState != modbusReconnectStateDisconnected {
+		t.Fatalf("confirmed Windows unplug error must drive existing reconnect accounting, failures=%d state=%s", adapter.transportFailures, adapter.reconnectState)
+	}
+	adapter.mu.RUnlock()
+}
+
+func TestDiagnoseModbusRuntimeIOFailurePreservesCauseAndOptionalOSErrorCode(t *testing.T) {
+	wrapped := fmt.Errorf("read serial device: %w", syscall.Errno(1167))
+
+	diagnostic := diagnoseModbusRuntimeIOFailure(modbusRuntimeIORead, wrapped)
+
+	if diagnostic.operation != modbusRuntimeIORead {
+		t.Fatalf("expected read operation, got %q", diagnostic.operation)
+	}
+	if diagnostic.errorType != "*fmt.wrapError" {
+		t.Fatalf("expected concrete wrapped error type, got %q", diagnostic.errorType)
+	}
+	if !diagnostic.hasOSErrorCode || diagnostic.osErrorCode != 1167 {
+		t.Fatalf("expected wrapped OS error code 1167, got %+v", diagnostic)
+	}
+	if !errors.Is(diagnostic.cause, syscall.Errno(1167)) {
+		t.Fatalf("expected original wrapped cause to be retained, got %v", diagnostic.cause)
+	}
+
+	withoutErrno := diagnoseModbusRuntimeIOFailure(modbusRuntimeIOWrite, errors.New("serial write rejected"))
+	if withoutErrno.hasOSErrorCode {
+		t.Fatalf("OS error code must remain optional, got %+v", withoutErrno)
+	}
+}
+
+func TestDiagnoseModbusRuntimeIOFailureIdentifiesAdapterInternalErrors(t *testing.T) {
 	for _, err := range []error{
-		timeoutErr{},
-		io.EOF,
-		net.ErrClosed,
-		errors.New("serial port is closed"),
-		errors.New("a device attached to the system is not functioning"),
+		errModbusAdapterNotRunning,
+		errModbusClientSnapshotStale,
+		modbusSourceUnavailableError{state: modbusReconnectStateReconnecting},
 	} {
-		if !isModbusTransportFailure(err) {
-			t.Fatalf("equipment transport loss must trigger reconnect accounting: %v", err)
+		diagnostic := diagnoseModbusRuntimeIOFailure(modbusRuntimeIORead, err)
+		if diagnostic.currentDecision != modbusCurrentReconnectInternal {
+			t.Fatalf("adapter-internal error must be identified as internal, got %+v", diagnostic)
 		}
+	}
+}
+
+func TestModbusRuntimeIOFailureDiagnosticLogsFirstFailurePerStreak(t *testing.T) {
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+	})
+
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		return &fakeModbusClient{}, nil
+	}, fixedNow)
+	adapter.mu.Lock()
+	adapter.sourceID = "source-rtu"
+	adapter.closed = false
+	adapter.mu.Unlock()
+
+	candidate := diagnoseModbusRuntimeIOFailure(modbusRuntimeIORead, errors.New("unrecognized serial failure"))
+	adapter.recordRuntimeIOFailureDiagnostic(candidate)
+	adapter.recordRuntimeIOFailureDiagnostic(candidate)
+
+	if count := strings.Count(logs.String(), "runtime I/O failure"); count != 1 {
+		t.Fatalf("expected one diagnostic log in a failure streak, got %d logs: %q", count, logs.String())
+	}
+	for _, expected := range []string{
+		`source "source-rtu"`,
+		"operation=read",
+		"currentDecision=reconnect_candidate",
+		"errorType=*errors.errorString",
+		"osCode=none",
+		"unrecognized serial failure",
+	} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("expected diagnostic log containing %q, got %q", expected, logs.String())
+		}
+	}
+
+	adapter.recordRuntimeIOSuccess()
+	withOSErrorCode := diagnoseModbusRuntimeIOFailure(
+		modbusRuntimeIOWrite,
+		fmt.Errorf("write serial device: %w", syscall.Errno(1167)),
+	)
+	adapter.recordRuntimeIOFailureDiagnostic(withOSErrorCode)
+	if count := strings.Count(logs.String(), "runtime I/O failure"); count != 2 {
+		t.Fatalf("expected a new diagnostic after successful streak reset, got %d logs: %q", count, logs.String())
+	}
+	for _, expected := range []string{"operation=write", "osCode=1167"} {
+		if !strings.Contains(logs.String(), expected) {
+			t.Fatalf("expected diagnostic log containing %q, got %q", expected, logs.String())
+		}
+	}
+}
+
+func TestModbusRuntimeIOFailureDiagnosticIgnoresInternalErrors(t *testing.T) {
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+	})
+
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		return &fakeModbusClient{}, nil
+	}, fixedNow)
+	adapter.mu.Lock()
+	adapter.sourceID = "source-rtu"
+	adapter.closed = false
+	adapter.mu.Unlock()
+
+	adapter.recordRuntimeIOFailureDiagnostic(diagnoseModbusRuntimeIOFailure(modbusRuntimeIORead, errModbusClientSnapshotStale))
+
+	if logs.Len() != 0 {
+		t.Fatalf("adapter-internal failure must not emit runtime I/O diagnostic, got %q", logs.String())
+	}
+}
+
+func TestModbusRuntimeIOFailureDiagnosticDoesNotFloodRepeatedFailedPolls(t *testing.T) {
+	var logs bytes.Buffer
+	previousWriter := log.Writer()
+	log.SetOutput(&logs)
+	t.Cleanup(func() {
+		log.SetOutput(previousWriter)
+	})
+
+	client := &fakeModbusClient{err: errors.New("unrecognized serial failure")}
+	adapter := newModbusSerialAdapterWithFactory(func(modbusSerialConnection) (modbusRegisterClient, error) {
+		return client, nil
+	}, fixedNow)
+	definition := validModbusDefinition([]MetricDefinition{
+		modbusMetric("temperature", "number", "input", 10, nil),
+	})
+	definition.PollIntervalMs = 60000
+	if err := adapter.ApplyDefinition(definition, &captureModbusSink{}); err != nil {
+		t.Fatalf("apply modbus definition: %v", err)
+	}
+	defer adapter.Close()
+	client.waitForReadCalls(t, 1)
+
+	if _, err := adapter.pollOnce(); err != nil {
+		t.Fatalf("repeat failed poll: %v", err)
+	}
+	if count := strings.Count(logs.String(), "runtime I/O failure"); count != 1 {
+		t.Fatalf("repeated failed polls must emit one streak diagnostic, got %d logs: %q", count, logs.String())
+	}
+
+	client.mu.Lock()
+	client.err = nil
+	client.values = map[modbusReadKey]uint16{
+		{address: 10, registerType: modbus.INPUT_REGISTER}: 42,
+	}
+	client.mu.Unlock()
+	if _, err := adapter.pollOnce(); err != nil {
+		t.Fatalf("successful poll: %v", err)
+	}
+
+	client.mu.Lock()
+	client.err = errors.New("unrecognized serial failure")
+	client.mu.Unlock()
+	if _, err := adapter.pollOnce(); err != nil {
+		t.Fatalf("failed poll after streak reset: %v", err)
+	}
+	if count := strings.Count(logs.String(), "runtime I/O failure"); count != 2 {
+		t.Fatalf("failure after a fully successful poll must start a new diagnostic streak, got %d logs: %q", count, logs.String())
 	}
 }
 
@@ -2065,16 +2287,15 @@ func TestModbusSerialAdapterEmitsTimeoutFault(t *testing.T) {
 	}, fixedNow)
 	sink := &captureModbusSink{}
 
-	if err := adapter.ApplyDefinition(validModbusDefinition([]MetricDefinition{
+	definition := validModbusDefinition([]MetricDefinition{
 		modbusMetric("temperature", "number", "input", 10, nil),
-	}), sink); err != nil {
+	})
+	definition.PollIntervalMs = 60000
+	if err := adapter.ApplyDefinition(definition, sink); err != nil {
 		t.Fatalf("apply modbus definition: %v", err)
 	}
 	defer adapter.Close()
-
-	if _, err := adapter.pollOnce(); err != nil {
-		t.Fatalf("poll with timeout fault: %v", err)
-	}
+	client.waitForReadCalls(t, 1)
 
 	if readings := sink.readingsSnapshot(); len(readings) != 0 {
 		t.Fatalf("timeout must not publish readings, got %+v", readings)
