@@ -27,6 +27,7 @@ apiRouter.delete('/diagrams/:id/bindings', authMiddleware, requireRole('USER'), 
 apiRouter.delete('/diagrams/:id/bindings/:edgeServerId', authMiddleware, requireRole('USER'), DiagramsController.deleteBinding);
 
 // ── Admin: Diagram Assignment (ADMIN only) ────────────────────────────────
+// Creates an independent User-owned copy; the source Admin template remains unchanged.
 apiRouter.post('/diagrams/:id/assign', authMiddleware, requireRole('ADMIN'), DiagramsController.assignDiagram);
 
 // ── Edge Servers ──────────────────────────────────────────────────────────

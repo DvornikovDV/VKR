@@ -221,8 +221,7 @@ async function deleteBinding(req: AuthRequest, res: Response, next: NextFunction
 
 /**
  * POST /api/diagrams/:id/assign
- * Admin-only: transfers ownership of the diagram to targetUserId.
- * DiagramBindings are NOT transferred to the new owner.
+ * Admin-only: creates an independent binding-free copy for targetUserId.
  * Returns 403 if the Admin does not own the diagram.
  */
 async function assignDiagram(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -234,13 +233,13 @@ async function assignDiagram(req: AuthRequest, res: Response, next: NextFunction
             throw new AppError('targetUserId is required', 400);
         }
 
-        const diagram = await DiagramsService.assignDiagram(
+        const copy = await DiagramsService.assignDiagram(
             userId,
             req.params['id'] ?? '',
             body.targetUserId.trim(),
         );
 
-        res.status(200).json({ status: 'success', data: diagram });
+        res.status(200).json({ status: 'success', data: copy });
     } catch (err) {
         next(err);
     }

@@ -6,6 +6,7 @@ import { User, type SubscriptionTier, type UserRole } from '../models/User';
 export const FREE_DIAGRAM_QUOTA = 3;
 export const DIAGRAM_QUOTA_EXCEEDED = `FREE tier diagram quota (${FREE_DIAGRAM_QUOTA}) exceeded`;
 export const DUPLICATE_DIAGRAM_ASSIGNMENT = 'Diagram template is already assigned to this user';
+export const INVALID_ASSIGNMENT_TARGET = 'Assignment target must be an active USER';
 
 const SOURCE_TEMPLATE_INDEX = 'uniq_diagram_owner_source_template';
 const QUOTA_SLOT_INDEX = 'uniq_diagram_owner_quota_slot';
@@ -145,12 +146,16 @@ async function createDiagramForOwner(
     }
 }
 
-async function beginOwnerCreate(ownerId: Types.ObjectId): Promise<QuotaOwnerSnapshot> {
+async function beginOwnerCreate(
+    ownerId: Types.ObjectId,
+    requiredRole?: UserRole,
+): Promise<QuotaOwnerSnapshot> {
     const owner = await User.findOneAndUpdate(
         {
             _id: ownerId,
             isDeleted: { $ne: true },
             isBanned: { $ne: true },
+            ...(requiredRole ? { role: requiredRole } : {}),
             diagramQuotaMutationPending: { $ne: true },
         },
         { $inc: { diagramQuotaActiveCreates: 1 } },
@@ -164,16 +169,21 @@ async function beginOwnerCreate(ownerId: Types.ObjectId): Promise<QuotaOwnerSnap
         return owner;
     }
 
-    const existing = await User.findOne({
-        _id: ownerId,
-        isDeleted: { $ne: true },
-        isBanned: { $ne: true },
-    })
-        .select('+diagramQuotaMutationPending')
+    const existing = await User.findById(ownerId)
+        .select('+diagramQuotaMutationPending role isDeleted isBanned')
         .lean()
         .exec();
 
     if (!existing) {
+        throw new AppError('User not found', 404);
+    }
+    if (
+        requiredRole !== undefined
+        && (existing.isDeleted || existing.isBanned || existing.role !== requiredRole)
+    ) {
+        throw new AppError(INVALID_ASSIGNMENT_TARGET, 403);
+    }
+    if (existing.isDeleted || existing.isBanned) {
         throw new AppError('User not found', 404);
     }
     throw new AppError(QUOTA_MUTATION_IN_PROGRESS, 409);
@@ -189,9 +199,10 @@ async function endOwnerCreate(ownerId: Types.ObjectId): Promise<void> {
 async function createForPersistedOwner(
     ownerIdValue: string | Types.ObjectId,
     payload: QuotaAwareDiagramPayload,
+    requiredRole?: UserRole,
 ): Promise<IDiagram> {
     const ownerId = toOwnerId(ownerIdValue);
-    const owner = await beginOwnerCreate(ownerId);
+    const owner = await beginOwnerCreate(ownerId, requiredRole);
 
     try {
         return await createDiagramForOwner(ownerId, owner.role, owner.subscriptionTier, payload);

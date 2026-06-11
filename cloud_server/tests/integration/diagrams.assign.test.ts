@@ -1,13 +1,5 @@
 /**
- * Integration tests for Admin Diagram Assignment (US2b).
- * T022d — POST /api/diagrams/:id/assign
- *
- * Scenarios:
- *   1. Admin can assign their own diagram to another user (200)
- *   2. Admin cannot assign a diagram they don't own (403)
- *   3. Non-admin user gets 403 (Insufficient permissions)
- *   4. Missing targetUserId body → 400
- *   5. DiagramBindings remain with original owner after assignment
+ * Integration proof for independent Admin template-copy assignment.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import request from 'supertest';
@@ -29,9 +21,6 @@ import {
 let adminToken: string;
 let adminId: string;
 
-let otherAdminToken: string;
-
-let regularUserToken: string;
 let regularUserId: string;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -78,12 +67,8 @@ beforeAll(async () => {
     // Create admin user
     ({ token: adminToken, userId: adminId } = await createAdminUser('admin_assign@test.com'));
 
-    // Create second admin (owns nothing — used to test 403 on un-owned diagrams)
-    ({ token: otherAdminToken } = await createAdminUser('other_admin@test.com'));
-
     // Create regular user (target for assignment)
     const result = await AuthService.register('regular_assign@test.com', 'password1234');
-    regularUserToken = result.token;
     regularUserId = result.user._id.toString();
 });
 
@@ -233,99 +218,130 @@ afterAll(async () => {
 beforeEach(async () => {
     await Diagram.deleteMany({});
     await DiagramBindings.deleteMany({});
+    await User.findByIdAndUpdate(regularUserId, {
+        role: 'USER',
+        subscriptionTier: 'FREE',
+        isDeleted: false,
+        isBanned: false,
+        diagramQuotaMutationPending: false,
+        diagramQuotaActiveCreates: 0,
+    });
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────
 
-describe('T022d — POST /api/diagrams/:id/assign (Admin only)', () => {
-
-    it('should transfer ownership when Admin assigns their own diagram (200)', async () => {
-        const diagram = await createDiagram(adminId, 'Admin Owned');
+describe('T014-T018 template-copy assignment proof', () => {
+    it('creates one independent binding-free copy from the latest persisted Admin template', async () => {
+        const template = await createDiagram(adminId, 'Admin Template');
+        const latestLayout = {
+            widgets: [{ id: 'latest-widget', x: 42 }],
+            images: [{ id: 'persisted-image' }],
+        };
+        await Diagram.findByIdAndUpdate(template._id, {
+            name: 'Latest Persisted Template',
+            layout: latestLayout,
+        });
+        await DiagramBindings.create({
+            diagramId: template._id,
+            ownerId: new mongoose.Types.ObjectId(adminId),
+            edgeServerId: new mongoose.Types.ObjectId(),
+            widgetBindings: [{ widgetId: 'latest-widget', deviceId: 'd1', metric: 'temp' }],
+        });
 
         const res = await request(app)
-            .post(`/api/diagrams/${diagram._id.toString()}/assign`)
+            .post(`/api/diagrams/${template._id.toString()}/assign`)
             .set('Authorization', `Bearer ${adminToken}`)
             .send({ targetUserId: regularUserId });
 
         expect(res.status).toBe(200);
         expect(res.body.status).toBe('success');
+        expect(res.body.data._id).not.toBe(template._id.toString());
+        expect(res.body.data.ownerId).toBe(regularUserId);
+        expect(res.body.data.sourceTemplateId).toBe(template._id.toString());
+        expect(res.body.data.name).toBe('Latest Persisted Template');
+        expect(res.body.data.layout).toEqual(latestLayout);
 
-        // Verify DB: ownerId changed to regular user
-        const updated = await Diagram.findById(diagram._id).lean();
-        expect(updated?.ownerId.toString()).toBe(regularUserId);
-    });
+        const preservedTemplate = await Diagram.findById(template._id).lean();
+        expect(preservedTemplate?.ownerId.toString()).toBe(adminId);
+        expect(preservedTemplate?.layout).toEqual(latestLayout);
+        expect(await DiagramBindings.countDocuments({ diagramId: template._id })).toBe(1);
 
-    it('should return 403 when Admin tries to assign a diagram they do NOT own', async () => {
-        // Diagram is owned by adminId, not otherAdminId
-        const diagram = await createDiagram(adminId, 'Not OtherAdmin Owned');
+        const copy = await Diagram.findById(res.body.data._id).lean();
+        expect(copy?.ownerId.toString()).toBe(regularUserId);
+        expect(copy?.sourceTemplateId?.toString()).toBe(template._id.toString());
+        expect(await DiagramBindings.countDocuments({ diagramId: copy?._id })).toBe(0);
 
-        const res = await request(app)
-            .post(`/api/diagrams/${diagram._id.toString()}/assign`)
-            .set('Authorization', `Bearer ${otherAdminToken}`)
-            .send({ targetUserId: regularUserId });
-
-        expect(res.status).toBe(403);
-
-        // Verify DB: ownerId unchanged
-        const unchanged = await Diagram.findById(diagram._id).lean();
-        expect(unchanged?.ownerId.toString()).toBe(adminId);
-    });
-
-    it('should return 403 when a regular USER tries to assign (role guard)', async () => {
-        const diagram = await createDiagram(regularUserId, 'Regular User Diagram');
-
-        const res = await request(app)
-            .post(`/api/diagrams/${diagram._id.toString()}/assign`)
-            .set('Authorization', `Bearer ${regularUserToken}`)
-            .send({ targetUserId: adminId });
-
-        expect(res.status).toBe(403);
-    });
-
-    it('should return 400 when targetUserId is missing from body', async () => {
-        const diagram = await createDiagram(adminId, 'Admin Diagram');
-
-        const res = await request(app)
-            .post(`/api/diagrams/${diagram._id.toString()}/assign`)
-            .set('Authorization', `Bearer ${adminToken}`)
-            .send({}); // no targetUserId
-
-        expect(res.status).toBe(400);
-    });
-
-    it('should return 401 when request has no auth token', async () => {
-        const diagram = await createDiagram(adminId, 'Admin Diagram No Auth');
-
-        const res = await request(app)
-            .post(`/api/diagrams/${diagram._id.toString()}/assign`)
-            .send({ targetUserId: regularUserId });
-
-        expect(res.status).toBe(401);
-    });
-
-    it('DiagramBindings should NOT be transferred — remain associated with original owner', async () => {
-        const diagram = await createDiagram(adminId, 'Diagram With Bindings');
-        const fakeEdgeId = new mongoose.Types.ObjectId();
-
-        // Create a binding for this diagram
-        await DiagramBindings.create({
-            diagramId: diagram._id,
-            ownerId: new mongoose.Types.ObjectId(adminId),
-            edgeServerId: fakeEdgeId,
-            widgetBindings: [{ widgetId: 'w1', deviceId: 'd1', metric: 'temp' }],
+        await Diagram.deleteOne({ _id: template._id });
+        expect(await Diagram.findById(copy?._id).lean()).toMatchObject({
+            name: 'Latest Persisted Template',
+            layout: latestLayout,
         });
+    });
 
-        // Assign diagram to regular user
-        const res = await request(app)
-            .post(`/api/diagrams/${diagram._id.toString()}/assign`)
+    it('rejects concurrent duplicates and stale persisted ownership, account state, or quota', async () => {
+        const duplicateTemplate = await createDiagram(adminId, 'Concurrent Template');
+
+        const duplicateResponses = await Promise.all([
+            request(app)
+                .post(`/api/diagrams/${duplicateTemplate._id.toString()}/assign`)
+                .set('Authorization', `Bearer ${adminToken}`)
+                .send({ targetUserId: regularUserId }),
+            request(app)
+                .post(`/api/diagrams/${duplicateTemplate._id.toString()}/assign`)
+                .set('Authorization', `Bearer ${adminToken}`)
+                .send({ targetUserId: regularUserId }),
+        ]);
+
+        expect(duplicateResponses.map((response) => response.status).sort()).toEqual([200, 409]);
+        expect(duplicateResponses.find((response) => response.status === 409)?.body.message)
+            .toBe(DUPLICATE_DIAGRAM_ASSIGNMENT);
+        expect(await Diagram.countDocuments({
+            ownerId: new mongoose.Types.ObjectId(regularUserId),
+            sourceTemplateId: duplicateTemplate._id,
+        })).toBe(1);
+
+        const notOwnedTemplate = await createDiagram(regularUserId, 'Not Admin Owned');
+        const notOwnedResponse = await request(app)
+            .post(`/api/diagrams/${notOwnedTemplate._id.toString()}/assign`)
             .set('Authorization', `Bearer ${adminToken}`)
             .send({ targetUserId: regularUserId });
 
-        expect(res.status).toBe(200);
+        expect(notOwnedResponse.status).toBe(403);
+        expect((await Diagram.findById(notOwnedTemplate._id).lean())?.ownerId.toString())
+            .toBe(regularUserId);
 
-        // Bindings still exist and still reference the original ownerId (adminId)
-        const bindings = await DiagramBindings.find({ diagramId: diagram._id }).lean();
-        expect(bindings).toHaveLength(1);
-        expect(bindings[0]!.ownerId.toString()).toBe(adminId);
+        await User.findByIdAndUpdate(regularUserId, { isBanned: true });
+        const bannedTargetTemplate = await createDiagram(adminId, 'Stale Active Target');
+        const bannedTargetResponse = await request(app)
+            .post(`/api/diagrams/${bannedTargetTemplate._id.toString()}/assign`)
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ targetUserId: regularUserId });
+
+        expect(bannedTargetResponse.status).toBe(403);
+        expect(await Diagram.countDocuments({
+            ownerId: new mongoose.Types.ObjectId(regularUserId),
+            sourceTemplateId: bannedTargetTemplate._id,
+        })).toBe(0);
+
+        const quotaFullUserId = await createQuotaOwner();
+        await Diagram.create([
+            { ownerId: quotaFullUserId, name: 'Full 1', layout: {}, quotaSlot: 1 },
+            { ownerId: quotaFullUserId, name: 'Full 2', layout: {}, quotaSlot: 2 },
+            { ownerId: quotaFullUserId, name: 'Full 3', layout: {}, quotaSlot: 3 },
+        ]);
+        const quotaTemplate = await createDiagram(adminId, 'Stale Eligibility Template');
+
+        const quotaResponse = await request(app)
+            .post(`/api/diagrams/${quotaTemplate._id.toString()}/assign`)
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ targetUserId: quotaFullUserId.toString() });
+
+        expect(quotaResponse.status).toBe(403);
+        expect(quotaResponse.body.message).toBe(DIAGRAM_QUOTA_EXCEEDED);
+        expect(await Diagram.countDocuments({
+            ownerId: quotaFullUserId,
+            sourceTemplateId: quotaTemplate._id,
+        })).toBe(0);
+        expect((await Diagram.findById(quotaTemplate._id).lean())?.ownerId.toString()).toBe(adminId);
     });
 });

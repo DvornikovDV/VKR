@@ -134,9 +134,8 @@ async function hardDelete(diagramIdStr: string, ownerIdStr: string): Promise<voi
 }
 
 /**
- * Admin: transfers diagram ownership to targetUserId.
- * DiagramBindings are NOT transferred.
- * Throws 404 if admin doesn't own the diagram.
+ * Admin: creates an independent User-owned copy of an Admin template.
+ * The source template and its bindings remain unchanged.
  */
 async function assignDiagram(
     adminIdStr: string,
@@ -147,16 +146,20 @@ async function assignDiagram(
     const adminId = toObjectId(adminIdStr, 'adminId');
     const targetUserId = toObjectId(targetUserIdStr, 'targetUserId');
 
-    // Ownership check: admin must own the diagram
-    const diagram = await Diagram.findOne({ _id: diagramId, ownerId: adminId }).exec();
-    if (!diagram) {
+    const template = await Diagram.findOne({ _id: diagramId, ownerId: adminId }).lean().exec();
+    if (!template) {
         throw new AppError('Diagram not found or not owned by admin', 403);
     }
 
-    diagram.ownerId = targetUserId;
-    await diagram.save();
-
-    return diagram;
+    return DiagramQuotaService.createForPersistedOwner(
+        targetUserId,
+        {
+            name: template.name,
+            layout: template.layout,
+            sourceTemplateId: template._id,
+        },
+        'USER',
+    );
 }
 
 // ── Export ────────────────────────────────────────────────────────────────
