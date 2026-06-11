@@ -5,6 +5,7 @@ import type { SubscriptionTier } from '../models/User';
 import { EdgeServer } from '../models/EdgeServer';
 import { Diagram } from '../models/Diagram';
 import { AppError } from '../api/middlewares/error.middleware';
+import { DiagramQuotaService } from './diagram-quota.service';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -101,13 +102,7 @@ async function listUsers(opts: {
  */
 async function updateUserTier(targetUserId: string, tier: SubscriptionTier): Promise<void> {
     const id = toObjectId(targetUserId, 'userId');
-    const result = await User.updateOne(
-        { _id: id, isDeleted: { $ne: true } },
-        { $set: { subscriptionTier: tier } },
-    );
-    if (result.matchedCount === 0) {
-        throw new AppError('User not found', 404);
-    }
+    await DiagramQuotaService.updateOwnerTier(id, tier);
 }
 
 /**

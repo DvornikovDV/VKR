@@ -48,6 +48,7 @@ beforeAll(async () => {
     await User.deleteMany({});
     await Diagram.deleteMany({});
     await DiagramBindings.deleteMany({});
+    await Diagram.syncIndexes();
 
     // Register test user and get token
     const result = await AuthService.register('diagrams_integration@test.com', 'password1234');
@@ -66,6 +67,7 @@ beforeEach(async () => {
     // Keep user, clean diagrams and bindings between tests
     await Diagram.deleteMany({});
     await DiagramBindings.deleteMany({});
+    await User.updateOne({ _id: userId }, { subscriptionTier: 'FREE' });
 });
 
 describe('Layout payload integrity', () => {
@@ -77,14 +79,86 @@ describe('Layout payload integrity', () => {
 
         expect(createRes.status).toBe(201);
         expect(createRes.body.data.layout).toEqual({});
+        expect(createRes.body.data.sourceTemplateId).toBeUndefined();
 
         const diagramId = createRes.body.data._id as string;
+        const stored = await Diagram.findById(diagramId).lean();
+        expect(stored?.sourceTemplateId).toBeUndefined();
+
         const getRes = await request(app)
             .get(`/api/diagrams/${diagramId}`)
             .set('Authorization', `Bearer ${token}`);
 
         expect(getRes.status).toBe(200);
         expect(getRes.body.data.layout).toEqual({});
+    });
+});
+
+describe('Persisted quota identity and slot release', () => {
+    it('does not start creation while owner quota reconciliation is pending', async () => {
+        await User.updateOne(
+            { _id: userId },
+            { $set: { diagramQuotaMutationPending: true } },
+        );
+
+        const response = await request(app)
+            .post('/api/diagrams')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ name: 'Blocked by quota mutation', layout: {} });
+
+        expect(response.status).toBe(409);
+        expect(await Diagram.countDocuments({ ownerId: userId })).toBe(0);
+
+        await User.updateOne(
+            { _id: userId },
+            { $set: { diagramQuotaMutationPending: false } },
+        );
+    });
+
+    it('uses the persisted PRO tier instead of the stale FREE tier in the JWT', async () => {
+        await User.updateOne({ _id: userId }, { subscriptionTier: 'PRO' });
+
+        const responses = [];
+        for (let index = 0; index < 4; index += 1) {
+            responses.push(
+                await request(app)
+                    .post('/api/diagrams')
+                    .set('Authorization', `Bearer ${token}`)
+                    .send({ name: `Persisted PRO ${index}`, layout: {} }),
+            );
+        }
+
+        expect(responses.map((response) => response.status)).toEqual([201, 201, 201, 201]);
+        expect(await Diagram.countDocuments({ ownerId: userId, quotaSlot: { $exists: true } })).toBe(0);
+    });
+
+    it('reconciles remaining FREE diagrams after hard delete before a freed slot can be reused', async () => {
+        const created = await Diagram.create([
+            { ownerId: userId, name: 'Old slot 1', layout: {}, quotaSlot: 1 },
+            { ownerId: userId, name: 'Old slot 2', layout: {}, quotaSlot: 2 },
+            { ownerId: userId, name: 'Old slot 3', layout: {}, quotaSlot: 3 },
+            { ownerId: userId, name: 'Quota excess', layout: {} },
+        ]);
+
+        const deleteRes = await request(app)
+            .delete(`/api/diagrams/${created[0]!._id.toString()}`)
+            .set('Authorization', `Bearer ${token}`);
+
+        expect(deleteRes.status).toBe(204);
+
+        const remaining = await Diagram.find({ ownerId: userId }).sort({ updatedAt: -1, _id: -1 }).lean();
+        expect(remaining).toHaveLength(3);
+        expect(remaining.every((diagram) => [1, 2, 3].includes(diagram.quotaSlot as number))).toBe(true);
+        expect(new Set(remaining.map((diagram) => diagram.quotaSlot))).toEqual(new Set([1, 2, 3]));
+        expect(remaining.find((diagram) => diagram.name === 'Quota excess')?.quotaSlot).toBeDefined();
+
+        const blockedCreate = await request(app)
+            .post('/api/diagrams')
+            .set('Authorization', `Bearer ${token}`)
+            .send({ name: 'Cannot bypass remaining excess', layout: {} });
+
+        expect(blockedCreate.status).toBe(403);
+        expect(await Diagram.countDocuments({ ownerId: userId })).toBe(3);
     });
 });
 

@@ -2,11 +2,10 @@ import mongoose from 'mongoose';
 import { Diagram, type IDiagram } from '../models/Diagram';
 import { DiagramBindings } from '../models/DiagramBindings';
 import { AppError } from '../api/middlewares/error.middleware';
+import { DiagramQuotaService, FREE_DIAGRAM_QUOTA } from './diagram-quota.service';
 
 
 // ── Constants ─────────────────────────────────────────────────────────────
-
-const FREE_DIAGRAM_QUOTA = 3;
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -66,28 +65,9 @@ async function getById(diagramIdStr: string, ownerIdStr: string): Promise<IDiagr
  */
 async function create(
     ownerIdStr: string,
-    subscriptionTier: string,
     payload: CreateDiagramPayload,
 ): Promise<IDiagram> {
-    const ownerId = toObjectId(ownerIdStr, 'ownerId');
-
-    if (subscriptionTier === 'FREE') {
-        const count = await Diagram.countDocuments({ ownerId }).exec();
-        if (count >= FREE_DIAGRAM_QUOTA) {
-            throw new AppError(
-                `FREE tier diagram quota (${FREE_DIAGRAM_QUOTA}) exceeded`,
-                403,
-            );
-        }
-    }
-
-    const diagram = await Diagram.create({
-        ownerId,
-        name: payload.name,
-        layout: payload.layout,
-    });
-
-    return diagram;
+    return DiagramQuotaService.createForPersistedOwner(ownerIdStr, payload);
 }
 
 /**
@@ -137,13 +117,20 @@ async function hardDelete(diagramIdStr: string, ownerIdStr: string): Promise<voi
     const diagramId = toObjectId(diagramIdStr, 'diagramId');
     const ownerId = toObjectId(ownerIdStr, 'ownerId');
 
-    const deleted = await Diagram.findOneAndDelete({ _id: diagramId, ownerId }).exec();
-    if (!deleted) {
-        throw new AppError('Diagram not found', 404);
-    }
+    await DiagramQuotaService.runWithOwnerQuotaMutation(ownerId, async (owner) => {
+        const deleted = await Diagram.findOneAndDelete({ _id: diagramId, ownerId }).exec();
+        if (!deleted) {
+            throw new AppError('Diagram not found', 404);
+        }
 
-    // Cascade-delete all binding sets for this diagram
-    await DiagramBindings.deleteMany({ diagramId }).exec();
+        // Cascade-delete all binding sets for this diagram
+        await DiagramBindings.deleteMany({ diagramId }).exec();
+        await DiagramQuotaService.reconcileOwnerQuotaSlotsLocked(
+            ownerId,
+            owner.role,
+            owner.subscriptionTier,
+        );
+    });
 }
 
 /**

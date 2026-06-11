@@ -18,6 +18,11 @@ import { User } from '../../src/models/User';
 import { Diagram } from '../../src/models/Diagram';
 import { DiagramBindings } from '../../src/models/DiagramBindings';
 import { AuthService } from '../../src/services/auth.service';
+import {
+    DiagramQuotaService,
+    DUPLICATE_DIAGRAM_ASSIGNMENT,
+    DIAGRAM_QUOTA_EXCEEDED,
+} from '../../src/services/diagram-quota.service';
 
 // ── Test state ────────────────────────────────────────────────────────────
 
@@ -48,6 +53,19 @@ async function createDiagram(ownerId: string, name = 'Test Diagram') {
     });
 }
 
+async function createQuotaOwner(
+    role: 'ADMIN' | 'USER' = 'USER',
+    subscriptionTier: 'FREE' | 'PRO' = 'FREE',
+): Promise<mongoose.Types.ObjectId> {
+    const owner = await User.create({
+        email: `quota_${new mongoose.Types.ObjectId().toString()}@test.com`,
+        passwordHash: 'not-used-in-quota-tests',
+        role,
+        subscriptionTier,
+    });
+    return owner._id;
+}
+
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 
 beforeAll(async () => {
@@ -55,6 +73,7 @@ beforeAll(async () => {
     await User.deleteMany({});
     await Diagram.deleteMany({});
     await DiagramBindings.deleteMany({});
+    await Diagram.syncIndexes();
 
     // Create admin user
     ({ token: adminToken, userId: adminId } = await createAdminUser('admin_assign@test.com'));
@@ -66,6 +85,142 @@ beforeAll(async () => {
     const result = await AuthService.register('regular_assign@test.com', 'password1234');
     regularUserToken = result.token;
     regularUserId = result.user._id.toString();
+});
+
+describe('T001-T003 diagram quota and provenance foundation', () => {
+    it('allows concurrent FREE creation to claim only quota slots 1..3', async () => {
+        const ownerId = await createQuotaOwner();
+
+        const results = await Promise.allSettled(
+            Array.from({ length: 8 }, (_, index) =>
+                DiagramQuotaService.createDiagram(ownerId, 'USER', 'FREE', {
+                    name: `Concurrent ${index}`,
+                    layout: {},
+                }),
+            ),
+        );
+
+        const fulfilled = results.filter((result) => result.status === 'fulfilled');
+        const rejected = results.filter((result) => result.status === 'rejected');
+
+        expect(fulfilled).toHaveLength(3);
+        expect(rejected).toHaveLength(5);
+        expect(
+            rejected.every(
+                (result) =>
+                    result.status === 'rejected'
+                    && result.reason?.message === DIAGRAM_QUOTA_EXCEEDED,
+            ),
+        ).toBe(true);
+
+        const owned = await Diagram.find({ ownerId }).sort({ quotaSlot: 1 }).lean();
+        expect(owned).toHaveLength(3);
+        expect(owned.map((diagram) => diagram.quotaSlot)).toEqual([1, 2, 3]);
+    });
+
+    it('blocks quota-excess FREE owners, then permits one creation after deletion without provenance', async () => {
+        const ownerId = await createQuotaOwner();
+        await Diagram.create(
+            Array.from({ length: 4 }, (_, index) => ({
+                ownerId,
+                name: `Former PRO ${index}`,
+                layout: {},
+            })),
+        );
+
+        await expect(
+            DiagramQuotaService.createDiagram(ownerId, 'USER', 'FREE', {
+                name: 'Blocked after downgrade',
+                layout: {},
+            }),
+        ).rejects.toMatchObject({ message: DIAGRAM_QUOTA_EXCEEDED });
+
+        const twoOldest = await Diagram.find({ ownerId })
+            .sort({ createdAt: 1 })
+            .limit(2)
+            .select('_id')
+            .lean();
+        await Diagram.deleteMany({ _id: { $in: twoOldest.map((diagram) => diagram._id) } });
+
+        const created = await DiagramQuotaService.createDiagram(ownerId, 'USER', 'FREE', {
+            name: 'Ordinary Save As',
+            layout: {},
+        });
+
+        expect([1, 2, 3]).toContain(created.quotaSlot);
+        expect(created.sourceTemplateId).toBeUndefined();
+        expect(await Diagram.countDocuments({ ownerId })).toBe(3);
+    });
+
+    it('uses named partial unique indexes and returns a stable duplicate-assignment outcome', async () => {
+        const ownerId = await createQuotaOwner('USER', 'PRO');
+        const sourceTemplateId = new mongoose.Types.ObjectId();
+        const indexes = await Diagram.collection.indexes();
+
+        expect(indexes).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                name: 'uniq_diagram_owner_source_template',
+                unique: true,
+                partialFilterExpression: { sourceTemplateId: { $type: 'objectId' } },
+            }),
+            expect.objectContaining({
+                name: 'uniq_diagram_owner_quota_slot',
+                unique: true,
+                partialFilterExpression: { quotaSlot: { $type: 'number' } },
+            }),
+        ]));
+
+        const firstWave = await Promise.allSettled([
+            DiagramQuotaService.createDiagram(ownerId, 'USER', 'PRO', {
+                name: 'Assigned copy A',
+                layout: {},
+                sourceTemplateId,
+            }),
+            DiagramQuotaService.createDiagram(ownerId, 'USER', 'PRO', {
+                name: 'Assigned copy B',
+                layout: {},
+                sourceTemplateId,
+            }),
+        ]);
+
+        expect(firstWave.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+        expect(firstWave.filter((result) => result.status === 'rejected')).toHaveLength(1);
+
+        await expect(
+            DiagramQuotaService.createDiagram(ownerId, 'USER', 'PRO', {
+                name: 'Assigned copy repeated',
+                layout: {},
+                sourceTemplateId,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            message: DUPLICATE_DIAGRAM_ASSIGNMENT,
+        });
+        expect(await Diagram.countDocuments({ ownerId, sourceTemplateId })).toBe(1);
+    });
+
+    it('returns duplicate assignment instead of quota when a FREE owner is already full', async () => {
+        const ownerId = await createQuotaOwner();
+        const sourceTemplateId = new mongoose.Types.ObjectId();
+
+        await Diagram.create([
+            { ownerId, name: 'Assigned copy', layout: {}, sourceTemplateId, quotaSlot: 1 },
+            { ownerId, name: 'Other copy A', layout: {}, quotaSlot: 2 },
+            { ownerId, name: 'Other copy B', layout: {}, quotaSlot: 3 },
+        ]);
+
+        await expect(
+            DiagramQuotaService.createDiagram(ownerId, 'USER', 'FREE', {
+                name: 'Repeated assigned copy',
+                layout: {},
+                sourceTemplateId,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            message: DUPLICATE_DIAGRAM_ASSIGNMENT,
+        });
+        expect(await Diagram.countDocuments({ ownerId })).toBe(3);
+    });
 });
 
 afterAll(async () => {

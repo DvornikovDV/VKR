@@ -10,12 +10,16 @@ import request from 'supertest';
 import { connectDatabase, disconnectDatabase } from '../../src/database/mongoose';
 import { app } from '../../src/app';
 import { User } from '../../src/models/User';
+import { Diagram } from '../../src/models/Diagram';
 import { AuthService } from '../../src/services/auth.service';
+import { DiagramQuotaService } from '../../src/services/diagram-quota.service';
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 
 let adminToken: string;
+let adminId: string;
 let userId: string;
+let userToken: string;
 
 beforeAll(async () => {
     await connectDatabase();
@@ -23,6 +27,7 @@ beforeAll(async () => {
 
     // Create an Admin user and a regular User for testing
     const admin = await AuthService.register('admin_users_test_admin@test.com', 'adminPass123');
+    adminId = admin.user._id.toString();
     await User.updateOne({ _id: admin.user._id }, { role: 'ADMIN' });
     // Re-login to get a token with ADMIN role
     const loginRes = await request(app)
@@ -32,9 +37,11 @@ beforeAll(async () => {
 
     const regularUser = await AuthService.register('admin_users_test_user@test.com', 'userPass123');
     userId = String(regularUser.user._id);
+    userToken = regularUser.token;
 });
 
 afterAll(async () => {
+    await Diagram.deleteMany({ ownerId: { $in: [userId, adminId] } });
     await User.deleteMany({ email: /admin_users_test/ });
     await disconnectDatabase();
 });
@@ -113,6 +120,110 @@ describe('T048 — Admin User Management', () => {
 
             const updated = await User.findById(userId).lean();
             expect(updated?.subscriptionTier).toBe('FREE');
+        });
+
+        it('reconciles the three newest diagrams on PRO-to-FREE downgrade and keeps excess blocking creation', async () => {
+            await Diagram.deleteMany({ ownerId: userId });
+            await User.updateOne({ _id: userId }, { subscriptionTier: 'PRO' });
+
+            const baseTime = Date.now() - 10_000;
+            const created = await Diagram.create(
+                Array.from({ length: 5 }, (_, index) => ({
+                    ownerId: userId,
+                    name: `Downgrade ${index}`,
+                    layout: {},
+                    quotaSlot: index < 2 ? index + 1 : undefined,
+                })),
+            );
+            for (let index = 0; index < created.length; index += 1) {
+                await Diagram.updateOne(
+                    { _id: created[index]!._id },
+                    { $set: { updatedAt: new Date(baseTime + (created.length - index) * 1_000) } },
+                    { timestamps: false },
+                );
+            }
+
+            const res = await request(app)
+                .patch(`/api/admin/users/${userId}/tier`)
+                .set('Authorization', `Bearer ${adminToken}`)
+                .send({ tier: 'FREE' });
+
+            expect(res.status).toBe(200);
+
+            const diagrams = await Diagram.find({ ownerId: userId })
+                .sort({ updatedAt: -1, _id: -1 })
+                .lean();
+            const slotted = diagrams.filter((diagram) => diagram.quotaSlot !== undefined);
+            const excess = diagrams.filter((diagram) => diagram.quotaSlot === undefined);
+            expect(new Set(slotted.map((diagram) => diagram.quotaSlot))).toEqual(new Set([1, 2, 3]));
+            expect(new Set(slotted.map((diagram) => diagram.name))).toEqual(
+                new Set(['Downgrade 0', 'Downgrade 1', 'Downgrade 2']),
+            );
+            expect(excess.map((diagram) => diagram.name).sort()).toEqual(['Downgrade 3', 'Downgrade 4']);
+
+            const createRes = await request(app)
+                .post('/api/diagrams')
+                .set('Authorization', `Bearer ${userToken}`)
+                .send({ name: 'Must remain blocked', layout: {} });
+
+            expect(createRes.status).toBe(403);
+            expect(await Diagram.countDocuments({ ownerId: userId })).toBe(5);
+        });
+
+        it('waits for an active create before starting tier reconciliation', async () => {
+            await User.updateOne(
+                { _id: userId },
+                {
+                    $set: {
+                        subscriptionTier: 'PRO',
+                        diagramQuotaActiveCreates: 1,
+                        diagramQuotaMutationPending: false,
+                    },
+                },
+            );
+
+            let settled = false;
+            const downgrade = request(app)
+                .patch(`/api/admin/users/${userId}/tier`)
+                .set('Authorization', `Bearer ${adminToken}`)
+                .send({ tier: 'FREE' })
+                .then((response) => {
+                    settled = true;
+                    return response;
+                });
+
+            await new Promise((resolve) => setTimeout(resolve, 50));
+            expect(settled).toBe(false);
+
+            await User.updateOne(
+                { _id: userId },
+                { $set: { diagramQuotaActiveCreates: 0 } },
+            );
+
+            const response = await downgrade;
+            expect(response.status).toBe(200);
+            expect((await User.findById(userId).lean())?.subscriptionTier).toBe('FREE');
+        });
+
+        it('reconciles existing owners through the migration-wide quota contract', async () => {
+            await Diagram.deleteMany({ ownerId: { $in: [userId, adminId] } });
+            await User.updateOne({ _id: userId }, { subscriptionTier: 'FREE' });
+            await Diagram.create([
+                { ownerId: userId, name: 'Migration FREE 0', layout: {}, quotaSlot: 1 },
+                { ownerId: userId, name: 'Migration FREE 1', layout: {} },
+                { ownerId: userId, name: 'Migration FREE 2', layout: {} },
+                { ownerId: userId, name: 'Migration FREE excess', layout: {} },
+                { ownerId: adminId, name: 'Migration Admin stale slot', layout: {}, quotaSlot: 1 },
+            ]);
+
+            const result = await DiagramQuotaService.reconcileAllQuotaSlots();
+
+            const freeDiagrams = await Diagram.find({ ownerId: userId }).lean();
+            const adminDiagram = await Diagram.findOne({ ownerId: adminId }).lean();
+            expect(result.freeOwnersReconciled).toBeGreaterThanOrEqual(1);
+            expect(freeDiagrams.filter((diagram) => diagram.quotaSlot !== undefined)).toHaveLength(3);
+            expect(freeDiagrams.filter((diagram) => diagram.quotaSlot === undefined)).toHaveLength(1);
+            expect(adminDiagram?.quotaSlot).toBeUndefined();
         });
 
         it('returns 400 for invalid tier value', async () => {

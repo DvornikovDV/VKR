@@ -14,6 +14,8 @@ export interface DiagramLayout {
 export interface IDiagram extends Document {
     _id: Types.ObjectId;
     ownerId: Types.ObjectId;
+    sourceTemplateId?: Types.ObjectId | null;
+    quotaSlot?: 1 | 2 | 3 | null;
     name: string;
     layout: DiagramLayout;
     __v: number;
@@ -31,6 +33,16 @@ const DiagramSchema = new Schema<IDiagram>(
             required: [true, 'ownerId is required'],
             index: true,
         },
+        sourceTemplateId: {
+            type: Schema.Types.ObjectId,
+            ref: 'Diagram',
+            required: false,
+        },
+        quotaSlot: {
+            type: Number,
+            enum: [1, 2, 3],
+            required: false,
+        },
         name: {
             type: String,
             required: [true, 'name is required'],
@@ -47,6 +59,24 @@ const DiagramSchema = new Schema<IDiagram>(
         timestamps: true,
         // Keep empty layout objects in API payloads.
         minimize: false,
+    },
+);
+
+DiagramSchema.index(
+    { ownerId: 1, sourceTemplateId: 1 },
+    {
+        name: 'uniq_diagram_owner_source_template',
+        unique: true,
+        partialFilterExpression: { sourceTemplateId: { $type: 'objectId' } },
+    },
+);
+
+DiagramSchema.index(
+    { ownerId: 1, quotaSlot: 1 },
+    {
+        name: 'uniq_diagram_owner_quota_slot',
+        unique: true,
+        partialFilterExpression: { quotaSlot: { $type: 'number' } },
     },
 );
 

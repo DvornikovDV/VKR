@@ -11,6 +11,8 @@ export interface IUser extends Document {
     passwordHash: string;
     role: UserRole;
     subscriptionTier: SubscriptionTier;
+    diagramQuotaMutationPending: boolean;
+    diagramQuotaActiveCreates: number;
     isDeleted: boolean;
     isBanned: boolean;
     createdAt: Date;
@@ -43,6 +45,19 @@ const UserSchema = new Schema<IUser>(
             enum: { values: ['FREE', 'PRO'] as const, message: 'Invalid subscription tier' },
             default: 'FREE',
             required: true,
+        },
+        diagramQuotaMutationPending: {
+            type: Boolean,
+            default: false,
+            required: true,
+            select: false,
+        },
+        diagramQuotaActiveCreates: {
+            type: Number,
+            default: 0,
+            min: 0,
+            required: true,
+            select: false,
         },
         isDeleted: {
             type: Boolean,

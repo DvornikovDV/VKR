@@ -24,6 +24,8 @@ vi.mock('../../src/models/Diagram', () => ({
         findOne: vi.fn(),
         findOneAndUpdate: vi.fn(),
         findOneAndDelete: vi.fn(),
+        updateOne: vi.fn(),
+        updateMany: vi.fn(),
         countDocuments: vi.fn(),
         exists: vi.fn(),
         create: vi.fn(),
@@ -38,10 +40,27 @@ vi.mock('../../src/models/DiagramBindings', () => ({
     },
 }));
 
+vi.mock('../../src/models/User', () => ({
+    User: {
+        findOneAndUpdate: vi.fn(),
+        findOne: vi.fn(),
+        findById: vi.fn(),
+        updateOne: vi.fn(),
+        updateMany: vi.fn(),
+        find: vi.fn(),
+    },
+}));
+
 // ── Imports after mocks ────────────────────────────────────────────────────
 import { Diagram } from '../../src/models/Diagram';
 import { DiagramBindings } from '../../src/models/DiagramBindings';
-import { DiagramsService, FREE_DIAGRAM_QUOTA } from '../../src/services/diagrams.service';
+import { User } from '../../src/models/User';
+import { DiagramsService } from '../../src/services/diagrams.service';
+import {
+    DiagramQuotaService,
+    DUPLICATE_DIAGRAM_ASSIGNMENT,
+    DIAGRAM_QUOTA_EXCEEDED,
+} from '../../src/services/diagram-quota.service';
 import { AppError } from '../../src/api/middlewares/error.middleware';
 import mongoose from 'mongoose';
 
@@ -69,72 +88,54 @@ function chainable<T>(value: T) {
     return { exec: vi.fn().mockResolvedValue(value) };
 }
 
+function selectLeanChain<T>(value: T) {
+    return {
+        select: vi.fn().mockReturnValue({
+            lean: vi.fn().mockReturnValue(chainable(value)),
+        }),
+    };
+}
+
 // ── Test Suites ───────────────────────────────────────────────────────────
 
 describe('DiagramsService', () => {
     beforeEach(() => {
+        vi.restoreAllMocks();
         vi.clearAllMocks();
     });
 
     // ── Quota enforcement ────────────────────────────────────────────────────
 
     describe('create() — FREE tier quota', () => {
-        it('should allow creation when user has fewer than 3 diagrams', async () => {
-            vi.mocked(Diagram.countDocuments).mockReturnValue(chainable(2) as never);
+        it('delegates creation to the persisted-owner quota contract', async () => {
             const created = makeDiagram({ name: 'New Diagram' });
-            vi.mocked(Diagram.create).mockResolvedValue(created as never);
+            const createForPersistedOwner = vi
+                .spyOn(DiagramQuotaService, 'createForPersistedOwner')
+                .mockResolvedValue(created as never);
 
-            const result = await DiagramsService.create(OWNER_ID, 'FREE', {
+            const result = await DiagramsService.create(OWNER_ID, {
                 name: 'New Diagram',
                 layout: {},
             });
 
             expect(result.name).toBe('New Diagram');
-            expect(Diagram.create).toHaveBeenCalledOnce();
+            expect(createForPersistedOwner).toHaveBeenCalledWith(OWNER_ID, {
+                name: 'New Diagram',
+                layout: {},
+            });
         });
 
-        it(`should throw 403 when FREE user already has ${FREE_DIAGRAM_QUOTA} diagrams`, async () => {
-            vi.mocked(Diagram.countDocuments).mockReturnValue(
-                chainable(FREE_DIAGRAM_QUOTA) as never,
+        it('propagates the stable quota error from the shared contract', async () => {
+            vi.spyOn(DiagramQuotaService, 'createForPersistedOwner').mockRejectedValue(
+                new AppError(DIAGRAM_QUOTA_EXCEEDED, 403),
             );
 
             await expect(
-                DiagramsService.create(OWNER_ID, 'FREE', { name: 'Extra', layout: {} }),
+                DiagramsService.create(OWNER_ID, { name: 'Extra', layout: {} }),
             ).rejects.toMatchObject({
                 statusCode: 403,
-                message: expect.stringContaining('quota'),
+                message: DIAGRAM_QUOTA_EXCEEDED,
             });
-
-            expect(Diagram.create).not.toHaveBeenCalled();
-        });
-
-        it('should not enforce quota for PRO users', async () => {
-            const created = makeDiagram();
-            vi.mocked(Diagram.create).mockResolvedValue(created as never);
-
-            // countDocuments should NOT be called for PRO
-            await DiagramsService.create(OWNER_ID, 'PRO', { name: 'Pro Diagram', layout: {} });
-
-            expect(Diagram.countDocuments).not.toHaveBeenCalled();
-            expect(Diagram.create).toHaveBeenCalledOnce();
-        });
-
-        it('should enforce quota at exactly FREE_DIAGRAM_QUOTA (boundary)', async () => {
-            vi.mocked(Diagram.countDocuments).mockReturnValue(chainable(3) as never);
-
-            await expect(
-                DiagramsService.create(OWNER_ID, 'FREE', { name: 'Over quota', layout: {} }),
-            ).rejects.toMatchObject({ statusCode: 403 });
-        });
-
-        it('should allow the last FREE slot (count = 2, quota = 3)', async () => {
-            vi.mocked(Diagram.countDocuments).mockReturnValue(chainable(2) as never);
-            const created = makeDiagram();
-            vi.mocked(Diagram.create).mockResolvedValue(created as never);
-
-            await expect(
-                DiagramsService.create(OWNER_ID, 'FREE', { name: 'Third diagram', layout: {} }),
-            ).resolves.not.toThrow();
         });
     });
 
@@ -181,14 +182,33 @@ describe('DiagramsService', () => {
             const deleted = makeDiagram();
             vi.mocked(Diagram.findOneAndDelete).mockReturnValue(chainable(deleted) as never);
             vi.mocked(DiagramBindings.deleteMany).mockReturnValue(chainable({ deletedCount: 2 }) as never);
+            const mutation = vi
+                .spyOn(DiagramQuotaService, 'runWithOwnerQuotaMutation')
+                .mockImplementation(async (_ownerId, operation) =>
+                    operation({
+                        _id: new mongoose.Types.ObjectId(OWNER_ID),
+                        role: 'USER',
+                        subscriptionTier: 'FREE',
+                    }),
+                );
+            vi.spyOn(DiagramQuotaService, 'reconcileOwnerQuotaSlotsLocked').mockResolvedValue(undefined);
 
             await DiagramsService.hardDelete(DIAGRAM_ID, OWNER_ID);
 
             expect(DiagramBindings.deleteMany).toHaveBeenCalledOnce();
+            expect(mutation).toHaveBeenCalledOnce();
         });
 
         it('should throw 404 if diagram not found', async () => {
             vi.mocked(Diagram.findOneAndDelete).mockReturnValue(chainable(null) as never);
+            vi.spyOn(DiagramQuotaService, 'runWithOwnerQuotaMutation')
+                .mockImplementation(async (_ownerId, operation) =>
+                    operation({
+                        _id: new mongoose.Types.ObjectId(OWNER_ID),
+                        role: 'USER',
+                        subscriptionTier: 'FREE',
+                    }),
+                );
 
             await expect(DiagramsService.hardDelete(DIAGRAM_ID, OWNER_ID)).rejects.toMatchObject({
                 statusCode: 404,
@@ -202,15 +222,131 @@ describe('DiagramsService', () => {
 
     describe('error types', () => {
         it('quota violation should be AppError instance', async () => {
-            vi.mocked(Diagram.countDocuments).mockReturnValue(chainable(3) as never);
+            vi.spyOn(DiagramQuotaService, 'createForPersistedOwner').mockRejectedValue(
+                new AppError(DIAGRAM_QUOTA_EXCEEDED, 403),
+            );
 
-            const err = await DiagramsService.create(OWNER_ID, 'FREE', {
+            const err = await DiagramsService.create(OWNER_ID, {
                 name: 'Over',
                 layout: {},
             }).catch((e) => e);
 
             expect(err).toBeInstanceOf(AppError);
             expect(err.isOperational).toBe(true);
+        });
+    });
+});
+
+describe('DiagramQuotaService', () => {
+    beforeEach(() => {
+        vi.restoreAllMocks();
+        vi.clearAllMocks();
+        vi.mocked(User.findOneAndUpdate).mockReturnValue(
+            selectLeanChain({
+                _id: new mongoose.Types.ObjectId(OWNER_ID),
+                role: 'USER',
+                subscriptionTier: 'FREE',
+            }) as never,
+        );
+        vi.mocked(User.updateOne).mockReturnValue(chainable({ matchedCount: 1 }) as never);
+    });
+
+    it('creates PRO user and Admin diagrams without provenance or quota slots', async () => {
+        const created = makeDiagram();
+        vi.mocked(Diagram.create).mockResolvedValue(created as never);
+
+        vi.mocked(User.findOneAndUpdate)
+            .mockReturnValueOnce(selectLeanChain({
+                _id: new mongoose.Types.ObjectId(OWNER_ID),
+                role: 'USER',
+                subscriptionTier: 'PRO',
+            }) as never)
+            .mockReturnValueOnce(selectLeanChain({
+                _id: new mongoose.Types.ObjectId(OWNER_ID),
+                role: 'ADMIN',
+                subscriptionTier: 'FREE',
+            }) as never);
+
+        await DiagramQuotaService.createDiagram(OWNER_ID, 'USER', 'PRO', {
+            name: 'PRO diagram',
+            layout: {},
+        });
+        await DiagramQuotaService.createDiagram(OWNER_ID, 'ADMIN', 'FREE', {
+            name: 'Admin template',
+            layout: {},
+        });
+
+        expect(Diagram.create).toHaveBeenNthCalledWith(1, {
+            ownerId: expect.any(mongoose.Types.ObjectId),
+            name: 'PRO diagram',
+            layout: {},
+        });
+        expect(Diagram.create).toHaveBeenNthCalledWith(2, {
+            ownerId: expect.any(mongoose.Types.ObjectId),
+            name: 'Admin template',
+            layout: {},
+        });
+    });
+
+    it('maps the named provenance index conflict to a stable duplicate-assignment error', async () => {
+        vi.mocked(User.findOneAndUpdate).mockReturnValue(
+            selectLeanChain({
+                _id: new mongoose.Types.ObjectId(OWNER_ID),
+                role: 'USER',
+                subscriptionTier: 'PRO',
+            }) as never,
+        );
+        vi.mocked(Diagram.create).mockRejectedValue({
+            code: 11000,
+            message: 'duplicate key error index: uniq_diagram_owner_source_template',
+        });
+
+        await expect(
+            DiagramQuotaService.createDiagram(OWNER_ID, 'USER', 'PRO', {
+                name: 'Assigned copy',
+                layout: {},
+                sourceTemplateId: new mongoose.Types.ObjectId(),
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            message: DUPLICATE_DIAGRAM_ASSIGNMENT,
+        });
+    });
+
+    it('does not commit a tier change when reconciliation fails', async () => {
+        vi.mocked(User.findOneAndUpdate).mockReturnValue(
+            selectLeanChain({
+                _id: new mongoose.Types.ObjectId(OWNER_ID),
+                role: 'USER',
+                subscriptionTier: 'PRO',
+            }) as never,
+        );
+        vi.mocked(Diagram.updateMany).mockReturnValue({
+            exec: vi.fn().mockRejectedValue(new Error('reconciliation failed')),
+        } as never);
+
+        await expect(
+            DiagramQuotaService.updateOwnerTier(OWNER_ID, 'FREE'),
+        ).rejects.toThrow('reconciliation failed');
+
+        expect(User.updateOne).not.toHaveBeenCalled();
+    });
+
+    it('maps exhausted named quota-slot conflicts to a stable quota error', async () => {
+        vi.mocked(Diagram.countDocuments).mockReturnValue(chainable(0) as never);
+        vi.mocked(Diagram.create).mockRejectedValue({
+            code: 11000,
+            message: 'duplicate key error index: uniq_diagram_owner_quota_slot',
+        });
+
+        await expect(
+            DiagramQuotaService.createDiagram(OWNER_ID, 'USER', 'FREE', {
+                name: 'Concurrent create',
+                layout: {},
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            message: DIAGRAM_QUOTA_EXCEEDED,
         });
     });
 });

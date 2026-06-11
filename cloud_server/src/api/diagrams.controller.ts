@@ -8,14 +8,12 @@ import { type ICommandBinding } from '../models/DiagramBindings';
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 /** Extracts and validates userId from req.user; throws 401 if missing. */
-function requireUser(req: AuthRequest): { userId: string; subscriptionTier: string; role: string } {
+function requireUser(req: AuthRequest): { userId: string } {
     if (!req.user) {
         throw new AppError('Authentication required', 401);
     }
     return {
         userId: req.user.userId,
-        subscriptionTier: req.user.subscriptionTier ?? 'FREE',
-        role: req.user.role,
     };
 }
 
@@ -41,7 +39,7 @@ async function listDiagrams(req: AuthRequest, res: Response, next: NextFunction)
  */
 async function createDiagram(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
-        const { userId, subscriptionTier } = requireUser(req);
+        const { userId } = requireUser(req);
         const body = req.body as { name?: unknown; layout?: unknown };
 
         if (typeof body.name !== 'string' || !body.name.trim()) {
@@ -51,7 +49,7 @@ async function createDiagram(req: AuthRequest, res: Response, next: NextFunction
             throw new AppError('layout must be a plain object', 400);
         }
 
-        const diagram = await DiagramsService.create(userId, subscriptionTier, {
+        const diagram = await DiagramsService.create(userId, {
             name: body.name.trim(),
             layout: body.layout as Record<string, unknown>,
         });
