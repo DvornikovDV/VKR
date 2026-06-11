@@ -1,5 +1,7 @@
 import { http, HttpResponse, type HttpHandler } from 'msw'
 import type { DashboardLayoutDocument } from '@/features/dashboard/model/types'
+import type { Diagram } from '@/shared/api/diagrams'
+import type { UserRow } from '@/shared/api/users'
 import {
   dashboardVisualBindingProfile,
   dashboardVisualDiagram,
@@ -102,6 +104,14 @@ export interface DashboardRestFixtures {
   diagramsById: Record<string, DashboardDiagramFixture>
   trustedEdges: DashboardEdgeFixture[]
   bindingProfilesByDiagramId: Record<string, DashboardBindingProfileFixture[]>
+}
+
+export interface AdminDiagramAssignmentFixtures {
+  adminTemplates: Diagram[]
+  candidateUsers: UserRow[]
+  assignedCopies: Diagram[]
+  rejectedTargetIds?: string[]
+  userListRequests?: string[]
 }
 
 export interface UserEdgeConsumerFixtures {
@@ -389,6 +399,86 @@ export function createAdminEdgeContractHandlers(fixtures: AdminEdgeContractFixtu
         status: 'success',
         data: disclosure,
       })
+    }),
+  ]
+}
+
+export function createAdminDiagramAssignmentHandlers(
+  fixtures: AdminDiagramAssignmentFixtures,
+): HttpHandler[] {
+  return [
+    http.get('/api/diagrams', () =>
+      HttpResponse.json({
+        status: 'success',
+        data: fixtures.adminTemplates,
+      }),
+    ),
+    http.get('/api/admin/users', ({ request }) => {
+      const url = new URL(request.url)
+      fixtures.userListRequests?.push(url.search)
+      const search = url.searchParams.get('search')?.trim().toLowerCase() ?? ''
+      const page = Math.max(1, Number(url.searchParams.get('page') ?? 1))
+      const limit = Math.max(1, Number(url.searchParams.get('limit') ?? 20))
+      const role = url.searchParams.get('role')
+      const activeOnly = url.searchParams.get('activeOnly') === 'true'
+
+      const filtered = fixtures.candidateUsers.filter((user) => {
+        if (role && user.role !== role) {
+          return false
+        }
+
+        if (activeOnly && (user.isDeleted || user.isBanned)) {
+          return false
+        }
+
+        return !search || user.email.toLowerCase().includes(search)
+      })
+      const offset = (page - 1) * limit
+
+      return HttpResponse.json({
+        status: 'success',
+        data: filtered.slice(offset, offset + limit),
+        total: filtered.length,
+        page,
+        limit,
+      })
+    }),
+    http.post('/api/diagrams/:id/assign', async ({ params, request }) => {
+      const templateId = String(params.id)
+      const template = fixtures.adminTemplates.find((diagram) => diagram._id === templateId)
+      const { targetUserId } = (await request.json()) as { targetUserId: string }
+      const target = fixtures.candidateUsers.find((user) => user._id === targetUserId)
+
+      if (!template || !target) {
+        return HttpResponse.json(
+          { status: 'error', message: 'Assignment target not found' },
+          { status: 404 },
+        )
+      }
+
+      if (fixtures.rejectedTargetIds?.includes(targetUserId)) {
+        return HttpResponse.json(
+          { status: 'error', message: 'Target user quota is full' },
+          { status: 403 },
+        )
+      }
+
+      const copy: Diagram = {
+        ...template,
+        _id: `${template._id}-copy-${targetUserId}`,
+        ownerId: targetUserId,
+        sourceTemplateId: template._id,
+        layout: structuredClone(template.layout),
+      }
+      fixtures.assignedCopies.push(copy)
+
+      return HttpResponse.json(
+        {
+          status: 'success',
+          data: copy,
+        },
+        { status: 200 },
+      )
     }),
   ]
 }

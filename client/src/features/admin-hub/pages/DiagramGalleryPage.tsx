@@ -7,69 +7,45 @@ import {
   getDiagrams,
   type Diagram,
 } from '@/shared/api/diagrams'
-import { getUsers, type UserRow } from '@/shared/api/users'
+import { getUsersPage, type UserRow } from '@/shared/api/users'
 import { SaveAsDialog } from '@/shared/components/SaveAsDialog'
 import { useAdminDiagramCreation } from '@/features/admin-hub/useAdminDiagramCreation'
 
-const FREE_DIAGRAM_LIMIT = 3
-
-interface AssignableUser extends UserRow {
-  diagramCount?: number
-}
+const ASSIGNMENT_PAGE_SIZE = 20
 
 function normalizeError(error: unknown, fallback: string): string {
   return getErrorDisplayMessage(error, fallback)
 }
 
-function getDiagramCount(user: AssignableUser): number | null {
-  return typeof user.diagramCount === 'number' ? user.diagramCount : null
-}
-
-function canAcceptDiagram(user: AssignableUser): boolean {
-  if (user.subscriptionTier === 'PRO') {
-    return true
-  }
-
-  const diagramCount = getDiagramCount(user)
-  if (diagramCount === null) {
-    return true
-  }
-
-  return diagramCount < FREE_DIAGRAM_LIMIT
-}
-
 export function DiagramGalleryPage() {
   const creation = useAdminDiagramCreation()
   const [diagrams, setDiagrams] = useState<Diagram[]>([])
-  const [users, setUsers] = useState<AssignableUser[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const [assignOpen, setAssignOpen] = useState(false)
-  const [selectedDiagramId, setSelectedDiagramId] = useState<string>('')
-  const [selectedUserId, setSelectedUserId] = useState<string>('')
+  const [selectedDiagramId, setSelectedDiagramId] = useState('')
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [candidateUsers, setCandidateUsers] = useState<UserRow[]>([])
+  const [candidateSearchInput, setCandidateSearchInput] = useState('')
+  const [candidateSearchQuery, setCandidateSearchQuery] = useState('')
+  const [candidatePage, setCandidatePage] = useState(1)
+  const [candidateTotal, setCandidateTotal] = useState(0)
+  const [isLoadingCandidates, setIsLoadingCandidates] = useState(false)
   const [isAssigning, setIsAssigning] = useState(false)
-
-  const assignableUsers = useMemo(
-    () => users.filter((user) => user.role === 'USER' && !user.isDeleted && !user.isBanned),
-    [users],
-  )
+  const [candidateError, setCandidateError] = useState<string | null>(null)
+  const [assignmentError, setAssignmentError] = useState<string | null>(null)
 
   const selectedUser = useMemo(
-    () => assignableUsers.find((user) => user._id === selectedUserId) ?? null,
-    [assignableUsers, selectedUserId],
+    () => candidateUsers.find((user) => user._id === selectedUserId) ?? null,
+    [candidateUsers, selectedUserId],
   )
 
   const loadData = useCallback(async () => {
     setError(null)
 
     try {
-      const [diagramResult, userResult] = await Promise.all([
-        getDiagrams(),
-        getUsers({ page: 1, limit: 100 }),
-      ])
-      setDiagrams(diagramResult)
-      setUsers(userResult as AssignableUser[])
+      setDiagrams(await getDiagrams())
     } catch (loadError) {
       setError(normalizeError(loadError, 'Не удалось загрузить галерею мнемосхем администратора.'))
     }
@@ -93,48 +69,97 @@ export function DiagramGalleryPage() {
     }
   }, [loadData])
 
+  useEffect(() => {
+    if (!assignOpen) {
+      return
+    }
+
+    let cancelled = false
+
+    async function loadCandidates() {
+      setIsLoadingCandidates(true)
+      setCandidateError(null)
+
+      try {
+        const result = await getUsersPage({
+          search: candidateSearchQuery || undefined,
+          page: candidatePage,
+          limit: ASSIGNMENT_PAGE_SIZE,
+          role: 'USER',
+          activeOnly: true,
+        })
+
+        if (!cancelled) {
+          setCandidateUsers(result.data)
+          setCandidateTotal(result.total)
+          setSelectedUserId('')
+          setCandidateError(null)
+        }
+      } catch (loadError) {
+        if (!cancelled) {
+          setCandidateUsers([])
+          setCandidateTotal(0)
+          setCandidateError(normalizeError(loadError, 'Не удалось загрузить кандидатов для назначения.'))
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingCandidates(false)
+        }
+      }
+    }
+
+    void loadCandidates()
+
+    return () => {
+      cancelled = true
+    }
+  }, [assignOpen, candidatePage, candidateSearchQuery])
+
   function openAssignModal(diagramId: string) {
     setSelectedDiagramId(diagramId)
     setSelectedUserId('')
+    setCandidateSearchInput('')
+    setCandidateSearchQuery('')
+    setCandidatePage(1)
+    setCandidateError(null)
+    setAssignmentError(null)
     setAssignOpen(true)
+  }
+
+  function closeAssignModal() {
+    setAssignOpen(false)
+    setSelectedDiagramId('')
+    setSelectedUserId('')
+    setCandidateError(null)
+    setAssignmentError(null)
+  }
+
+  function submitCandidateSearch() {
+    setAssignmentError(null)
+    setCandidatePage(1)
+    setCandidateSearchQuery(candidateSearchInput.trim())
   }
 
   async function handleAssignSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
 
-    if (!selectedDiagramId || !selectedUserId || isAssigning) {
+    if (!selectedDiagramId || !selectedUserId || !selectedUser || isAssigning) {
       return
     }
 
-    const targetUser = assignableUsers.find((user) => user._id === selectedUserId)
-    if (!targetUser) {
-      setError('Выберите корректного пользователя.')
-      return
-    }
-
-    if (!canAcceptDiagram(targetUser)) {
-      setError(
-        'Назначение заблокировано: у пользователя нет свободных слотов мнемосхем на тарифе FREE.',
-      )
-      return
-    }
-
-    setError(null)
+    setAssignmentError(null)
     setIsAssigning(true)
 
     try {
       await assignDiagramToUser(selectedDiagramId, { targetUserId: selectedUserId })
-      setDiagrams((prev) => prev.filter((diagram) => diagram._id !== selectedDiagramId))
-      setAssignOpen(false)
-      setSelectedDiagramId('')
-      setSelectedUserId('')
+      closeAssignModal()
     } catch (assignError) {
       if (isApiError(assignError) && assignError.status === 403) {
-        setError(
-          'Назначение заблокировано политикой сервера. У пользователя может не быть свободных слотов или мнемосхема недоступна для передачи.',
+        setAssignmentError(
+          'Назначение отклонено сервером. У пользователя может не быть свободной квоты или он больше не подходит для назначения.',
         )
       } else {
-        setError(normalizeError(assignError, 'Не удалось назначить мнемосхему пользователю.'))
+        setAssignmentError(normalizeError(assignError, 'Не удалось назначить мнемосхему пользователю.'))
       }
     } finally {
       setIsAssigning(false)
@@ -147,7 +172,7 @@ export function DiagramGalleryPage() {
         <div>
           <h1 className="text-xl font-semibold text-white">Мнемосхемы администратора</h1>
           <p className="text-sm text-[#94a3b8]">
-            Управляйте своими мнемосхемами и передавайте владение пользователям.
+            Управляйте своими шаблонами мнемосхем и назначайте независимые копии пользователям.
           </p>
         </div>
         <button
@@ -210,58 +235,100 @@ export function DiagramGalleryPage() {
           <div className="w-full max-w-md rounded-lg border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
             <h2 className="text-base font-semibold text-white">Назначить мнемосхему</h2>
             <p className="mt-1 text-sm text-[#94a3b8]">
-              Передайте владение выбранному пользователю.
+              Cloud проверит актуальную доступность пользователя и квоту при назначении.
             </p>
 
             <form className="mt-4 space-y-3" onSubmit={(event) => void handleAssignSubmit(event)}>
+              <div className="flex gap-2">
+                <input
+                  type="search"
+                  value={candidateSearchInput}
+                  onChange={(event) => setCandidateSearchInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault()
+                      submitCandidateSearch()
+                    }
+                  }}
+                  aria-label="Поиск пользователей для назначения"
+                  placeholder="Поиск по email"
+                  className="min-w-0 flex-1 rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white"
+                />
+                <button
+                  type="button"
+                  onClick={submitCandidateSearch}
+                  className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white hover:bg-[var(--color-surface-200)]"
+                >
+                  Найти
+                </button>
+              </div>
+
               <label className="block text-sm text-[#cbd5e1]">
                 Пользователь
                 <select
                   value={selectedUserId}
                   required
-                  onChange={(event) => setSelectedUserId(event.target.value)}
+                  disabled={isLoadingCandidates}
+                  onChange={(event) => {
+                    setSelectedUserId(event.target.value)
+                    setAssignmentError(null)
+                  }}
                   className="mt-1 w-full rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white"
                 >
                   <option value="">Выберите пользователя</option>
-                  {assignableUsers.map((user) => {
-                    const diagramCount = getDiagramCount(user)
-                    const slotInfo =
-                      user.subscriptionTier === 'PRO'
-                        ? 'слоты: безлимит'
-                        : diagramCount === null
-                          ? 'слоты: неизвестно'
-                          : `слоты: ${diagramCount}/${FREE_DIAGRAM_LIMIT}`
-
-                    return (
-                      <option key={user._id} value={user._id}>
-                        {user.email} ({user.subscriptionTier}, {slotInfo})
-                      </option>
-                    )
-                  })}
+                  {candidateUsers.map((user) => (
+                    <option key={user._id} value={user._id}>
+                      {user.email} ({user.subscriptionTier})
+                    </option>
+                  ))}
                 </select>
               </label>
 
-              {selectedUser && !canAcceptDiagram(selectedUser) && (
-                <p className="rounded-md border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 px-3 py-2 text-xs text-[var(--color-warning)]">
-                  Назначение заблокировано для этого пользователя: достигнут лимит тарифа FREE.
+              <div className="flex items-center justify-between text-xs text-[#94a3b8]">
+                <span>{isLoadingCandidates ? 'Загрузка кандидатов...' : `Найдено: ${candidateTotal}`}</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={candidatePage <= 1 || isLoadingCandidates}
+                    onClick={() => setCandidatePage((page) => Math.max(1, page - 1))}
+                    className="rounded border border-[var(--color-surface-border)] px-2 py-1 text-white disabled:opacity-50"
+                  >
+                    Назад
+                  </button>
+                  <button
+                    type="button"
+                    disabled={candidatePage * ASSIGNMENT_PAGE_SIZE >= candidateTotal || isLoadingCandidates}
+                    onClick={() => setCandidatePage((page) => page + 1)}
+                    className="rounded border border-[var(--color-surface-border)] px-2 py-1 text-white disabled:opacity-50"
+                  >
+                    Вперед
+                  </button>
+                </div>
+              </div>
+
+              {candidateError && (
+                <p className="rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-sm text-[var(--color-danger)]">
+                  {candidateError}
+                </p>
+              )}
+
+              {assignmentError && (
+                <p className="rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-sm text-[var(--color-danger)]">
+                  {assignmentError}
                 </p>
               )}
 
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setAssignOpen(false)
-                    setSelectedDiagramId('')
-                    setSelectedUserId('')
-                  }}
+                  onClick={closeAssignModal}
                   className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white hover:bg-[var(--color-surface-200)]"
                 >
                   Отмена
                 </button>
                 <button
                   type="submit"
-                  disabled={isAssigning || !selectedUser || !canAcceptDiagram(selectedUser)}
+                  disabled={isAssigning || !selectedUser}
                   className="rounded-md bg-[var(--color-brand-600)] px-3 py-2 text-sm text-white hover:bg-[var(--color-brand-500)] disabled:opacity-60"
                 >
                   {isAssigning ? 'Назначение...' : 'Назначить'}

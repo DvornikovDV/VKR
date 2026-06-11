@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { http, HttpResponse } from 'msw'
 import { server } from '../mocks/server'
+import { createAdminDiagramAssignmentHandlers } from '../mocks/handlers'
 import { adminHubRouteChildren } from '@/app/adminHubRoutes'
 import { ProtectedRoute } from '@/shared/components/ProtectedRoute'
 import { useAuthStore, type Session } from '@/shared/store/useAuthStore'
@@ -749,80 +750,142 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
     })
   })
 
-  it('T025b: blocks assign for FREE user without slots and allows assign when slot exists', async () => {
-    let diagrams = [{ _id: 'd1', name: 'Diagram A', layout: {} }]
-    const users = [
-      {
-        _id: 'u-full',
-        email: 'full@example.com',
-        role: 'USER',
-        subscriptionTier: 'FREE',
-        isDeleted: false,
-        isBanned: false,
-        createdAt: '2026-03-01T00:00:00.000Z',
-        diagramCount: 3,
-      },
-      {
-        _id: 'u-free',
-        email: 'free@example.com',
-        role: 'USER',
-        subscriptionTier: 'FREE',
-        isDeleted: false,
-        isBanned: false,
-        createdAt: '2026-03-01T00:00:00.000Z',
-        diagramCount: 1,
-      },
-    ]
+  it('searches filtered candidates beyond the first 100, retains the template, and shows one Cloud rejection', async () => {
+    const ordinaryUsers = Array.from({ length: 101 }, (_, index) => ({
+      _id: `user-${index + 1}`,
+      email: `user-${String(index + 1).padStart(3, '0')}@example.com`,
+      role: 'USER' as const,
+      subscriptionTier: 'FREE' as const,
+      isDeleted: false,
+      isBanned: false,
+      createdAt: '2026-03-01T00:00:00.000Z',
+    }))
+    const fixtures = {
+      adminTemplates: [{ _id: 'template-1', name: 'Reusable Template', layout: { widgets: [] } }],
+      candidateUsers: [
+        ...ordinaryUsers,
+        {
+          _id: 'deep-target',
+          email: 'deep-target@example.com',
+          role: 'USER' as const,
+          subscriptionTier: 'FREE' as const,
+          isDeleted: false,
+          isBanned: false,
+          createdAt: '2026-03-01T00:00:00.000Z',
+        },
+        {
+          _id: 'stale-full-target',
+          email: 'stale-full@example.com',
+          role: 'USER' as const,
+          subscriptionTier: 'FREE' as const,
+          isDeleted: false,
+          isBanned: false,
+          createdAt: '2026-03-01T00:00:00.000Z',
+        },
+      ],
+      assignedCopies: [],
+      rejectedTargetIds: ['stale-full-target'],
+      userListRequests: [],
+    }
+    server.use(...createAdminDiagramAssignmentHandlers(fixtures))
+
+    const user = userEvent.setup()
+    renderAdminRoute('/admin/diagrams')
+
+    expect(await screen.findByText('Reusable Template')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Назначить пользователю' }))
+
+    await user.type(screen.getByLabelText('Поиск пользователей для назначения'), 'deep-target')
+    await user.click(screen.getByRole('button', { name: 'Найти' }))
+    await user.selectOptions(await screen.findByLabelText('Пользователь'), 'deep-target')
+    await user.click(screen.getByRole('button', { name: 'Назначить' }))
+
+    await waitFor(() => {
+      expect(fixtures.assignedCopies).toHaveLength(1)
+      expect(fixtures.assignedCopies[0]).toMatchObject({
+        ownerId: 'deep-target',
+        sourceTemplateId: 'template-1',
+      })
+    })
+    expect(screen.getByText('Reusable Template')).toBeInTheDocument()
+    expect(fixtures.adminTemplates).toHaveLength(1)
+    expect(fixtures.userListRequests).toContain(
+      '?search=deep-target&page=1&limit=20&role=USER&activeOnly=true',
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Назначить пользователю' }))
+    await user.type(screen.getByLabelText('Поиск пользователей для назначения'), 'stale-full')
+    await user.click(screen.getByRole('button', { name: 'Найти' }))
+    await user.selectOptions(await screen.findByLabelText('Пользователь'), 'stale-full-target')
+    expect(screen.getByRole('button', { name: 'Назначить' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Назначить' }))
+
+    expect(
+      await screen.findByText(
+        'Назначение отклонено сервером. У пользователя может не быть свободной квоты или он больше не подходит для назначения.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText('Reusable Template')).toBeInTheDocument()
+    expect(fixtures.assignedCopies).toHaveLength(1)
+  })
+
+  it('clears a candidate-loading error after a successful server-backed retry', async () => {
+    let candidateRequests = 0
 
     server.use(
       http.get('/api/diagrams', () =>
         HttpResponse.json({
           status: 'success',
-          data: diagrams,
+          data: [{ _id: 'template-1', name: 'Reusable Template', layout: {} }],
         }),
       ),
-      http.get('/api/admin/users', () =>
-        HttpResponse.json({
-          status: 'success',
-          total: users.length,
-          data: users,
-        }),
-      ),
-      http.post('/api/diagrams/:id/assign', async ({ request, params }) => {
-        const body = (await request.json()) as { targetUserId: string }
-        if (body.targetUserId === 'u-full') {
+      http.get('/api/admin/users', ({ request }) => {
+        candidateRequests += 1
+
+        if (candidateRequests === 1) {
           return HttpResponse.json(
-            { status: 'error', message: 'Target user has no free slots' },
-            { status: 403 },
+            { status: 'error', message: 'Candidate search unavailable' },
+            { status: 503 },
           )
         }
 
-        const diagramId = String(params.id)
-        diagrams = diagrams.filter((diagram) => diagram._id !== diagramId)
-        return HttpResponse.json({ status: 'success', data: { _id: diagramId } })
+        const url = new URL(request.url)
+        expect(url.searchParams.get('search')).toBe('recovered')
+        expect(url.searchParams.get('role')).toBe('USER')
+        expect(url.searchParams.get('activeOnly')).toBe('true')
+
+        return HttpResponse.json({
+          status: 'success',
+          data: [
+            {
+              _id: 'recovered-user',
+              email: 'recovered@example.com',
+              role: 'USER',
+              subscriptionTier: 'FREE',
+              isDeleted: false,
+              isBanned: false,
+              createdAt: '2026-03-01T00:00:00.000Z',
+            },
+          ],
+          total: 1,
+          page: 1,
+          limit: 20,
+        })
       }),
     )
 
     const user = userEvent.setup()
     renderAdminRoute('/admin/diagrams')
 
-    expect(await screen.findByText('Diagram A')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Назначить пользователю' }))
+    expect(await screen.findByText('Ошибка сервера. Попробуйте позже.')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Назначить пользователю' }))
-    await user.selectOptions(screen.getByLabelText('Пользователь'), 'u-full')
-
-    expect(
-      screen.getByText('Назначение заблокировано для этого пользователя: достигнут лимит тарифа FREE.'),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Назначить' })).toBeDisabled()
-
-    await user.selectOptions(screen.getByLabelText('Пользователь'), 'u-free')
-    expect(screen.getByRole('button', { name: 'Назначить' })).toBeEnabled()
-
-    await user.click(screen.getByRole('button', { name: 'Назначить' }))
+    await user.type(screen.getByLabelText('Поиск пользователей для назначения'), 'recovered')
+    await user.click(screen.getByRole('button', { name: 'Найти' }))
 
     await waitFor(() => {
-      expect(screen.queryByText('Diagram A')).not.toBeInTheDocument()
+      expect(screen.queryByText('Ошибка сервера. Попробуйте позже.')).not.toBeInTheDocument()
+      expect(screen.getByRole('option', { name: 'recovered@example.com (FREE)' })).toBeInTheDocument()
     })
   })
 })
