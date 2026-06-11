@@ -54,17 +54,23 @@ export interface UserListResult {
     limit: number;
 }
 
+export type UserListRole = 'ADMIN' | 'USER';
+
 /**
  * Returns a paginated, searchable list of all users (Admin-only).
  *
  * @param page    1-based page number (default 1)
  * @param limit   Items per page (default 20, max 100)
  * @param search  Optional substring to match against email (case-insensitive)
+ * @param role    Optional persisted role filter
+ * @param activeOnly Excludes deleted and banned accounts when true
  */
 async function listUsers(opts: {
     page?: number;
     limit?: number;
     search?: string;
+    role?: UserListRole;
+    activeOnly?: boolean;
 }): Promise<UserListResult> {
     const page = Math.max(1, opts.page ?? 1);
     const limit = Math.min(100, Math.max(1, opts.limit ?? 20));
@@ -73,6 +79,13 @@ async function listUsers(opts: {
     const filter: mongoose.FilterQuery<typeof User> = {};
     if (opts.search?.trim()) {
         filter['email'] = { $regex: opts.search.trim(), $options: 'i' };
+    }
+    if (opts.role) {
+        filter['role'] = opts.role;
+    }
+    if (opts.activeOnly) {
+        filter['isDeleted'] = { $ne: true };
+        filter['isBanned'] = { $ne: true };
     }
 
     const [data, total] = await Promise.all([

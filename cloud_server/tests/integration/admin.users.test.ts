@@ -82,6 +82,30 @@ describe('T048 — Admin User Management', () => {
             expect((res.body.data as Array<{ email: string }>)[0].email).toContain('admin_users_test_user');
         });
 
+        it('filters active USER candidates before pagination', async () => {
+            const prefix = 'admin_users_test_assignment_filter';
+            const active = await AuthService.register(`${prefix}_active@test.com`, 'pass12345');
+            const banned = await AuthService.register(`${prefix}_banned@test.com`, 'pass12345');
+            const deleted = await AuthService.register(`${prefix}_deleted@test.com`, 'pass12345');
+            const excludedAdmin = await AuthService.register(`${prefix}_admin@test.com`, 'pass12345');
+
+            await User.updateOne({ _id: banned.user._id }, { isBanned: true });
+            await User.updateOne({ _id: deleted.user._id }, { isDeleted: true });
+            await User.updateOne({ _id: excludedAdmin.user._id }, { role: 'ADMIN' });
+
+            const res = await request(app)
+                .get(`/api/admin/users?search=${prefix}&role=USER&activeOnly=true&page=1&limit=1`)
+                .set('Authorization', `Bearer ${adminToken}`);
+
+            expect(res.status).toBe(200);
+            expect(res.body).toMatchObject({
+                total: 1,
+                page: 1,
+                limit: 1,
+                data: [{ _id: active.user._id.toString(), role: 'USER', isBanned: false, isDeleted: false }],
+            });
+        });
+
         it('does not return passwordHash in the list', async () => {
             const res = await request(app)
                 .get('/api/admin/users')

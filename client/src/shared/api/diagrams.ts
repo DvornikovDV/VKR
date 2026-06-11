@@ -4,6 +4,8 @@ export interface Diagram {
   _id: string
   name: string
   owner?: string
+  ownerId?: string
+  sourceTemplateId?: string | null
   layout: Record<string, unknown>
   __v?: number
   createdAt?: string
@@ -34,6 +36,11 @@ export interface UpdateDiagramResponse {
 
 export interface AssignDiagramPayload {
   targetUserId: string
+}
+
+export interface AssignedDiagramCopy extends Diagram {
+  ownerId: string
+  sourceTemplateId: string
 }
 
 export async function getDiagrams(): Promise<Diagram[]> {
@@ -71,8 +78,8 @@ export async function cloneDiagram(payload: CreateDiagramPayload): Promise<Diagr
 export async function assignDiagramToUser(
   diagramId: string,
   payload: AssignDiagramPayload,
-): Promise<Diagram> {
-  return apiClient.post<Diagram>(`/diagrams/${diagramId}/assign`, payload)
+): Promise<AssignedDiagramCopy> {
+  return apiClient.post<AssignedDiagramCopy>(`/diagrams/${diagramId}/assign`, payload)
 }
 
 export async function deleteDiagram(diagramId: string): Promise<void> {

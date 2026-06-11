@@ -17,6 +17,16 @@ export interface GetUsersParams {
   search?: string
   page?: number
   limit?: number
+  role?: UserRole
+  activeOnly?: boolean
+}
+
+export interface PaginatedUsersResponse {
+  status: 'success'
+  data: UserRow[]
+  total: number
+  page: number
+  limit: number
 }
 
 export interface UpdateUserTierPayload {
@@ -42,12 +52,26 @@ function buildUsersQuery(params: GetUsersParams = {}): string {
     query.set('limit', String(params.limit))
   }
 
+  if (params.role !== undefined) {
+    query.set('role', params.role)
+  }
+
+  if (params.activeOnly !== undefined) {
+    query.set('activeOnly', String(params.activeOnly))
+  }
+
   const qs = query.toString()
   return qs ? `/admin/users?${qs}` : '/admin/users'
 }
 
 export async function getUsers(params: GetUsersParams = {}): Promise<UserRow[]> {
-  return apiClient.get<UserRow[]>(buildUsersQuery(params))
+  return (await getUsersPage(params)).data
+}
+
+export async function getUsersPage(
+  params: GetUsersParams = {},
+): Promise<PaginatedUsersResponse> {
+  return apiClient.getRaw<PaginatedUsersResponse>(buildUsersQuery(params))
 }
 
 export async function updateUserTier(

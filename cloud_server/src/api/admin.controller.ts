@@ -17,8 +17,13 @@ async function listUsers(req: AuthRequest, res: Response, next: NextFunction): P
         const page = parseInt(String(req.query['page'] ?? '1'), 10) || 1;
         const limit = parseInt(String(req.query['limit'] ?? '20'), 10) || 20;
         const search = typeof req.query['search'] === 'string' ? req.query['search'] : undefined;
+        const role =
+            req.query['role'] === 'ADMIN' || req.query['role'] === 'USER'
+                ? req.query['role']
+                : undefined;
+        const activeOnly = req.query['activeOnly'] === 'true';
 
-        const result = await UsersService.listUsers({ page, limit, search });
+        const result = await UsersService.listUsers({ page, limit, search, role, activeOnly });
         res.status(200).json({ status: 'success', ...result });
     } catch (err) {
         next(err);

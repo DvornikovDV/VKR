@@ -29,6 +29,8 @@ type RequestOptions = Omit<RequestInit, 'headers'> & {
     headers?: Record<string, string>
     /** Skip JWT injection (e.g. for /auth/login) */
     skipAuth?: boolean
+    /** Preserve the complete response body instead of unwrapping its data field. */
+    unwrapData?: boolean
 }
 
 // ── Core fetch wrapper ─────────────────────────────────────────────────────
@@ -37,7 +39,12 @@ async function request<T>(
     endpoint: string,
     options: RequestOptions = {},
 ): Promise<T> {
-    const { skipAuth = false, headers: extraHeaders = {}, ...init } = options
+    const {
+        skipAuth = false,
+        unwrapData = true,
+        headers: extraHeaders = {},
+        ...init
+    } = options
 
     // Build Authorization header
     const authHeaders: Record<string, string> = {}
@@ -80,7 +87,7 @@ async function request<T>(
     // Unwrap JSend { status: 'success', data: ... } envelope if present,
     // otherwise return body as is (for endpoints that don't use the envelope yet)
     const jsendBody = body as { status?: string; data?: T }
-    if (jsendBody && typeof jsendBody === 'object' && 'data' in jsendBody) {
+    if (unwrapData && jsendBody && typeof jsendBody === 'object' && 'data' in jsendBody) {
         return jsendBody.data as T
     }
 
@@ -92,6 +99,9 @@ async function request<T>(
 export const apiClient = {
     get: <T>(endpoint: string, options?: RequestOptions) =>
         request<T>(endpoint, { method: 'GET', ...options }),
+
+    getRaw: <T>(endpoint: string, options?: RequestOptions) =>
+        request<T>(endpoint, { method: 'GET', ...options, unwrapData: false }),
 
     post: <T>(endpoint: string, data?: unknown, options?: RequestOptions) =>
         request<T>(endpoint, {
