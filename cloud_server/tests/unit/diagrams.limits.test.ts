@@ -288,6 +288,43 @@ describe('DiagramQuotaService', () => {
         });
     });
 
+    it('bypasses the FREE quota only when the persisted owner is an Admin', async () => {
+        const created = makeDiagram({ name: 'Admin template' });
+        vi.mocked(Diagram.create).mockResolvedValue(created as never);
+        vi.mocked(User.findOneAndUpdate)
+            .mockReturnValueOnce(selectLeanChain({
+                _id: new mongoose.Types.ObjectId(OWNER_ID),
+                role: 'ADMIN',
+                subscriptionTier: 'FREE',
+            }) as never)
+            .mockReturnValueOnce(selectLeanChain({
+                _id: new mongoose.Types.ObjectId(OWNER_ID),
+                role: 'USER',
+                subscriptionTier: 'FREE',
+            }) as never);
+
+        await expect(
+            DiagramQuotaService.createForPersistedOwner(OWNER_ID, {
+                name: 'Admin template',
+                layout: {},
+            }),
+        ).resolves.toBe(created);
+
+        vi.mocked(Diagram.countDocuments).mockReturnValue(chainable(3) as never);
+
+        await expect(
+            DiagramQuotaService.createForPersistedOwner(OWNER_ID, {
+                name: 'Fourth USER diagram',
+                layout: {},
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            message: DIAGRAM_QUOTA_EXCEEDED,
+        });
+
+        expect(Diagram.create).toHaveBeenCalledTimes(1);
+    });
+
     it('maps the named provenance index conflict to a stable duplicate-assignment error', async () => {
         vi.mocked(User.findOneAndUpdate).mockReturnValue(
             selectLeanChain({

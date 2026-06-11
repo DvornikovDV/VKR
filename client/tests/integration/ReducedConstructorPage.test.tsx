@@ -49,6 +49,7 @@ function renderAdminRoutes(initialPath: string) {
   )
 
   render(<RouterProvider router={router} />)
+  return router
 }
 
 beforeEach(() => {
@@ -130,14 +131,39 @@ describe('Reduced constructor page integration coverage (T028)', () => {
     })
   })
 
-  it('persists layout only in admin reduced mode and never hits bindings endpoints (T030)', async () => {
-    const harness = createMockHostedConstructorHarness({
-      initialLayout: {
-        widgets: [{ id: 'widget-1', type: 'number-display' }],
-      },
-    })
+  it('saves and restores a newly created empty template through the reduced hosted page without bindings calls (T012)', async () => {
+    const harness = createMockHostedConstructorHarness()
     mockedLoadHostedConstructor.mockResolvedValue(harness.module)
 
+    const representativeLayout = {
+      images: [
+        {
+          id: 'image-1',
+          src: '/constructor/assets/backgrounds/boiler.png',
+          x: 24,
+          y: 36,
+          width: 800,
+          height: 460,
+        },
+      ],
+      widgets: [
+        {
+          id: 'widget-1',
+          widgetType: 'gauge',
+          x: 320,
+          y: 220,
+          properties: {
+            label: 'Boiler Pressure',
+            color: '#22c55e',
+          },
+        },
+      ],
+      viewState: {
+        zoom: 1.15,
+        panX: -12,
+        panY: 8,
+      },
+    }
     const calls = {
       diagramGet: 0,
       diagramPut: 0,
@@ -149,7 +175,7 @@ describe('Reduced constructor page integration coverage (T028)', () => {
     }
 
     let storedVersion = 2
-    let storedLayout: Record<string, unknown> = { widgets: [] }
+    let storedLayout: Record<string, unknown> = {}
 
     server.use(
       http.get('/api/diagrams/:id', ({ params }) => {
@@ -159,7 +185,7 @@ describe('Reduced constructor page integration coverage (T028)', () => {
           status: 'success',
           data: {
             _id: String(params.id),
-            name: 'Reduced mode save',
+            name: 'New Admin template',
             layout: storedLayout,
             __v: storedVersion,
           },
@@ -180,7 +206,7 @@ describe('Reduced constructor page integration coverage (T028)', () => {
           status: 'success',
           data: {
             _id: String(params.id),
-            name: 'Reduced mode save',
+            name: 'New Admin template',
             layout: storedLayout,
             __v: storedVersion,
           },
@@ -209,10 +235,17 @@ describe('Reduced constructor page integration coverage (T028)', () => {
       }),
     )
 
-    renderAdminRoutes('/admin/editor/diagram-2')
+    const router = renderAdminRoutes('/admin/editor/diagram-2')
 
     await waitFor(() => {
       expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(1)
+    })
+
+    expect(harness.getLastConfig()?.mode).toBe('reduced')
+    expect(harness.getLastConfig()?.initialLayout).toEqual({})
+
+    await act(async () => {
+      await harness.instance.loadLayout(representativeLayout)
     })
 
     act(() => {
@@ -225,11 +258,33 @@ describe('Reduced constructor page integration coverage (T028)', () => {
       expect(calls.diagramGet).toBeGreaterThanOrEqual(2)
     })
 
+    await act(async () => {
+      await router.navigate('/login')
+    })
+    await waitFor(() => {
+      expect(harness.instanceSpies.destroyMock).toHaveBeenCalledTimes(1)
+    })
+
+    await act(async () => {
+      await router.navigate('/admin/editor/diagram-2')
+    })
+    await waitFor(() => {
+      expect(harness.createHostedConstructorMock).toHaveBeenCalledTimes(2)
+    })
+
+    expect(harness.getLastConfig()?.mode).toBe('reduced')
+    expect(harness.getLastConfig()?.initialLayout).toEqual(representativeLayout)
+    expect(storedLayout).toEqual(representativeLayout)
+    expect(storedVersion).toBe(3)
     expect(calls.loadBindings).toBe(0)
     expect(calls.saveBindings).toBe(0)
     expect(calls.deleteBindings).toBe(0)
     expect(calls.edgeServers).toBe(0)
     expect(calls.catalog).toBe(0)
+    expect(harness.instanceSpies.getBindingsMock).not.toHaveBeenCalled()
+    expect(harness.instanceSpies.loadBindingsMock).not.toHaveBeenCalled()
+    expect(harness.instanceSpies.getBindingProfileMock).not.toHaveBeenCalled()
+    expect(harness.instanceSpies.loadBindingProfileMock).not.toHaveBeenCalled()
   })
 
   it('offers recoverable empty-layout fallback for invalid payloads and runtime bootstrap failures (T031)', async () => {

@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { getDiagrams } from '@/shared/api/diagrams'
 import { getAdminEdgeFleet } from '@/shared/api/edgeServers'
 import { getUsers, type UserRow } from '@/shared/api/users'
+import { SaveAsDialog } from '@/shared/components/SaveAsDialog'
+import { useAdminDiagramCreation } from '@/features/admin-hub/useAdminDiagramCreation'
 
 interface PlatformStats {
   usersTotal: number
@@ -34,6 +36,7 @@ function deriveUserStats(users: UserRow[]) {
 }
 
 export function OverviewPage() {
+  const creation = useAdminDiagramCreation()
   const [stats, setStats] = useState<PlatformStats>(emptyStats)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -144,12 +147,13 @@ export function OverviewPage() {
           >
             Проверить пользователей
           </Link>
-          <Link
-            to="/admin/diagrams"
+          <button
+            type="button"
+            onClick={creation.open}
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white transition-colors hover:bg-[var(--color-surface-200)]"
           >
-            Открыть галерею мнемосхем
-          </Link>
+            Создать мнемосхему
+          </button>
           <Link
             to="/admin/edge"
             className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-white transition-colors hover:bg-[var(--color-surface-200)]"
@@ -158,6 +162,20 @@ export function OverviewPage() {
           </Link>
         </div>
       </section>
+
+      <SaveAsDialog
+        open={creation.dialog.open}
+        isSubmitting={creation.dialog.isSubmitting}
+        error={creation.dialog.error}
+        title="Создать мнемосхему"
+        description="Введите имя новой пустой мнемосхемы."
+        placeholder="Имя новой мнемосхемы"
+        validationErrorMessage="Введите имя мнемосхемы перед созданием."
+        confirmLabel="Создать"
+        submittingLabel="Создание..."
+        onSubmit={creation.dialog.onSubmit}
+        onCancel={creation.dialog.onCancel}
+      />
     </section>
   )
 }

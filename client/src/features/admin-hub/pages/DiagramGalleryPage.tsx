@@ -8,6 +8,8 @@ import {
   type Diagram,
 } from '@/shared/api/diagrams'
 import { getUsers, type UserRow } from '@/shared/api/users'
+import { SaveAsDialog } from '@/shared/components/SaveAsDialog'
+import { useAdminDiagramCreation } from '@/features/admin-hub/useAdminDiagramCreation'
 
 const FREE_DIAGRAM_LIMIT = 3
 
@@ -37,6 +39,7 @@ function canAcceptDiagram(user: AssignableUser): boolean {
 }
 
 export function DiagramGalleryPage() {
+  const creation = useAdminDiagramCreation()
   const [diagrams, setDiagrams] = useState<Diagram[]>([])
   const [users, setUsers] = useState<AssignableUser[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -140,11 +143,20 @@ export function DiagramGalleryPage() {
 
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-6">
-      <header className="mb-6">
-        <h1 className="text-xl font-semibold text-white">Мнемосхемы администратора</h1>
-        <p className="text-sm text-[#94a3b8]">
-          Управляйте своими мнемосхемами и передавайте владение пользователям.
-        </p>
+      <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold text-white">Мнемосхемы администратора</h1>
+          <p className="text-sm text-[#94a3b8]">
+            Управляйте своими мнемосхемами и передавайте владение пользователям.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={creation.open}
+          className="rounded-md bg-[var(--color-brand-600)] px-3 py-2 text-sm text-white hover:bg-[var(--color-brand-500)]"
+        >
+          Создать мнемосхему
+        </button>
       </header>
 
       {error && (
@@ -259,6 +271,20 @@ export function DiagramGalleryPage() {
           </div>
         </div>
       )}
+
+      <SaveAsDialog
+        open={creation.dialog.open}
+        isSubmitting={creation.dialog.isSubmitting}
+        error={creation.dialog.error}
+        title="Создать мнемосхему"
+        description="Введите имя новой пустой мнемосхемы."
+        placeholder="Имя новой мнемосхемы"
+        validationErrorMessage="Введите имя мнемосхемы перед созданием."
+        confirmLabel="Создать"
+        submittingLabel="Создание..."
+        onSubmit={creation.dialog.onSubmit}
+        onCancel={creation.dialog.onCancel}
+      />
     </section>
   )
 }

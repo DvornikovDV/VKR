@@ -57,6 +57,7 @@ function renderAdminRoute(path: string) {
   )
 
   render(<RouterProvider router={router} />)
+  return router
 }
 
 function installCanonicalEdgeFleetHandlers(params: {
@@ -121,6 +122,146 @@ afterEach(() => {
 })
 
 describe('Admin Hub routes and pages (canonical edge contract)', () => {
+  it.each([
+    ['/admin', 'Admin Overview'],
+    ['/admin/diagrams', 'Admin Diagram Gallery'],
+  ])('creates an empty Admin template from %s and opens the reduced editor', async (path) => {
+    let createPayload: unknown = null
+
+    server.use(
+      http.get('/api/admin/users', () =>
+        HttpResponse.json({
+          status: 'success',
+          total: 0,
+          data: [],
+        }),
+      ),
+      http.get('/api/admin/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
+      http.get('/api/diagrams', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
+      http.post('/api/diagrams', async ({ request }) => {
+        createPayload = await request.json()
+        return HttpResponse.json(
+          {
+            status: 'success',
+            data: {
+              _id: 'new-admin-template',
+              name: 'New Admin Template',
+              layout: {},
+            },
+          },
+          { status: 201 },
+        )
+      }),
+      http.get('/api/diagrams/new-admin-template', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: 'new-admin-template',
+            name: 'New Admin Template',
+            layout: {},
+            __v: 0,
+          },
+        }),
+      ),
+    )
+
+    const user = userEvent.setup()
+    const router = renderAdminRoute(path)
+
+    await user.click(await screen.findByRole('button', { name: 'Создать мнемосхему' }))
+    await user.type(screen.getByLabelText('Имя мнемосхемы'), '  New Admin Template  ')
+    await user.click(screen.getByRole('button', { name: 'Создать' }))
+
+    await waitFor(() => {
+      expect(createPayload).toEqual({
+        name: 'New Admin Template',
+        layout: {},
+      })
+      expect(router.state.location.pathname).toBe('/admin/editor/new-admin-template')
+    })
+  })
+
+  it('keeps Admin template creation recoverable after one create-API failure', async () => {
+    let createAttempts = 0
+
+    server.use(
+      http.get('/api/diagrams', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
+      http.get('/api/admin/users', () =>
+        HttpResponse.json({
+          status: 'success',
+          total: 0,
+          data: [],
+        }),
+      ),
+      http.post('/api/diagrams', async ({ request }) => {
+        createAttempts += 1
+        const payload = (await request.json()) as { name: string; layout: Record<string, unknown> }
+
+        if (createAttempts === 1) {
+          return HttpResponse.json(
+            { status: 'error', message: 'Create service unavailable' },
+            { status: 503 },
+          )
+        }
+
+        return HttpResponse.json(
+          {
+            status: 'success',
+            data: {
+              _id: 'recovered-template',
+              ...payload,
+            },
+          },
+          { status: 201 },
+        )
+      }),
+      http.get('/api/diagrams/recovered-template', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: {
+            _id: 'recovered-template',
+            name: 'Recovered Template',
+            layout: {},
+            __v: 0,
+          },
+        }),
+      ),
+    )
+
+    const user = userEvent.setup()
+    const router = renderAdminRoute('/admin/diagrams')
+
+    await user.click(await screen.findByRole('button', { name: 'Создать мнемосхему' }))
+    await user.type(screen.getByLabelText('Имя мнемосхемы'), 'Recovered Template')
+    await user.click(screen.getByRole('button', { name: 'Создать' }))
+
+    expect(await screen.findByText('Ошибка сервера. Попробуйте позже.')).toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByLabelText('Имя мнемосхемы')).toHaveValue('Recovered Template')
+
+    await user.click(screen.getByRole('button', { name: 'Создать' }))
+
+    await waitFor(() => {
+      expect(createAttempts).toBe(2)
+      expect(router.state.location.pathname).toBe('/admin/editor/recovered-template')
+    })
+  })
+
   it('T026: resolves /admin/users and /admin/diagrams routes to target pages', async () => {
     server.use(
       http.get('/api/admin/users', () =>

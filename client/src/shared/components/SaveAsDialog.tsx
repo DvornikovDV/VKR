@@ -11,7 +11,11 @@ export interface SaveAsDialogProps {
   isSubmitting?: boolean
   title?: string
   description?: string
+  nameLabel?: string
+  placeholder?: string
+  validationErrorMessage?: string
   confirmLabel?: string
+  submittingLabel?: string
   cancelLabel?: string
   error?: string | null
   onSubmit: (name: string) => void | Promise<void>
@@ -28,7 +32,11 @@ export function SaveAsDialog({
   isSubmitting = false,
   title = DEFAULT_TITLE,
   description = DEFAULT_DESCRIPTION,
+  nameLabel = 'Имя мнемосхемы',
+  placeholder = 'Имя копии мнемосхемы',
+  validationErrorMessage = 'Введите имя мнемосхемы перед созданием копии.',
   confirmLabel = DEFAULT_CONFIRM_LABEL,
+  submittingLabel = 'Создание копии...',
   cancelLabel = DEFAULT_CANCEL_LABEL,
   error = null,
   onSubmit,
@@ -95,7 +103,7 @@ export function SaveAsDialog({
 
     const normalizedName = normalizeDiagramName(name)
     if (normalizedName.length === 0) {
-      setValidationError('Введите имя мнемосхемы перед созданием копии.')
+      setValidationError(validationErrorMessage)
       return
     }
 
@@ -121,7 +129,7 @@ export function SaveAsDialog({
 
         <form className="mt-4 space-y-3" onSubmit={handleSubmit}>
           <label htmlFor={nameFieldId} className="block text-sm text-[#cbd5e1]">
-            Имя мнемосхемы
+            {nameLabel}
           </label>
           <input
             id={nameFieldId}
@@ -136,7 +144,7 @@ export function SaveAsDialog({
               }
             }}
             className="w-full rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)] px-3 py-2 text-sm text-white outline-none focus:border-[var(--color-brand-500)] focus:ring-2 focus:ring-[var(--color-brand-500)]/30 disabled:cursor-not-allowed disabled:opacity-70"
-            placeholder="Имя копии мнемосхемы"
+            placeholder={placeholder}
           />
 
           {(validationError || error) && (
@@ -159,7 +167,7 @@ export function SaveAsDialog({
               disabled={isSubmitting}
               className="rounded-md bg-[var(--color-brand-600)] px-3 py-2 text-sm text-white hover:bg-[var(--color-brand-500)] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isSubmitting ? 'Создание копии...' : confirmLabel}
+              {isSubmitting ? submittingLabel : confirmLabel}
             </button>
           </div>
         </form>

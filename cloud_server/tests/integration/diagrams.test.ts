@@ -21,6 +21,8 @@ import { AuthService } from '../../src/services/auth.service';
 
 let token: string;
 let userId: string;
+let adminToken: string;
+let adminId: string;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -54,6 +56,11 @@ beforeAll(async () => {
     const result = await AuthService.register('diagrams_integration@test.com', 'password1234');
     token = result.token;
     userId = result.user._id.toString();
+
+    const adminResult = await AuthService.register('diagrams_admin@test.com', 'password1234');
+    adminId = adminResult.user._id.toString();
+    await User.updateOne({ _id: adminId }, { role: 'ADMIN' });
+    adminToken = (await AuthService.login('diagrams_admin@test.com', 'password1234')).token;
 });
 
 afterAll(async () => {
@@ -68,6 +75,7 @@ beforeEach(async () => {
     await Diagram.deleteMany({});
     await DiagramBindings.deleteMany({});
     await User.updateOne({ _id: userId }, { subscriptionTier: 'FREE' });
+    await User.updateOne({ _id: adminId }, { role: 'ADMIN', subscriptionTier: 'FREE' });
 });
 
 describe('Layout payload integrity', () => {
@@ -94,7 +102,63 @@ describe('Layout payload integrity', () => {
     });
 });
 
+describe('Admin template creation through POST /api/diagrams', () => {
+    it('bypasses only the regular USER FREE quota for an authenticated Admin', async () => {
+        await Diagram.create([
+            { ownerId: adminId, name: 'Admin template 1', layout: {} },
+            { ownerId: adminId, name: 'Admin template 2', layout: {} },
+            { ownerId: adminId, name: 'Admin template 3', layout: {} },
+        ]);
+
+        const response = await request(app)
+            .post('/api/diagrams')
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ name: '  Empty Admin template  ', layout: {} });
+
+        expect(response.status).toBe(201);
+        expect(response.body.data).toMatchObject({
+            ownerId: adminId,
+            name: 'Empty Admin template',
+            layout: {},
+        });
+
+        const stored = await Diagram.findById(response.body.data._id).lean();
+        expect(stored?.quotaSlot).toBeUndefined();
+        expect(await Diagram.countDocuments({ ownerId: adminId })).toBe(4);
+    });
+
+    it('keeps name and plain-object layout validation active for Admin creation', async () => {
+        const invalidName = await request(app)
+            .post('/api/diagrams')
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ name: '   ', layout: {} });
+        const invalidLayout = await request(app)
+            .post('/api/diagrams')
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ name: 'Invalid layout', layout: [] });
+
+        expect(invalidName.status).toBe(400);
+        expect(invalidLayout.status).toBe(400);
+        expect(await Diagram.countDocuments({ ownerId: adminId })).toBe(0);
+    });
+});
+
 describe('Persisted quota identity and slot release', () => {
+    it('keeps the regular USER FREE quota unchanged', async () => {
+        const responses = [];
+        for (let index = 0; index < 4; index += 1) {
+            responses.push(
+                await request(app)
+                    .post('/api/diagrams')
+                    .set('Authorization', `Bearer ${token}`)
+                    .send({ name: `FREE diagram ${index}`, layout: {} }),
+            );
+        }
+
+        expect(responses.map((response) => response.status)).toEqual([201, 201, 201, 403]);
+        expect(await Diagram.countDocuments({ ownerId: userId })).toBe(3);
+    });
+
     it('does not start creation while owner quota reconciliation is pending', async () => {
         await User.updateOne(
             { _id: userId },
