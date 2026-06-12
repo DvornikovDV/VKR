@@ -2,7 +2,12 @@ import mongoose from 'mongoose';
 import { Diagram, type IDiagram } from '../models/Diagram';
 import { DiagramBindings } from '../models/DiagramBindings';
 import { AppError } from '../api/middlewares/error.middleware';
-import { DiagramQuotaService, FREE_DIAGRAM_QUOTA } from './diagram-quota.service';
+import {
+    DiagramQuotaService,
+    FREE_DIAGRAM_QUOTA,
+    ownerMutationLeaseKey,
+} from './diagram-quota.service';
+import { MutationLeaseService } from './mutation-lease.service';
 
 
 // ── Constants ─────────────────────────────────────────────────────────────
@@ -33,6 +38,10 @@ function toObjectId(id: string, label: string): mongoose.Types.ObjectId {
         throw new AppError(`Invalid ${label}`, 400);
     }
     return new mongoose.Types.ObjectId(id);
+}
+
+function diagramMutationLeaseKey(diagramId: mongoose.Types.ObjectId): string {
+    return `diagram:${diagramId.toString()}`;
 }
 
 // ── Service methods ───────────────────────────────────────────────────────
@@ -89,24 +98,27 @@ async function update(
     if (payload.layout !== undefined) updatePayload['layout'] = payload.layout;
     updatePayload['updatedAt'] = new Date();
 
-    const updated = await Diagram.findOneAndUpdate(
-        { _id: diagramId, ownerId, __v: payload.__v },
-        { $set: updatePayload, $inc: { __v: 1 } },
-        { new: true },
-    ).exec();
+    return MutationLeaseService.runWithMutationLeases(
+        [diagramMutationLeaseKey(diagramId)],
+        async () => {
+            const updated = await Diagram.findOneAndUpdate(
+                { _id: diagramId, ownerId, __v: payload.__v },
+                { $set: updatePayload, $inc: { __v: 1 } },
+                { new: true },
+            ).exec();
 
-    if (!updated) {
-        // Distinguish not-found from version conflict
-        const exists = await Diagram.exists({ _id: diagramId, ownerId }).exec();
-        if (!exists) {
-            throw new AppError('Diagram not found', 404);
-        }
-        throw new AppError('Version conflict — diagram was modified by another session', 409);
-    }
+            if (!updated) {
+                const exists = await Diagram.exists({ _id: diagramId, ownerId }).exec();
+                if (!exists) {
+                    throw new AppError('Diagram not found', 404);
+                }
+                throw new AppError('Version conflict — diagram was modified by another session', 409);
+            }
 
-    // Check whether any DiagramBindings exist for this diagram
-    const bindingsCount = await DiagramBindings.countDocuments({ diagramId }).exec();
-    return { diagram: updated, bindingsInvalidated: bindingsCount > 0 };
+            const bindingsCount = await DiagramBindings.countDocuments({ diagramId }).exec();
+            return { diagram: updated, bindingsInvalidated: bindingsCount > 0 };
+        },
+    );
 }
 
 /**
@@ -117,20 +129,23 @@ async function hardDelete(diagramIdStr: string, ownerIdStr: string): Promise<voi
     const diagramId = toObjectId(diagramIdStr, 'diagramId');
     const ownerId = toObjectId(ownerIdStr, 'ownerId');
 
-    await DiagramQuotaService.runWithOwnerQuotaMutation(ownerId, async (owner) => {
-        const deleted = await Diagram.findOneAndDelete({ _id: diagramId, ownerId }).exec();
-        if (!deleted) {
-            throw new AppError('Diagram not found', 404);
-        }
+    await MutationLeaseService.runWithMutationLeases(
+        [diagramMutationLeaseKey(diagramId), ownerMutationLeaseKey(ownerId)],
+        async () => {
+            const owner = await DiagramQuotaService.readOwnerQuotaSnapshotLocked(ownerId);
+            const deleted = await Diagram.findOneAndDelete({ _id: diagramId, ownerId }).exec();
+            if (!deleted) {
+                throw new AppError('Diagram not found', 404);
+            }
 
-        // Cascade-delete all binding sets for this diagram
-        await DiagramBindings.deleteMany({ diagramId }).exec();
-        await DiagramQuotaService.reconcileOwnerQuotaSlotsLocked(
-            ownerId,
-            owner.role,
-            owner.subscriptionTier,
-        );
-    });
+            await DiagramBindings.deleteMany({ diagramId }).exec();
+            await DiagramQuotaService.reconcileOwnerQuotaSlotsLocked(
+                ownerId,
+                owner.role,
+                owner.subscriptionTier,
+            );
+        },
+    );
 }
 
 /**
@@ -146,19 +161,24 @@ async function assignDiagram(
     const adminId = toObjectId(adminIdStr, 'adminId');
     const targetUserId = toObjectId(targetUserIdStr, 'targetUserId');
 
-    const template = await Diagram.findOne({ _id: diagramId, ownerId: adminId }).lean().exec();
-    if (!template) {
-        throw new AppError('Diagram not found or not owned by admin', 403);
-    }
+    return MutationLeaseService.runWithMutationLeases(
+        [diagramMutationLeaseKey(diagramId), ownerMutationLeaseKey(targetUserId)],
+        async () => {
+            const template = await Diagram.findOne({ _id: diagramId, ownerId: adminId }).lean().exec();
+            if (!template) {
+                throw new AppError('Diagram not found or not owned by admin', 403);
+            }
 
-    return DiagramQuotaService.createForPersistedOwner(
-        targetUserId,
-        {
-            name: template.name,
-            layout: template.layout,
-            sourceTemplateId: template._id,
+            return DiagramQuotaService.createForPersistedOwnerLocked(
+                targetUserId,
+                {
+                    name: template.name,
+                    layout: template.layout,
+                    sourceTemplateId: template._id,
+                },
+                'USER',
+            );
         },
-        'USER',
     );
 }
 

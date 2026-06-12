@@ -15,6 +15,7 @@ import {
     DUPLICATE_DIAGRAM_ASSIGNMENT,
     DIAGRAM_QUOTA_EXCEEDED,
 } from '../../src/services/diagram-quota.service';
+import { MutationLeaseService } from '../../src/services/mutation-lease.service';
 
 // ── Test state ────────────────────────────────────────────────────────────
 
@@ -53,6 +54,14 @@ async function createQuotaOwner(
         subscriptionTier,
     });
     return owner._id;
+}
+
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => {
+        resolve = done;
+    });
+    return { promise, resolve };
 }
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
@@ -223,8 +232,6 @@ beforeEach(async () => {
         subscriptionTier: 'FREE',
         isDeleted: false,
         isBanned: false,
-        diagramQuotaMutationPending: false,
-        diagramQuotaActiveCreates: 0,
     });
 });
 
@@ -348,5 +355,84 @@ describe('T014-T018 template-copy assignment proof', () => {
             sourceTemplateId: quotaTemplate._id,
         })).toBe(0);
         expect((await Diagram.findById(quotaTemplate._id).lean())?.ownerId.toString()).toBe(adminId);
+    });
+
+    it('re-reads the template after a concurrent template mutation lease completes', async () => {
+        const template = await createDiagram(adminId, 'Before lease');
+        const acquired = deferred();
+        const release = deferred();
+        const mutation = MutationLeaseService.runWithMutationLeases(
+            [`diagram:${template._id.toString()}`],
+            async () => {
+                acquired.resolve();
+                await release.promise;
+                await Diagram.updateOne(
+                    { _id: template._id },
+                    { $set: { name: 'After lease', layout: { widgets: [{ id: 'latest' }] } } },
+                );
+            },
+        );
+        await acquired.promise;
+
+        let settled = false;
+        const assignment = request(app)
+            .post(`/api/diagrams/${template._id.toString()}/assign`)
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ targetUserId: regularUserId })
+            .then((response) => {
+                settled = true;
+                return response;
+            });
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(settled).toBe(false);
+
+        release.resolve();
+        await mutation;
+        const response = await assignment;
+
+        expect(response.status).toBe(200);
+        expect(response.body.data).toMatchObject({
+            name: 'After lease',
+            layout: { widgets: [{ id: 'latest' }] },
+        });
+    });
+
+    it('re-checks target eligibility after a concurrent ban lease completes', async () => {
+        const template = await createDiagram(adminId, 'Ban race template');
+        const acquired = deferred();
+        const release = deferred();
+        const mutation = MutationLeaseService.runWithMutationLeases(
+            [`user:${regularUserId}`],
+            async () => {
+                acquired.resolve();
+                await release.promise;
+                await User.updateOne({ _id: regularUserId }, { $set: { isBanned: true } });
+            },
+        );
+        await acquired.promise;
+
+        let settled = false;
+        const assignment = request(app)
+            .post(`/api/diagrams/${template._id.toString()}/assign`)
+            .set('Authorization', `Bearer ${adminToken}`)
+            .send({ targetUserId: regularUserId })
+            .then((response) => {
+                settled = true;
+                return response;
+            });
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(settled).toBe(false);
+
+        release.resolve();
+        await mutation;
+        const response = await assignment;
+
+        expect(response.status).toBe(403);
+        expect(await Diagram.countDocuments({
+            ownerId: regularUserId,
+            sourceTemplateId: template._id,
+        })).toBe(0);
     });
 });

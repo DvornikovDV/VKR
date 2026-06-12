@@ -51,6 +51,14 @@ vi.mock('../../src/models/User', () => ({
     },
 }));
 
+vi.mock('../../src/services/mutation-lease.service', () => ({
+    MutationLeaseService: {
+        runWithMutationLeases: vi.fn(async (_keys: string[], operation: () => Promise<unknown>) =>
+            operation(),
+        ),
+    },
+}));
+
 // ── Imports after mocks ────────────────────────────────────────────────────
 import { Diagram } from '../../src/models/Diagram';
 import { DiagramBindings } from '../../src/models/DiagramBindings';
@@ -182,33 +190,25 @@ describe('DiagramsService', () => {
             const deleted = makeDiagram();
             vi.mocked(Diagram.findOneAndDelete).mockReturnValue(chainable(deleted) as never);
             vi.mocked(DiagramBindings.deleteMany).mockReturnValue(chainable({ deletedCount: 2 }) as never);
-            const mutation = vi
-                .spyOn(DiagramQuotaService, 'runWithOwnerQuotaMutation')
-                .mockImplementation(async (_ownerId, operation) =>
-                    operation({
-                        _id: new mongoose.Types.ObjectId(OWNER_ID),
-                        role: 'USER',
-                        subscriptionTier: 'FREE',
-                    }),
-                );
+            vi.spyOn(DiagramQuotaService, 'readOwnerQuotaSnapshotLocked').mockResolvedValue({
+                _id: new mongoose.Types.ObjectId(OWNER_ID),
+                role: 'USER',
+                subscriptionTier: 'FREE',
+            });
             vi.spyOn(DiagramQuotaService, 'reconcileOwnerQuotaSlotsLocked').mockResolvedValue(undefined);
 
             await DiagramsService.hardDelete(DIAGRAM_ID, OWNER_ID);
 
             expect(DiagramBindings.deleteMany).toHaveBeenCalledOnce();
-            expect(mutation).toHaveBeenCalledOnce();
         });
 
         it('should throw 404 if diagram not found', async () => {
             vi.mocked(Diagram.findOneAndDelete).mockReturnValue(chainable(null) as never);
-            vi.spyOn(DiagramQuotaService, 'runWithOwnerQuotaMutation')
-                .mockImplementation(async (_ownerId, operation) =>
-                    operation({
-                        _id: new mongoose.Types.ObjectId(OWNER_ID),
-                        role: 'USER',
-                        subscriptionTier: 'FREE',
-                    }),
-                );
+            vi.spyOn(DiagramQuotaService, 'readOwnerQuotaSnapshotLocked').mockResolvedValue({
+                _id: new mongoose.Types.ObjectId(OWNER_ID),
+                role: 'USER',
+                subscriptionTier: 'FREE',
+            });
 
             await expect(DiagramsService.hardDelete(DIAGRAM_ID, OWNER_ID)).rejects.toMatchObject({
                 statusCode: 404,
@@ -241,7 +241,7 @@ describe('DiagramQuotaService', () => {
     beforeEach(() => {
         vi.restoreAllMocks();
         vi.clearAllMocks();
-        vi.mocked(User.findOneAndUpdate).mockReturnValue(
+        vi.mocked(User.findOne).mockReturnValue(
             selectLeanChain({
                 _id: new mongoose.Types.ObjectId(OWNER_ID),
                 role: 'USER',
@@ -255,7 +255,7 @@ describe('DiagramQuotaService', () => {
         const created = makeDiagram();
         vi.mocked(Diagram.create).mockResolvedValue(created as never);
 
-        vi.mocked(User.findOneAndUpdate)
+        vi.mocked(User.findOne)
             .mockReturnValueOnce(selectLeanChain({
                 _id: new mongoose.Types.ObjectId(OWNER_ID),
                 role: 'USER',
@@ -291,7 +291,7 @@ describe('DiagramQuotaService', () => {
     it('bypasses the FREE quota only when the persisted owner is an Admin', async () => {
         const created = makeDiagram({ name: 'Admin template' });
         vi.mocked(Diagram.create).mockResolvedValue(created as never);
-        vi.mocked(User.findOneAndUpdate)
+        vi.mocked(User.findOne)
             .mockReturnValueOnce(selectLeanChain({
                 _id: new mongoose.Types.ObjectId(OWNER_ID),
                 role: 'ADMIN',
@@ -326,7 +326,7 @@ describe('DiagramQuotaService', () => {
     });
 
     it('maps the named provenance index conflict to a stable duplicate-assignment error', async () => {
-        vi.mocked(User.findOneAndUpdate).mockReturnValue(
+        vi.mocked(User.findOne).mockReturnValue(
             selectLeanChain({
                 _id: new mongoose.Types.ObjectId(OWNER_ID),
                 role: 'USER',
@@ -350,8 +350,8 @@ describe('DiagramQuotaService', () => {
         });
     });
 
-    it('does not commit a tier change when reconciliation fails', async () => {
-        vi.mocked(User.findOneAndUpdate).mockReturnValue(
+    it('commits the safe tier before a repairable reconciliation failure', async () => {
+        vi.mocked(User.findById).mockReturnValue(
             selectLeanChain({
                 _id: new mongoose.Types.ObjectId(OWNER_ID),
                 role: 'USER',
@@ -366,7 +366,10 @@ describe('DiagramQuotaService', () => {
             DiagramQuotaService.updateOwnerTier(OWNER_ID, 'FREE'),
         ).rejects.toThrow('reconciliation failed');
 
-        expect(User.updateOne).not.toHaveBeenCalled();
+        expect(User.updateOne).toHaveBeenCalledWith(
+            { _id: expect.any(mongoose.Types.ObjectId) },
+            { $set: { subscriptionTier: 'FREE' } },
+        );
     });
 
     it('maps exhausted named quota-slot conflicts to a stable quota error', async () => {

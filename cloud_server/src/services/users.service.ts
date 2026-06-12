@@ -5,7 +5,8 @@ import type { SubscriptionTier } from '../models/User';
 import { EdgeServer } from '../models/EdgeServer';
 import { Diagram } from '../models/Diagram';
 import { AppError } from '../api/middlewares/error.middleware';
-import { DiagramQuotaService } from './diagram-quota.service';
+import { DiagramQuotaService, ownerMutationLeaseKey } from './diagram-quota.service';
+import { MutationLeaseService } from './mutation-lease.service';
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -25,14 +26,17 @@ function toObjectId(id: string, label: string): mongoose.Types.ObjectId {
  * Throws 404 if the user document is not found.
  */
 async function deleteOwnAccount(userId: string): Promise<void> {
-    const result = await User.updateOne(
-        { _id: userId, isDeleted: { $ne: true } },
-        { $set: { isDeleted: true } },
-    );
+    const id = toObjectId(userId, 'userId');
+    await MutationLeaseService.runWithMutationLeases([ownerMutationLeaseKey(id)], async () => {
+        const result = await User.updateOne(
+            { _id: id, isDeleted: { $ne: true } },
+            { $set: { isDeleted: true } },
+        );
 
-    if (result.matchedCount === 0) {
-        throw new AppError('User not found or already deleted', 404);
-    }
+        if (result.matchedCount === 0) {
+            throw new AppError('User not found or already deleted', 404);
+        }
+    });
 }
 
 // ── US6 — Admin: User Management ─────────────────────────────────────────
@@ -127,13 +131,15 @@ async function updateUserTier(targetUserId: string, tier: SubscriptionTier): Pro
  */
 async function updateUserStatus(targetUserId: string, isBanned: boolean): Promise<void> {
     const id = toObjectId(targetUserId, 'userId');
-    const result = await User.updateOne(
-        { _id: id, isDeleted: { $ne: true } },
-        { $set: { isBanned } },
-    );
-    if (result.matchedCount === 0) {
-        throw new AppError('User not found', 404);
-    }
+    await MutationLeaseService.runWithMutationLeases([ownerMutationLeaseKey(id)], async () => {
+        const result = await User.updateOne(
+            { _id: id, isDeleted: { $ne: true } },
+            { $set: { isBanned } },
+        );
+        if (result.matchedCount === 0) {
+            throw new AppError('User not found', 404);
+        }
+    });
 }
 
 // ── US6 — User: Profile Stats & Password ──────────────────────────────────

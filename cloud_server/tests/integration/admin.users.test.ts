@@ -13,6 +13,7 @@ import { User } from '../../src/models/User';
 import { Diagram } from '../../src/models/Diagram';
 import { AuthService } from '../../src/services/auth.service';
 import { DiagramQuotaService } from '../../src/services/diagram-quota.service';
+import { MutationLeaseService } from '../../src/services/mutation-lease.service';
 
 // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -194,17 +195,21 @@ describe('T048 — Admin User Management', () => {
             expect(await Diagram.countDocuments({ ownerId: userId })).toBe(5);
         });
 
-        it('waits for an active create before starting tier reconciliation', async () => {
-            await User.updateOne(
-                { _id: userId },
-                {
-                    $set: {
-                        subscriptionTier: 'PRO',
-                        diagramQuotaActiveCreates: 1,
-                        diagramQuotaMutationPending: false,
-                    },
-                },
-            );
+        it('waits for the owner lease before starting tier reconciliation', async () => {
+            await User.updateOne({ _id: userId }, { $set: { subscriptionTier: 'PRO' } });
+            let release!: () => void;
+            let acquired!: () => void;
+            const releasePromise = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const acquiredPromise = new Promise<void>((resolve) => {
+                acquired = resolve;
+            });
+            const holder = MutationLeaseService.runWithMutationLeases([`user:${userId}`], async () => {
+                acquired();
+                await releasePromise;
+            });
+            await acquiredPromise;
 
             let settled = false;
             const downgrade = request(app)
@@ -219,10 +224,8 @@ describe('T048 — Admin User Management', () => {
             await new Promise((resolve) => setTimeout(resolve, 50));
             expect(settled).toBe(false);
 
-            await User.updateOne(
-                { _id: userId },
-                { $set: { diagramQuotaActiveCreates: 0 } },
-            );
+            release();
+            await holder;
 
             const response = await downgrade;
             expect(response.status).toBe(200);

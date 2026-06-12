@@ -16,6 +16,7 @@ import { User } from '../../src/models/User';
 import { Diagram } from '../../src/models/Diagram';
 import { DiagramBindings } from '../../src/models/DiagramBindings';
 import { AuthService } from '../../src/services/auth.service';
+import { MutationLeaseService } from '../../src/services/mutation-lease.service';
 
 // ── Test state ────────────────────────────────────────────────────────────
 
@@ -159,24 +160,37 @@ describe('Persisted quota identity and slot release', () => {
         expect(await Diagram.countDocuments({ ownerId: userId })).toBe(3);
     });
 
-    it('does not start creation while owner quota reconciliation is pending', async () => {
-        await User.updateOne(
-            { _id: userId },
-            { $set: { diagramQuotaMutationPending: true } },
-        );
+    it('waits for the owner lease before starting creation', async () => {
+        let release!: () => void;
+        let acquired!: () => void;
+        const releasePromise = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const acquiredPromise = new Promise<void>((resolve) => {
+            acquired = resolve;
+        });
+        const holder = MutationLeaseService.runWithMutationLeases([`user:${userId}`], async () => {
+            acquired();
+            await releasePromise;
+        });
+        await acquiredPromise;
 
-        const response = await request(app)
+        let settled = false;
+        const responsePromise = request(app)
             .post('/api/diagrams')
             .set('Authorization', `Bearer ${token}`)
-            .send({ name: 'Blocked by quota mutation', layout: {} });
+            .send({ name: 'Serialized by owner lease', layout: {} })
+            .then((response) => {
+                settled = true;
+                return response;
+            });
 
-        expect(response.status).toBe(409);
-        expect(await Diagram.countDocuments({ ownerId: userId })).toBe(0);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(settled).toBe(false);
 
-        await User.updateOne(
-            { _id: userId },
-            { $set: { diagramQuotaMutationPending: false } },
-        );
+        release();
+        await holder;
+        expect((await responsePromise).status).toBe(201);
     });
 
     it('uses the persisted PRO tier instead of the stale FREE tier in the JWT', async () => {

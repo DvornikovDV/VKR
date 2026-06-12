@@ -1,4 +1,4 @@
-import { http, HttpResponse, type HttpHandler } from 'msw'
+import { http, HttpResponse, type HttpHandler, type JsonBodyType } from 'msw'
 import type { DashboardLayoutDocument } from '@/features/dashboard/model/types'
 import type { Diagram } from '@/shared/api/diagrams'
 import type { UserRow } from '@/shared/api/users'
@@ -68,6 +68,11 @@ export interface UserEdgeCatalogFixture {
   commands: UserEdgeCommandCapabilityFixture[]
 }
 
+export interface UserEdgeCommandResponseFixture {
+  body: JsonBodyType
+  status?: number
+}
+
 export interface AdminEdgeFixture {
   _id: string
   name: string
@@ -117,7 +122,7 @@ export interface AdminDiagramAssignmentFixtures {
 export interface UserEdgeConsumerFixtures {
   assignedEdges: DashboardEdgeFixture[]
   catalogByEdgeId: Record<string, UserEdgeCatalogFixture>
-  commandResponsesByEdgeId?: Record<string, any>
+  commandResponsesByEdgeId?: Record<string, UserEdgeCommandResponseFixture>
 }
 
 function createDefaultDashboardRestFixtures(): DashboardRestFixtures {

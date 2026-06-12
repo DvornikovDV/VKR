@@ -2,6 +2,7 @@ import mongoose, { type Types } from 'mongoose';
 import { AppError } from '../api/middlewares/error.middleware';
 import { Diagram, type DiagramLayout, type IDiagram } from '../models/Diagram';
 import { User, type SubscriptionTier, type UserRole } from '../models/User';
+import { MutationLeaseService } from './mutation-lease.service';
 
 export const FREE_DIAGRAM_QUOTA = 3;
 export const DIAGRAM_QUOTA_EXCEEDED = `FREE tier diagram quota (${FREE_DIAGRAM_QUOTA}) exceeded`;
@@ -12,9 +13,6 @@ const SOURCE_TEMPLATE_INDEX = 'uniq_diagram_owner_source_template';
 const QUOTA_SLOT_INDEX = 'uniq_diagram_owner_quota_slot';
 const FREE_QUOTA_SLOTS = [1, 2, 3] as const;
 const RECONCILIATION_ATTEMPTS = 3;
-const MUTATION_WAIT_ATTEMPTS = 500;
-const MUTATION_WAIT_MS = 10;
-const QUOTA_MUTATION_IN_PROGRESS = 'Diagram quota reconciliation is in progress';
 
 export interface QuotaAwareDiagramPayload {
     name: string;
@@ -53,10 +51,6 @@ function isDuplicateKeyError(error: unknown): error is DuplicateKeyError {
 
 function conflictsWithIndex(error: DuplicateKeyError, indexName: string, key: string): boolean {
     return error.message?.includes(indexName) === true || error.keyPattern?.[key] === 1;
-}
-
-function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function createPayload(
@@ -146,22 +140,23 @@ async function createDiagramForOwner(
     }
 }
 
-async function beginOwnerCreate(
+export function ownerMutationLeaseKey(ownerId: string | Types.ObjectId): string {
+    return `user:${toOwnerId(ownerId).toString()}`;
+}
+
+async function readPersistedOwner(
     ownerId: Types.ObjectId,
     requiredRole?: UserRole,
 ): Promise<QuotaOwnerSnapshot> {
-    const owner = await User.findOneAndUpdate(
+    const owner = await User.findOne(
         {
             _id: ownerId,
             isDeleted: { $ne: true },
             isBanned: { $ne: true },
             ...(requiredRole ? { role: requiredRole } : {}),
-            diagramQuotaMutationPending: { $ne: true },
         },
-        { $inc: { diagramQuotaActiveCreates: 1 } },
-        { new: true },
     )
-        .select('+diagramQuotaMutationPending +diagramQuotaActiveCreates role subscriptionTier')
+        .select('role subscriptionTier')
         .lean()
         .exec();
 
@@ -170,7 +165,7 @@ async function beginOwnerCreate(
     }
 
     const existing = await User.findById(ownerId)
-        .select('+diagramQuotaMutationPending role isDeleted isBanned')
+        .select('role isDeleted isBanned')
         .lean()
         .exec();
 
@@ -186,14 +181,17 @@ async function beginOwnerCreate(
     if (existing.isDeleted || existing.isBanned) {
         throw new AppError('User not found', 404);
     }
-    throw new AppError(QUOTA_MUTATION_IN_PROGRESS, 409);
+    throw new AppError('User not found', 404);
 }
 
-async function endOwnerCreate(ownerId: Types.ObjectId): Promise<void> {
-    await User.updateOne(
-        { _id: ownerId, diagramQuotaActiveCreates: { $gt: 0 } },
-        { $inc: { diagramQuotaActiveCreates: -1 } },
-    ).exec();
+async function createForPersistedOwnerLocked(
+    ownerIdValue: string | Types.ObjectId,
+    payload: QuotaAwareDiagramPayload,
+    requiredRole?: UserRole,
+): Promise<IDiagram> {
+    const ownerId = toOwnerId(ownerIdValue);
+    const owner = await readPersistedOwner(ownerId, requiredRole);
+    return createDiagramForOwner(ownerId, owner.role, owner.subscriptionTier, payload);
 }
 
 async function createForPersistedOwner(
@@ -201,14 +199,10 @@ async function createForPersistedOwner(
     payload: QuotaAwareDiagramPayload,
     requiredRole?: UserRole,
 ): Promise<IDiagram> {
-    const ownerId = toOwnerId(ownerIdValue);
-    const owner = await beginOwnerCreate(ownerId, requiredRole);
-
-    try {
-        return await createDiagramForOwner(ownerId, owner.role, owner.subscriptionTier, payload);
-    } finally {
-        await endOwnerCreate(ownerId);
-    }
+    return MutationLeaseService.runWithMutationLeases(
+        [ownerMutationLeaseKey(ownerIdValue)],
+        () => createForPersistedOwnerLocked(ownerIdValue, payload, requiredRole),
+    );
 }
 
 async function createDiagram(
@@ -264,65 +258,31 @@ async function reconcileOwnerQuotaSlotsLocked(
     }
 }
 
-async function acquireOwnerMutation(ownerId: Types.ObjectId): Promise<QuotaOwnerSnapshot> {
-    for (let attempt = 0; attempt < MUTATION_WAIT_ATTEMPTS; attempt += 1) {
-        const owner = await User.findOneAndUpdate(
-            {
-                _id: ownerId,
-                isDeleted: { $ne: true },
-                diagramQuotaMutationPending: { $ne: true },
-                diagramQuotaActiveCreates: 0,
-            },
-            { $set: { diagramQuotaMutationPending: true } },
-            { new: true },
-        )
-            .select('+diagramQuotaMutationPending +diagramQuotaActiveCreates role subscriptionTier')
-            .lean()
-            .exec();
-
-        if (owner) {
-            return owner;
-        }
-
-        const existing = await User.findById(ownerId)
-            .select('+diagramQuotaMutationPending +diagramQuotaActiveCreates')
-            .lean()
-            .exec();
-        if (!existing) {
-            throw new AppError('User not found', 404);
-        }
-        if (existing.diagramQuotaMutationPending) {
-            throw new AppError(QUOTA_MUTATION_IN_PROGRESS, 409);
-        }
-        await sleep(MUTATION_WAIT_MS);
-    }
-
-    throw new AppError(QUOTA_MUTATION_IN_PROGRESS, 409);
-}
-
-async function releaseOwnerMutation(ownerId: Types.ObjectId): Promise<void> {
-    await User.updateOne(
-        { _id: ownerId },
-        { $set: { diagramQuotaMutationPending: false } },
-    ).exec();
-}
-
 async function runWithOwnerQuotaMutation<T>(
     ownerIdValue: string | Types.ObjectId,
     operation: (owner: QuotaOwnerSnapshot) => Promise<T>,
 ): Promise<T> {
     const ownerId = toOwnerId(ownerIdValue);
-    const owner = await acquireOwnerMutation(ownerId);
-    try {
-        const result = await operation(owner);
-        await releaseOwnerMutation(ownerId);
-        return result;
-    } catch (error) {
-        if (error instanceof AppError && error.statusCode === 404) {
-            await releaseOwnerMutation(ownerId);
-        }
-        throw error;
+    return MutationLeaseService.runWithMutationLeases(
+        [ownerMutationLeaseKey(ownerId)],
+        async () => {
+            const owner = await readOwnerQuotaSnapshotLocked(ownerId);
+            return operation(owner);
+        },
+    );
+}
+
+async function readOwnerQuotaSnapshotLocked(
+    ownerIdValue: string | Types.ObjectId,
+): Promise<QuotaOwnerSnapshot> {
+    const owner = await User.findById(toOwnerId(ownerIdValue))
+        .select('role subscriptionTier')
+        .lean()
+        .exec();
+    if (!owner) {
+        throw new AppError('User not found', 404);
     }
+    return owner;
 }
 
 async function reconcileOwnerQuotaSlots(ownerIdValue: string | Types.ObjectId): Promise<void> {
@@ -336,63 +296,57 @@ async function updateOwnerTier(
     subscriptionTier: SubscriptionTier,
 ): Promise<void> {
     const ownerId = toOwnerId(ownerIdValue);
-    const owner = await acquireOwnerMutation(ownerId);
-
-    await reconcileOwnerQuotaSlotsLocked(ownerId, owner.role, subscriptionTier);
-    const result = await User.updateOne(
-        { _id: ownerId, diagramQuotaMutationPending: true },
-        {
-            $set: {
-                subscriptionTier,
-                diagramQuotaMutationPending: false,
-            },
-        },
-    ).exec();
-    if (result.matchedCount !== 1) {
-        throw new AppError(QUOTA_MUTATION_IN_PROGRESS, 409);
-    }
+    await runWithOwnerQuotaMutation(ownerId, async (owner) => {
+        const result = await User.updateOne(
+            { _id: ownerId },
+            { $set: { subscriptionTier } },
+        ).exec();
+        if (result.matchedCount !== 1) {
+            throw new AppError('User not found', 404);
+        }
+        await reconcileOwnerQuotaSlotsLocked(ownerId, owner.role, subscriptionTier);
+    });
 }
 
 async function reconcileAllQuotaSlots(): Promise<DiagramQuotaMigrationResult> {
-    await User.updateMany(
-        {},
-        {
-            $set: {
-                diagramQuotaMutationPending: true,
-                diagramQuotaActiveCreates: 0,
-            },
-        },
-    ).exec();
-    const clearResult = await Diagram.updateMany(
-        { quotaSlot: { $exists: true } },
-        { $unset: { quotaSlot: 1 } },
-        { timestamps: false },
-    ).exec();
-    const owners = await User.find({})
-        .select('_id role subscriptionTier')
-        .lean()
-        .exec();
+    const ownerIds = await User.find({}).select('_id').lean().exec();
+    let slotsCleared = 0;
+    let freeOwnersReconciled = 0;
 
-    for (const owner of owners) {
-        await reconcileOwnerQuotaSlotsLocked(owner._id, owner.role, owner.subscriptionTier);
+    for (const owner of ownerIds) {
+        await MutationLeaseService.runWithMutationLeases(
+            [ownerMutationLeaseKey(owner._id)],
+            async () => {
+                const currentOwner = await readOwnerQuotaSnapshotLocked(owner._id);
+                const clearResult = await Diagram.updateMany(
+                    { ownerId: owner._id, quotaSlot: { $exists: true } },
+                    { $unset: { quotaSlot: 1 } },
+                    { timestamps: false },
+                ).exec();
+                slotsCleared += clearResult.modifiedCount;
+                await reconcileOwnerQuotaSlotsLocked(
+                    owner._id,
+                    currentOwner.role,
+                    currentOwner.subscriptionTier,
+                );
+                if (currentOwner.role === 'USER' && currentOwner.subscriptionTier === 'FREE') {
+                    freeOwnersReconciled += 1;
+                }
+            },
+        );
     }
 
-    await User.updateMany(
-        {},
-        { $set: { diagramQuotaMutationPending: false } },
-    ).exec();
-
     return {
-        freeOwnersReconciled: owners.filter(
-            (owner) => owner.role === 'USER' && owner.subscriptionTier === 'FREE',
-        ).length,
-        slotsCleared: clearResult.modifiedCount,
+        freeOwnersReconciled,
+        slotsCleared,
     };
 }
 
 export const DiagramQuotaService = {
     createDiagram,
     createForPersistedOwner,
+    createForPersistedOwnerLocked,
+    readOwnerQuotaSnapshotLocked,
     runWithOwnerQuotaMutation,
     reconcileOwnerQuotaSlotsLocked,
     reconcileOwnerQuotaSlots,
