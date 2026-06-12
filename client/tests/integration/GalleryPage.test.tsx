@@ -95,6 +95,71 @@ describe('GalleryPage', () => {
     expect(screen.getByRole('button', { name: 'Создать мнемосхему' })).toBeEnabled()
   })
 
+  it('loads an assigned copy through the owned-diagram path without consulting its source template bindings', async () => {
+    const template = {
+      _id: 'admin-template',
+      name: 'Admin Boiler Template',
+      ownerId: 'admin-1',
+      layout: { widgets: [{ id: 'template-widget' }] },
+      __v: 4,
+      updatedAt: '2026-04-20T08:00:00.000Z',
+    }
+    const assignedCopy = {
+      _id: 'assigned-copy',
+      name: template.name,
+      ownerId: freeSession.id,
+      sourceTemplateId: template._id,
+      layout: structuredClone(template.layout),
+      __v: 0,
+      updatedAt: '2026-04-20T09:00:00.000Z',
+    }
+    const ownedDiagramRequests: string[] = []
+    const bindingRequests: string[] = []
+    const sourceTemplateRequests: string[] = []
+
+    server.use(
+      http.get('/api/diagrams', ({ request }) => {
+        ownedDiagramRequests.push(request.headers.get('Authorization') ?? '')
+        return HttpResponse.json({ status: 'success', data: [assignedCopy] })
+      }),
+      http.get('/api/edge-servers', () =>
+        HttpResponse.json({
+          status: 'success',
+          data: [],
+        }),
+      ),
+      http.get('/api/diagrams/:id/bindings', ({ params }) => {
+        const diagramId = String(params.id)
+        bindingRequests.push(diagramId)
+        if (diagramId === template._id) {
+          sourceTemplateRequests.push(diagramId)
+          return HttpResponse.json({
+            status: 'success',
+            data: [
+              {
+                _id: 'admin-template-binding',
+                diagramId: template._id,
+                edgeServerId: 'admin-edge',
+                widgetBindings: [],
+              },
+            ],
+          })
+        }
+
+        return HttpResponse.json({ status: 'success', data: [] })
+      }),
+    )
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(ownedDiagramRequests).toEqual(['Bearer free-token'])
+      expect(bindingRequests).toEqual([assignedCopy._id])
+    })
+
+    expect(sourceTemplateRequests).toEqual([])
+  })
+
   it('blocks create CTA when FREE tier already has 3 diagrams', async () => {
     server.use(
       http.get('/api/diagrams', () =>

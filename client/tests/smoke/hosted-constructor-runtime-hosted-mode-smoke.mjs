@@ -43,8 +43,10 @@ const hostedControllerContext = {
       metrics: [{ key: 'temperature', label: 'temperature' }],
     },
   ],
-  bindingsManager: { allDevices: [] },
+  hostedCommandCatalog: [],
+  bindingsManager: new BindingsManager([]),
   mapHostedCatalogToBindingsDevices: UIController.prototype.mapHostedCatalogToBindingsDevices,
+  mapHostedCommandCatalogToOptions: UIController.prototype.mapHostedCommandCatalogToOptions,
 }
 
 await UIController.prototype.loadDevicesRegistry.call(hostedControllerContext)
@@ -64,11 +66,13 @@ const updateCatalogContext = {
   _destroyed: false,
   hostedMachines: [],
   hostedDeviceCatalog: [],
+  hostedCommandCatalog: [],
   bindingsManager: scopedBindingsManager,
   isBindingsEnabled() {
     return true
   },
   mapHostedCatalogToBindingsDevices: UIController.prototype.mapHostedCatalogToBindingsDevices,
+  mapHostedCommandCatalogToOptions: UIController.prototype.mapHostedCommandCatalogToOptions,
   renderMachineOptions() {},
 }
 

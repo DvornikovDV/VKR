@@ -72,6 +72,10 @@ paths:
     get:
       operationId: getAdminUsers
       summary: Get paginated list of all users (Admin only)
+      description: >
+        Supports server-side filtering before pagination. Diagram assignment
+        selectors use `role=USER` and `activeOnly=true` as guidance; Cloud
+        revalidates target eligibility and quota when assignment is submitted.
       security:
         - bearerAuth: []
       parameters:
@@ -87,6 +91,15 @@ paths:
           in: query
           schema:
             type: integer
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [ADMIN, USER]
+        - name: activeOnly
+          in: query
+          schema:
+            type: boolean
       responses:
         '200':
           description: Paginated users array
@@ -315,6 +328,12 @@ paths:
           description: Unauthorized
     post:
       operationId: createDiagram
+      description: >
+        Creates a diagram for the authenticated owner. ADMIN-created diagrams
+        are retained assignable templates and do not consume USER FREE quota.
+        USER FREE creation uses atomic slots 1..3 protected by the named
+        partial unique index `uniq_diagram_owner_quota_slot`. Ordinary create
+        and Save As records have no `sourceTemplateId`.
       summary: Create a new mnemonic diagram ("Save As" — always creates new _id)
       security:
         - bearerAuth: []
@@ -339,7 +358,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JSendSuccess'
+                $ref: '#/components/schemas/DiagramSuccessResponse'
         '400':
           description: Invalid input
         '401':
@@ -454,7 +473,18 @@ paths:
   /api/diagrams/{id}/assign:
     post:
       operationId: assignDiagram
-      summary: Assign own diagram to another user (Admin only)
+      summary: Create an independent User-owned copy from an Admin template
+      description: >
+        Admin-only assignment copies the latest persisted template name and
+        layout into a new binding-free diagram owned by the target active USER.
+        The source Admin template retains its owner and remains available for
+        editing and later assignments. The copy stores `sourceTemplateId` as
+        provenance only; later template edits or deletion do not synchronize,
+        delete, or invalidate the copy. Target eligibility and current quota
+        are revalidated by Cloud. Duplicate provenance is prevented by named
+        partial unique index `uniq_diagram_owner_source_template`; FREE quota
+        allocation uses named partial unique index
+        `uniq_diagram_owner_quota_slot`.
       security:
         - bearerAuth: []
       parameters:
@@ -476,19 +506,21 @@ paths:
                   type: string
       responses:
         '200':
-          description: Diagram ownership transferred
+          description: Independent User-owned diagram copy created; Admin template retained
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JSendSuccess'
+                $ref: '#/components/schemas/DiagramSuccessResponse'
         '400':
           description: Invalid input
         '401':
           description: Unauthorized
         '403':
-          description: Admin does not own this diagram
+          description: Admin does not own this template, target is ineligible, or target FREE quota is full
         '404':
-          description: Not found
+          description: Target user not found
+        '409':
+          description: Template is already assigned to this User or quota reconciliation is in progress
 
   /api/diagrams/{id}/bindings:
     get:
@@ -1368,6 +1400,62 @@ paths:
 
 components:
   schemas:
+    Diagram:
+      type: object
+      required:
+        - _id
+        - ownerId
+        - name
+        - layout
+        - __v
+      properties:
+        _id:
+          type: string
+          description: Unique diagram identifier
+        ownerId:
+          type: string
+          description: Sole owner of this diagram record
+        sourceTemplateId:
+          type: string
+          nullable: true
+          description: >
+            Assignment provenance for an independent User copy. Null or absent
+            for Admin templates, ordinary User creation, and Save As. This is
+            not a live synchronization dependency.
+        quotaSlot:
+          type: integer
+          nullable: true
+          enum: [1, 2, 3]
+          readOnly: true
+          description: >
+            Internal atomic FREE USER quota slot protected by named partial
+            unique index `uniq_diagram_owner_quota_slot`; absent for ADMIN and
+            PRO-owned diagrams.
+        name:
+          type: string
+        layout:
+          type: object
+          description: Visual geometry only; assignment copies no binding profiles
+        __v:
+          type: integer
+          description: OCC version key
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DiagramSuccessResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          enum: [success]
+        data:
+          $ref: '#/components/schemas/Diagram'
     CommandSuccessResponse:
       type: object
       required:
