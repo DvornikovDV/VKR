@@ -175,6 +175,10 @@ export function getMappedKnownErrorMessage(message: string): string | null {
     return API_ERROR_CODE_MESSAGES.version_conflict
   }
 
+  if (normalized.includes('diagram template is already assigned to this user')) {
+    return 'Эта мнемосхема уже назначена выбранному пользователю.'
+  }
+
   if (normalized.includes('request body is too large')) {
     return API_ERROR_STATUS_MESSAGES[413]
   }

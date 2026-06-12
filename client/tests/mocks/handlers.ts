@@ -413,6 +413,21 @@ export function createAdminDiagramAssignmentHandlers(
         data: fixtures.adminTemplates,
       }),
     ),
+    http.delete('/api/diagrams/:id', ({ params }) => {
+      const templateIndex = fixtures.adminTemplates.findIndex(
+        (diagram) => diagram._id === String(params.id),
+      )
+
+      if (templateIndex === -1) {
+        return HttpResponse.json(
+          { status: 'error', message: 'Diagram not found' },
+          { status: 404 },
+        )
+      }
+
+      fixtures.adminTemplates.splice(templateIndex, 1)
+      return new HttpResponse(null, { status: 204 })
+    }),
     http.get('/api/admin/users', ({ request }) => {
       const url = new URL(request.url)
       fixtures.userListRequests?.push(url.search)
@@ -460,6 +475,18 @@ export function createAdminDiagramAssignmentHandlers(
         return HttpResponse.json(
           { status: 'error', message: 'Target user quota is full' },
           { status: 403 },
+        )
+      }
+
+      const alreadyAssigned = fixtures.assignedCopies.some(
+        (diagram) =>
+          diagram.ownerId === targetUserId &&
+          diagram.sourceTemplateId === templateId,
+      )
+      if (alreadyAssigned) {
+        return HttpResponse.json(
+          { status: 'error', message: 'Diagram template is already assigned to this user' },
+          { status: 409 },
         )
       }
 

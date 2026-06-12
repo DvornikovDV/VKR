@@ -814,6 +814,18 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
     )
 
     await user.click(screen.getByRole('button', { name: 'Назначить пользователю' }))
+    await user.type(screen.getByLabelText('Поиск пользователей для назначения'), 'deep-target')
+    await user.click(screen.getByRole('button', { name: 'Найти' }))
+    await user.selectOptions(await screen.findByLabelText('Пользователь'), 'deep-target')
+    await user.click(screen.getByRole('button', { name: 'Назначить' }))
+
+    expect(
+      await screen.findByText('Эта мнемосхема уже назначена выбранному пользователю.'),
+    ).toBeInTheDocument()
+    expect(fixtures.assignedCopies).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: 'Отмена' }))
+    await user.click(screen.getByRole('button', { name: 'Назначить пользователю' }))
     await user.type(screen.getByLabelText('Поиск пользователей для назначения'), 'stale-full')
     await user.click(screen.getByRole('button', { name: 'Найти' }))
     await user.selectOptions(await screen.findByLabelText('Пользователь'), 'stale-full-target')
@@ -827,6 +839,46 @@ describe('Admin Hub routes and pages (canonical edge contract)', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('Reusable Template')).toBeInTheDocument()
     expect(fixtures.assignedCopies).toHaveLength(1)
+  })
+
+  it('deletes an Admin template while retaining an already assigned User copy', async () => {
+    const assignedCopy = {
+      _id: 'assigned-copy-1',
+      name: 'Reusable Template',
+      ownerId: 'user-1',
+      sourceTemplateId: 'template-1',
+      layout: { widgets: [{ id: 'widget-1' }] },
+    }
+    const fixtures = {
+      adminTemplates: [
+        {
+          _id: 'template-1',
+          name: 'Reusable Template',
+          layout: { widgets: [{ id: 'widget-1' }] },
+        },
+      ],
+      candidateUsers: [],
+      assignedCopies: [assignedCopy],
+    }
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    server.use(...createAdminDiagramAssignmentHandlers(fixtures))
+
+    const user = userEvent.setup()
+    renderAdminRoute('/admin/diagrams')
+
+    expect(await screen.findByText('Reusable Template')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Удалить шаблон' }))
+
+    await waitFor(() => {
+      expect(screen.queryByText('Reusable Template')).not.toBeInTheDocument()
+    })
+    expect(fixtures.adminTemplates).toHaveLength(0)
+    expect(fixtures.assignedCopies).toEqual([assignedCopy])
+    expect(confirmSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Ранее назначенные пользователям независимые копии останутся доступны.'),
+    )
+
+    confirmSpy.mockRestore()
   })
 
   it('clears a candidate-loading error after a successful server-backed retry', async () => {

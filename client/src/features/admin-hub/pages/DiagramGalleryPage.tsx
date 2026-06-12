@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Trash2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { isApiError } from '@/shared/api/client'
 import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
 import {
   assignDiagramToUser,
+  deleteDiagram,
   getDiagrams,
   type Diagram,
 } from '@/shared/api/diagrams'
@@ -22,6 +24,8 @@ export function DiagramGalleryPage() {
   const [diagrams, setDiagrams] = useState<Diagram[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [deletingDiagramId, setDeletingDiagramId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const [assignOpen, setAssignOpen] = useState(false)
   const [selectedDiagramId, setSelectedDiagramId] = useState('')
@@ -166,6 +170,31 @@ export function DiagramGalleryPage() {
     }
   }
 
+  async function handleDeleteDiagram(diagram: Diagram) {
+    if (deletingDiagramId) {
+      return
+    }
+
+    const isConfirmed = window.confirm(
+      `Удалить шаблон "${diagram.name}" без возможности восстановления?\n\nРанее назначенные пользователям независимые копии останутся доступны.`,
+    )
+    if (!isConfirmed) {
+      return
+    }
+
+    setDeleteError(null)
+    setDeletingDiagramId(diagram._id)
+
+    try {
+      await deleteDiagram(diagram._id)
+      setDiagrams((current) => current.filter((item) => item._id !== diagram._id))
+    } catch (deleteFailure) {
+      setDeleteError(normalizeError(deleteFailure, 'Не удалось удалить шаблон мнемосхемы.'))
+    } finally {
+      setDeletingDiagramId(null)
+    }
+  }
+
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-6">
       <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
@@ -190,6 +219,12 @@ export function DiagramGalleryPage() {
         </p>
       )}
 
+      {deleteError && (
+        <p className="mb-4 rounded-md border border-[var(--color-danger)]/40 bg-[var(--color-danger)]/10 px-3 py-2 text-sm text-[var(--color-danger)]">
+          {deleteError}
+        </p>
+      )}
+
       {isLoading ? (
         <p className="text-sm text-[#94a3b8]">Загрузка мнемосхем...</p>
       ) : diagrams.length === 0 ? (
@@ -198,35 +233,57 @@ export function DiagramGalleryPage() {
         </p>
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
-          {diagrams.map((diagram) => (
-            <article
-              key={diagram._id}
-              className="rounded-xl border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold text-white">{diagram.name}</h2>
-                  <p className="text-xs text-[#94a3b8]">ID: {diagram._id}</p>
-                </div>
+          {diagrams.map((diagram) => {
+            const isDeleting = deletingDiagramId === diagram._id
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    to={`/admin/editor/${diagram._id}`}
-                    className="rounded-md border border-[var(--color-surface-border)] px-2.5 py-1.5 text-xs text-white hover:bg-[var(--color-surface-200)]"
-                  >
-                    Редактировать
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => openAssignModal(diagram._id)}
-                    className="rounded-md bg-[var(--color-brand-600)] px-2.5 py-1.5 text-xs text-white hover:bg-[var(--color-brand-500)]"
-                  >
-                    Назначить пользователю
-                  </button>
+            return (
+              <article
+                key={diagram._id}
+                className="rounded-xl border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="truncate text-base font-semibold text-white" title={diagram.name}>
+                      {diagram.name}
+                    </h2>
+                    <p className="text-xs text-[#94a3b8]">ID: {diagram._id}</p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Link
+                      to={`/admin/editor/${diagram._id}`}
+                      aria-disabled={isDeleting}
+                      onClick={(event) => {
+                        if (isDeleting) {
+                          event.preventDefault()
+                        }
+                      }}
+                      className="rounded-md border border-[var(--color-surface-border)] px-2.5 py-1.5 text-xs text-white hover:bg-[var(--color-surface-200)] aria-disabled:pointer-events-none aria-disabled:opacity-60"
+                    >
+                      Редактировать
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => openAssignModal(diagram._id)}
+                      disabled={isDeleting}
+                      className="rounded-md bg-[var(--color-brand-600)] px-2.5 py-1.5 text-xs text-white hover:bg-[var(--color-brand-500)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Назначить пользователю
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteDiagram(diagram)}
+                      disabled={Boolean(deletingDiagramId)}
+                      className="inline-flex items-center gap-1 rounded-md border border-[var(--color-danger)]/40 px-2.5 py-1.5 text-xs font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Trash2 size={12} />
+                      {isDeleting ? 'Удаление...' : 'Удалить шаблон'}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            )
+          })}
         </div>
       )}
 

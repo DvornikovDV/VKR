@@ -168,8 +168,8 @@ export function DiagramCard({
 
   return (
     <article className="rounded-xl border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-4">
-      <div className="flex items-center gap-3">
-        <div className="h-16 w-24 overflow-hidden rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)]">
+      <div className="grid grid-cols-[6rem_minmax(0,1fr)] items-stretch gap-3">
+        <div className="row-span-2 min-h-16 overflow-hidden rounded-md border border-[var(--color-surface-border)] bg-[var(--color-surface-200)]">
           {diagram.thumbnailUrl ? (
             <img
               src={diagram.thumbnailUrl}
@@ -183,7 +183,7 @@ export function DiagramCard({
           )}
         </div>
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             {isEditingName ? (
               <input
@@ -211,7 +211,9 @@ export function DiagramCard({
                 aria-label="Название мнемосхемы"
               />
             ) : (
-              <h3 className="truncate text-base font-semibold text-white">{diagram.name}</h3>
+              <h3 className="truncate text-base font-semibold text-white" title={diagram.name}>
+                {diagram.name}
+              </h3>
             )}
 
             {!isEditingName && (
@@ -227,31 +229,34 @@ export function DiagramCard({
               </button>
             )}
           </div>
+        </div>
+
+        <div className="flex min-w-0 flex-wrap items-end justify-between gap-2">
           <p className="text-xs text-[#94a3b8]">
             Профили телеметрии: {diagram.telemetryProfiles.length}
           </p>
-        </div>
 
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={handleEditLayout}
-            disabled={!canEdit}
-            title={!canEdit ? 'Редактирование недоступно из-за лимита мнемосхем' : undefined}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--color-surface-border)] px-2.5 py-1.5 text-xs font-medium text-[#cbd5e1] hover:bg-[var(--color-surface-200)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
-          >
-            <Pencil size={12} />
-            Редактировать схему
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleDeleteDiagram()}
-            disabled={isDeletingDiagram}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--color-danger)]/40 px-2.5 py-1.5 text-xs font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Trash2 size={12} />
-            {isDeletingDiagram ? 'Удаление...' : 'Удалить мнемосхему'}
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={handleEditLayout}
+              disabled={!canEdit}
+              title={!canEdit ? 'Редактирование недоступно из-за лимита мнемосхем' : undefined}
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--color-surface-border)] px-2.5 py-1.5 text-xs font-medium text-[#cbd5e1] hover:bg-[var(--color-surface-200)] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+            >
+              <Pencil size={12} />
+              Редактировать схему
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleDeleteDiagram()}
+              disabled={isDeletingDiagram}
+              className="inline-flex items-center gap-1 rounded-md border border-[var(--color-danger)]/40 px-2.5 py-1.5 text-xs font-medium text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Trash2 size={12} />
+              {isDeletingDiagram ? 'Удаление...' : 'Удалить мнемосхему'}
+            </button>
+          </div>
         </div>
       </div>
 

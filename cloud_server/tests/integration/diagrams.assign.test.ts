@@ -271,7 +271,12 @@ describe('T014-T018 template-copy assignment proof', () => {
         expect(copy?.sourceTemplateId?.toString()).toBe(template._id.toString());
         expect(await DiagramBindings.countDocuments({ diagramId: copy?._id })).toBe(0);
 
-        await Diagram.deleteOne({ _id: template._id });
+        const deleteResponse = await request(app)
+            .delete(`/api/diagrams/${template._id.toString()}`)
+            .set('Authorization', `Bearer ${adminToken}`);
+
+        expect(deleteResponse.status).toBe(204);
+        expect(await Diagram.findById(template._id).lean()).toBeNull();
         expect(await Diagram.findById(copy?._id).lean()).toMatchObject({
             name: 'Latest Persisted Template',
             layout: latestLayout,
