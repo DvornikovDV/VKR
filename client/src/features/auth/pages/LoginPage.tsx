@@ -8,6 +8,7 @@ import { clsx } from 'clsx'
 import { useAuthStore } from '@/shared/store/useAuthStore'
 import { useLogin } from '@/features/auth/hooks/useLogin'
 import { ruUiText } from '@/shared/i18n'
+import { SupportLink } from '@/shared/components/SupportLink'
 
 // ── Location state type ────────────────────────────────────────────────────
 interface LocationState {
@@ -179,6 +180,11 @@ function LoginForm() {
                         Зарегистрироваться
                     </Link>
                 </p>
+                <div className="mt-3 text-center text-xs">
+                    <SupportLink className="text-[var(--color-brand-500)] transition-colors hover:text-[var(--color-brand-400)]">
+                        Связаться с поддержкой
+                    </SupportLink>
+                </div>
             </div>
         </div>
     )

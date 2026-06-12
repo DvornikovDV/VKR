@@ -12,6 +12,7 @@ import {
     Check,
 } from 'lucide-react'
 import { ruUiText } from '@/shared/i18n'
+import { SupportLink } from '@/shared/components/SupportLink'
 
 // ── Feature card ──────────────────────────────────────────────────────────
 
@@ -231,8 +232,13 @@ export function LandingPage() {
             </section>
 
             {/* ── Footer ───────────────────────────────────────────────────── */}
-            <footer className="border-t border-[var(--color-surface-border)] px-4 py-8 text-center text-xs text-[#475569]">
-                © 2026 VKR SCADA Platform*
+            <footer className="border-t border-[var(--color-surface-border)] px-4 py-8 text-xs text-[#475569]">
+                <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-4 gap-y-2">
+                    <span>© 2026 VKR SCADA Platform*</span>
+                    <SupportLink className="text-[var(--color-brand-400)] hover:text-[var(--color-brand-300)]">
+                        Связаться с поддержкой
+                    </SupportLink>
+                </div>
             </footer>
         </div>
     )

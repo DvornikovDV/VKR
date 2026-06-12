@@ -7,6 +7,7 @@ import {
 import { useAuthStore } from '@/shared/store/useAuthStore'
 import { ruUiText } from '@/shared/i18n'
 import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
+import { SupportLink } from '@/shared/components/SupportLink'
 
 interface PasswordFormState {
   currentPassword: string
@@ -289,6 +290,28 @@ export function ProfilePage() {
           </form>
         </section>
       </div>
+
+      <section className="mt-6 rounded-2xl border border-[var(--color-surface-border)] bg-[var(--color-surface-100)] p-5">
+        <h2 className="text-lg font-semibold text-white">Поддержка</h2>
+        <p className="mt-1 text-sm text-[#94a3b8]">
+          Напишите в поддержку по общему вопросу или запросите готовую мнемосхему.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <SupportLink
+            userEmail={session?.email}
+            className="rounded-md border border-[var(--color-surface-border)] px-3 py-2 text-sm text-[#cbd5e1] hover:bg-[var(--color-surface-200)]"
+          >
+            Связаться с поддержкой
+          </SupportLink>
+          <SupportLink
+            intent="diagram-request"
+            userEmail={session?.email}
+            className="rounded-md bg-[var(--color-brand-600)] px-3 py-2 text-sm text-white hover:bg-[var(--color-brand-500)]"
+          >
+            Запросить мнемосхему
+          </SupportLink>
+        </div>
+      </section>
     </section>
   )
 }

@@ -24,6 +24,8 @@ import {
   getDispatchTabPath,
 } from '@/features/dispatch/model/routes'
 import { getErrorDisplayMessage } from '@/shared/api/errorMessages'
+import { SupportLink } from '@/shared/components/SupportLink'
+import { useAuthStore } from '@/shared/store/useAuthStore'
 
 interface DiagramCardState extends DiagramCardModel {
   updatedAt: string
@@ -51,6 +53,7 @@ function toErrorMessage(error: unknown, fallback: string): string {
 
 export function GalleryPage() {
   const navigate = useNavigate()
+  const session = useAuthStore((state) => state.session)
   const [cards, setCards] = useState<DiagramCardState[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isCreating, setIsCreating] = useState(false)
@@ -233,14 +236,23 @@ export function GalleryPage() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => void handleCreateDiagram()}
-          disabled={isCreateDisabled}
-          className="rounded-md bg-[var(--color-brand-600)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--color-brand-500)] disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {isCreating ? 'Создание...' : 'Создать мнемосхему'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <SupportLink
+            intent="diagram-request"
+            userEmail={session?.email}
+            className="rounded-md border border-[var(--color-surface-border)] px-4 py-2 text-sm font-medium text-[#cbd5e1] hover:bg-[var(--color-surface-200)]"
+          >
+            Запросить мнемосхему
+          </SupportLink>
+          <button
+            type="button"
+            onClick={() => void handleCreateDiagram()}
+            disabled={isCreateDisabled}
+            className="rounded-md bg-[var(--color-brand-600)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--color-brand-500)] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isCreating ? 'Создание...' : 'Создать мнемосхему'}
+          </button>
+        </div>
       </div>
 
       {!canCreate() && (
