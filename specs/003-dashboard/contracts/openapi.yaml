@@ -1,0 +1,369 @@
+openapi: 3.1.0
+info:
+  title: Dashboard SPA Monitoring Contract Subset
+  version: 1.0.0
+  description: >-
+    Existing cloud read contracts consumed by the SPA-native Dashboard feature in client.
+    This feature adds no new backend endpoints for MVP; it consumes the saved diagram,
+    saved visual diagram layout, saved binding-profile, and trusted-edge read APIs already
+    exposed by cloud_server.
+servers:
+  - url: /api
+paths:
+  /diagrams:
+    get:
+      operationId: listDashboardDiagrams
+      summary: List diagrams accessible to the authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Diagram summaries owned by the current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagramListResponse'
+        '401':
+          description: Authentication required
+  /diagrams/{diagramId}:
+    get:
+      operationId: getDashboardDiagram
+      summary: Load the last saved diagram revision for visual runtime rendering
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DiagramId'
+      responses:
+        '200':
+          description: Saved visual diagram runtime document
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagramResponse'
+        '401':
+          description: Authentication required
+        '404':
+          description: Diagram not found or inaccessible
+  /diagrams/{diagramId}/bindings:
+    get:
+      operationId: listDashboardBindingProfiles
+      summary: Load all saved binding profiles for one diagram
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DiagramId'
+      responses:
+        '200':
+          description: Saved binding profiles for the diagram
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BindingProfileListResponse'
+        '401':
+          description: Authentication required
+        '403':
+          description: Dashboard access is restricted to USER role
+        '404':
+          description: Diagram not found or inaccessible
+  /edge-servers:
+    get:
+      operationId: listTrustedDashboardEdges
+      summary: List edge servers trusted for the authenticated user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Trusted edge servers that may participate in Dashboard selection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrustedEdgeListResponse'
+        '401':
+          description: Authentication required
+        '403':
+          description: Dashboard access is restricted to USER role
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    DiagramId:
+      name: diagramId
+      in: path
+      required: true
+      schema:
+        type: string
+  schemas:
+    JSendEnvelope:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          enum: [success]
+        data: {}
+    DiagramSummary:
+      type: object
+      required:
+        - _id
+        - name
+        - layout
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        layout:
+          $ref: '#/components/schemas/DiagramLayout'
+        __v:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DiagramResponse:
+      allOf:
+        - $ref: '#/components/schemas/JSendEnvelope'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/DiagramSummary'
+    DiagramListResponse:
+      allOf:
+        - $ref: '#/components/schemas/JSendEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/DiagramSummary'
+    DiagramLayout:
+      type: object
+      description: >-
+        Saved visual mnemonic diagram layout authored by Constructor and consumed by Dashboard
+        as the visual runtime contract.
+      properties:
+        images:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiagramImage'
+        connectionPoints:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConnectionPoint'
+        connections:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiagramConnection'
+        widgets:
+          type: array
+          items:
+            $ref: '#/components/schemas/DiagramWidgetVisual'
+      additionalProperties: true
+    DiagramImage:
+      type: object
+      required:
+        - imageId
+        - base64
+      properties:
+        imageId:
+          type: string
+        base64:
+          type: string
+          description: Saved image data URL
+        x:
+          type: number
+        y:
+          type: number
+        width:
+          type: number
+        height:
+          type: number
+        scaleX:
+          type: number
+        scaleY:
+          type: number
+      additionalProperties: true
+    ConnectionPoint:
+      type: object
+      required:
+        - id
+        - imageId
+      properties:
+        id:
+          type: string
+        side:
+          type: string
+          enum: [top, right, bottom, left]
+        offset:
+          type: number
+          minimum: 0
+          maximum: 1
+        imageId:
+          type: string
+      additionalProperties: true
+    DiagramConnection:
+      type: object
+      required:
+        - id
+        - fromPinId
+        - toPinId
+      properties:
+        id:
+          type: string
+        fromPinId:
+          type: string
+        toPinId:
+          type: string
+        segments:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        userModified:
+          type: boolean
+      additionalProperties: true
+    DiagramWidgetVisual:
+      type: object
+      required:
+        - id
+        - type
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        imageId:
+          type: string
+        x:
+          type: number
+        y:
+          type: number
+        width:
+          type: number
+        height:
+          type: number
+        relativeX:
+          type: number
+        relativeY:
+          type: number
+        fontSize:
+          type: number
+        color:
+          type: string
+        backgroundColor:
+          type: string
+        borderColor:
+          type: string
+        bindingId:
+          type:
+            - string
+            - 'null'
+        binding:
+          type:
+            - object
+            - 'null'
+          additionalProperties: true
+        bindingMetric:
+          type:
+            - string
+            - 'null'
+      additionalProperties: true
+    WidgetBinding:
+      type: object
+      required:
+        - widgetId
+        - deviceId
+        - metric
+      properties:
+        widgetId:
+          type: string
+        deviceId:
+          type: string
+        metric:
+          type: string
+    DiagramBindingProfile:
+      type: object
+      required:
+        - _id
+        - diagramId
+        - edgeServerId
+        - widgetBindings
+      properties:
+        _id:
+          type: string
+        diagramId:
+          type: string
+        edgeServerId:
+          type: string
+        widgetBindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/WidgetBinding'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    BindingProfileListResponse:
+      allOf:
+        - $ref: '#/components/schemas/JSendEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/DiagramBindingProfile'
+    TrustedEdgeServer:
+      type: object
+      required:
+        - _id
+        - name
+        - lifecycleState
+        - isTelemetryReady
+        - availability
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        lifecycleState:
+          type: string
+          enum: [Active]
+        isTelemetryReady:
+          type: boolean
+          enum: [true]
+        availability:
+          $ref: '#/components/schemas/EdgeAvailabilitySnapshot'
+        createdAt:
+          type: string
+          format: date-time
+    EdgeAvailabilitySnapshot:
+      type: object
+      required:
+        - online
+        - lastSeenAt
+      properties:
+        online:
+          type: boolean
+        lastSeenAt:
+          type:
+            - string
+            - 'null'
+          format: date-time
+    TrustedEdgeListResponse:
+      allOf:
+        - $ref: '#/components/schemas/JSendEnvelope'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/TrustedEdgeServer'
