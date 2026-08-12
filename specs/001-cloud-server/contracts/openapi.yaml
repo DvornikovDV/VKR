@@ -1,0 +1,2190 @@
+openapi: 3.0.3
+info:
+  title: VKR SCADA Cloud Server API
+  description: Central Platform for Managing Diagrams, Telemetry Routing, and User Sessions.
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: /
+    description: Current API server
+
+paths:
+  /api/auth/register:
+    post:
+      operationId: registerUser
+      summary: Register a new user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccess'
+        '400':
+          description: Invalid input
+
+  /api/auth/login:
+    post:
+      operationId: loginUser
+      summary: Login user
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccess'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+
+  /api/admin/users:
+    get:
+      operationId: getAdminUsers
+      summary: Get paginated list of all users (Admin only)
+      description: >
+        Supports server-side filtering before pagination. Diagram assignment
+        selectors use `role=USER` and `activeOnly=true` as guidance; Cloud
+        revalidates target eligibility and quota when assignment is submitted.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [ADMIN, USER]
+        - name: activeOnly
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Paginated users array
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  total:
+                    type: integer
+                  data:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+  
+  /api/admin/users/{id}/tier:
+    patch:
+      operationId: updateAdminUserTier
+      summary: Update user subscription tier (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tier:
+                  type: string
+                  enum: [FREE, PRO]
+      responses:
+        '200':
+          description: Tier updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JSendSuccess'
+        '400':
+          description: Invalid tier
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /api/admin/users/{id}/status:
+    patch:
+      operationId: updateAdminUserStatus
+      summary: Update user banned status (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                isBanned:
+                  type: boolean
+      responses:
+        '200':
+          description: Ban status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JSendSuccess'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /api/admin/edge-servers:
+    get:
+      operationId: getAdminEdgeServers
+      summary: List all edge servers globally (Admin only)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Array of all edge servers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminEdgeServerRecord'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /api/telemetry/historic:
+    get:
+      operationId: getHistoricTelemetry
+      summary: Get bounded historical numeric telemetry aggregates for a trusted Edge Server
+      description: >
+        Returns Cloud-owned aggregate points for one Edge/device/metric inside
+        the 7-day telemetry retention window. The requesting USER must be in
+        `EdgeServer.trustedUsers` for the requested `edgeId`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the target Edge Server
+        - name: deviceId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Edge-local device identifier
+        - name: metric
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Numeric telemetry metric identifier
+        - name: date_start
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Inclusive UTC range start inside the telemetry retention window
+        - name: date_end
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date-time
+          description: Exclusive UTC range end inside the telemetry retention window
+        - name: maxPoints
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 300
+          description: Maximum number of aggregate buckets returned
+      responses:
+        '200':
+          description: Historical telemetry aggregate series
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryHistoryResponse'
+        '400':
+          description: Invalid query, invalid date order, retention-window violation, or maxPoints bound violation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - USER is not trusted for this Edge Server or does not have the USER role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Edge Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/diagrams:
+    get:
+      operationId: getUserDiagrams
+      summary: Get all diagrams owned by user
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Array of Mnemonic Diagrams
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: array
+                    items:
+                      type: object
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createDiagram
+      description: >
+        Creates a diagram for the authenticated owner. ADMIN-created diagrams
+        are retained assignable templates and do not consume USER FREE quota.
+        USER FREE creation uses atomic slots 1..3 protected by the named
+        partial unique index `uniq_diagram_owner_quota_slot`. Ordinary create
+        and Save As records have no `sourceTemplateId`.
+      summary: Create a new mnemonic diagram ("Save As" — always creates new _id)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - layout
+              properties:
+                name:
+                  type: string
+                layout:
+                  type: object
+                  description: Visual geometry (images, connectionPoints, connections, widgets). No binding data.
+      responses:
+        '201':
+          description: Returns the created diagram
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagramSuccessResponse'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: FREE user diagram quota (3) exceeded
+          
+  /api/diagrams/{id}:
+    get:
+      operationId: getDiagramById
+      summary: Get diagram by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current version of the diagram
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JSendSuccess'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+    put:
+      operationId: replaceDiagram
+      summary: Save diagram layout in-place ("Save", with OCC)
+      description: >
+        Replaces `layout` and `name`. Existing DiagramBindings are NOT deleted. If bindings exist, response includes `bindingsInvalidated: true`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - __v
+              properties:
+                name:
+                  type: string
+                layout:
+                  type: object
+                  description: Full visual geometry replacement
+                __v:
+                  type: number
+                  description: Expected OCC version key (Mongoose __v)
+      responses:
+        '200':
+          description: Layout replaced successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      bindingsInvalidated:
+                        type: boolean
+                        description: true if DiagramBindings exist and may now reference stale widgetIds
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+        '409':
+          description: Version conflict — another session already updated this diagram
+          
+    delete:
+      operationId: deleteDiagram
+      summary: Hard Delete a Mnemonic Diagram
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Diagram successfully removed
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+
+  /api/diagrams/{id}/assign:
+    post:
+      operationId: assignDiagram
+      summary: Create an independent User-owned copy from an Admin template
+      description: >
+        Admin-only assignment copies the latest persisted template name and
+        layout into a new binding-free diagram owned by the target active USER.
+        The source Admin template retains its owner and remains available for
+        editing and later assignments. The copy stores `sourceTemplateId` as
+        provenance only; later template edits or deletion do not synchronize,
+        delete, or invalidate the copy. Target eligibility and current quota
+        are revalidated by Cloud. Duplicate provenance is prevented by named
+        partial unique index `uniq_diagram_owner_source_template`; FREE quota
+        allocation uses named partial unique index
+        `uniq_diagram_owner_quota_slot`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - targetUserId
+              properties:
+                targetUserId:
+                  type: string
+      responses:
+        '200':
+          description: Independent User-owned diagram copy created; Admin template retained
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagramSuccessResponse'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: Admin does not own this template, target is ineligible, or target FREE quota is full
+        '404':
+          description: Target user not found
+        '409':
+          description: Template is already assigned to this User or quota reconciliation is in progress
+
+  /api/diagrams/{id}/bindings:
+    get:
+      operationId: getDiagramBindings
+      summary: Get all DiagramBindings for a diagram
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Array of DiagramBindings documents
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DiagramBindingProfile'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+    post:
+      operationId: replaceDiagramBindings
+      summary: Create or replace a DiagramBindings set for a given edgeServerId
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - edgeServerId
+                - widgetBindings
+              properties:
+                edgeServerId:
+                  type: string
+                widgetBindings:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/WidgetBinding'
+                commandBindings:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/CommandBinding'
+      responses:
+        '200':
+          description: Binding set replaced (same diagramId+edgeServerId pair already existed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagramBindingSuccessResponse'
+        '201':
+          description: Binding set created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiagramBindingSuccessResponse'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: edgeServer not in user's trustedUsers (FR-8)
+        '404':
+          description: Not found
+    delete:
+      operationId: deleteAllDiagramBindings
+      summary: Delete all DiagramBindings sets for a diagram
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Idempotent delete completed; all binding sets for the diagram were removed (or already absent)
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Diagram not found
+
+  /api/diagrams/{id}/bindings/{edgeServerId}:
+    delete:
+      operationId: deleteDiagramBindings
+      summary: Delete a specific DiagramBindings set
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: edgeServerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Binding set deleted
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+
+  /api/edge-servers:
+    get:
+      operationId: getUserEdgeServers
+      summary: List Edge Servers linked to User
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of connected servers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UserEdgeServerRecord'
+        '401':
+          description: Unauthorized
+    post:
+      operationId: createEdgeServer
+      summary: Register a new Edge Server and disclose its first persistent credential (Admin Only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+      responses:
+        '201':
+          description: Edge registered in Active lifecycle state and first persistent credential disclosed once
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdgeCredentialIssueResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /api/edge-servers/{edgeId}/commands:
+    post:
+      operationId: executeEdgeServerCommand
+      summary: Send a command to a trusted Edge Server (USER only)
+      description: >
+        Accepts a `set_bool` or `set_number` command for a device on the
+        specified Edge Server. Cloud creates a `CommandAudit` record, emits
+        `execute_command` to the active trusted Edge socket, and waits
+        synchronously for a trusted `command_result` or a 5-second Cloud RPC
+        timeout. The terminal audit result is returned through the same HTTP
+        response. The requesting USER must be in `EdgeServer.trustedUsers`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the target Edge Server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - deviceId
+                - commandType
+                - payload
+              properties:
+                deviceId:
+                  type: string
+                  description: Target device identifier (A-Za-z0-9._-)
+                  example: pump_01
+                commandType:
+                  type: string
+                  enum: [set_bool, set_number]
+                  description: Type of write operation
+                payload:
+                  type: object
+                  required:
+                    - value
+                  properties:
+                    value:
+                      oneOf:
+                        - type: boolean
+                        - type: number
+                  description: Command payload — boolean for set_bool, finite number for set_number
+      responses:
+        '200':
+          description: Command confirmed by Edge
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandSuccessResponse'
+        '400':
+          description: Invalid request body (bad deviceId, commandType, or payload)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized — missing or invalid JWT
+        '403':
+          description: Forbidden — USER is not trusted for this Edge Server
+        '404':
+          description: Edge Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Edge Server is not in Active lifecycle state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many command requests — rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: >
+            Bad Gateway — Edge reported command failure or Edge-side timeout.
+            `failureReason` is `edge_command_timeout` or `edge_command_failed`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandErrorResponse'
+        '503':
+          description: >
+            Service Unavailable — no active trusted Edge socket found for this
+            Edge Server at the time of the request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandErrorResponse'
+        '504':
+          description: >
+            Gateway Timeout — Cloud RPC timeout: Edge did not respond within
+            the 5-second window. `failureReason` is `cloud_rpc_timeout`.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandErrorResponse'
+
+  /api/edge-servers/{edgeId}/command-audit:
+    get:
+      operationId: listEdgeServerCommandAudit
+      summary: List command audit rows for a trusted Edge Server (USER only)
+      description: >
+        Returns a paginated newest-first list of persisted `CommandAudit`
+        projection rows for the selected Edge Server. The requesting USER must
+        be in `EdgeServer.trustedUsers`. The endpoint reads audit evidence only
+        and does not execute commands, start an Edge runtime session, or infer
+        telemetry state from command payloads.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the target Edge Server
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: One-based page number
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Page size. Values greater than 100 return 400.
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [accepted, sent_to_edge, confirmed, timeout, failed]
+          description: Optional command audit status filter
+      responses:
+        '200':
+          description: Paginated command audit list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandAuditListResponse'
+        '400':
+          description: Invalid edgeId, pagination value, or unsupported status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - USER is not trusted for this Edge Server or does not have the USER role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Edge Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/edge-servers/{edgeId}/alarm-incidents:
+    get:
+      operationId: listAlarmIncidents
+      summary: List alarm incidents for a trusted Edge Server (USER only)
+      description: >
+        Returns a paginated list of Cloud-owned alarm incident projections for
+        the selected Edge Server. The requesting USER must be in
+        `EdgeServer.trustedUsers`. The default `state=unclosed` returns
+        incidents where `isActive == true OR isAcknowledged == false`; `state=all`
+        also includes fully closed incidents for future historical journal reuse.
+        The endpoint reads persisted Cloud incidents and does not require an
+        active Edge runtime connection.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the target Edge Server
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [unclosed, all]
+            default: unclosed
+          description: Incident lifecycle filter
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: One-based page number
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+          description: Page size. Values greater than 100 return 400.
+        - name: sort
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [latest]
+            default: latest
+          description: Sort by operator-relevant latest row time
+        - name: order
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [desc, asc]
+            default: desc
+          description: Sort direction
+      responses:
+        '200':
+          description: Paginated alarm incident list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlarmIncidentListResponse'
+        '400':
+          description: Invalid edgeId or unsupported query parameter value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized - missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden - USER is not trusted for this Edge Server or does not have the USER role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Edge Server not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/edge-servers/{edgeId}/alarm-incidents/{incidentId}/ack:
+    post:
+      operationId: acknowledgeAlarmIncident
+      summary: Acknowledge an alarm incident for a trusted Edge Server (USER only)
+      description: >
+        Marks the selected Cloud-owned alarm incident as acknowledged. The
+        requesting USER must be in `EdgeServer.trustedUsers` for the selected
+        Edge Server, and the incident must belong to that Edge Server. ACK is
+        idempotent for already acknowledged incidents and does not clear active
+        incidents or mutate alarm rule snapshot fields.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the target Edge Server
+        - name: incidentId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: MongoDB ObjectId of the alarm incident to acknowledge
+      responses:
+        '200':
+          description: Alarm incident acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlarmIncidentAckResponse'
+        '400':
+          description: Invalid edgeId or incidentId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized — missing or invalid JWT
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden — USER is not trusted for this Edge Server or does not have the USER role
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Edge Server or alarm incident not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict — ACK cannot be applied because the incident state conflicts with the request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/edge-servers/{edgeId}/bind:
+    post:
+      operationId: bindEdgeServerToUser
+      summary: Assign User access to Edge Server (Admin Only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+      responses:
+        '200':
+          description: Appended owner reference successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JSendSuccess'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Not found
+
+  /api/edge-servers/{edgeId}/rotate-credential:
+    post:
+      operationId: rotateEdgeServerCredential
+      summary: Rotate the current persistent credential for an edge (Admin Only)
+      description: >
+        Keeps the edge in lifecycle state `Active`, invalidates the previous credential immediately,
+        and disconnects any active trusted runtime session. The new credential is disclosed once in
+        the response.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Persistent credential rotated and disclosed once
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdgeCredentialIssueResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge Server not found
+        '409':
+          description: Edge lifecycle does not allow credential rotation
+
+  /api/edge-servers/{edgeId}/block:
+    post:
+      operationId: blockEdgeServer
+      summary: Block an edge and revoke current trusted runtime access (Admin Only)
+      description: >
+        Moves the edge to lifecycle state `Blocked`, invalidates current trusted access immediately,
+        and disconnects any active trusted runtime session.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Edge blocked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    required:
+                      - edge
+                    properties:
+                      edge:
+                        $ref: '#/components/schemas/AdminEdgeServerRecord'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge Server not found
+        '409':
+          description: Edge is already blocked
+
+  /api/edge-servers/{edgeId}/unblock:
+    post:
+      operationId: unblockEdgeServer
+      summary: Unblock an edge and disclose a fresh persistent credential (Admin Only)
+      description: >
+        Returns the edge to lifecycle state `Active` and issues a fresh persistent credential that is
+        disclosed once in the response.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Edge unblocked and fresh credential disclosed once
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdgeCredentialIssueResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge Server not found
+        '409':
+          description: Edge is not currently blocked
+
+  /api/edge-servers/{edgeId}/catalog:
+    get:
+      operationId: getEdgeServerCatalog
+      summary: Get latest capabilities catalog for a trusted edge server
+      description: >
+        Returns the latest sanitized capabilities snapshot received from the trusted Edge runtime.
+        USER must be trusted for the selected edge server. If no snapshot has been received yet,
+        returns a telemetry-derived catalog from Cloud-known telemetry for the selected edge.
+        Telemetry catalog identity inside one edge is `deviceId + metric`; `sourceId` is not
+        part of the catalog contract.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Latest capabilities catalog snapshot for the selected edge server
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    $ref: '#/components/schemas/EdgeCapabilitiesCatalog'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge server not found
+
+  /api/edge-servers/{edgeId}/ping:
+    get:
+      operationId: pingEdgeServer
+      summary: Check Edge Server lifecycle and availability snapshot (Admin only)
+      description: >
+        Returns cloud-projected availability derived from canonical `lastSeenAt` together with the
+        current lifecycle state. Availability and lifecycle are separate concepts.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: edgeId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Connectivity status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    $ref: '#/components/schemas/EdgeStatusSnapshot'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge Server not found
+
+  /api/users/me/stats:
+    get:
+      operationId: getUserStats
+      summary: Get user profile statistics
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Includes diagramCount and edgeServerCount
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      diagramCount:
+                        type: integer
+                      edgeServerCount:
+                        type: integer
+        '401':
+          description: Unauthorized
+
+  /api/users/me/password:
+    patch:
+      operationId: changePassword
+      summary: Change user password
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentPassword
+                - newPassword
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Password updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JSendSuccess'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+    post:
+      operationId: changePasswordLegacy
+      summary: Change user password (legacy alias)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - currentPassword
+                - newPassword
+              properties:
+                currentPassword:
+                  type: string
+                newPassword:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Password updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JSendSuccess'
+        '400':
+          description: Invalid input
+        '401':
+          description: Unauthorized
+
+  /api/users/me:
+    get:
+      operationId: getSelfProfile
+      summary: Get current self profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current persisted user profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  data:
+                    type: object
+                    properties:
+                      _id:
+                        type: string
+                      email:
+                        type: string
+                        format: email
+                      role:
+                        type: string
+                        enum: [ADMIN, USER]
+                      subscriptionTier:
+                        type: string
+                        enum: [FREE, PRO]
+        '401':
+          description: Unauthorized
+    delete:
+      operationId: deleteUser
+      summary: Soft-delete own user account
+      description: Sets `isDeleted` flag to true. Existing edge server assignments and telemetry references are preserved for audit purposes.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Account soft-deleted successfully
+        '401':
+          description: Unauthorized
+
+components:
+  schemas:
+    Diagram:
+      type: object
+      required:
+        - _id
+        - ownerId
+        - name
+        - layout
+        - __v
+      properties:
+        _id:
+          type: string
+          description: Unique diagram identifier
+        ownerId:
+          type: string
+          description: Sole owner of this diagram record
+        sourceTemplateId:
+          type: string
+          nullable: true
+          description: >
+            Assignment provenance for an independent User copy. Null or absent
+            for Admin templates, ordinary User creation, and Save As. This is
+            not a live synchronization dependency.
+        quotaSlot:
+          type: integer
+          nullable: true
+          enum: [1, 2, 3]
+          readOnly: true
+          description: >
+            Internal atomic FREE USER quota slot protected by named partial
+            unique index `uniq_diagram_owner_quota_slot`; absent for ADMIN and
+            PRO-owned diagrams.
+        name:
+          type: string
+        layout:
+          type: object
+          description: Visual geometry only; assignment copies no binding profiles
+        __v:
+          type: integer
+          description: OCC version key
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DiagramSuccessResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          enum: [success]
+        data:
+          $ref: '#/components/schemas/Diagram'
+    CommandSuccessResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          required:
+            - requestId
+            - commandStatus
+            - completedAt
+          properties:
+            requestId:
+              type: string
+              format: uuid
+              description: Unique RPC request identifier
+            commandStatus:
+              type: string
+              enum: [confirmed]
+              description: Terminal command status
+            completedAt:
+              type: string
+              format: date-time
+              description: ISO timestamp of terminal audit update
+    CommandErrorResponse:
+      type: object
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+          description: Human-readable error description
+        requestId:
+          type: string
+          format: uuid
+          description: RPC request identifier (present when a CommandAudit was created)
+        commandStatus:
+          type: string
+          enum: [timeout, failed]
+          description: Terminal command status
+        failureReason:
+          type: string
+          enum:
+            - cloud_rpc_timeout
+            - edge_command_timeout
+            - edge_unavailable
+            - edge_command_failed
+          description: Machine-readable failure category
+        completedAt:
+          type: string
+          format: date-time
+          description: ISO timestamp of terminal audit update
+    CommandAuditPayload:
+      type: object
+      required:
+        - value
+      properties:
+        value:
+          oneOf:
+            - type: boolean
+            - type: number
+      description: Persisted command payload value captured as audit evidence
+    CommandAuditProjection:
+      type: object
+      required:
+        - requestId
+        - edgeId
+        - deviceId
+        - commandType
+        - payload
+        - requestedBy
+        - requestedByEmail
+        - status
+        - requestedAt
+        - completedAt
+        - failureReason
+      properties:
+        requestId:
+          type: string
+          format: uuid
+          description: RPC request identifier for the audited command
+        edgeId:
+          type: string
+          description: MongoDB ObjectId of the owning Edge Server
+        deviceId:
+          type: string
+          description: Edge-local device identifier targeted by the command
+        commandType:
+          type: string
+          enum: [set_bool, set_number]
+          description: Type of write operation requested
+        payload:
+          $ref: '#/components/schemas/CommandAuditPayload'
+        requestedBy:
+          type: string
+          description: MongoDB ObjectId of the USER that requested the command
+        requestedByEmail:
+          type: string
+          nullable: true
+          description: Email address of the USER that requested the command, or null if the account no longer exists
+        status:
+          type: string
+          enum: [accepted, sent_to_edge, confirmed, timeout, failed]
+          description: Current persisted command audit status
+        requestedAt:
+          type: string
+          format: date-time
+          description: ISO timestamp when Cloud accepted the command request
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO timestamp of terminal audit update, or null while non-terminal
+        failureReason:
+          type: string
+          enum:
+            - cloud_rpc_timeout
+            - edge_command_timeout
+            - edge_unavailable
+            - edge_command_failed
+          nullable: true
+          description: Machine-readable failure category, or null when not failed
+    CommandAuditListResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          enum: [success]
+          example: success
+        data:
+          type: object
+          required:
+            - audits
+            - page
+            - limit
+            - total
+            - hasNextPage
+          properties:
+            audits:
+              type: array
+              items:
+                $ref: '#/components/schemas/CommandAuditProjection'
+            page:
+              type: integer
+              minimum: 1
+              example: 1
+            limit:
+              type: integer
+              minimum: 1
+              maximum: 100
+              example: 50
+            total:
+              type: integer
+              minimum: 0
+              example: 0
+            hasNextPage:
+              type: boolean
+              example: false
+    ErrorResponse:
+      type: object
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+          description: Human-readable error description
+    AlarmRuleSnapshot:
+      type: object
+      required:
+        - ruleId
+        - ruleRevision
+        - conditionType
+        - triggerThreshold
+        - clearThreshold
+        - expectedValue
+        - severity
+        - label
+      properties:
+        ruleId:
+          type: string
+          description: Stable Edge alarm rule identifier
+        ruleRevision:
+          type: string
+          description: Edge-provided alarm rule revision captured at diagnosis time
+        conditionType:
+          type: string
+          enum: [high, low, state, connectivity]
+        triggerThreshold:
+          type: number
+          nullable: true
+        clearThreshold:
+          type: number
+          nullable: true
+        expectedValue:
+          oneOf:
+            - type: number
+              nullable: true
+            - type: boolean
+        severity:
+          type: string
+          enum: [warning, danger]
+          description: Rule importance, not incident lifecycle state
+        label:
+          type: string
+    AlarmIncidentProjection:
+      type: object
+      required:
+        - incidentId
+        - edgeId
+        - deviceId
+        - metric
+        - ruleId
+        - lifecycleState
+        - isActive
+        - isAcknowledged
+        - activatedAt
+        - clearedAt
+        - acknowledgedAt
+        - acknowledgedBy
+        - latestValue
+        - latestTs
+        - latestDetectedAt
+        - rule
+        - createdAt
+        - updatedAt
+      properties:
+        incidentId:
+          type: string
+          description: MongoDB ObjectId of the alarm incident
+        edgeId:
+          type: string
+          description: MongoDB ObjectId of the owning Edge Server
+        sourceId:
+          type: string
+          nullable: true
+          description: Legacy Edge-local source diagnostic. Not part of Cloud/Client incident or telemetry identity.
+        deviceId:
+          type: string
+          description: Normalized device identifier; with `metric`, forms the canonical stream identity inside one edge
+        metric:
+          type: string
+          description: Normalized metric identifier; with `deviceId`, forms the canonical stream identity inside one edge
+        ruleId:
+          type: string
+          description: Stable Edge alarm rule identifier
+        lifecycleState:
+          type: string
+          enum:
+            - active_unacknowledged
+            - active_acknowledged
+            - cleared_unacknowledged
+            - closed
+        isActive:
+          type: boolean
+        isAcknowledged:
+          type: boolean
+        activatedAt:
+          type: string
+          format: date-time
+        clearedAt:
+          type: string
+          format: date-time
+          nullable: true
+        acknowledgedAt:
+          type: string
+          format: date-time
+          nullable: true
+        acknowledgedBy:
+          type: string
+          nullable: true
+          description: MongoDB ObjectId of the USER that acknowledged the incident
+        latestValue:
+          oneOf:
+            - type: number
+            - type: boolean
+        latestTs:
+          type: number
+          description: Edge-provided reading timestamp
+        latestDetectedAt:
+          type: number
+          description: Edge-provided detection timestamp
+        rule:
+          $ref: '#/components/schemas/AlarmRuleSnapshot'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    AlarmIncidentAckResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          required:
+            - incident
+          properties:
+            incident:
+              $ref: '#/components/schemas/AlarmIncidentProjection'
+    AlarmIncidentListResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          required:
+            - incidents
+            - page
+            - limit
+            - total
+            - hasNextPage
+          properties:
+            incidents:
+              type: array
+              items:
+                $ref: '#/components/schemas/AlarmIncidentProjection'
+            page:
+              type: integer
+              minimum: 1
+              example: 1
+            limit:
+              type: integer
+              minimum: 1
+              maximum: 100
+              example: 50
+            total:
+              type: integer
+              minimum: 0
+              example: 0
+            hasNextPage:
+              type: boolean
+              example: false
+    TelemetryHistoryPoint:
+      type: object
+      required:
+        - timeStart
+        - timeEnd
+        - pointTime
+        - min
+        - max
+        - avg
+        - last
+        - count
+      properties:
+        timeStart:
+          type: string
+          format: date-time
+          description: First source rollup timestamp in the aggregate bucket
+        timeEnd:
+          type: string
+          format: date-time
+          description: Last source rollup timestamp in the aggregate bucket
+        pointTime:
+          type: string
+          format: date-time
+          description: Midpoint between timeStart and timeEnd
+        min:
+          type: number
+        max:
+          type: number
+        avg:
+          type: number
+          description: Weighted average computed as sum(rollup.sum) / sum(rollup.count)
+        last:
+          type: number
+          description: Latest numeric rollup last value by timestamp inside the bucket
+        count:
+          type: number
+          description: Sum of source numeric rollup counts
+    TelemetryHistoryResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          required:
+            - edgeId
+            - deviceId
+            - metric
+            - dateStart
+            - dateEnd
+            - maxPoints
+            - series
+          properties:
+            edgeId:
+              type: string
+              description: MongoDB ObjectId of the target Edge Server
+            deviceId:
+              type: string
+            metric:
+              type: string
+            dateStart:
+              type: string
+              format: date-time
+            dateEnd:
+              type: string
+              format: date-time
+            maxPoints:
+              type: integer
+              minimum: 1
+              maximum: 1000
+              default: 300
+            series:
+              type: array
+              items:
+                $ref: '#/components/schemas/TelemetryHistoryPoint'
+    JSendSuccess:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          description: Any returned entity data
+    AuthSuccess:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+            user:
+              type: object
+    EdgeCatalogTelemetryMetric:
+      type: object
+      required:
+        - deviceId
+        - metric
+        - label
+      properties:
+        deviceId:
+          type: string
+          description: Stable device identifier; with `metric`, forms the catalog identity inside one edge
+        metric:
+          type: string
+          description: Stable metric identifier; with `deviceId`, forms the catalog identity inside one edge
+        valueType:
+          type: string
+          enum: [boolean, number, string]
+        label:
+          type: string
+    EdgeCatalogCommandCapability:
+      type: object
+      required:
+        - deviceId
+        - commandType
+        - valueType
+        - reportedMetric
+        - label
+      properties:
+        deviceId:
+          type: string
+          description: Stable device identifier for command targeting inside one edge
+        commandType:
+          type: string
+          enum: [set_bool, set_number]
+        valueType:
+          type: string
+          enum: [boolean, number]
+        min:
+          type: number
+        max:
+          type: number
+        reportedMetric:
+          type: string
+          description: Telemetry metric reported for this command; pairs with `deviceId` for runtime lookup
+        label:
+          type: string
+    EdgeCapabilitiesCatalog:
+      type: object
+      required:
+        - edgeServerId
+        - telemetry
+        - commands
+      properties:
+        edgeServerId:
+          type: string
+        telemetry:
+          type: array
+          items:
+            $ref: '#/components/schemas/EdgeCatalogTelemetryMetric'
+        commands:
+          type: array
+          items:
+            $ref: '#/components/schemas/EdgeCatalogCommandCapability'
+    EdgeAvailabilitySnapshot:
+      type: object
+      required:
+        - online
+        - lastSeenAt
+      properties:
+        online:
+          type: boolean
+        lastSeenAt:
+          type: string
+          format: date-time
+          nullable: true
+    EdgeStatusSnapshot:
+      type: object
+      required:
+        - lifecycleState
+        - availability
+      properties:
+        lifecycleState:
+          type: string
+          enum: [Active, Blocked]
+        availability:
+          $ref: '#/components/schemas/EdgeAvailabilitySnapshot'
+    EdgePersistentCredentialDisclosure:
+      type: object
+      required:
+        - edgeId
+        - credentialSecret
+        - version
+        - issuedAt
+        - instructions
+      properties:
+        edgeId:
+          type: string
+        credentialSecret:
+          type: string
+        version:
+          type: integer
+        issuedAt:
+          type: string
+          format: date-time
+        instructions:
+          type: string
+          example: Use this secret as the edge runtime persistent credential for trusted connects and reconnects.
+    EdgeCredentialIssueResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          required:
+            - edge
+            - persistentCredential
+          properties:
+            edge:
+              $ref: '#/components/schemas/AdminEdgeServerRecord'
+            persistentCredential:
+              $ref: '#/components/schemas/EdgePersistentCredentialDisclosure'
+    EdgeServerUserRef:
+      type: object
+      properties:
+        _id:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [ADMIN, USER]
+        subscriptionTier:
+          type: string
+          enum: [FREE, PRO]
+    AdminEdgeServerRecord:
+      type: object
+      required:
+        - _id
+        - name
+        - trustedUsers
+        - createdBy
+        - lifecycleState
+        - availability
+        - persistentCredentialVersion
+        - lastLifecycleEventAt
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        trustedUsers:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - $ref: '#/components/schemas/EdgeServerUserRef'
+        createdBy:
+          type: object
+          nullable: true
+          properties:
+            _id:
+              type: string
+            email:
+              type: string
+              format: email
+        lifecycleState:
+          type: string
+          enum:
+            - Active
+            - Blocked
+        availability:
+          $ref: '#/components/schemas/EdgeAvailabilitySnapshot'
+        persistentCredentialVersion:
+          type: integer
+          nullable: true
+        lastLifecycleEventAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    UserEdgeServerRecord:
+      type: object
+      required:
+        - _id
+        - name
+        - lifecycleState
+        - availability
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        lifecycleState:
+          type: string
+          enum:
+            - Active
+            - Blocked
+        availability:
+          $ref: '#/components/schemas/EdgeAvailabilitySnapshot'
+        createdAt:
+          type: string
+          format: date-time
+    WidgetBinding:
+      type: object
+      required:
+        - widgetId
+        - deviceId
+        - metric
+      properties:
+        widgetId:
+          type: string
+        deviceId:
+          type: string
+        metric:
+          type: string
+    CommandBinding:
+      type: object
+      required:
+        - widgetId
+        - deviceId
+        - commandType
+      properties:
+        widgetId:
+          type: string
+        deviceId:
+          type: string
+        commandType:
+          type: string
+          enum: [set_bool, set_number]
+    DiagramBindingProfile:
+      type: object
+      required:
+        - _id
+        - diagramId
+        - edgeServerId
+        - widgetBindings
+        - commandBindings
+      properties:
+        _id:
+          type: string
+        diagramId:
+          type: string
+        edgeServerId:
+          type: string
+        widgetBindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/WidgetBinding'
+        commandBindings:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommandBinding'
+    DiagramBindingSuccessResponse:
+      type: object
+      required:
+        - status
+        - data
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          $ref: '#/components/schemas/DiagramBindingProfile'
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
