@@ -1,0 +1,634 @@
+﻿openapi: 3.0.3
+info:
+  title: Edge Server Onboarding Contract
+  version: 1.0.0
+  description: >
+    Contract subset for canonical Edge Server onboarding, recovery, blocking,
+    and Active-only telemetry eligibility across cloud and client work.
+  license:
+    name: UNLICENSED
+
+servers:
+  - url: /
+    description: Repository contract baseline
+
+paths:
+  /api/admin/edge-servers:
+    get:
+      operationId: getAdminEdgeFleet
+      summary: Get Admin fleet view with onboarding lifecycle metadata
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Admin fleet list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEdgeFleetResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /api/edge-servers:
+    get:
+      operationId: getTelemetryReadyEdges
+      summary: Get user-facing trusted edges that are telemetry-ready
+      description: >
+        USER-only endpoint. Returns trusted edges that are telemetry-ready in
+        lifecycle state `Active`.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Trusted telemetry-ready edges
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TelemetryReadyEdgeListResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+    post:
+      operationId: registerEdgeServer
+      summary: Register a new edge and issue a one-time onboarding package
+      description: ADMIN-only endpoint.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterEdgeRequest'
+      responses:
+        '201':
+          description: Edge created and onboarding package disclosed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdgeRegistrationResponse'
+        '400':
+          description: Invalid request payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+
+  /api/edge-servers/{edgeId}/onboarding/reset:
+    post:
+      operationId: resetEdgeOnboardingCredentials
+      summary: Reset the one-time onboarding package for an edge
+      description: >
+        ADMIN-only endpoint. Allowed for lifecycle states except `Blocked`.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EdgeId'
+      responses:
+        '200':
+          description: Fresh onboarding package issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingPackageDisclosureResponse'
+        '400':
+          description: Invalid edgeId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge not found
+        '409':
+          description: Edge is blocked and cannot reset onboarding credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/edge-servers/{edgeId}/trust/revoke:
+    post:
+      operationId: revokeEdgeTrustForRecovery
+      summary: Revoke current trusted access and move edge to Re-onboarding Required
+      description: ADMIN-only endpoint.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EdgeId'
+      responses:
+        '200':
+          description: Trust revoked for recovery
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEdgeRecordResponse'
+        '400':
+          description: Invalid edgeId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge not found
+        '409':
+          description: Edge is not currently in a trust-revocable state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/edge-servers/{edgeId}/block:
+    post:
+      operationId: blockEdgeServer
+      summary: Block an edge from both onboarding and reconnects
+      description: ADMIN-only endpoint.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EdgeId'
+      responses:
+        '200':
+          description: Edge blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEdgeRecordResponse'
+        '400':
+          description: Invalid edgeId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge not found
+        '409':
+          description: Edge is already blocked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/edge-servers/{edgeId}/re-enable-onboarding:
+    post:
+      operationId: reenableEdgeOnboarding
+      summary: Remove block state and return edge to Re-onboarding Required
+      description: >
+        ADMIN-only endpoint. This action changes lifecycle state only. Admins
+        must still issue a new onboarding package explicitly if no valid package
+        is available.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EdgeId'
+      responses:
+        '200':
+          description: Edge moved to Re-onboarding Required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEdgeRecordResponse'
+        '400':
+          description: Invalid edgeId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge not found
+        '409':
+          description: Only blocked edge servers can be re-enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/edge-servers/{edgeId}/bind:
+    post:
+      operationId: bindTrustedUserToEdge
+      summary: Bind a user to an edge for access control
+      description: >
+        ADMIN-only endpoint. Binding grants access assignment, but edge
+        telemetry readiness is still controlled by lifecycle state.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EdgeId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BindUserRequest'
+      responses:
+        '200':
+          description: Binding updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEdgeRecordResponse'
+        '400':
+          description: Invalid request payload or edgeId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge or user not found
+        '409':
+          description: User is already assigned to this edge
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/edge-servers/{edgeId}/bind/{userId}:
+    delete:
+      operationId: unbindTrustedUserFromEdge
+      summary: Remove a trusted user binding from an edge
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EdgeId'
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Binding removed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminEdgeRecordResponse'
+        '400':
+          description: Invalid edgeId or userId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden
+        '404':
+          description: Edge or user not found
+
+  /api/edge-servers/{edgeId}/catalog:
+    get:
+      operationId: getEdgeServerCatalog
+      summary: Get telemetry-derived catalog for one trusted Active edge
+      description: >
+        USER-only endpoint. Returns deduplicated device/metric tuples for one
+        edge. Requires edge to be trusted by the current user and in
+        lifecycle state `Active`. Catalog identity inside one edge is
+        `deviceId + metric`; `sourceId` is not exposed or required.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/EdgeId'
+      responses:
+        '200':
+          description: Catalog rows
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdgeCatalogResponse'
+        '400':
+          description: Invalid edgeId
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+        '403':
+          description: Edge is not in trusted list or caller role is forbidden
+        '404':
+          description: Edge not found
+        '409':
+          description: Edge is not telemetry-ready (Active lifecycle required)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  parameters:
+    EdgeId:
+      name: edgeId
+      in: path
+      required: true
+      schema:
+        type: string
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  schemas:
+    LifecycleState:
+      type: string
+      enum:
+        - Pending First Connection
+        - Active
+        - Re-onboarding Required
+        - Blocked
+
+    OnboardingPackageStatus:
+      type: string
+      enum:
+        - ready
+        - used
+        - expired
+        - reset
+        - blocked
+
+    AvailabilitySummary:
+      type: object
+      required:
+        - online
+        - lastSeenAt
+      properties:
+        online:
+          type: boolean
+        lastSeenAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    OnboardingPackageSummary:
+      type: object
+      nullable: true
+      properties:
+        credentialId:
+          type: string
+        status:
+          $ref: '#/components/schemas/OnboardingPackageStatus'
+        issuedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        usedAt:
+          type: string
+          format: date-time
+          nullable: true
+        displayHint:
+          type: string
+          nullable: true
+
+    TrustedUserRef:
+      type: object
+      properties:
+        _id:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum:
+            - ADMIN
+            - USER
+        subscriptionTier:
+          type: string
+          enum:
+            - FREE
+            - PRO
+
+    AdminEdgeRecord:
+      type: object
+      required:
+        - _id
+        - name
+        - lifecycleState
+        - isTelemetryReady
+        - availability
+        - trustedUsers
+        - currentOnboardingPackage
+        - persistentCredentialVersion
+        - lastLifecycleEventAt
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        lifecycleState:
+          $ref: '#/components/schemas/LifecycleState'
+        isTelemetryReady:
+          type: boolean
+        availability:
+          $ref: '#/components/schemas/AvailabilitySummary'
+        trustedUsers:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrustedUserRef'
+        createdBy:
+          type: object
+          nullable: true
+          properties:
+            _id:
+              type: string
+            email:
+              type: string
+              format: email
+        currentOnboardingPackage:
+          $ref: '#/components/schemas/OnboardingPackageSummary'
+        persistentCredentialVersion:
+          type: integer
+          nullable: true
+        lastLifecycleEventAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    TelemetryReadyEdge:
+      type: object
+      required:
+        - _id
+        - name
+        - lifecycleState
+        - availability
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        lifecycleState:
+          type: string
+          enum:
+            - Active
+        availability:
+          $ref: '#/components/schemas/AvailabilitySummary'
+
+    FirstConnectionPackageDisclosure:
+      type: object
+      required:
+        - edgeId
+        - onboardingSecret
+        - issuedAt
+        - expiresAt
+        - instructions
+      properties:
+        edgeId:
+          type: string
+        onboardingSecret:
+          type: string
+          description: Plaintext one-time secret shown only in issue/reset response
+        issuedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        instructions:
+          type: string
+          example: Use this secret with credentialMode=onboarding for first connection.
+
+    RegisterEdgeRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+
+    BindUserRequest:
+      type: object
+      required:
+        - userId
+      properties:
+        userId:
+          type: string
+
+    AdminEdgeFleetResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AdminEdgeRecord'
+
+    AdminEdgeRecordResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          $ref: '#/components/schemas/AdminEdgeRecord'
+
+    EdgeRegistrationResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            edge:
+              $ref: '#/components/schemas/AdminEdgeRecord'
+            onboardingPackage:
+              $ref: '#/components/schemas/FirstConnectionPackageDisclosure'
+
+    OnboardingPackageDisclosureResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: object
+          properties:
+            edge:
+              $ref: '#/components/schemas/AdminEdgeRecord'
+            onboardingPackage:
+              $ref: '#/components/schemas/FirstConnectionPackageDisclosure'
+
+    TelemetryReadyEdgeListResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/TelemetryReadyEdge'
+
+    EdgeCatalogEntry:
+      type: object
+      required:
+        - edgeServerId
+        - deviceId
+        - metric
+        - label
+      properties:
+        edgeServerId:
+          type: string
+        deviceId:
+          type: string
+          description: Stable device identifier; with `metric`, forms the catalog identity inside one edge
+        metric:
+          type: string
+          description: Stable metric identifier; with `deviceId`, forms the catalog identity inside one edge
+        label:
+          type: string
+
+    EdgeCatalogResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EdgeCatalogEntry'
+
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
